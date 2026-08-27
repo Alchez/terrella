@@ -8,11 +8,16 @@ dependency-light (numpy only, which Blender bundles) so it imports from either
 interpreter — Blender's bundled Python cannot see the venv's packages, so any
 constant shared with `scene_build` must live in a module like this one.
 
-Colors are LINEAR RGB (the ramp stops), matching the hero's ColorRamp nodes under the
-Standard view transform, where linear→sRGB is the only encode on the way to an 8-bit
-image. `color_relief_rows` densely samples each ramp and sRGB-encodes it into the rows
+Colors are LINEAR RGB (the ramp stops), matching the hero's ColorRamp nodes.
+`color_relief_rows` densely samples each ramp and sRGB-encodes it into the rows
 `gdaldem color-relief` consumes. Land and sea are separate ramps chosen later by the
 ocean mask (not the elevation sign), which keeps the coastline crisp.
+
+THE TWO PRODUCERS NO LONGER SHARE AN ENCODE, and no gate here can see it. The composite reaches
+8-bit through `_srgb8` below, a plain sRGB transfer; the rig reaches it through
+`scene_build.RIG.view_transform`, a tone map that rolls highlights off and darkens mid-tones. The
+two agreed for as long as that transform was `Standard`, and this module's frozen hexes were locked
+against a hero rendered under it. Read any "the hero renders these verbatim" claim as historical.
 
 EVERY RAMP CONSTANT HERE IS ONE BODY'S, and the module holds more than one body's. Earth's land
 runs 0/6000 m and its sea 85B9B7/3A6E7D over 0/-6000 m, both frozen and guarded against drift by
@@ -102,12 +107,18 @@ LAKE_MAX_M = 1642.0  # Baikal — the deepest lake GLOBathy carries; the lake ra
 SUN_ALT_DEG = 45.0   # the shared sun altitude: tile KNOBS["alt"] and the hero SUN_ROTATION
 # X-tilt (90 - alt) both derive from this (the sea-sync — the cure for the 46/45
 # split). Azimuth stays per-side: both are NW by their own conventions (tile 315, hero -45).
-EXAGGERATION = 15.0  # the HERO's vertical exaggeration: render_prep.scene_numbers derives
-# displacement_scale from it, and the region preview shades at it. The tile and cap path reads
-# Body.exaggeration instead — relief is a different fraction of the radius on every planet, so it
-# cannot be one number — and tests/test_bodies.py holds Earth's field equal to this. Pinned rather
-# than shared: shared would be wrong for the second body, and unpinned would let the tiles drift
-# away from the heroes they must match.
+SUN_ANGULAR_DIAMETER_DEG = 12.0  # how wide the sun's disc is, which is why shadow edges are soft
+# rather than hard. THE ALTITUDE'S SIBLING AND IT DRIFTED THE SAME WAY: `cast_shadow` carried its
+# own 12.0 and the rig's `sun_angle` a second, each with a comment naming the other. Three readers
+# now, and the third is why the drift stopped being cosmetic — `block_plan` sizes every block's
+# context from the half-diameter, so two copies disagreeing silently mis-size the whole planet.
+EXAGGERATION = 15.0  # EARTH's vertical exaggeration, and the region preview is the last path that
+# reads it directly. Everything that draws more than one body reads Body.exaggeration — relief is a
+# different fraction of the radius on every planet, so it cannot be one number — and
+# tests/test_bodies.py holds Earth's field equal to this. The render seam was the most recent to
+# move: scene_numbers is the block prep's as well as the hero's, so importing this gave a Mars block
+# two thirds of its displacement. Pinned rather than shared: shared would be wrong for the second
+# body, and unpinned would let the tiles drift away from the heroes they must match.
 
 
 def smoothstep(t: float) -> float:

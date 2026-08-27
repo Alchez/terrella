@@ -47,7 +47,7 @@ import numpy as np
 
 from pipeline import bodies, layers
 from pipeline.acquire import download_sim3292
-from pipeline.render import mars_ice, palette, snow, viking_luma
+from pipeline.look import mars_ice, palette, snow, viking_luma
 
 
 class WarpToCap(Protocol):
@@ -135,6 +135,24 @@ class CapIce:
     #: `palette` held at import, so a test that swings a body's white would be answered with the
     #: value from before the swing.
     paint: Callable[[], tuple[Any, Any]]
+    #: The `layer_producers.WHITE_EXCLUSIONS` members this pole takes back out of its folded white.
+    #:
+    #: DECLARED HERE BECAUSE THE POLE IS HALF THIS REGISTRY'S KEY, which is what keeps "only
+    #: Antarctica has Antarctic rock" a fact of the key rather than a `grid.name == "south"` written
+    #: into the renderer — one of Earth's facts recorded outside the registry that already states
+    #: it, and the shape `cap_render.cap_sources` was extracted to remove. It also keeps the burn
+    #: where it belongs: an undeclared pole never opens the file, so no disc pays a reprojection of
+    #: the whole GeoPackage for a mask that would come back empty and raise on `must_draw`.
+    #:
+    #: NOT `sources`, AND THAT IS A CORRECTNESS BOUNDARY RATHER THAN A PLACEMENT. Those are this
+    #: producer's MANDATORY inputs and `cap_render._cap_perennial_ice` refuses the whole layer
+    #: unless every one exists, so a rock entry there would let an undownloaded GeoPackage switch
+    #: off the forced Antarctic white and render the continent on the tan LAND ramp. An exclusion is
+    #: optional by construction: absent, the fold simply removes nothing.
+    #:
+    #: REQUIRED WITH NO DEFAULT, on `bodies.Body`'s rule. Forgetting it fails toward "this pole
+    #: excludes nothing", which renders as a plausible ice sheet rather than as an error.
+    exclusions: Callable[[], tuple[layers.Layer, ...]]
 
 
 def _earth_north(inputs: CapIceInputs) -> np.ndarray:
@@ -144,6 +162,13 @@ def _earth_north(inputs: CapIceInputs) -> np.ndarray:
     `snow_alpha`'s latitude ramp is CONSTANT across every pixel of it. Reproduced here with the
     fixed high-latitude thresholds rather than by calling `snow_alpha`, whose per-row latitude is
     Mercator-specific and would be wrong on an AEQD grid.
+
+    THE FEATHER IS SHARED THOUGH, AND HAS TO BE. Only the RAMP is Mercator-specific; the staircase
+    it softens is the source's own 0.01 degree cell, which this grid resolves exactly as the tiles
+    do — and the cap meets those tiles across the 80..84 crossfade, at the latitudes where the cell
+    is 20 to 35 render pixels tall and the staircase is at its worst. Feathering one side of that
+    seam and not the other would swap one visible discontinuity for another. The disc has a single
+    ground resolution, so `feather` takes the scalar branch here and the per-row branch there.
     """
     sp_raw = inputs.warp(f'NETCDF:"{snow.SP_NC}":{snow.SP_VAR}', "sp", "bilinear", "Float32",
                          srcnodata=snow.SP_FILL)
@@ -151,17 +176,26 @@ def _earth_north(inputs: CapIceInputs) -> np.ndarray:
     low = snow.RAMP_LOW_MAX
     high = low + snow.RAMP_BAND
     fraction = np.clip((persistence - low) / (high - low), 0.0, 1.0)
-    return fraction * fraction * (3.0 - 2.0 * fraction)  # float64, as before the N/S refactor
+    alpha = fraction * fraction * (3.0 - 2.0 * fraction)  # float64, as before the N/S refactor
+    return snow.soften_source_cells(alpha, inputs.ground_metres_per_px)
 
 
 def _earth_south(inputs: CapIceInputs) -> np.ndarray:
-    """Antarctic land forced white — the one producer with no file behind it.
+    """Antarctic land forced white, less its exposed rock — the one producer with no MANDATORY file.
 
-    NSIDC-0791 is NH-only and RGI region 19 is excluded, so there is no southern dataset to read and
-    no missing file that could ever switch this off. It is latitude and land and nothing else, which
-    is why it rides the body's layer declaration and why its `sources` tuple is empty rather than
-    unset. `snow.antarctic_snow_mask` is the one home for the rule; the tile composite calls the
-    same function, so the two agree across the −84 seam by construction.
+    NSIDC-0791 saturates over the whole continent and RGI region 19 reaches only its periphery, so
+    the white comes from latitude and land rather than from a measurement. Nothing on disk can switch that off,
+    which is why it rides the body's layer declaration and why its `sources` tuple stays empty.
+    `pipeline/acquire/download_add_rock.py` holds the measurement behind the saturation claim.
+
+    THE OUTCROP IS NOT THIS PRODUCER'S BUSINESS, and that is the point rather than an omission. It
+    is declared in `exclusions` and removed by `layer_producers.fold_white` after this answer folds,
+    so a rock mask cannot be re-claimed by anything else that paints this disc white. `CapIce
+    .exclusions` holds the argument, and this function answers only where Antarctic ice IS.
+
+    `snow.antarctic_snow_mask` is the one home for the rule and the tile composite calls the same
+    function through the same fold, so the two sides of the −84 crossfade agree by construction —
+    which is a property of sharing the code rather than a claim this docstring makes.
     """
     return snow.antarctic_snow_mask(inputs.land, inputs.latitude)
 
@@ -218,9 +252,9 @@ def _mars_cap_ice(inputs: CapIceInputs, pole: str) -> np.ndarray:
 #:
 #: MARS ARRIVED ONCE ITS FIELD HAD AN OWNER, which was the ordering this note used to record as the
 #: reason for its absence: a producer cannot declare a path nothing acquired. `download_viking_mosaic`
-#: and `render/viking_luma` closed that, and the OMEGA entries that once stood here are gone rather
+#: and `look/viking_luma` closed that, and the OMEGA entries that once stood here are gone rather
 #: than repointed because the licence blocks the source, not because the seam moved.
-def _earth_cap_white() -> tuple[Any, Any]:
+def _earth_cap_paint() -> tuple[Any, Any]:
     """Earth's one white at both poles, and the same pair its composite-tier producers declare.
 
     Read through `palette` rather than restated, so the cap and the tiles it feathers into cannot
@@ -231,14 +265,17 @@ def _earth_cap_white() -> tuple[Any, Any]:
 
 CAP_ICE_BY_BODY: dict[tuple[str, str], CapIce] = {
     ("earth", "north"): CapIce(sources=lambda: (Path(snow.SP_NC),), alpha=_earth_north,
-                               paint=_earth_cap_white),
-    ("earth", "south"): CapIce(sources=lambda: (), alpha=_earth_south, paint=_earth_cap_white),
+                               paint=_earth_cap_paint, exclusions=lambda: ()),
+    ("earth", "south"): CapIce(sources=lambda: (), alpha=_earth_south, paint=_earth_cap_paint,
+                               exclusions=lambda: (layers.ANTARCTIC_ROCK,)),
     ("mars", "north"): CapIce(sources=_mars_sources,
                               alpha=lambda inputs: _mars_cap_ice(inputs, "north"),
-                              paint=lambda: palette.MARS_ICE_WHITE["north"]),
+                              paint=lambda: palette.MARS_ICE_WHITE["north"],
+                              exclusions=lambda: ()),
     ("mars", "south"): CapIce(sources=_mars_sources,
                               alpha=lambda inputs: _mars_cap_ice(inputs, "south"),
-                              paint=lambda: palette.MARS_ICE_WHITE["south"]),
+                              paint=lambda: palette.MARS_ICE_WHITE["south"],
+                              exclusions=lambda: ()),
 }
 
 

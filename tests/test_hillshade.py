@@ -23,7 +23,7 @@ import pytest
 import rasterio
 import rasterio.transform  # rasterio's __init__ pulls this in at runtime; name it for the checker
 
-from pipeline.render.hillshade import (
+from pipeline.look.hillshade import (
     FILL_ALTITUDE,
     FILL_AZIMUTH,
     combine_fill,

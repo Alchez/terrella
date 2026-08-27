@@ -110,7 +110,7 @@ export const ABOUT: Record<BodySlug, BodyAbout> = {
     // NO COUNT OF DATASETS HERE, and that is the same rule the "Site-wide" mark is written under:
     // this said "fused from eight datasets into one seamless heightfield", which counted the CREDITS
     // and attached them to the HEIGHTFIELD. Two datasets enter it. The rest are warped on at
-    // composite time and never reach the fusion master, which `render/lake_depth.py` states outright.
+    // composite time and never reach the fusion master, which `look/lake_depth.py` states outright.
     lede:
       "Every country on Earth, with the land and the sea floor fused into one seamless heightfield, " +
       "so shelves and trenches read as terrain rather than as a blue background. Snow, sea ice, " +
@@ -147,7 +147,7 @@ export const ABOUT: Record<BodySlug, BodyAbout> = {
       // where it swaps them). WorldCover still dresses the heroes, so it keeps its credit below.
       {
         title: "Snow",
-        text: "Permanent snow from a MODIS persistence climatology and the Randolph glacier inventory, faded at its margins so the edges take the hillshade. Antarctica is painted white outright, no dataset here reaching that far south.",
+        text: "Permanent snow from a MODIS persistence climatology and the Randolph glacier inventory, faded at its margins so the edges take the hillshade. Antarctica is painted white outright: the climatology saturates over the continent but leaves clustered gaps, and the glacier inventory only reaches its coastal fringe.",
       },
       {
         title: "Sea ice",
@@ -202,7 +202,7 @@ export const ABOUT: Record<BodySlug, BodyAbout> = {
         role: "Glaciers",
         license: "CC-BY 4.0",
         attribution:
-          "Randolph Glacier Inventory 7.0 (RGI Consortium, 2023), NSIDC-0770 v7. Antarctic region 19 excluded.",
+          "Randolph Glacier Inventory 7.0 (RGI Consortium, 2023), NSIDC-0770 v7.",
       },
       {
         name: "OSI SAF Sea Ice (OSI-450-a)",

@@ -46,7 +46,14 @@ Usage:
     uv run scripts/sabotage.py --suite python   # only one suite
     uv run scripts/sabotage.py --list           # print the table, run nothing
     uv run scripts/sabotage.py --harvest        # print which tests catch each case, judge nothing
+    uv run scripts/sabotage.py --audit          # run each guard ALONE, never escalate — see below
     uv run scripts/sabotage.py --restore        # undo leftover backups from a killed run
+
+`--audit` answers one question over the whole table for the price of one narrow run a case: does
+each guard fail on its own subject when nothing else is running? A guard that goes red under
+`-k <guard>` cannot be borrowing another test's failure, because no other test ran. Every other
+outcome is a defect in the case — the guard is vacuous, or the table names the wrong catcher — and
+only the repair differs, which is what the full suite would tell you.
 
 `tests/test_sabotage_cases.py` checks the table against the tree without running anything, so a
 needle that a refactor moved is a 0.1 s pytest failure rather than a shrugged-off SKIP 5 min in.
@@ -58,7 +65,7 @@ import re
 import shutil
 import subprocess
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import NamedTuple
 
@@ -102,6 +109,7 @@ MUTABLE_ROOTS = (
     # each original is deleted — and a bridge nobody can mutate is a bridge nobody can prove is
     # load-bearing. The look package as a whole, because the parameterisation touches all of it.
     "pipeline/bodies.py",
+    "pipeline/look",
     "pipeline/render",
     # Joined with `also`, the authored search aliases. Both guards over it read the SHIPPED config
     # rather than a fixture, on purpose — the claim is "what this repo publishes is well-formed",
@@ -109,6 +117,12 @@ MUTABLE_ROOTS = (
     # either guard fire is to write to the real file, and a guard that cannot be made to fire is
     # the thing this harness exists to catch.
     "config",
+    # Joined with the render block plan, whose every wrong answer is a PLAUSIBLE image. A margin
+    # sized too small does not fail: the block renders, the tile crops, and the shadows reaching it
+    # from outside are simply absent, on both sides of a seam that has no edge to notice. Earth
+    # cannot expose the body half at all — its map-unit-to-ground ratio is exactly 1.0, which is why
+    # all four probe copies of this arithmetic dropped that term and none of them ever looked wrong.
+    "pipeline/block_plan.py",
     # Joined with the layer table, which took the body-half gate and the stage split out of the
     # planet shader. Both of its guards are invisible while Earth is the only body that declares a
     # layer: "ask the body before the disk" passes either way on a box holding Earth's files, and a
@@ -125,6 +139,16 @@ MUTABLE_ROOTS = (
     # at once and shows up as a rebuilt planet that quietly kept one empty layer. There is no output
     # to inspect for a stage that DIDN'T run, which is the whole reason mutation is the only proof.
     "pipeline/freshness.py",
+    # Joined on PROCESS.md's reasoning, one document over: this file's sentence enumerating the
+    # stages that take a required `--body` is a CLAIM ABOUT FOUR ENTRY POINTS, and a guard drives
+    # every one of them to check it. A doc nobody can mutate is a doc whose guard cannot be shown to
+    # fire, and this sentence carried a module that had stopped having a CLI for a whole arc.
+    "docs/pipeline.md",
+    # Joined with the stage sentinel, whose subject is a PRINT: the pass runs correctly whichever
+    # way this module is broken, and what changes is only what a reader learns about a night that
+    # takes 22 hours. Dropping the marker leaves every call site printing what it printed before,
+    # so there is nothing to inspect and no other gate is about a log line.
+    "pipeline/progress.py",
     # Joined with the antimeridian fill, whose every wrong answer is a PLAUSIBLE one. Copying a
     # neighbour instead of interpolating across the seam is within noise of correct on real terrain
     # (the two differ by a median of 2.2 m), and the refusal that keeps it from smoothing genuine
@@ -205,7 +229,8 @@ class Suite(NamedTuple):
     cwd: str
     environment: dict[str, str]
     # Vitest prints ` FAIL  <file> > <describe> > <title>`; pytest prints `FAILED <file>::<name>`.
-    # `guard` is matched against the whole output, so it may be any substring of the name.
+    # The names this yields are matched by `guard_fired`, which anchors: a guard may be a PREFIX of
+    # the name it credits, never an interior substring.
     #
     # The vitest form gains a `|browser (chromium)|` segment for the browser project and NOT for
     # node, so the project label has to be optional. Judging never noticed, because it greps the
@@ -214,6 +239,12 @@ class Suite(NamedTuple):
     # exactly the tool you reach for when you do not yet know which test catches a case, so a blind
     # spot there reads as "nothing guards this".
     fail_pattern: re.Pattern[str]
+    #: The same suite narrowed to ONE named guard, or None where it cannot be narrowed.
+    #:
+    #: None FOR THE WEB SUITE ON PURPOSE. Some vitest guards are a describe and a title run
+    #: together — `guard_is_findable` has to split them to match — so `-t` would silently select
+    #: nothing. Making it fast means first making those guards selectable titles.
+    narrow: Callable[[str], list[str]] | None
 
 
 SUITES: dict[str, Suite] = {
@@ -222,20 +253,26 @@ SUITES: dict[str, Suite] = {
         cwd="web",
         environment={},
         fail_pattern=re.compile(r"^\s*FAIL\s+(?:\|[^|]*\|\s+)?\S+\s+>\s+(.+)$"),
+        narrow=None,
     ),
     "python": Suite(
         command=["uv", "run", "pytest", "-q", "-p", "no:cacheprovider"],
         cwd=".",
         environment={"PYTHONDONTWRITEBYTECODE": "1"},
         fail_pattern=re.compile(r"^FAILED\s+\S+::([^\s\[]+)"),
+        # A python guard is a function name, so always a legal `-k` term. Matching none exits 5,
+        # which reads as not-green with the guard absent, so `run_case` escalates rather than judges.
+        narrow=lambda guard: ["uv", "run", "pytest", "-q", "-p", "no:cacheprovider", "-k", guard],
     ),
     # Not a test framework: a script that names its own failing check, so a case here is held to
-    # the same standard as one naming a vitest title or a pytest function.
+    # the same standard as one naming a vitest title or a pytest function. It runs one script and
+    # has nothing to narrow to.
     "collection": Suite(
         command=["node", "scripts/check_test_collection.ts"],
         cwd="web",
         environment={},
         fail_pattern=re.compile(r"^✗ test collection: (\S+)$"),
+        narrow=None,
     ),
 }
 
@@ -317,7 +354,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='cite a prototype script from the module whose constants it owns',
-        path='pipeline/render/mars_ice.py',
+        path='pipeline/look/mars_ice.py',
         needle='FEATHER_KM = 5.0',
         replacement='#: Reproduced by ' + '_ice_ab' + '/scripts/feather.py\nFEATHER_KM = 5.0',
         guard='test_no_reference_to_a_file_a_clone_will_not_have',
@@ -337,7 +374,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='Mars paints both poles in its northern white, losing the measurement entirely',
-        path='pipeline/render/layer_producers.py',
+        path='pipeline/look/layer_producers.py',
         needle='    northern = np.asarray(window.latitude) >= 0.0',
         replacement='    northern = np.ones(np.asarray(window.latitude).shape, dtype=bool)',
         guard='test_mars_paints_its_two_poles_in_DIFFERENT_whites',
@@ -345,24 +382,24 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label="a body's whites paint pixels and reach no recipe, so a re-tune looks fresh",
-        path='pipeline/render/layer_producers.py',
-        needle='def _mars_ice_recipe() -> dict[str, Any]:\n',
-        replacement='def _mars_ice_recipe() -> dict[str, Any]:\n    return {}\n',
+        path='pipeline/look/layer_producers.py',
+        needle='def _mars_ice_paint_recipe() -> dict[str, Any]:\n',
+        replacement='def _mars_ice_paint_recipe() -> dict[str, Any]:\n    return {}\n',
         guard='test_every_declared_white_reaches_that_bodys_recipe',
     ),
     Sabotage(
         suite='python',
         label='the cap and the tiles disagree about one ice colour across the crossfade',
-        path='pipeline/render/perennial_ice.py',
-        needle='                              paint=lambda: palette.MARS_ICE_WHITE["north"]),',
-        replacement='                              paint=lambda: palette.MARS_ICE_WHITE["south"]),',
+        path='pipeline/look/perennial_ice.py',
+        needle='                              paint=lambda: palette.MARS_ICE_WHITE["north"],',
+        replacement='                              paint=lambda: palette.MARS_ICE_WHITE["south"],',
         guard='test_each_body_paints_one_pole_the_same_in_both_tiers',
     ),
     Sabotage(
         suite='python',
         label="Earth's two union layers declare different whites, so one wins by table order",
-        path='pipeline/render/layer_producers.py',
-        needle='        build=_build_glaciers, contribution=_earth_glaciers, paint=_earth_white,',
+        path='pipeline/look/layer_producers.py',
+        needle='        build=_build_glaciers, contribution=_earth_glaciers, paint=_earth_paint,',
         replacement='        build=_build_glaciers, contribution=_earth_glaciers,\n'
                     '        paint=lambda _window: ((9, 9, 9), (1, 1, 1)),',
         guard='test_earths_two_union_layers_declare_the_SAME_white',
@@ -431,7 +468,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='the two poles are graded against each other\'s levels',
-        path='pipeline/render/mars_ice.py',
+        path='pipeline/look/mars_ice.py',
         needle='                    albedo_alpha(field, ALPHA_LEVELS["north"], nodata),\n'
                '                    albedo_alpha(field, ALPHA_LEVELS["south"], nodata))',
         replacement='                    albedo_alpha(field, ALPHA_LEVELS["south"], nodata),\n'
@@ -441,7 +478,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='a unit span stops being taken per hemisphere, so one band swallows the planet',
-        path='pipeline/render/mars_ice.py',
+        path='pipeline/look/mars_ice.py',
         needle='              if (value >= 0.0) == northern]',
         replacement='              if True]',
         guard='test_a_span_is_taken_PER_HEMISPHERE',
@@ -449,7 +486,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='the ice band loses its pad, clipping the feather at the band edge',
-        path='pipeline/render/mars_ice.py',
+        path='pipeline/look/mars_ice.py',
         needle='        row0, row1 = max(0, min(rows) - pad_rows), min(height, max(rows) + pad_rows)',
         replacement='        row0, row1 = max(0, min(rows)), min(height, max(rows))',
         guard='test_the_pad_widens_the_band_on_both_sides',
@@ -457,7 +494,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label="Mars's cap grades both poles against the north's levels",
-        path='pipeline/render/perennial_ice.py',
+        path='pipeline/look/perennial_ice.py',
         needle='    graded = mars_ice.albedo_alpha(field, mars_ice.ALPHA_LEVELS[pole], '
                'viking_luma.NODATA)',
         replacement='    graded = mars_ice.albedo_alpha(field, mars_ice.ALPHA_LEVELS["north"], '
@@ -467,7 +504,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='the alpha levels drop out of the build recipe, so a re-tune leaves a stale raster',
-        path='pipeline/render/layer_producers.py',
+        path='pipeline/look/layer_producers.py',
         needle='            "mars_alpha_levels": {pole: list(levels)',
         replacement='            "mars_alpha_levels_unread": {pole: list(levels)',
         guard='test_mars_declares_the_two_constants_its_build_bakes_in',
@@ -2656,7 +2693,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='a shading module regrows its own sphere radius beside the shared one',
-        path='pipeline/render/snow.py',
+        path='pipeline/look/snow.py',
         needle='    return mercator.latitude_at(merc_y, mercator.WEB_MERCATOR_RADIUS_M)',
         replacement='    return mercator.latitude_at(merc_y, 6378137.0)',
         guard='test_no_module_regrows_web_mercators_sphere',
@@ -2680,6 +2717,139 @@ SABOTAGES: list[Sabotage] = [
     # stopped asking the projection module and gone back to knowing the answer. The needle moved off
     # `bodies.EARTH` when the sphere did: a grid row's latitude is a property of the GRID, and every
     # grid here is EPSG:3857 for every planet, so reading it from a body was the misleading half.
+    # --- A pointer into a doc still lands where it says --------------------------------------------
+    # ALL THREE OF THESE ALREADY SHIPPED, which is why the guard exists rather than the reverse.
+    # `tile/shade.py` cited ART.md:56 and ART.md:90, both of which had become blank lines, and
+    # `look/hillshade.py` cited ART.md:63 for the sun's locked azimuth while that line had become a
+    # table row about the sea colour ramp. The mutations are planted in `gen_borders.py` because it
+    # is the pointer under a MUTABLE_ROOT; the defect has no preferred site.
+    Sabotage(
+        suite='python',
+        label='a doc pointer goes back to naming a line number, which is what rotted three times',
+        path='pipeline/compose/gen_borders.py',
+        needle='(ART.md\n§ Borders',
+        replacement='(ART.md:56\n§ Borders',
+        guard='test_no_pointer_cites_a_line_number',
+    ),
+    # The document is renamed or leaves version control. Existence on the author's disk is NOT the
+    # test — an untracked file passes that locally and is absent from every clone and from CI.
+    Sabotage(
+        suite='python',
+        label='a doc pointer names a document no clone receives',
+        path='pipeline/compose/gen_borders.py',
+        needle='downscaling (ART.md',
+        replacement='downscaling (ARTDIRECTION.md',
+        guard='test_every_document_a_pointer_names_reaches_a_clone',
+    ),
+    # The heading moves out from under a pointer that still names a real file. This is the live case
+    # rather than a hypothetical: ART.md took 42 commits in three months carrying 95 heading
+    # changes, and the `look/` split renamed two of them the same day it landed.
+    Sabotage(
+        suite='python',
+        label='the cited section is renamed, leaving a pointer at a file that no longer explains it',
+        path='pipeline/compose/gen_borders.py',
+        needle='§ Borders, with overlay_borders',
+        replacement='§ Boundaries, with overlay_borders',
+        guard='test_every_section_citation_lands_on_a_heading',
+    ),
+    # The defect that shipped: the block frame's payload stopped answering the whole vocabulary,
+    # and nothing ran the shipping path until a real prep crashed on it.
+    Sabotage(
+        suite='python',
+        label="the block frame stops answering the frame vocabulary's geo keys",
+        path='pipeline/render/prep_block.py',
+        needle='                   frame_lonlat=None, dst_crs="EPSG:3857",\n'
+               '                   xres_m=extent_w_m / window.width, extent_w_m=extent_w_m,\n'
+               '                   extent_h_m=extent_w_m * window.height / window.width)',
+        replacement='                   frame_lonlat=None, dst_crs="EPSG:3857")',
+        guard='test_the_payload_round_trips_the_validating_serialiser',
+    ),
+    # The ocean gate itself. Dropping it leaks alpha onto shoreline land, and the same alpha damps
+    # displacement in the rig — coastal collapse at full exaggeration, while every open-ocean pixel
+    # still renders correctly.
+    Sabotage(
+        suite='python',
+        label='the sea-ice alpha stops being gated to the ocean',
+        path='pipeline/look/seaice.py',
+        needle='    gated = np.where(np.asarray(ocean, dtype=bool), contribution, 0.0)',
+        replacement='    gated = np.asarray(contribution, dtype=float)',
+        guard='test_ice_over_ocean_survives_the_gate_at_full_value',
+    ),
+    # ONE PRODUCER SILENTLY DROPS THE GATE while the other keeps it, which is the exact shape the
+    # law had before it moved: the composite tier stayed correct and the rig's prep did not, and
+    # nothing was red. A guard that only ever exercised one producer cannot see this.
+    Sabotage(
+        suite='python',
+        label='the Mercator sea-ice producer returns its alpha ungated',
+        path='pipeline/look/layer_producers.py',
+        needle='    return seaice.gated_alpha(ice_alpha, window.ocean)',
+        replacement='    return ice_alpha',
+        guard='test_the_mercator_producer_returns_nothing_off_ocean',
+    ),
+    Sabotage(
+        suite='python',
+        label='the cap sea-ice producer returns its alpha ungated',
+        path='pipeline/tile/cap_render.py',
+        needle='    return seaice.gated_alpha(\n',
+        replacement='    return (\n',
+        guard='test_the_cap_producer_returns_nothing_off_ocean',
+    ),
+    # The column quietly flips back to the pre-ice answer. The literal pins in test_bodies catch
+    # the table; this guard catches the BEHAVIOUR — the gather stops handing the rig its ice.
+    Sabotage(
+        suite='python',
+        label="the block column drops sea ice again, starving the rig's ice arm",
+        path='pipeline/layers.py',
+        needle='SEA_ICE = Layer("sea_ice", in_composite=True, in_cap=True, in_block=True,',
+        replacement='SEA_ICE = Layer("sea_ice", in_composite=True, in_cap=True, in_block=False,',
+        guard='test_the_block_gathers_sea_ice_like_the_composite',
+    ),
+    # THE DEFECT THAT ALREADY HAPPENED, four times, in the render probe. Every copy of the margin
+    # arithmetic there divided by nothing, because each was written and checked on Earth where the
+    # ratio is 1.0 — and the same edit here undersizes 93% of Mars's blocks while every Earth case
+    # in the suite still passes. There is no artifact to inspect: the shadow simply stops.
+    Sabotage(
+        suite='python',
+        label='the block margin drops the map-unit-to-ground ratio, as all four probe copies did',
+        path='pipeline/block_plan.py',
+        needle='zfactor = exaggeration / (ground_scale * math.cos(math.radians(latitude_deg)))',
+        replacement='zfactor = exaggeration / (1.0 * math.cos(math.radians(latitude_deg)))',
+        guard='test_dropping_ground_scale_undersizes_mars_rather_than_erroring',
+    ),
+    # A margin that rounds to NEAREST is right for most blocks and one quantum short for the ones
+    # sitting just above a boundary — i.e. it fails on precisely the blocks whose shadows are
+    # longest. Two of the ten pinned cases sit within 0.2% of a boundary and exist for this.
+    Sabotage(
+        suite='python',
+        label='the context quantum rounds to nearest, truncating the blocks with the longest shadows',
+        path='pipeline/block_plan.py',
+        needle='    quantised = math.ceil(CONTEXT_RATIO * per_axis_px / CONTEXT_QUANTUM_PX) * CONTEXT_QUANTUM_PX',
+        replacement='    quantised = round(CONTEXT_RATIO * per_axis_px / CONTEXT_QUANTUM_PX) * CONTEXT_QUANTUM_PX',
+        guard='test_context_rounds_up_rather_than_to_nearest',
+    ),
+    # The two halo axes are not symmetric and the probe's copies had them both wrapping, which lets
+    # the north pole's relief size a block at the south pole. On a planet where both poles carry
+    # tall ice that produces a bigger margin than needed rather than a smaller one, so it costs GPU
+    # time silently instead of truncating anything — invisible in the output either way.
+    Sabotage(
+        suite='python',
+        label='the block halo wraps in latitude, so the north pole sizes the south',
+        path='pipeline/block_plan.py',
+        needle='    padded = np.pad(relief, ((1, 1), (0, 0)), mode="edge")',
+        replacement='    padded = np.pad(relief, ((1, 1), (0, 0)), mode="wrap")',
+        guard='test_halo_clamps_in_latitude',
+    ),
+    # The one geometric term this module contributes on top of the shared law. Dropping it makes
+    # every margin 1.41x larger than needed: nothing looks wrong, every seam is still covered, and
+    # the planet render simply costs about a fifth more GPU-hours than it should.
+    Sabotage(
+        suite='python',
+        label='the diagonal shadow loses its per-axis component, oversizing every frame',
+        path='pipeline/block_plan.py',
+        needle='    per_axis_px = reach_px * math.cos(math.radians(45.0))',
+        replacement='    per_axis_px = reach_px',
+        guard='test_earth_reproduces_the_reach_of_blocks_that_were_actually_rendered',
+    ),
     Sabotage(
         suite='python',
         label='an unknown body silently falls back to Earth instead of raising',
@@ -2742,9 +2912,37 @@ SABOTAGES: list[Sabotage] = [
         # `Body`, and the needle still matched exactly once, so the table's own freshness gate stayed
         # green. `test_the_defaulted_field_case_still_names_the_last_field_of_body` is what makes the
         # next append a red test instead of a silently hollow case.
-        needle='    renders_polar_caps: bool\n',
-        replacement='    renders_polar_caps: bool = True\n',
+        needle='    planet_producer: PlanetProducer\n',
+        replacement='    planet_producer: PlanetProducer = "composite"\n',
         guard='test_no_field_carries_a_default_so_a_new_one_must_be_decided_per_body',
+    ),
+    # --- The producer vocabulary, whose two failures are opposite shapes ------------------------
+    # The typo case. It is a plausible one — "raytraced" is how the arc's prose spells the adjective
+    # — and pyright would refuse it, but a `str` annotation reaching here in some future edit would
+    # not, so the runtime membership test is what has to hold.
+    Sabotage(
+        suite='python',
+        label='a body names a producer nothing can dispatch, and pyright is the only thing refusing it',
+        path='pipeline/bodies.py',
+        # Earth's value line, which is unique while it is the only raytraced body. The comment line
+        # rides along so the needle stays anchored if Mars joins it: a needle matching twice is
+        # refused by the harness rather than mutating an arbitrary one.
+        needle='    # rewritten in place by whichever producer runs, and the two do not agree on colour.\n'
+               '    planet_producer="raytrace",\n',
+        replacement='    # rewritten in place by whichever producer runs, and the two do not agree on colour.\n'
+                    '    planet_producer="raytraced",\n',
+        guard='test_every_body_names_a_producer_the_vocabulary_knows',
+    ),
+    # The opposite shape, and the one that reads as a simplification: dropping the Literal for a
+    # plain `str` empties `PLANET_PRODUCERS` through `get_args`, which turns every downstream
+    # membership test into a check against nothing rather than into an error anyone would see.
+    Sabotage(
+        suite='python',
+        label='the producer vocabulary widens to a bare str, so it can no longer refuse anything',
+        path='pipeline/bodies.py',
+        needle='PlanetProducer = Literal["composite", "raytrace"]\n',
+        replacement='PlanetProducer = str\n',
+        guard='test_every_body_names_a_producer_the_vocabulary_knows',
     ),
     # --- Polar caps as a per-body decision ----------------------------------------------------------
     # The dangerous property of all three: a body publishing no caps would RENDER them perfectly well.
@@ -2752,18 +2950,18 @@ SABOTAGES: list[Sabotage] = [
     # file to stop it and no error to read — just ~14 GB a pole spent shipping a look nobody ratified.
     Sabotage(
         suite='python',
-        label='the shade pass shells out to the cap render for every body again',
-        path='pipeline/tile/shade_planet.py',
+        label='the pass shells out to the cap render for every body again',
+        path='pipeline/tile/planet_pass.py',
         needle='    return body.renders_polar_caps\n',
         replacement='    return True\n',
-        guard='test_the_shade_pass_skips_the_cap_subprocess_for_a_body_that_publishes_none',
+        guard='test_the_pass_skips_the_cap_subprocess_for_a_body_that_publishes_none',
     ),
     Sabotage(
         suite='python',
         # The tidy-looking version: an operator running the module directly "obviously" wants a
         # render, so the second gate reads as belt-and-braces. It is the only gate on that path.
-        label='cap_render trusts its caller and drops its own body check',
-        path='pipeline/tile/cap_render.py',
+        label='the cap pass trusts its caller and drops its own body check',
+        path='pipeline/tile/cap_pass.py',
         needle='    if not body.renders_polar_caps:\n',
         replacement='    if False:\n',
         guard='test_a_body_publishing_no_caps_is_refused_by_the_cap_pass_itself',
@@ -2773,7 +2971,7 @@ SABOTAGES: list[Sabotage] = [
         # Not cosmetic: the refusal names the field an operator must change to turn caps ON. Without
         # it the message says a body publishes no caps and gives no way to disagree with that.
         label='the cap refusal stops naming the field that would enable them',
-        path='pipeline/tile/cap_render.py',
+        path='pipeline/tile/cap_pass.py',
         needle='                 f"renders_polar_caps on the body in pipeline/bodies.py once they are ratified.")',
         replacement='                 f"the body in pipeline/bodies.py once they are ratified.")',
         guard='test_a_body_publishing_no_caps_is_refused_by_the_cap_pass_itself',
@@ -2985,6 +3183,105 @@ SABOTAGES: list[Sabotage] = [
         replacement='                       "light": {"az": AZ, "alt": ALT, "exag": 15.0,',
         guard='test_the_cap_recipe_records_the_body_s_own_exaggeration',
     ),
+    # THE CAP PREP'S OWN STAGE, and the shape the arm actually shipped: it declared itself as `prep`
+    # because the vocabulary was closed and refused anything else. `declared` unions images across
+    # stages, so two preps under one name are indistinguishable to everything that reads it back.
+    Sabotage(
+        suite='python',
+        label='the cap prep borrows the block prep stage, so nothing can tell the two apart',
+        path='pipeline/render/prep_cap.py',
+        needle='    render_seam.declare(outdir, render_seam.CAP, written)',
+        replacement='    render_seam.declare(outdir, render_seam.BLOCK, written)',
+        guard='test_it_does_not_borrow_another_prep_s_stage',
+    ),
+    # THE PHOTOGRAPH TAKES THE PLANE'S WIDTH, which is the three-widths trap arriving on the cap
+    # tier. It renders successfully, at 4x the pixels the quadrant camera covers, and the OOM at the
+    # 16 G cap is the only thing that would report it.
+    Sabotage(
+        suite='python',
+        label='the cap frame photographs the whole disc rather than one quadrant',
+        path='pipeline/render/prep_cap.py',
+        needle='        hero_long_edge=grid.px // cap_render.CAP_QUADRANT_SPLIT,',
+        replacement='        hero_long_edge=grid.px,',
+        guard='test_the_render_resolution_is_one_quadrant',
+    ),
+    # The OTHER half of the same pair, and the one with no crash behind it: a full-plane camera
+    # renders four overlapping quadrants that stitch into a disc showing the same quarter four times.
+    Sabotage(
+        suite='python',
+        label='the cap camera spans the whole plane, so four quadrants photograph one quarter',
+        path='pipeline/render/prep_cap.py',
+        needle='        camera_fraction=1.0 / cap_render.CAP_QUADRANT_SPLIT)',
+        replacement='        camera_fraction=1.0)',
+        guard='test_the_ortho_scale_is_what_the_quadrant_camera_requires',
+    ),
+    # A SECOND SPELLING OF THE PROJECTION, which projects perfectly and lands the disc on the wrong
+    # parallel. `CapGrid.aeqd` is the owner; a rebuilt string here is free to drift from it.
+    Sabotage(
+        suite='python',
+        label='the cap frame rebuilds the proj string instead of reading the grid s own',
+        path='pipeline/render/prep_cap.py',
+        needle='frame_lonlat=None, dst_crs=grid.aeqd,',
+        replacement='frame_lonlat=None, dst_crs="EPSG:4326",',
+        guard='test_the_projection_is_the_grid_s_own',
+    ),
+    # A STAGE IN THE VOCABULARY WITH NO CONSTANT NAMING IT. This is the direction the derivation
+    # opened: `KNOWN_STAGES` now comes from `STAGE_TOOL`, so a mapping entry added without its
+    # constant makes the stage declarable by a string literal and by nothing a reader can grep for.
+    Sabotage(
+        suite='python',
+        label='a stage joins the vocabulary through the tool map with no constant naming it',
+        path='pipeline/render/render_seam.py',
+        needle='                              LAKE: "lake_mask.py", BLOCK: "prep_block.py", CAP: "prep_cap.py"}',
+        replacement='                              LAKE: "lake_mask.py", BLOCK: "prep_block.py", CAP: "prep_cap.py",\n'
+                    '                              "elev": "cap_render.py"}',
+        guard='test_every_stage_constant_is_in_the_vocabulary',
+    ),
+    # A TOOL THAT DOES NOT EXIST, which is what the mapping rots into. The message is only read when
+    # something already went wrong, so a stale filename there sends a reader to a module that is not
+    # in the tree at the one moment they needed the right one.
+    Sabotage(
+        suite='python',
+        label='a stage names a prep tool that is not in the tree',
+        path='pipeline/render/render_seam.py',
+        needle='STAGE_TOOL: dict[str, str] = {PREP: "render_prep.py", SNOW: "snow_mask.py",',
+        replacement='STAGE_TOOL: dict[str, str] = {PREP: "render_prep_v2.py", SNOW: "snow_mask.py",',
+        guard='test_every_stage_names_a_tool_that_exists',
+    ),
+    # The same species one dependency over, and the one the cap tier had open until the raytraced
+    # planet existed to expose it. Deleting the key restages nothing when a body changes producer,
+    # so a composited disc keeps feathering into raytraced tiles it is a measurable distance from.
+    Sabotage(
+        suite='python',
+        label='the cap recipe drops the planet producer, so a producer switch restages no disc',
+        path='pipeline/tile/cap_render.py',
+        needle='                       "planet_producer": grid.body.planet_producer,\n',
+        replacement='',
+        guard='test_flipping_the_producer_restages_both_discs',
+    ),
+    # HARDCODED RATHER THAN DELETED, which is the shape an Earth-only assertion cannot see: the
+    # value is right for the body every other cap test is written about, and the switch is still
+    # silent. It is why that guard sweeps the registry instead of naming a planet.
+    Sabotage(
+        suite='python',
+        label="the cap recipe pins the producer to Earth's, so Mars records a planet it does not have",
+        path='pipeline/tile/cap_render.py',
+        needle='                       "planet_producer": grid.body.planet_producer,',
+        replacement='                       "planet_producer": "raytrace",',
+        guard='test_every_registered_body_records_its_own_answer',
+    ),
+    # The OVER-tracking direction, and the case that gives the control its teeth. `grid_recipe_fields`
+    # is shared with the elevation texture, so a producer key landing there drags both displacement
+    # textures through a re-encode for a number no vertex reads.
+    Sabotage(
+        suite='python',
+        label='the producer key lands in the shared grid block, so a look switch re-encodes the mesh',
+        path='pipeline/tile/cap_render.py',
+        needle='    fields["aeqd_radius_m"] = grid.body.aeqd_radius_m\n',
+        replacement='    fields["aeqd_radius_m"] = grid.body.aeqd_radius_m\n'
+                    '    fields["planet_producer"] = grid.body.planet_producer\n',
+        guard='test_the_displacement_texture_does_not_follow_it',
+    ),
     # The mirror of the two above: the shader takes the body and the RECORD forgets it. Each body
     # writes into its own work tree, so this is not a collision between planets — it is the quieter
     # one WITHIN a planet. Re-tune its relief and the sidecar never moves, so a 53.8 min composite and
@@ -3017,7 +3314,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='the ground scale is multiplied into the z-factor instead of divided out',
-        path='pipeline/render/hillshade.py',
+        path='pipeline/look/hillshade.py',
         needle='                zfactor = (exaggeration\n                           / (ground_scale * np.cos(np.radians(latitude)))).reshape(-1, 1)',
         replacement='                zfactor = (exaggeration * ground_scale\n                           / np.cos(np.radians(latitude))).reshape(-1, 1)',
         guard='test_the_scale_divides_exactly_as_an_equal_exaggeration_change_would',
@@ -3082,9 +3379,13 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='the producer is gated on its raster rather than on the body declaring the layer',
-        path='pipeline/tile/shade_planet.py',
-        needle='        if layer.name not in inputs.body.surface_layers:\n            continue',
-        replacement='        if inputs.layer_raw[layer.name] is None:\n            continue',
+        path='pipeline/look/layer_producers.py',
+        needle=('    for layer, producer in producers_for(body, vocabulary):\n'
+                '        seen = dataclasses.replace(window, raw=layer_raw[layer.name])'),
+        replacement=('    for layer, producer in producers_for(body, vocabulary):\n'
+                     '        if layer_raw[layer.name] is None:\n'
+                     '            continue\n'
+                     '        seen = dataclasses.replace(window, raw=layer_raw[layer.name])'),
         guard='test_earths_antarctic_patch_survives_a_missing_persistence_raster',
     ),
     Sabotage(
@@ -3117,7 +3418,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='an unregistered body inherits Earth composite producers instead of the registry refusing',
-        path='pipeline/render/layer_producers.py',
+        path='pipeline/look/layer_producers.py',
         needle='        return PRODUCER_BY_BODY_LAYER[(body.name, layer.name)]',
         replacement=('        return PRODUCER_BY_BODY_LAYER.get(\n'
                      '            (body.name, layer.name), PRODUCER_BY_BODY_LAYER[("earth", layer.name)])'),
@@ -3128,7 +3429,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='a producer freezes its composite sources at import, so a moved data store never reaches it',
-        path='pipeline/render/layer_producers.py',
+        path='pipeline/look/layer_producers.py',
         needle='        sources=lambda: (snow.SP_NC,),',
         replacement='        sources=lambda frozen=(snow.SP_NC,): frozen,',
         guard='test_the_composite_sources_are_read_at_CALL_time_so_a_redirect_reaches_them',
@@ -3166,10 +3467,192 @@ SABOTAGES: list[Sabotage] = [
         replacement='    if False and must_draw is not None and drew_nothing(out):',
         guard='test_the_guard_refuses_an_empty_burn_and_names_the_subject',
     ),
+    # THE ROCK BURN'S OWN EMPTINESS GUARD, and it is a sharper case than the one above rather than a
+    # copy of it. A missed ice burn shows: the cap loses its white. A rock mask of zeros subtracts
+    # nothing from a rule that already covers the whole continent, so it renders as exactly the look
+    # that shipped before the layer existed — every file present, every consumer working.
+    Sabotage(
+        suite='python',
+        label='the rock burn accepts an empty result, so Antarctica silently keeps its old white',
+        path='pipeline/look/snow.py',
+        needle='    if vector_raster.drew_nothing(out_path):',
+        replacement='    if False and vector_raster.drew_nothing(out_path):',
+        guard='test_geometry_that_misses_the_grid_raises',
+    ),
+    # A GeoPackage is many layers in one file and `gdal_rasterize` will burn one of them regardless.
+    Sabotage(
+        suite='python',
+        label='the burn stops naming its layer, so a GeoPackage answers by position instead',
+        path='pipeline/vector_raster.py',
+        needle='            *(["-l", layer] if layer is not None else []),',
+        replacement='',
+        guard='test_a_second_layer_in_the_same_file_contributes_nothing',
+    ),
+    # The inversion this layer exists to avoid: fold the rock into the union and the outcrop is
+    # painted the very white it was measured to remove, as a perfectly plausible ice sheet.
+    Sabotage(
+        suite='python',
+        label='the rock layer starts contributing, so the union paints the outcrop white',
+        path='pipeline/look/layer_producers.py',
+        needle='''    inversion that renders as a perfectly plausible ice sheet.
+    """
+    return None''',
+        replacement='''    inversion that renders as a perfectly plausible ice sheet.
+    """
+    return None if _window.raw is None else np.asarray(_window.raw, dtype=float)''',
+        guard='test_gather_returns_no_entry_for_it_however_much_rock_there_is',
+    ),
+    # THE DEFECT THAT SHIPPED, WRITTEN OUT AS A MUTATION. Moving the negative back inside a union
+    # member is the placement the outcrop spent a release under: every plumbing guard passes, the
+    # subtraction genuinely runs, and `persistence_alpha` re-claims 63% of the rock in the very next
+    # operation. Only an OUTCOME guard can see it, which is what this case exists to prove.
+    Sabotage(
+        suite='python',
+        label='the exclusion moves back inside the union, so any other white source re-covers the rock',
+        path='pipeline/look/layer_producers.py',
+        needle='''    alpha = np.zeros(shape, dtype=float)
+    carried = None
+    for layer in WHITE_UNION:
+        contribution = contributions.get(layer.name)
+        if contribution is None:
+            continue
+        if merge is not None:
+            carried = merge(carried, alpha, layer.name, contribution)
+        alpha = np.maximum(alpha, contribution)
+    for layer in WHITE_EXCLUSIONS:
+        removed = exclusions.get(layer.name)
+        if removed is None:
+            continue
+        alpha = np.where(np.asarray(removed).astype(bool), 0.0, alpha)
+    return alpha, carried''',
+        replacement='''    alpha = np.zeros(shape, dtype=float)
+    carried = None
+    contributions = dict(contributions)
+    for layer in WHITE_EXCLUSIONS:
+        removed = exclusions.get(layer.name)
+        if removed is None or WHITE_UNION[0].name not in contributions:
+            continue
+        contributions[WHITE_UNION[0].name] = np.where(
+            np.asarray(removed).astype(bool), 0.0, contributions[WHITE_UNION[0].name])
+    for layer in WHITE_UNION:
+        contribution = contributions.get(layer.name)
+        if contribution is None:
+            continue
+        if merge is not None:
+            carried = merge(carried, alpha, layer.name, contribution)
+        alpha = np.maximum(alpha, contribution)
+    return alpha, carried''',
+        guard='test_a_glacier_over_the_outcrop_does_not_rescue_it_either',
+    ),
+    # The fold stops excluding at all. The tell it must NOT have is a crash: every raster is still
+    # built, warped and read, and the only symptom is Antarctica back under solid white.
+    Sabotage(
+        suite='python',
+        label='the fold takes the exclusions and applies none of them',
+        path='pipeline/look/layer_producers.py',
+        needle='    for layer in WHITE_EXCLUSIONS:',
+        replacement='    for layer in ():',
+        guard='test_saturated_persistence_does_not_rescue_the_white_on_rock',
+    ),
+    # `shade_planet` keys `layer_raw` on `path.exists()` alone, so this gate is the only thing
+    # standing between a body that declares no rock layer and an exclusion on its fold.
+    Sabotage(
+        suite='python',
+        label='the exclusion is read off the raster rather than off the declaration',
+        path='pipeline/look/layer_producers.py',
+        needle='''    exclusions = {layer.name: raw for layer in WHITE_EXCLUSIONS
+                  if layer.name in vocabulary and layer.name in body.surface_layers
+                  and (raw := layer_raw.get(layer.name)) is not None}''',
+        replacement='''    exclusions = {layer.name: raw for layer in WHITE_EXCLUSIONS
+                  if (raw := layer_raw.get(layer.name)) is not None}''',
+        guard='test_a_body_that_declares_no_rock_layer_excludes_nothing',
+    ),
+    # The stage half of that same gate: a vocabulary the caller narrowed must narrow the negatives
+    # with it, or a stage takes an exclusion for a layer it never gathered.
+    Sabotage(
+        suite='python',
+        label='the exclusions ignore the caller vocabulary, so a stage excludes a layer it never reads',
+        path='pipeline/look/layer_producers.py',
+        needle='                  if layer.name in vocabulary and layer.name in body.surface_layers',
+        replacement='                  if layer.name in body.surface_layers',
+        guard='test_a_stage_that_does_not_read_the_layer_excludes_nothing',
+    ),
+    # THE PLANNED STEP 6, WRITTEN OUT AS A MUTATION. Declaring the rock among the ice producer's
+    # sources looks like the obvious symmetry with `_earth_north`'s NetCDF, and it hands an
+    # undownloaded GeoPackage the power to render Antarctica on the tan LAND ramp.
+    Sabotage(
+        suite='python',
+        label="the south declares the rock as a source, so a missing file switches off the white",
+        path='pipeline/look/perennial_ice.py',
+        needle='    ("earth", "south"): CapIce(sources=lambda: (), alpha=_earth_south,',
+        replacement=('    ("earth", "south"): CapIce('
+                     'sources=lambda: (__import__("pipeline.acquire.download_add_rock", '
+                     'fromlist=["GPKG"]).GPKG,), alpha=_earth_south,'),
+        guard='test_an_absent_rock_file_leaves_the_forced_white_untouched',
+    ),
+    # The south stops declaring the exclusion. Every raster is still built, warped and burnt, the
+    # producer still answers, and the only symptom is Antarctica back under solid white.
+    Sabotage(
+        suite='python',
+        label='the south cap stops declaring the outcrop, so the -84 seam quietly re-covers it',
+        path='pipeline/look/perennial_ice.py',
+        needle='                               exclusions=lambda: (layers.ANTARCTIC_ROCK,)),',
+        replacement='                               exclusions=lambda: ()),',
+        guard='test_only_earths_south_declares_an_exclusion',
+    ),
+    # An eager burn on every pole reads as a harmless simplification and puts a pole test outside
+    # the registry: the north would reproject the whole ADD GeoPackage for a disc it cannot
+    # intersect, where the burn's own emptiness guard raises on a shipping pass.
+    Sabotage(
+        suite='python',
+        label='the north cap declares the outcrop too, so a disc that cannot hold it burns anyway',
+        path='pipeline/look/perennial_ice.py',
+        needle='                               paint=_earth_cap_paint, exclusions=lambda: ()),',
+        replacement=('                               paint=_earth_cap_paint, '
+                     'exclusions=lambda: (layers.ANTARCTIC_ROCK,)),'),
+        guard='test_only_earths_south_declares_an_exclusion',
+    ),
+    # THE CAP STOPS SHARING THE TILE TIER'S LAW. Returning the producer's answer straight out is
+    # what shipped, and it is invisible while the cap has exactly one white producer -- which is
+    # what RGI region 19, now carried, stops being safe to assume.
+    Sabotage(
+        suite='python',
+        label='the cap returns its producer alpha unfolded, so no exclusion reaches the disc',
+        path='pipeline/tile/cap_render.py',
+        needle='''    alpha, _ = layer_producers.fold_white(
+        {layers.PERENNIAL_ICE.name: answer}, answer.shape,
+        exclusions={layer.name: mask for layer in producer.exclusions()
+                    if (mask := _cap_exclusion(grid, layer)) is not None})
+    return alpha, producer.paint()''',
+        replacement='    return answer, producer.paint()',
+        guard='test_a_producer_claiming_every_pixel_still_loses_the_outcrop',
+    ),
+    # A layer the renderer has no burn for must be a hard error: the silent answer means "nothing to
+    # exclude", which renders as white over ground the declaration says is bare.
+    Sabotage(
+        suite='python',
+        label='an undeclared cap exclusion is ignored rather than refused',
+        path='pipeline/tile/cap_render.py',
+        needle='''    if layer is not layers.ANTARCTIC_ROCK:
+        raise KeyError(''',
+        replacement='''    if layer is not layers.ANTARCTIC_ROCK:
+        return None
+    if False:
+        raise KeyError(''',
+        guard='test_an_undeclared_exclusion_is_refused_rather_than_ignored',
+    ),
+    Sabotage(
+        suite='python',
+        label='the rock stops being a cap dependency, so a re-burn leaves both caps looking fresh',
+        path='pipeline/tile/cap_render.py',
+        needle='        sources.append(download_add_rock.GPKG)',
+        replacement='        pass  # no rock dependency: a re-burn now moves no mtime the cap sees',
+        guard='test_the_rock_is_a_cap_source_by_DECLARATION_and_drops_with_the_layer',
+    ),
     Sabotage(
         suite='python',
         label='the feather pad becomes a constant, so every band seam is quietly wrong',
-        path='pipeline/render/mars_ice.py',
+        path='pipeline/look/mars_ice.py',
         needle='    pad = int(np.ceil(feather_m / float(scale.min()))) + 1',
         replacement='    pad = 3',
         guard='test_banding_does_not_change_the_alpha_at_all',
@@ -3177,7 +3660,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label="Apu is drawn in the south too, whitening two thirds of that disc on no evidence",
-        path='pipeline/render/mars_ice.py',
+        path='pipeline/look/mars_ice.py',
         needle='SOUTH_UNITS: tuple[str, ...] = ("lApc",)',
         replacement='SOUTH_UNITS: tuple[str, ...] = ("lApc", "Apu")',
         guard='test_apu_is_northern_only',
@@ -3187,7 +3670,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='the luma moves to Rec. 601, re-grading Mars against levels measured in Rec. 709',
-        path='pipeline/render/mars_ice.py',
+        path='pipeline/look/mars_ice.py',
         needle='LUMA_WEIGHTS: tuple[float, float, float] = (0.2126, 0.7152, 0.0722)',
         replacement='LUMA_WEIGHTS: tuple[float, float, float] = (0.299, 0.587, 0.114)',
         guard='test_it_is_rec_709_and_the_weights_are_a_partition_of_one',
@@ -3198,7 +3681,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='the brightness recipe stops recording its weights, so a re-graded field reads fresh',
-        path='pipeline/render/viking_luma.py',
+        path='pipeline/look/viking_luma.py',
         needle='        "luma_weights": list(mars_ice.LUMA_WEIGHTS),\n',
         replacement='',
         guard='test_changed_weights_are_STALE',
@@ -3206,7 +3689,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='the recipe drops the source edition, so a republished mosaic never restages',
-        path='pipeline/render/viking_luma.py',
+        path='pipeline/look/viking_luma.py',
         needle='        "source_md5": download_viking_mosaic.EXPECTED_MD5,\n',
         replacement='',
         guard='test_a_republished_source_edition_is_STALE',
@@ -3216,7 +3699,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='freshness compares the measured share too, so the stage rebuilds forever',
-        path='pipeline/render/viking_luma.py',
+        path='pipeline/look/viking_luma.py',
         needle='    return {key: value for key, value in recorded.items() if key != "valid_fraction"} == \\\n        {key: value for key, value in expected.items() if key != "valid_fraction"}',
         replacement='    return recorded == expected',
         guard='test_a_different_measured_share_is_STILL_fresh',
@@ -3227,7 +3710,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='the luma rounds to integers, turning the darkest measured ground into nodata',
-        path='pipeline/render/mars_ice.py',
+        path='pipeline/look/mars_ice.py',
         needle='    return (stack * weights).sum(axis=0)',
         replacement='    return np.rint((stack * weights).sum(axis=0))',
         guard='test_the_dimmest_measurable_pixel_survives_as_measured',
@@ -3258,8 +3741,10 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='Earth quietly loses a surface layer it has always composited',
         path='pipeline/bodies.py',
-        needle='    surface_layers=frozenset({"lake_depth", "perennial_ice", "glaciers", "sea_ice", "coastline"}),',
-        replacement='    surface_layers=frozenset({"lake_depth", "perennial_ice", "glaciers", "coastline"}),',
+        needle='''    surface_layers=frozenset({"lake_depth", "perennial_ice", "glaciers", "sea_ice", "coastline",
+                              "antarctic_rock"}),''',
+        replacement='''    surface_layers=frozenset({"lake_depth", "perennial_ice", "glaciers", "coastline",
+                              "antarctic_rock"}),''',
         guard='test_earth_has_every_surface_layer_and_mars_declares_only_what_it_can_produce',
     ),
     # The under-declaring direction: Earth stops painting a product it has, which is a look change
@@ -3314,7 +3799,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='an unregistered body inherits Earth ice instead of the registry refusing',
-        path='pipeline/render/perennial_ice.py',
+        path='pipeline/look/perennial_ice.py',
         needle='        return CAP_ICE_BY_BODY[(body.name, pole)]',
         replacement='        return CAP_ICE_BY_BODY.get((body.name, pole), CAP_ICE_BY_BODY[("earth", pole)])',
         guard='test_a_body_with_no_producer_raises_and_names_itself',
@@ -3322,15 +3807,15 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='the pole leaves the key, so both caps of a body get one producer',
-        path='pipeline/render/perennial_ice.py',
-        needle='    ("earth", "south"): CapIce(sources=lambda: (), alpha=_earth_south, paint=_earth_cap_white),',
-        replacement='    ("earth", "south"): CapIce(sources=lambda: (Path(snow.SP_NC),), alpha=_earth_north, paint=_earth_cap_white),',
+        path='pipeline/look/perennial_ice.py',
+        needle='    ("earth", "south"): CapIce(sources=lambda: (), alpha=_earth_south, paint=_earth_cap_paint,',
+        replacement='    ("earth", "south"): CapIce(sources=lambda: (Path(snow.SP_NC),), alpha=_earth_north, paint=_earth_cap_paint,',
         guard='test_earths_two_poles_get_DIFFERENT_producers',
     ),
     Sabotage(
         suite='python',
         label='a producer freezes its source list at import, so a moved data store never reaches it',
-        path='pipeline/render/perennial_ice.py',
+        path='pipeline/look/perennial_ice.py',
         needle='    ("earth", "north"): CapIce(sources=lambda: (Path(snow.SP_NC),), alpha=_earth_north,',
         replacement='    ("earth", "north"): CapIce(sources=lambda frozen=(Path(snow.SP_NC),): frozen, alpha=_earth_north,',
         guard='test_the_sources_are_read_at_CALL_time_so_a_redirect_reaches_them',
@@ -3435,6 +3920,19 @@ SABOTAGES: list[Sabotage] = [
                '                                        download_sim3292.unit_path(unit)):',
         replacement='        if not out.exists():',
         guard='test_an_artifact_from_another_disc_is_rebuilt',
+    ),
+    # The agreement probe goes back to spelling its own sample band, at values inside TODAY's disc
+    # so nothing refuses and every "is this latitude on the texture" assertion still passes. That is
+    # the state it was actually in: the edge moved 80 -> 82 and the whole instrument exited on its
+    # first sample, which is a check that cannot run rather than one that answers wrongly.
+    Sabotage(
+        suite='python',
+        label='the cap/tile agreement probe spells its sample band instead of deriving it',
+        path='scripts/measure_cap_tile_agreement.py',
+        needle='    return tuple(low + span * (index + 1) / (SAMPLE_COUNT + 1)'
+               ' for index in range(SAMPLE_COUNT))',
+        replacement='    return (82.4, 82.9, 83.3, 83.7, 84.2, 84.6)',
+        guard='test_the_band_moves_with_the_edge_rather_than_being_spelled',
     ),
     # --- a freshness predicate must ANSWER, never raise ------------------------------------------
     # `download_sim3292.is_fresh` guarded the parse and not the shape, so a two-byte `{}` — valid
@@ -3844,6 +4342,81 @@ SABOTAGES: list[Sabotage] = [
         replacement='MOSAIC_NAME = "Mars_Viking_MDIM21_ClrMosaic_global_232m.tif"',
         guard='test_the_product_taken_is_the_925_metre_colour_mosaic_and_not_a_finer_one',
     ),
+    # A GeoPackage written in place EXISTS and is short for the whole 40-minute merge, and every
+    # consumer keys on exactly that -- `layer_producers` lists it as a freshness mtime, so a merge
+    # that dies partway is NEWER than the composite reading it and therefore current.
+    Sabotage(
+        suite='python',
+        label='the merge writes its GeoPackage in place, so a crash publishes a short planet',
+        path='pipeline/acquire/download_rgi.py',
+        needle='    staging = out.with_name(out.name + ".part")',
+        replacement='    staging = out',
+        guard='test_a_merge_that_dies_partway_leaves_the_previous_geopackage_untouched',
+    ),
+    # --- The RGI path and layer name have ONE home, and it is the acquirer that writes them ------
+    # Both were spelled twice, and a second spelling agrees with the acquirer right up until one of
+    # them moves. The layer case is the one `sources()` cannot see: naming the right file is not the
+    # same claim as opening the right table inside it.
+    Sabotage(
+        suite='python',
+        label='the glacier burn re-spells the layer name instead of asking its acquirer',
+        path='pipeline/look/layer_producers.py',
+        needle='                                   gpkg=download_rgi.GPKG, layer=download_rgi.LAYER)',
+        replacement='                                   gpkg=download_rgi.GPKG, layer="glaciers")',
+        guard='test_the_glacier_burn_reads_the_redirected_path_rather_than_one_bound_at_import',
+    ),
+    Sabotage(
+        suite='python',
+        label='the glacier source is re-spelled, so a redirected store is read at the old path',
+        path='pipeline/look/layer_producers.py',
+        needle='        sources=lambda: (download_rgi.GPKG,),',
+        replacement='        sources=lambda: (snow.DATA / "raw/rgi/rgi7_g_3857.gpkg",),',
+        guard='test_the_glacier_source_is_the_gpkg_its_own_acquirer_writes',
+    ),
+    # --- The cap mesh is the resolution limit, and the claim is a RATIO --------------------------
+    # The comparison this guards was written as absolute kilometres measured at CAP_EDGE_LAT 78. It
+    # went stale when the edge moved to 80 and would have gone stale again at the ratified 84, while
+    # the quantity it rests on -- CAP_ELEV_PX / (2 * RINGS) -- never moved at all. The old assertion
+    # was `ringKm < 15`, which the mutation below sails through: at 320 rings a ring is 3.47 km.
+    Sabotage(
+        suite='web',
+        label='the mesh outruns the texture it samples, which the old absolute bound could not see',
+        path='web/src/lib/polarCaps.ts',
+        needle='export const RINGS = 160;',
+        replacement='export const RINGS = 320;',
+        guard='keeps the mesh coarser than the elevation texture it samples, at whatever edge is served',
+    ),
+    # A contract field the web can only check with is one the pipeline actually publishes.
+    Sabotage(
+        suite='python',
+        label='caps.json stops stating the elevation texture size, so the web cannot check its mesh',
+        path='pipeline/tile/cap_render.py',
+        needle='                    "elev_px": CAP_ELEV_PX,\n',
+        replacement='',
+        guard='test_the_manifest_states_the_elevation_texture_s_size',
+    ),
+    # --- RGI: the acquisition decides how much of the planet the glacier layer covers ------------
+    # THE FAILURE HAS NO SYMPTOM AT ITS OWN STAGE. A region that never downloads leaves a burn with
+    # no polygons there, and every downstream check -- file exists, right size, mtime fresh -- is
+    # satisfied by it. The map is the only thing that can tell, and it says "bare ground", which is
+    # a thing maps legitimately say. Both cases below are the shape that actually shipped.
+    Sabotage(
+        suite='python',
+        label='region 19 is filtered back out at download, so the sub-Antarctic islands go bare',
+        path='pipeline/acquire/download_rgi.py',
+        needle='    urls = sorted(r["url"] for r in resources if (r.get("format") or "").upper() == "SHP")',
+        replacement=('    urls = sorted(r["url"] for r in resources '
+                     'if (r.get("format") or "").upper() == "SHP" and "-19_" not in r["url"])'),
+        guard='test_the_antarctic_region_is_one_of_them',
+    ),
+    Sabotage(
+        suite='python',
+        label='a short portal listing is merged as-is, so the layer quietly covers less than before',
+        path='pipeline/acquire/download_rgi.py',
+        needle='    missing = sorted(set(range(1, REGION_COUNT + 1)) - found)',
+        replacement='    missing = []',
+        guard='test_a_region_missing_from_the_portal_is_refused_rather_than_merged_short',
+    ),
     # --- The HTTP identity --------------------------------------------------------------------------
     # These are the hardest mutations in the file to catch by any other means. Every acquisition test
     # mocks the network, so the suite cannot see a missing header; every host without bot protection
@@ -3929,6 +4502,57 @@ SABOTAGES: list[Sabotage] = [
         replacement='    return rasters',
         guard='test_coherence_is_rechecked_on_READ_not_only_on_write',
     ),
+    # The masks may be FINER than the heightfield and deliberately are, so the tempting shape here is
+    # "sizes need not match" -- which is true, and which passes every grid that straddles as well as
+    # every grid that nests. The ratio is the whole claim.
+    # The land guard's two halves. Its old test was "tiles are listed, so there must be land", which
+    # is false wherever GLO-30 publishes an all-ocean tile — and the natural repair, "stop failing on
+    # an all-ocean cell", deletes the Antarctic protection the guard exists for. Both halves are
+    # needed and each one alone reads like a complete fix, which is why both have a case.
+    Sabotage(
+        suite='python',
+        label='an unserved tile counts as served, so a stale mosaic fuses a continent away again',
+        path='pipeline/fuse/fuse_planet.py',
+        needle='            if served.size and (served != nodata).any():',
+        replacement='            if True:',
+        guard='test_a_cell_whose_tiles_are_NOT_indexed_still_fails',
+    ),
+    Sabotage(
+        suite='python',
+        label='land the mosaic really holds is never noticed, so a lost coastline reads as landless',
+        path='pipeline/fuse/fuse_planet.py',
+        needle='            if served.size and (served == WBM_LAND).any():',
+        replacement='            if False:',
+        guard='test_land_in_the_mosaic_that_the_fusion_LOST_still_fails',
+    ),
+    Sabotage(
+        suite='python',
+        label='a mask grid that straddles the heightfield\'s pixels is declared as if it nested',
+        path='pipeline/planet_seam.py',
+        needle='            if smaller == 0 or larger % smaller:',
+        replacement='            if False:',
+        guard='test_a_mask_whose_grid_does_not_nest_is_refused',
+    ),
+    # The size ratio is a clean 1 when only the BOUNDS move, so the nesting test above passes a mask
+    # sitting a degree off the terrain it classifies. Two facts, two guards.
+    Sabotage(
+        suite='python',
+        label='a mask covering different ground passes because its pixel COUNT still matches',
+        path='pipeline/planet_seam.py',
+        needle='        if any(abs(a - b) > GRID_TOLERANCE_DEG for a, b in zip(bounds, ref_bounds)):',
+        replacement='        if False:',
+        guard='test_a_mask_covering_different_ground_is_refused',
+    ),
+    # A malformed VRT is the one input that could disarm the check that reads it, and skipping is the
+    # natural way to write that -- an absent GeoTransform then means "no opinion" instead of "broken".
+    Sabotage(
+        suite='python',
+        label='a VRT with no GeoTransform is skipped rather than refused',
+        path='pipeline/planet_seam.py',
+        needle='    if not width or not height or element is None or not element.text:',
+        replacement='    if False:',
+        guard='test_a_vrt_with_no_geotransform_is_refused_rather_than_skipped',
+    ),
     # The tidy that motivates it: the write side already checks, so the read side looks redundant. It
     # is not — the registry can gain a layer long after the declaration was written.
     Sabotage(
@@ -3946,9 +4570,680 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='a layer is read by no stage at all, so declaring it builds nothing',
         path='pipeline/layers.py',
-        needle='COASTLINE = Layer("coastline", in_composite=False, in_cap=True,',
-        replacement='COASTLINE = Layer("coastline", in_composite=False, in_cap=False,',
+        needle='COASTLINE = Layer("coastline", in_composite=False, in_cap=True, in_block=False,',
+        replacement='COASTLINE = Layer("coastline", in_composite=False, in_cap=False, in_block=False,',
         guard='test_the_stage_vocabularies_together_cover_the_whole_one_and_nothing_else',
+    ),
+    # The block column once carried two cases here, both retired the day the rig gained its ice
+    # input: mutating `sea_ice` to `in_block=True` became today's real source, and deriving
+    # BLOCK_LAYERS off `in_composite` now yields an IDENTICAL frozenset no test could distinguish.
+    # The column's live guard is the flip-back case beside the ground-ratio one, whose test
+    # starves the rig's ice arm behaviourally rather than comparing two equal sets.
+    # --- the render directory's seam, and the gather both tiers now share ------------------------
+    # Every one of these leaves a run that completes and produces a scene. What changes is whether
+    # the rig was TOLD what the directory holds or inferred it, which is invisible until the run
+    # where a producer skipped a file for a reason other than the region having none.
+    Sabotage(
+        suite='python',
+        # REPOINTED WHEN THE FILTER MOVED INTO `warped_for`, and the mutation is now the exact
+        # regression that move was made to prevent: answering every tier with the composite's set.
+        label="the gather ignores its caller's vocabulary, handing every stage the composite's",
+        path='pipeline/look/layer_producers.py',
+        needle='for layer in layers.warped_for(vocabulary)',
+        replacement='for layer in layers.warped_for(layers.COMPOSITE_LAYERS)',
+        guard='test_the_vocabulary_is_an_actual_filter',
+    ),
+    Sabotage(
+        suite='python',
+        label='the white union folds on a float32 base, narrowing every pixel the compositor blends',
+        path='pipeline/look/layer_producers.py',
+        needle='    alpha = np.zeros(shape, dtype=float)',
+        replacement='    alpha = np.zeros(shape, dtype=np.float32)',
+        guard='test_the_base_is_float64_so_no_contribution_is_narrowed',
+    ),
+    Sabotage(
+        suite='python',
+        label='a stage declares images it never wrote, so the rig loads a file that is not there',
+        path='pipeline/render/render_seam.py',
+        needle='    absent = [image for image in named if not (render_dir / image).exists()]',
+        replacement='    absent = []',
+        guard='test_naming_an_image_that_is_not_there_is_refused',
+    ),
+    Sabotage(
+        suite='python',
+        label='a stage rewrites the whole declaration, so a resume erases the stages behind it',
+        path='pipeline/render/render_seam.py',
+        needle='    stages = document.get("stages", {})\n    stages[stage] = named',
+        replacement='    stages = {}\n    stages[stage] = named',
+        guard='test_re_running_one_stage_leaves_the_others_standing',
+    ),
+    Sabotage(
+        suite='python',
+        label='the paint reaches a raytraced pixel and no recipe, so a re-tuned white restages '
+              'nothing and every finished block keeps the old colour',
+        path='pipeline/tile/block_render.py',
+        needle='        **layer_producers.constants_for(body, layers.BLOCK_LAYERS, painted=True),',
+        replacement='        **layer_producers.constants_for(body, layers.BLOCK_LAYERS, '
+                    'painted=False),',
+        guard='test_a_white_the_PREP_declares_reaches_the_recipe',
+    ),
+    Sabotage(
+        suite='python',
+        label='the rig falls back to a module white when the prep declared none, so every body '
+              'renders in whichever one was authored first',
+        path='pipeline/render/scene_build.py',
+        needle='    sunlit, _shadowed = render_seam.paint_for(render_dir, image)',
+        replacement='    sunlit = palette.SNOW_RGB',
+        guard='test_an_undeclared_paint_raises_rather_than_defaulting',
+    ),
+    Sabotage(
+        suite='python',
+        label='an unfilled render directory reads as an empty one rather than as an unfinished prep',
+        path='pipeline/render/render_seam.py',
+        needle='    if HEIGHTFIELD not in images:',
+        replacement='    if False:',
+        guard='test_no_declaration_at_all_raises_rather_than_returning_nothing',
+    ),
+    # A reader bypasses the owner and spells the filename itself — the defect that reached seven
+    # modules before render_seam owned the spellings, reintroduced at one of the exact sites the
+    # rename cleaned.
+    Sabotage(
+        suite='python',
+        label='a stage spells a render filename instead of importing its owner',
+        path='pipeline/render/lake_mask.py',
+        needle='    heightfield_path = render_dir / render_seam.HEIGHTFIELD',
+        replacement='    heightfield_path = render_dir / "heightfield.tif"',
+        guard='test_no_pipeline_module_spells_a_render_filename',
+    ),
+    # THE MARGIN FLOOR, WHICH SHIPPED MISSING AND DREW A GRID OVER EVERY OCEAN ON EARTH. A Cycles
+    # frame is dark for about thirty pixels at its border; a margin is discarded, so any block with
+    # one throws that away, and a block rendered to its exact footprint delivers it. Both branches
+    # get a case because the defect was in the one that BYPASSES the law.
+    Sabotage(
+        suite='python',
+        label='a block is sized by its OWN relief, so a flat one beside a mountain gets the floor',
+        path='pipeline/block_plan.py',
+        needle='    reach = haloed(relief)',
+        replacement='    reach = relief',
+        guard='test_a_flat_block_beside_a_mountain_inherits_the_mountains_margin',
+    ),
+    Sabotage(
+        suite='python',
+        label='the shadow law drops its floor, so flat ground plans a plane inside its own frame',
+        path='pipeline/block_plan.py',
+        needle='    return min(max(quantised, DENOISE_BAND_PX), CONTEXT_CEILING_PX)',
+        replacement='    return min(quantised, CONTEXT_CEILING_PX)',
+        guard='test_flat_ground_still_gets_a_plane_that_covers_the_traced_rectangle',
+    ),
+    # THE RECIPE GOING SHORT, which is the failure that bit three times in one session and is
+    # silent every time: the recipe text does not move, the generation stamp still reads as
+    # current, and the next resume keeps blocks rendered under a rule that no longer exists.
+    Sabotage(
+        suite='python',
+        label='the recipe stops recording the contexts, so a law change restages nothing at all',
+        path='pipeline/tile/block_render.py',
+        needle='        "contexts": context_census(blocks),',
+        replacement='        "contexts": {},',
+        guard='test_a_context_moving_moves_the_recipe_and_a_law_change_that_moves_none_does_not',
+    ),
+    # THE BLOCK RUNNER. Every case below is silent: the run completes, the gates stay green, and
+    # what is wrong is either a planet nobody re-rendered or a planet rendered from the wrong
+    # neighbourhood. None of them raise, and the pixels look plausible in all of them.
+    Sabotage(
+        suite='python',
+        label="the resume's generation test becomes is_stale, which calls every healthy run stale",
+        path='pipeline/tile/block_render.py',
+        needle='    return stamp.exists() and freshness.newest_mtime(*deps) <= stamp.stat().st_mtime',
+        replacement='    return stamp.exists() and not freshness.is_stale(markers, *deps)',
+        guard='test_a_directory_written_into_after_its_stamp_is_still_current',
+    ),
+    Sabotage(
+        suite='python',
+        label='a new generation leaves the mosaic stamped, so the cut can run on half a producer',
+        path='pipeline/tile/block_render.py',
+        needle='    freshness.done_marker(mosaic).unlink(missing_ok=True)\n'
+               '    shutil.rmtree(markers, ignore_errors=True)',
+        replacement='    shutil.rmtree(markers, ignore_errors=True)',
+        guard='test_the_mosaics_completion_marker_is_removed',
+    ),
+    Sabotage(
+        suite='python',
+        label='the block markers stop following their mosaic, so an A/B resumes over production',
+        path='pipeline/tile/block_render.py',
+        needle='    return mosaic.with_name(f"{mosaic.stem}_blocks")',
+        replacement='    return mosaic.parent / "planet_blocks"',
+        guard='test_two_mosaics_do_not_share_a_marker_directory',
+    ),
+    Sabotage(
+        suite='python',
+        label="the raytrace inherits the composite's hillshade as a dependency it never reads",
+        path='pipeline/tile/block_render.py',
+        needle='    return (work / shade_planet.HEIGHT_3857, work / shade_planet.OCEAN_3857,',
+        replacement='    return (work / "hs_3857.tif", work / shade_planet.HEIGHT_3857,\n'
+                    '            work / shade_planet.OCEAN_3857,',
+        guard='test_the_hillshade_is_not_a_raytrace_dependency',
+    ),
+    Sabotage(
+        suite='python',
+        label='the crop takes the context instead of the band, writing the wrong ground into the mosaic',
+        path='pipeline/tile/block_render.py',
+        needle=('    band, edge, traced = block_plan.DENOISE_BAND_PX, block.size_px, '
+                'block.traced_edge_px'),
+        replacement='    band, edge, traced = block.context_px, block.size_px, block.traced_edge_px',
+        guard='test_the_denoise_band_is_cut_back_off',
+    ),
+    # The base grid is the one mutation here whose damage never raises, never logs and never
+    # changes a file size: `MAX_SUBDIVISIONS` caps micropolygons PER PATCH, so a single quad silently
+    # dices a 4,096-block's plane at half its pixels and delivers a slightly soft planet.
+    Sabotage(
+        suite='python',
+        label='the plane goes back to one patch, so every block dices at half its own resolution',
+        path='pipeline/render/scene_build.py',
+        needle='    return max(1, math.ceil(span_px / 2 ** RIG.max_subdivisions))',
+        replacement='    return 1',
+        guard='test_the_base_grid_covers_every_context_width_on_every_body',
+    ),
+    # THE PER-CALLER WIRING, three mutations, and they fail in opposite directions. Flipping the
+    # DEFAULT breaks every large hero outright (OptiX cannot build the BVH at 67M micropolygons);
+    # dropping the block's OPT-IN silently halves the planet's dicing. Both are the cheap version of
+    # the change -- one constant instead of one argument -- which is the shape that has now caught
+    # this rig twice, the denoiser being the first.
+    Sabotage(
+        suite='python',
+        label='the base grid becomes the default, so every large hero fails to build its BVH',
+        path='pipeline/render/scene_build.py',
+        needle='    ap.add_argument("--base-grid", choices=("single", "fitted"), default="single",',
+        replacement='    ap.add_argument("--base-grid", choices=("single", "fitted"), default="fitted",',
+        guard='test_the_default_the_hero_inherits_is_the_single_quad',
+    ),
+    Sabotage(
+        suite='python',
+        label='the block runner stops asking for the base grid, so the planet dices at half',
+        path='pipeline/tile/block_render.py',
+        needle=('            "--denoise-device", BLOCK_DENOISE_DEVICE,\n'
+                '            "--base-grid", BLOCK_BASE_GRID]'),
+        replacement='            "--denoise-device", BLOCK_DENOISE_DEVICE]',
+        guard='test_the_block_runner_opts_into_the_base_grid_too',
+    ),
+    Sabotage(
+        suite='python',
+        label='the recipe stops recording the dicing, so a resumed pass blends both into one mosaic',
+        path='pipeline/tile/block_render.py',
+        needle='        "base_grid": BLOCK_BASE_GRID,\n',
+        replacement='',
+        guard='test_the_recipe_records_the_base_grid',
+    ),
+    # THE SAME FAMILY, TWO FLAGS ON, and these two are worse than their siblings above in one way:
+    # the wrong regime does not fail, slow down or soften. A hero lit from a turned rig and a hero
+    # photographed as a quarter are both plausible pictures, so the default is the whole guard.
+    Sabotage(
+        suite='python',
+        label='the rig starts turning by default, so every hero is relit off the convention',
+        path='pipeline/render/scene_build.py',
+        needle='    ap.add_argument("--sun-azimuth-delta", type=float, default=0.0, metavar="DEG",',
+        replacement='    ap.add_argument("--sun-azimuth-delta", type=float, default=15.0, '
+                    'metavar="DEG",',
+        guard='test_the_defaults_the_hero_inherits_are_the_rig_as_built',
+    ),
+    # A NEGATIVE INDEX IS A LEGAL INT AND A LEGAL LIST INDEX, which is what makes this quiet: -1
+    # photographs the LAST tile while the driver that asked for it records the first.
+    Sabotage(
+        suite='python',
+        label='the tile flag accepts a negative index, which wraps to the far side of the plane',
+        path='pipeline/render/scene_build.py',
+        needle='    if len(parts) != 2 or not all(part.strip().isdigit() for part in parts):',
+        replacement='    if len(parts) != 2 or not all(part.strip().lstrip("-").isdigit() '
+                    'for part in parts):',
+        guard='test_a_negative_index_is_refused_where_python_would_wrap_it',
+    ),
+    # THE EULER TURNS OPPOSITE TO THE BEARING, and the arm shipped this exact mutation first: +90 on
+    # the Z euler took the arrival bearing from 315 to 225. A ring of passes rendered through it is
+    # a ring lit from the wrong side of every meridian, and each frame looks fine.
+    Sabotage(
+        suite='python',
+        label='the rig turns the same way as the bearing it was asked for',
+        path='pipeline/render/scene_build.py',
+        needle='    turned = (rotation[0], rotation[1], rotation[2] - math.radians(delta_deg))',
+        replacement='    turned = (rotation[0], rotation[1], rotation[2] + math.radians(delta_deg))',
+        guard='test_the_euler_turns_OPPOSITE_to_the_bearing',
+    ),
+    # THE SELF-CHECK DEFEATED WHILE IT STAYS VISIBLE. `arrival_azimuth_deg`'s arithmetic drops the Y
+    # euler, so a light that is yawed is reported at a bearing it does not arrive from -- and
+    # `rotate_arrival` then confirms its own rotation against that report.
+    Sabotage(
+        suite='python',
+        label='the bearing stops seeing a yawed light, so its own self-check confirms a lie',
+        path='pipeline/render/scene_build.py',
+        needle='    rx, ry, rz = rotation\n',
+        replacement='    rx, ry, rz = rotation[0], 0.0, rotation[2]\n',
+        guard='test_a_light_yawed_about_Y_has_no_bearing_this_can_report',
+    ),
+    # ROW AND COLUMN SWAPPED. On the square grid a cap actually uses this exchanges exactly two of
+    # the four quadrants, and the disc stitches with no seam, no gap and two quarters transposed.
+    Sabotage(
+        suite='python',
+        label='the tile camera reads row for column, transposing two quadrants of the disc',
+        path='pipeline/render/scene_build.py',
+        needle='    return ((col + 0.5) * ortho_scale - half, half - (row + 0.5) * ortho_scale)',
+        replacement='    return ((row + 0.5) * ortho_scale - half, half - (col + 0.5) * ortho_scale)',
+        guard='test_the_four_quadrants_sit_where_the_judged_renders_put_them',
+    ),
+    # THE ROW AXIS FLIPPED, which stitching is blind to: the disc reassembles seamlessly, upside
+    # down, and a polar cap upside down is a plausible picture of nowhere.
+    Sabotage(
+        suite='python',
+        label='row zero becomes the bottom of the plane, so the disc stitches inverted',
+        path='pipeline/render/scene_build.py',
+        needle='half - (row + 0.5) * ortho_scale)',
+        replacement='(row + 0.5) * ortho_scale - half)',
+        guard='test_row_zero_is_the_TOP_of_the_plane',
+    ),
+    # THE CONTRADICTION THE DERIVED SPLIT EXISTS TO CATCH, let through. A tile past the grid the
+    # frame implies photographs empty space beyond the plane, and the stitch is a disc with a
+    # quarter missing rather than a run that failed.
+    Sabotage(
+        suite='python',
+        label='a tile outside the grid the camera fraction implies is photographed anyway',
+        path='pipeline/render/scene_build.py',
+        needle='    if not (0 <= row < split and 0 <= col < split):',
+        replacement='    if not (0 <= row and 0 <= col):',
+        guard='test_a_tile_outside_the_grid_the_ortho_scale_implies_is_refused',
+    ),
+    # THE MERIDIAN ROTATION'S SIGN, which is the one field the two poles disagree about. Flipped, the
+    # light sits north-EAST of local north across a whole disc: cartographically inverted relief,
+    # and nothing about the frame says so.
+    Sabotage(
+        suite='python',
+        label='the caps turn their light the wrong way around the meridian',
+        path='pipeline/tile/cap_render.py',
+        needle='    return grid.az_sign * longitude',
+        replacement='    return -grid.az_sign * longitude',
+        guard='test_the_light_arrives_north_west_of_LOCAL_north_at_every_longitude',
+    ),
+    # THE SECOND COPY, RE-INLINED. It renders identically today, which is the whole difficulty: the
+    # other reader is `cap_raytrace`, in another process, and the drift only shows where the disc
+    # feathers into the tiles.
+    Sabotage(
+        suite='python',
+        label='the shade pass spells the rotation again instead of reading its owner',
+        path='pipeline/tile/cap_render.py',
+        needle='    delta = azimuth_delta(grid, longitude)',
+        replacement='    delta = grid.az_sign * longitude',
+        guard='test_the_shade_pass_reads_the_shared_delta_rather_than_spelling_it',
+    ),
+    # ONLY THE KEY LIGHT TURNS. That makes the composite a different intervention from the rigidly
+    # rotated pass the raytraced arm renders, and the two agree everywhere the fill does not reach.
+    Sabotage(
+        suite='python',
+        label='the fill light stays put while the key turns with the meridian',
+        path='pipeline/tile/cap_render.py',
+        needle='    fill_az = (hillshade.FILL_AZIMUTH + delta).astype(np.float32)',
+        replacement='    fill_az = np.full(delta.shape, hillshade.FILL_AZIMUTH, dtype=np.float32)',
+        guard='test_both_lights_turn_together_so_a_rigid_rotation_reproduces_them',
+    ),
+    # --- The raytraced cap: the ring, its plan, and the arm registry ------------------------------
+    # NOTHING HERE FAILS LOUDLY. A disc rendered from the wrong frames stitches, downsamples to every
+    # rung and publishes; the only report is the picture, which no gate can see.
+    #
+    # THE BRACKET LOSES ITS UPPER NEIGHBOUR. Each quadrant then renders only the passes its own
+    # longitudes floor onto, and every pixel that is not exactly on the lattice has nothing to fade
+    # toward -- which the coverage check catches at blend time, after 41 minutes of GPU.
+    Sabotage(
+        suite='python',
+        label='a quadrant renders only the passes below it, so every fade has no upper frame',
+        path='pipeline/tile/cap_raytrace.py',
+        needle='        plan[(row, col)] = sorted(present | {(index + 1) % CAP_AZIMUTH_PASSES\n'
+               '                                             for index in present})',
+        replacement='        plan[(row, col)] = sorted(present)',
+        guard='test_a_quadrant_takes_a_quarter_of_the_ring_plus_its_upper_neighbour',
+    ),
+    # THE PLAN STOPS BEING PER POLE. `az_sign` is the one field the two discs disagree about, so the
+    # south then plans off the north's convention over its own longitudes: 28 correct-looking frames,
+    # every one of them the wrong half of the circle.
+    #
+    # CAUGHT BY COVERAGE AND NOT BY THE POLES-DIFFER GUARD, which was where this was first aimed. The
+    # mutated plans still DIFFER between the poles, because the longitudes are still each pole's own
+    # — so "they are not identical" stays true while every pixel's bracket is missing.
+    Sabotage(
+        suite='python',
+        label='the frame plan reads one pole s convention for both discs',
+        path='pipeline/tile/cap_raytrace.py',
+        needle='        lower, _frac = bracketing_pass(\n'
+               '            grid, longitude[row * half:(row + 1) * half, col * half:(col + 1) * half])',
+        replacement='        lower, _frac = bracketing_pass(\n'
+                    '            cap_render.north_grid(grid.body),\n'
+                    '            longitude[row * half:(row + 1) * half, col * half:(col + 1) * half])',
+        guard='test_every_pixel_has_both_of_the_passes_it_will_be_blended_from',
+    ),
+    # THE RING STOPS CLOSING. A pixel just under a full turn brackets pass 23 and pass 0; without the
+    # modulo the upper neighbour is index 24, which no frame carries and no name resolves to.
+    Sabotage(
+        suite='python',
+        label='the azimuth ring runs off its own end instead of wrapping',
+        path='pipeline/tile/cap_raytrace.py',
+        needle='    lower = np.floor(position).astype(int) % CAP_AZIMUTH_PASSES',
+        replacement='    lower = np.floor(position).astype(int)',
+        guard='test_a_delta_infinitesimally_below_zero_lands_on_the_first_pass',
+    ),
+    # THE SHARED LAW SPELLED AGAIN, which renders identically today. The other reader is the
+    # COMPOSITE, in another module, and a drift between them shows only where the disc feathers in.
+    Sabotage(
+        suite='python',
+        label='the ring imitates the meridian rotation instead of reading its owner',
+        path='pipeline/tile/cap_raytrace.py',
+        needle='    wanted = np.asarray(cap_render.azimuth_delta(grid, longitude), dtype=np.float64) % 360.0',
+        replacement='    wanted = np.asarray(grid.az_sign * longitude, dtype=np.float64) % 360.0',
+        guard='test_it_is_derived_from_the_shared_rotation_and_not_from_longitude',
+    ),
+    # THE ECHO CHECK BECOMES A PRESENCE CHECK. Every flag is then confirmed by a run that reported a
+    # DIFFERENT quadrant or a different sun: the frame renders, stitches, and lands under the name of
+    # the thing that was asked for rather than the thing that happened.
+    Sabotage(
+        suite='python',
+        label='the render accepts an echo naming a different quadrant',
+        path='pipeline/tile/cap_raytrace.py',
+        needle='              f"TILE {row},{col} ",',
+        replacement='              "TILE ",',
+        guard='test_an_echo_reporting_a_DIFFERENT_quadrant_is_refused',
+    ),
+    Sabotage(
+        suite='python',
+        label='the render accepts an echo naming a different sun',
+        path='pipeline/tile/cap_raytrace.py',
+        needle='              f"SUN_AZIMUTH_DELTA {index * azimuth_step():.4f}",',
+        replacement='              "SUN_AZIMUTH_DELTA ",',
+        guard='test_an_echo_reporting_a_DIFFERENT_sun_is_refused',
+    ),
+    # THE FRAME IS CALLED RENDERED BEFORE IT IS WHOLE. A killed Blender leaves a non-empty partial
+    # PNG, which the arm's own `[ -s ]` accepted -- and a partial frame blends garbage into the disc
+    # on the next resume rather than re-rendering.
+    Sabotage(
+        suite='python',
+        label='a frame is written under its final name, so a killed render resumes over a stub',
+        path='pipeline/tile/cap_raytrace.py',
+        needle='    part = png.with_suffix(".part.png")',
+        replacement='    part = png',
+        guard='test_a_partly_written_frame_is_never_left_under_its_final_name',
+    ),
+    # THE RAYTRACE RECIPE BECOMES THE COMPOSITE'S. Then a producer switch leaves both sidecars
+    # identical and both discs falsely fresh, in both directions -- the hazard one tier up that
+    # `producer_seam` exists to close, arriving on the caps.
+    Sabotage(
+        suite='python',
+        label='the raytraced cap records the composite s recipe, so a switch restages no disc',
+        path='pipeline/tile/cap_pass.py',
+        needle='    "raytrace": CapProducer(cap_raytrace.render, cap_raytrace.params),',
+        replacement='    "raytrace": CapProducer(cap_raytrace.render, cap_render.cap_recipe),',
+        guard='test_the_arms_do_not_write_the_same_recipe_for_one_disc',
+    ),
+    # THE REGISTRY FALLS BACK. A body whose producer has no cap arm then paints composited discs
+    # under raytraced tiles and reports success, which is the exact mismatch the key exists to stop.
+    Sabotage(
+        suite='python',
+        label='an unregistered producer silently borrows the composite s discs',
+        path='pipeline/tile/cap_pass.py',
+        needle='        return CAP_PRODUCERS[body.planet_producer]',
+        replacement='        return CAP_PRODUCERS.get(body.planet_producer, CAP_PRODUCERS["composite"])',
+        guard='test_an_unknown_producer_is_refused_naming_the_ones_that_exist',
+    ),
+    # THE VOCABULARY GAINS A MEMBER WITH NO ARM. The registry is what makes that a red test rather
+    # than a night's render ending on a KeyError at the cap stage.
+    Sabotage(
+        suite='python',
+        label='a planet producer exists that no cap arm can paint discs for',
+        path='pipeline/bodies.py',
+        needle='PlanetProducer = Literal["composite", "raytrace"]',
+        replacement='PlanetProducer = Literal["composite", "raytrace", "watercolour"]',
+        guard='test_the_registry_covers_the_body_vocabulary_exactly',
+    ),
+    # THE UNIT CORRECTION DROPPED FROM THE DISPLACEMENT. `_shade`'s z-factor divides by this and the
+    # raytraced arm must too, or the two producers of one disc disagree about geology as well as
+    # light. Earth's ratio is 1.0011 and hides it; Mars's is 0.5331.
+    Sabotage(
+        suite='python',
+        label='the raytraced disc displaces in map metres rather than the body s own',
+        path='pipeline/render/prep_cap.py',
+        needle='        grid.px, grid.px, extent_m * bodies.ground_metres_per_aeqd_unit(grid.body),',
+        replacement='        grid.px, grid.px, extent_m,',
+        guard='test_both_producers_of_one_disc_agree_on_the_relief',
+    ),
+    Sabotage(
+        suite='python',
+        label='the mask writer goes back to 8 bits, terracing the sea floor under the ice alpha',
+        path='pipeline/render/prep_block.py',
+        needle='MASK_FULL_SCALE = 65535.0',
+        replacement='MASK_FULL_SCALE = 255.0',
+        guard='test_a_quantised_alpha_does_not_terrace_the_sea_floor_past_one_ground_pixel',
+    ),
+    Sabotage(
+        suite='python',
+        label='the recipe stops recording the mask depth, so no rendered block restages for it',
+        path='pipeline/tile/block_render.py',
+        needle='        "mask_full_scale": prep_block.MASK_FULL_SCALE,\n',
+        replacement='',
+        guard='test_the_recipe_records_the_mask_depth',
+    ),
+    Sabotage(
+        suite='python',
+        label='the block recipe stops recording what its masks were graded with',
+        path='pipeline/tile/block_render.py',
+        needle='        **layer_producers.constants_for(body, layers.BLOCK_LAYERS, painted=True),\n',
+        replacement='',
+        guard='test_the_ice_softening_moving_moves_the_recipe',
+    ),
+    Sabotage(
+        suite='python',
+        # The planner's altitude is reachable by no other test in its file: every one of them
+        # stubs `plan_blocks` outright, so this line is the only thing standing under the guard.
+        label='the planner carries its own sun altitude, so the ring and the rig can drift apart',
+        path='pipeline/tile/block_render.py',
+        needle='                                      altitude_deg=palette.SUN_ALT_DEG), body)',
+        replacement='                                      altitude_deg=45.0), body)',
+        guard='test_it_sizes_from_the_shared_sun_altitude',
+    ),
+    Sabotage(
+        suite='python',
+        label='the penumbra grades on a local copy of the disc, so the rig and the tiles drift',
+        path='pipeline/look/cast_shadow.py',
+        needle='    disc = palette.SUN_ANGULAR_DIAMETER_DEG',
+        replacement='    disc = 12.0',
+        guard='test_the_ramp_follows_the_shared_width_rather_than_a_local_copy',
+    ),
+    Sabotage(
+        suite='python',
+        label="the rig re-inlines the sun's disc, which is how the altitude split happened",
+        path='pipeline/render/scene_build.py',
+        needle='    sun_angle=math.radians(palette.SUN_ANGULAR_DIAMETER_DEG),',
+        replacement='    sun_angle=math.radians(11.0),',
+        guard='test_the_discs_width_derives_from_the_shared_one',
+    ),
+    Sabotage(
+        suite='python',
+        label='the block recipe stops recording which side of the fold each layer sits on',
+        path='pipeline/tile/block_render.py',
+        needle='        **layer_producers.white_law(body, layers.BLOCK_LAYERS),\n',
+        replacement='',
+        guard='test_a_layer_leaving_the_union_moves_the_recipe',
+    ),
+    Sabotage(
+        suite='python',
+        label='the fold law is recorded unfiltered, so an Earth-only white restages Mars',
+        path='pipeline/look/layer_producers.py',
+        needle='        return [layer.name for layer in law if layer.name in runs]',
+        replacement='        return [layer.name for layer in law]',
+        guard='test_a_body_that_does_not_declare_a_layer_records_neither_half',
+    ),
+    Sabotage(
+        suite='python',
+        # Sorted rather than a set: `json.dumps` refuses a set outright, so the mutation that
+        # actually ships the defect is the one that still serialises and loses only the order.
+        label='the fold law is recorded alphabetically, losing the order the paint merge reads',
+        path='pipeline/look/layer_producers.py',
+        needle='        return [layer.name for layer in law if layer.name in runs]',
+        replacement='        return sorted(layer.name for layer in law if layer.name in runs)',
+        guard='test_the_union_is_recorded_in_the_order_it_folds',
+    ),
+    Sabotage(
+        suite='python',
+        label='a producer grades with a constant and declares none of it',
+        path='pipeline/look/layer_producers.py',
+        # An early return rather than `{} or {...}`, which was the first attempt and is a NO-OP:
+        # an empty dict is falsy, so `or` hands back the very dict it was meant to suppress.
+        needle='    return {"snow_ramp_lat_lo": snow.RAMP_LAT_LO,',
+        replacement='    return {}\n    return {"snow_ramp_lat_lo": snow.RAMP_LAT_LO,',
+        guard='test_every_constant_an_in_block_producer_grades_with_reaches_the_recipe',
+    ),
+    Sabotage(
+        suite='python',
+        label='the composite stops recording the whites it paints with, keeping only the grading',
+        path='pipeline/look/layer_producers.py',
+        needle='        if painted:\n            recorded.update(producer.paint_recipe())',
+        replacement='        if False:\n            recorded.update(producer.paint_recipe())',
+        guard='test_the_grading_and_painting_split_leaves_the_composite_recording_BOTH_halves',
+    ),
+    Sabotage(
+        suite='python',
+        label='the plane span is read off the heightfield, so a hero under-dices and a block over-dices',
+        path='pipeline/render/scene_build.py',
+        needle=('    pixels_per_unit = max(frame["res_x"], frame["res_y"]) '
+                '/ frame["ortho_scale"]'),
+        replacement='    pixels_per_unit = max(frame["res_x"], frame["res_y"]) / 2.0',
+        guard='test_the_plane_span_is_the_planes_and_not_the_heightfields',
+    ),
+    # The frame CHECK and the crop OFFSET are separate mutations because they fail differently and
+    # only one of them changes a shape. Cropping a plane-sized frame by the band yields a square of
+    # exactly the right size, so the assertion that used to live on `crop.shape` passed through it.
+    Sabotage(
+        suite='python',
+        label='the frame size is checked on the crop instead of the render, so an unnarrowed camera passes',
+        path='pipeline/tile/block_render.py',
+        needle='    if frame.shape[1:] != (traced, traced):',
+        replacement='    if frame.shape[1:] < (traced, traced):',
+        guard='test_a_frame_the_size_of_the_PLANE_rather_than_the_traced_rectangle_raises',
+    ),
+    Sabotage(
+        suite='python',
+        label='--limit is read for truthiness, so limit 0 starts the whole planet instead of none',
+        path='pipeline/tile/block_render.py',
+        needle='        if limit is not None and rendered >= limit:',
+        replacement='        if limit and rendered >= limit:',
+        guard='test_limit_zero_renders_nothing_at_all',
+    ),
+    Sabotage(
+        suite='python',
+        label='completion is asked of the selection, so --only on one block stamps a whole planet',
+        path='pipeline/tile/block_render.py',
+        needle='    complete = all((markers / block_name(block)).exists() for block in blocks)',
+        replacement='    complete = all((markers / block_name(block)).exists() for block in selected)',
+        guard='test_a_named_subset_never_stamps_even_when_all_of_it_renders',
+    ),
+    Sabotage(
+        suite='python',
+        label='the run stops checking its warped inputs, so a missing stage reads as a dead GPU',
+        path='pipeline/tile/block_render.py',
+        needle='    missing = [path.name for path in required if not path.exists()]',
+        replacement='    missing = []',
+        guard='test_a_missing_heightfield_stops_the_run_by_name',
+    ),
+    # The rig's own recipe going short by one constant. The planet keeps rendering, the gates keep
+    # passing, and a look change made through that constant restages nothing at all.
+    Sabotage(
+        suite='python',
+        label='the rig recipe hand-picks instead of deriving, so a new constant reaches no planet',
+        path='pipeline/render/scene_build.py',
+        needle='        "rig": dataclasses.asdict(RIG),',
+        replacement='        "rig": {"samples": RIG.samples},',
+        guard='test_the_recipe_carries_the_structure_exactly',
+    ),
+    # The texture half of the same law. Recording only what THIS look loads reads as thrift and is
+    # the freshness hole in miniature: the optional four are declined by a body's planet seam rather
+    # than by its look, so a planet that GAINED sea ice would restage nothing.
+    Sabotage(
+        suite='python',
+        label='the recipe records only the textures loaded, so a body gaining one restages nothing',
+        path='pipeline/render/scene_build.py',
+        needle='        "textures": {name: dataclasses.asdict(spec) for name, spec in TEXTURES.items()},',
+        replacement='        "textures": {name: dataclasses.asdict(spec) for name, spec in textures_for(look).items()},',
+        guard='test_the_texture_table_is_in_the_recipe',
+    ),
+    Sabotage(
+        suite='python',
+        label='the block width drops the body ground ratio, which is exactly 1.0 on Earth',
+        path='pipeline/render/prep_block.py',
+        needle='    return (mercator_width * math.cos(math.radians(mid_latitude_deg(window, body)))\n'
+               '            * bodies.ground_metres_per_mercator_unit(body))',
+        replacement='    return mercator_width * math.cos(math.radians(mid_latitude_deg(window, body)))',
+        guard='test_the_width_matches_the_closed_form_including_the_body_ratio',
+    ),
+    Sabotage(
+        suite='python',
+        label='the per-row correction is dropped, which is what ships today',
+        path='pipeline/render/prep_block.py',
+        needle='    return np.cos(np.radians(mid_latitude_deg(window, body))) / np.cos(np.radians(latitudes))',
+        replacement='    return np.ones(window.height)',
+        guard='test_one_metre_of_elevation_displaces_the_bodys_exaggeration_on_every_row',
+    ),
+    Sabotage(
+        suite='python',
+        label='the per-row correction is inverted, so the poles flatten instead of rising',
+        path='pipeline/render/prep_block.py',
+        needle='    return np.cos(np.radians(mid_latitude_deg(window, body))) / np.cos(np.radians(latitudes))',
+        replacement='    return np.cos(np.radians(latitudes)) / np.cos(np.radians(mid_latitude_deg(window, body)))',
+        guard='test_one_metre_of_elevation_displaces_the_bodys_exaggeration_on_every_row',
+    ),
+    Sabotage(
+        suite='python',
+        label='the two mids disagree, which is uniform and therefore invisible to every seam',
+        path='pipeline/render/prep_block.py',
+        needle='    rows = np.arange(window.row_off, window.row_off + window.height, dtype=np.float64)',
+        replacement='    window = Window(window.col_off, window.row_off + 1, window.width, window.height)\n'
+                    '    rows = np.arange(window.row_off, window.row_off + window.height, dtype=np.float64)',
+        guard='test_one_metre_of_elevation_displaces_the_bodys_exaggeration_on_every_row',
+    ),
+    Sabotage(
+        suite='python',
+        label='the writer re-derives the law instead of calling it, so every case above lies CAUGHT',
+        path='pipeline/render/prep_block.py',
+        needle='    column = row_scale(window, body).reshape(-1, 1).astype(np.float32)',
+        replacement='    _rows = np.arange(window.row_off, window.row_off + window.height, dtype=np.float64)\n'
+                    '    _lat = np.array([block_plan.row_latitude_deg(float(r), body) for r in _rows])\n'
+                    '    column = (np.cos(np.radians(mid_latitude_deg(window, body)))\n'
+                    '              / np.cos(np.radians(_lat))).reshape(-1, 1).astype(np.float32)',
+        guard='test_the_column_equals_the_law_to_the_float32_it_is_stored_as',
+    ),
+    Sabotage(
+        suite='python',
+        label='the written column is flipped, which doubles the error and looks like a correction',
+        path='pipeline/render/prep_block.py',
+        needle='    column = row_scale(window, body).reshape(-1, 1).astype(np.float32)',
+        replacement='    column = row_scale(window, body)[::-1].reshape(-1, 1).astype(np.float32)',
+        guard='test_it_is_written_top_down_so_row_zero_is_the_northernmost',
+    ),
+    Sabotage(
+        suite='python',
+        label='the column is sized to the delivered block, stretching the correction over the context',
+        path='pipeline/render/prep_block.py',
+        needle='                       height=window.height, count=1, dtype="float32",\n'
+               '                       crs="EPSG:3857", transform=transform, **GTIFF_CREATE) as tif:',
+        replacement='                       height=block_plan.RENDER_BLOCK_PX, count=1, dtype="float32",\n'
+                    '                       crs="EPSG:3857", transform=transform, **GTIFF_CREATE) as tif:',
+        guard='test_it_is_one_pixel_wide_and_as_tall_as_the_PLANE',
+    ),
+    Sabotage(
+        suite='python',
+        label='the context is sized at the block centre, which is right only while the defect exists',
+        path='pipeline/block_plan.py',
+        needle='        nxt = context_for(max_relief_m, poleward_sizing_latitude(row0, context, body),',
+        replacement='        nxt = context_for(max_relief_m, row_latitude_deg(row0 + RENDER_BLOCK_PX / 2.0, body),',
+        guard='test_no_block_row_is_narrower_than_sizing_at_its_centre',
+    ),
+    Sabotage(
+        suite='python',
+        label='the sizing latitude takes the north edge, narrowing every southern block',
+        path='pipeline/block_plan.py',
+        needle='    return north if abs(north) >= abs(south) else south',
+        replacement='    return north',
+        guard='test_the_two_hemispheres_are_sized_alike',
     ),
     Sabotage(
         suite='python',
@@ -3980,7 +5275,12 @@ SABOTAGES: list[Sabotage] = [
         path='pipeline/planet_seam.py',
         needle='    scratch = vrt.with_suffix(".vrt.new")',
         replacement='    scratch = vrt.parent.parent / (vrt.name + ".new")',
-        guard='test_an_unchanged_source_set_leaves_the_file_untouched',
+        # The test that actually fires, which is the DIRECT one: it asserts the scratch path's
+        # parent. `test_an_unchanged_source_set_leaves_the_file_untouched` was named here for the
+        # CONSEQUENCE (GDAL writes relative source paths, so building elsewhere makes every
+        # comparison unequal and every re-index rewrite the VRT) and it does go red too — but a
+        # guard field naming a downstream symptom reads as coverage the direct guard already has.
+        guard='test_the_scratch_target_shares_the_vrts_directory',
     ),
     # The consumer side of the same seam. Each of these leaves a pass that runs to completion and
     # produces a whole planet; what changes is whether that planet's sea was declared or assumed.
@@ -4033,8 +5333,8 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the composite dependency list drops the masks to match cap_sources',
         path='pipeline/tile/shade_planet.py',
-        needle='    return (work / "height_3857.tif", hs, work / "ocean_3857.tif", work / "water_3857.tif",',
-        replacement='    return (work / "height_3857.tif", hs,',
+        needle='    return (work / HEIGHT_3857, hs, work / OCEAN_3857, work / WATER_3857,',
+        replacement='    return (work / HEIGHT_3857, hs,',
         guard='test_the_composite_names_the_masks_whatever_the_planet_declared',
     ),
     # --- Mars's planet producer ------------------------------------------------------------------
@@ -4075,7 +5375,7 @@ SABOTAGES: list[Sabotage] = [
         # adjacent lines. The claim is unchanged: land resolves to the sea's ramp, and every
         # continent is painted in the abyss's colours while the ramp stays monotonic.
         label='the look resolver hands back the sea ramp when land was asked for',
-        path='pipeline/render/palette.py',
+        path='pipeline/look/palette.py',
         needle='    if kind == "land":\n        return look.land',
         replacement='    if kind == "land":\n        return look.sea',
         guard='test_gdaldem_ramp_text_is_unchanged',
@@ -4087,7 +5387,7 @@ SABOTAGES: list[Sabotage] = [
         # What it actually does is hand `None` to a body with no sea and crash somewhere else --
         # or, worse, reach a caller that treats the absence as a ramp.
         label='the no-sea look stops refusing and returns its missing ramp instead',
-        path='pipeline/render/palette.py',
+        path='pipeline/look/palette.py',
         needle='        if look.sea is None:\n            raise ValueError(\n                "this look draws no sea',
         replacement='        if False:\n            raise ValueError(\n                "this look draws no sea',
         guard='test_a_look_with_no_sea_refuses_to_resolve_one',
@@ -4097,7 +5397,7 @@ SABOTAGES: list[Sabotage] = [
         # A body with no look inherits Earth's rather than raising -- the one-line "friendlier"
         # change that turns a hard stop into a whole plausible pyramid in another planet's colours.
         label='an unregistered body falls back to Earth\'s ramp instead of raising',
-        path='pipeline/render/palette.py',
+        path='pipeline/look/palette.py',
         needle='        return LOOK_BY_BODY[body]',
         replacement='        return LOOK_BY_BODY.get(body, EARTH_LOOK)',
         guard='test_an_unregistered_body_gets_no_look_at_all',
@@ -4132,7 +5432,7 @@ SABOTAGES: list[Sabotage] = [
         # and is now `Surface.lowest_m`. The mutation is the same defect and now reaches further —
         # it breaks Earth's sea AND every land ramp that starts below its body's datum.
         label='the sea LUT loses its abyss offset, so every depth reads the wrong colour',
-        path='pipeline/render/palette.py',
+        path='pipeline/look/palette.py',
         needle='    colors = [_srgb8(ramp_color((ramp.lowest_m + index * step',
         replacement='    colors = [_srgb8(ramp_color((0.0 + index * step',
         guard='test_relief_lut_bytes_are_unchanged',
@@ -4146,7 +5446,7 @@ SABOTAGES: list[Sabotage] = [
         # collapses the "duplication". Every Earth pixel is unchanged, every gate stays green, and
         # Mars silently goes back to wearing a shoreline hinge on a planet with no shore.
         label="Mars's ramp is pointed back at Earth's stops as a de-duplication",
-        path='pipeline/render/palette.py',
+        path='pipeline/look/palette.py',
         needle='    land=Surface(stops=MARS_LAND_STOPS, origin_m=-6000.0, extreme_m=6100.0),',
         replacement='    land=Surface(stops=EARTH_LOOK.land.stops, origin_m=-6000.0, extreme_m=6100.0),',
         guard='test_mars_draws_its_own_colours_and_no_longer_borrows_earths',
@@ -4158,7 +5458,7 @@ SABOTAGES: list[Sabotage] = [
         # property chosen over fidelity to the planet. Nothing renders wrong; two heights just
         # become one colour again, which is the defect the whole authored ramp exists to remove.
         label="a re-tune leaves Mars's ramp brighter in the middle than at the top",
-        path='pipeline/render/palette.py',
+        path='pipeline/look/palette.py',
         needle='    (1.000, (0.658375, 0.520996, 0.337164)),',
         replacement='    (1.000, (0.458375, 0.320996, 0.237164)),',
         guard='test_mars_land_rises_monotonically_so_height_can_be_read',
@@ -4185,7 +5485,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='the ramp hinges on the datum again, so a body below it loses half its colours',
-        path='pipeline/render/palette.py',
+        path='pipeline/look/palette.py',
         needle='        return min(self.origin_m, self.extreme_m)',
         replacement='        return min(0.0, self.extreme_m)',
         guard='test_mars_land_spans_its_own_measured_elevations',
@@ -4213,7 +5513,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='a zero-width ramp is admitted, so a planet renders from an arbitrary LUT index',
-        path='pipeline/render/palette.py',
+        path='pipeline/look/palette.py',
         needle='        if self.origin_m == self.extreme_m:',
         replacement='        if False:',
         guard='test_a_zero_width_ramp_is_refused_at_declaration',
@@ -4222,11 +5522,61 @@ SABOTAGES: list[Sabotage] = [
     # Its own guard could not see this until it stopped comparing against a literal zero.
     Sabotage(
         suite='python',
-        label="the hero rig restates the datum instead of reading the ramp's own origin",
+        label="the shared rig restates the datum instead of reading the ramp's own origin",
         path='pipeline/render/scene_build.py',
-        needle='LAND_RANGE = (_HERO_LOOK.land.origin_m, _HERO_LOOK.land.extreme_m)',
-        replacement='LAND_RANGE = (0.0, _HERO_LOOK.land.extreme_m)',
+        needle='        land_range=(look.land.origin_m, look.land.extreme_m),',
+        replacement='        land_range=(0.0, look.land.extreme_m),',
         guard='test_the_origin_is_READ_and_not_coincidentally_zero',
+    ),
+    # Both below fail toward a planet that renders: a sea Mars never asked for, and a mask file the
+    # block prep was never going to write. Neither raises, and Earth is unaffected by either.
+    Sabotage(
+        suite='python',
+        label='every look inherits Earth\'s sea, so a body that draws none gets one anyway',
+        path='pipeline/render/scene_build.py',
+        needle='    sea = look.sea\n',
+        replacement='    sea = look.sea or palette.EARTH_LOOK.sea\n',
+        guard='test_mars_gets_no_sea_ramp',
+    ),
+    Sabotage(
+        suite='python',
+        label='the rig asks every body for an oceanmask, including the ones with no sea',
+        path='pipeline/render/scene_build.py',
+        needle='            if not spec.optional and (look.sea is not None or name != SEA_IMAGE)}',
+        replacement='            if not spec.optional}',
+        guard='test_the_oceanmask_is_not_asked_for',
+    ),
+    # The scene and its frame are the two places one fact lives, so one of them has to be
+    # executable. Absent the check a wrong flag draws another planet's ramps and nothing raises.
+    Sabotage(
+        suite='python',
+        label='a frame written for another body is rendered anyway, in this one\'s ramps',
+        path='pipeline/render/scene_build.py',
+        needle='    if frame["body"] != args.body:',
+        replacement='    if False:',
+        guard='test_a_flag_disagreeing_with_the_frame_stops_the_render',
+    ),
+    # --- The exaggeration belongs to the body ---------------------------------------------------
+    # `scene_numbers` is the hero path's seam AND the block prep's, and the block prep runs on both
+    # planets. Earth's constant here is exactly 1.0's cousin: correct where it was written, and a
+    # flatter planet with no error anywhere else.
+    Sabotage(
+        suite='python',
+        label="the render seam re-imports Earth's exaggeration instead of taking the body's",
+        path='pipeline/render/render_prep.py',
+        needle='        displacement_scale=exaggeration / (extent_w_m / 2.0),',
+        replacement='        displacement_scale=15.0 / (extent_w_m / 2.0),',
+        guard='test_mars_displaces_at_its_own_number_and_not_earths',
+    ),
+    # frame.json is never overwritten, so a pin can only be checked by regenerating beside it. A
+    # tolerated stray or missing key makes that comparison fail for a reason that is not geometry.
+    Sabotage(
+        suite='python',
+        label='frame.json tolerates a missing key, writing null where a number belongs',
+        path='pipeline/render/render_prep.py',
+        needle='    if missing or unknown:',
+        replacement='    if unknown:',
+        guard='test_a_missing_key_is_refused_rather_than_written_as_null',
     ),
     # --- Where a body's intermediates live -----------------------------------------------------------
     # The body is carried by the PATH, deliberately not by the freshness recipes: adding a body key to
@@ -4292,7 +5642,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='--body regains a default, so a pass with no planet named silently means Earth',
-        path='pipeline/tile/shade_planet.py',
+        path='pipeline/tile/planet_pass.py',
         needle='    ap.add_argument("--body", required=True,',
         replacement='    ap.add_argument("--body", default="earth",',
         guard='test_omitting_the_body_is_an_error_rather_than_an_assumption',
@@ -4301,10 +5651,158 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='--out stops overriding the body default, so an A/B overwrites the live pyramid',
-        path='pipeline/tile/shade_planet.py',
+        path='pipeline/tile/planet_pass.py',
         needle='    return args.out if args.out is not None else bodies.work_dir(resolve_body(args), "planet_tiles")',
         replacement='    return bodies.work_dir(resolve_body(args), "planet_tiles")',
         guard='test_an_explicit_out_still_wins_over_the_body_s_default',
+    ),
+    # --- The producer choice: dispatch, refusal, and the stamp that makes a switch visible -------
+    # Every one of these is silent in production. The dispatcher runs SOME producer, the deps lists
+    # still gate on real files, and the pass prints its usual stage lines throughout.
+    Sabotage(
+        suite='python',
+        # The registry drops a producer the vocabulary still allows. A body naming it then falls
+        # through the `KeyError` into the refusal — which reads as a typo rather than as a missing
+        # implementation, and points the reader at `bodies.py` instead of at this file.
+        label='the dispatch registry stops answering for a producer the vocabulary allows',
+        path='pipeline/tile/planet_pass.py',
+        needle='    "raytrace": Producer(_raytrace, block_render.rig_seam_refusals),\n',
+        replacement='',
+        guard='test_the_registry_and_the_vocabulary_are_the_same_set',
+    ),
+    Sabotage(
+        suite='python',
+        # ITEM 4's ORDERING. Moving the refusal after the warp reads as grouping the reads together
+        # and is the whole defect: the answer never depended on the warp, so a wrongly-declared body
+        # paid a full Earth height warp -- 6:49, on every run and every resume -- to hear the same
+        # no. The producer still refuses, so nothing renders wrong; it just costs the expensive
+        # shared stage first, which is exactly the failure `check_inputs` exists to prevent one
+        # tier down.
+        label='the producer refusal moves after the warp, so a bad declaration costs 6 49 to learn',
+        path='pipeline/tile/planet_pass.py',
+        needle='    refusals = cannot_run(body, rasters)\n',
+        replacement='',
+        guard='test_the_refusal_comes_before_the_warp',
+    ),
+    Sabotage(
+        suite='python',
+        # The raytrace producer stops answering who may choose it. Reads as removing a redundant
+        # check -- `check_inputs` asks the same question inside the producer -- and re-opens the gap
+        # the pass exists to close: the registry can then hold a body/producer pair that cannot run,
+        # and nothing says so until a night has been spent warping for it.
+        label='the raytrace claims it runs on any seam, so an impossible pairing is never refused',
+        path='pipeline/tile/planet_pass.py',
+        needle='    "raytrace": Producer(_raytrace, block_render.rig_seam_refusals),',
+        replacement='    "raytrace": Producer(_raytrace, _composite_runs_on_any_seam),',
+        guard='test_a_seam_that_cannot_feed_the_rig_refuses_the_raytrace',
+    ),
+    Sabotage(
+        suite='python',
+        # The tidy-looking version, and the most expensive mutation in this block: an unknown
+        # producer quietly composites. A night of GPU is not spent, it is simply never started, and
+        # the pass reports a complete planet made by a producer nobody chose.
+        label='an unknown producer falls back to the composite instead of refusing',
+        path='pipeline/tile/planet_pass.py',
+        needle='        return PRODUCERS[body.planet_producer]\n',
+        replacement='        return PRODUCERS.get(body.planet_producer, _composite)\n',
+        guard='test_a_producer_nothing_runs_is_refused_by_name',
+    ),
+    Sabotage(
+        suite='python',
+        # Reads as tidying an odd entry out of a list of warp sources. It is the entry that is not
+        # one, and dropping it lets a composite skip over a raytraced raster reporting it fresh.
+        label='the composite drops the producer stamp, so it reads raytraced pixels as its own',
+        path='pipeline/tile/shade_planet.py',
+        needle='            *(layer.warped_in(work) for layer in'
+               ' layers.warped_for(layers.COMPOSITE_LAYERS)),\n'
+               '            params,\n'
+               '            producer_seam.stamp_path(work))',
+        replacement='            *(layer.warped_in(work) for layer in'
+                    ' layers.warped_for(layers.COMPOSITE_LAYERS)),\n'
+                    '            params)',
+        guard='test_the_composite_names_it',
+    ),
+    Sabotage(
+        suite='python',
+        # The same edit on the other side, and the direction that publishes composited pixels under
+        # a raytrace recipe. Both halves are needed: one list naming it detects nothing.
+        label='the raytrace drops the producer stamp, so it reads composited pixels as its own',
+        path='pipeline/tile/block_render.py',
+        needle='            *(layer.warped_in(work) for layer in'
+               ' layers.warped_for(layers.BLOCK_LAYERS)), recipe,\n'
+               '            producer_seam.stamp_path(work))',
+        replacement='            *(layer.warped_in(work) for layer in'
+                    ' layers.warped_for(layers.BLOCK_LAYERS)), recipe)',
+        guard='test_the_raytrace_names_it',
+    ),
+    Sabotage(
+        suite='python',
+        # The stamp is written unconditionally, which looks simpler and is the one change that
+        # inverts its whole purpose: every pass then moves its mtime, so every pass restages the
+        # planet it was about to skip. Correct output, at a full re-render each time.
+        label='the producer stamp is rewritten every pass, so an unchanged body restages',
+        path='pipeline/tile/producer_seam.py',
+        needle='    return freshness.write_if_changed(stamp_path(work),\n'
+               '                                      json.dumps({"producer": producer}, indent=2) + "\\n")',
+        replacement='    stamp = stamp_path(work)\n'
+                    '    stamp.write_text(json.dumps({"producer": producer}, indent=2) + "\\n")\n'
+                    '    return stamp',
+        guard='test_an_unchanged_producer_does_not_move_the_mtime',
+    ),
+    Sabotage(
+        suite='python',
+        # THE PLACEMENT, WHICH IS WHAT THE FIRST VERSION GOT WRONG. Moving the declaration back to
+        # the dispatcher reads as tidying: the pass knows the producer, so why should the producer
+        # repeat it? Because `block_render.main` is a second shipped door that never reaches the
+        # dispatcher, and an ABSENT stamp scores 0.0 in `newest_mtime` — so the dependency both
+        # recipes name contributes nothing and the whole mechanism goes inert.
+        label='only the dispatcher declares the producer, so the runner s own door bypasses it',
+        path='pipeline/tile/block_render.py',
+        needle='    producer_seam.declare(work, "raytrace")\n',
+        replacement='',
+        guard='test_the_raytrace_door_records_the_raytrace',
+    ),
+    Sabotage(
+        suite='python',
+        # Recording the BODY's answer instead of the producer that ran. Reads more principled --
+        # the registry is the source of truth -- and is the one value guaranteed to agree with a
+        # registry the pixels disagree with, which is precisely the state that reads as fresh.
+        label='the stamp records the body s declared producer rather than the one that ran',
+        path='pipeline/tile/block_render.py',
+        needle='    producer_seam.declare(work, "raytrace")',
+        replacement='    producer_seam.declare(work, body.planet_producer)',
+        guard='test_it_declares_the_producer_that_RAN_not_the_one_the_body_asked_for',
+    ),
+    Sabotage(
+        suite='python',
+        # The seam check stops refusing anything. Mars then passes every raster check — it is not
+        # asked for a file it never had — and fails inside Blender on the eighth block, under the
+        # message that says the GPU is gone about a rig input no block on that body can carry.
+        label='the rig-seam check accepts every planet, so a bodyless image fails as a dead GPU',
+        path='pipeline/tile/block_render.py',
+        needle='    return [] if "watermask" in rasters else [render_seam.INLANDLAKE, render_seam.RIVER]',
+        replacement='    return []',
+        guard='test_the_refusal_names_both_images_no_block_can_carry',
+    ),
+    Sabotage(
+        suite='python',
+        # A validity test in place of a producer test: it reads as the stricter check and can never
+        # fire, because the vocabulary is exactly where the field's values come from.
+        label='the knob refusal checks the vocabulary instead of the producer, so it never fires',
+        path='pipeline/tile/planet_pass.py',
+        needle='    if overrides and body.planet_producer != "composite":',
+        replacement='    if overrides and body.planet_producer not in bodies.PLANET_PRODUCERS:',
+        guard='test_a_raytraced_body_refuses_one',
+    ),
+    Sabotage(
+        suite='python',
+        # The completion test always says yes, which is invisible on the composite path — it
+        # finishes or it raises — and cuts a pyramid from a part-rendered planet on the other.
+        label='a part-rendered planet reads as complete, so the cut ships a pyramid with holes',
+        path='pipeline/tile/planet_pass.py',
+        needle='    return not is_stale(planet_tif)',
+        replacement='    return True',
+        guard='test_a_raster_with_no_marker_is_incomplete',
     ),
     # --- The caps' body facts ------------------------------------------------------------------------
     # The AEQD sphere moved onto the body. Both mutations below leave caps that render, project and
@@ -4760,7 +6258,7 @@ SABOTAGES: list[Sabotage] = [
         # very line is a reachable CONSTANT that must go on passing. One `\b` decides between them,
         # and nothing else in the suite would notice if it were dropped.
         label='a pointer at the untracked Mars brief, planted on the line that proves the boundary',
-        path='pipeline/render/palette.py',
+        path='pipeline/look/palette.py',
         needle='see MARS_ICE_WHITE',
         replacement='see MARS.md',
         guard='test_no_reference_to_a_file_a_clone_will_not_have',
@@ -5465,13 +6963,13 @@ SABOTAGES: list[Sabotage] = [
         guard="takes Earth's floor from the pipeline's own stop rather than a third copy of the hex",
     ),
     # --- The cap pass takes its own body ---------------------------------------------------------
-    # The same argument the shade pass requires, on the entry point that renders the caps. A default
-    # here is worse than one there: the caps are invoked automatically at the shade pass's tail, so
+    # The same argument the planet pass requires, on the entry point that renders the caps. A default
+    # here is worse than one there: the caps are invoked automatically at the planet pass's tail, so
     # a defaulted body means a Mars pass ends by re-rendering Earth's poles and reporting success.
     Sabotage(
         suite='python',
         label='the cap pass defaults its body, so a Mars pass ends by re-rendering Earth\'s poles',
-        path='pipeline/tile/cap_render.py',
+        path='pipeline/tile/cap_pass.py',
         needle='    parser.add_argument("--body", required=True,',
         replacement='    parser.add_argument("--body", default="earth",',
         guard='test_omitting_the_body_is_an_error_rather_than_an_assumption',
@@ -5480,19 +6978,19 @@ SABOTAGES: list[Sabotage] = [
     # name is silent, and stays silent until the day a second body exists.
     Sabotage(
         suite='python',
-        label='the shade pass hands the cap pass a hardcoded earth instead of its own body',
-        path='pipeline/tile/shade_planet.py',
-        needle='    return [sys.executable, "-m", "pipeline.tile.cap_render", "--body", body.name]',
-        replacement='    return [sys.executable, "-m", "pipeline.tile.cap_render", "--body", "earth"]',
-        guard='test_the_shade_pass_hands_its_own_body_down_to_the_cap_pass',
+        label='the pass hands the cap pass a hardcoded earth instead of its own body',
+        path='pipeline/tile/planet_pass.py',
+        needle='    return [sys.executable, "-m", "pipeline.tile.cap_pass", "--body", body.name]',
+        replacement='    return [sys.executable, "-m", "pipeline.tile.cap_pass", "--body", "earth"]',
+        guard='test_the_pass_hands_its_own_body_down_to_the_cap_pass',
     ),
     Sabotage(
         suite='python',
-        label='the shade pass stops passing --body to the cap pass at all',
-        path='pipeline/tile/shade_planet.py',
-        needle='    return [sys.executable, "-m", "pipeline.tile.cap_render", "--body", body.name]',
-        replacement='    return [sys.executable, "-m", "pipeline.tile.cap_render"]',
-        guard='test_the_shade_pass_hands_its_own_body_down_to_the_cap_pass',
+        label='the pass stops passing --body to the cap pass at all',
+        path='pipeline/tile/planet_pass.py',
+        needle='    return [sys.executable, "-m", "pipeline.tile.cap_pass", "--body", body.name]',
+        replacement='    return [sys.executable, "-m", "pipeline.tile.cap_pass"]',
+        guard='test_the_pass_hands_its_own_body_down_to_the_cap_pass',
     ),
     # --- The grids are built per body ----------------------------------------------------------
     # A factory that ignores its argument is the exact failure the module constants were deleted to
@@ -5516,8 +7014,20 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the cap mesh reaches further equatorward than the texture disc it samples',
         path='web/src/lib/polarCaps.ts',
-        needle='export const MESH_EDGE_LAT = 80;',
-        replacement='export const MESH_EDGE_LAT = 79;',
+        needle='export const MESH_EDGE_LAT = 82;',
+        replacement='export const MESH_EDGE_LAT = 81;',
+        guard='test_the_cap_latitude_ladder_holds',
+    ),
+    # THE RUNG THE LADDER USED TO OMIT. Ordering alone admits a fade 0.05 degrees wide, and an arm
+    # shipped exactly that: the cap rendered as a hard-edged circle over the tiles. This mutation
+    # leaves every ordering rung satisfied -- 82 <= 84 <= 84 < 85.05 -- so only the WIDTH rung can
+    # fail, which is what makes it a test of that rung rather than of the ladder in general.
+    Sabotage(
+        suite='python',
+        label='the cap feather collapses to a width that shows the disc as a hard circle',
+        path='web/src/lib/polarCaps.ts',
+        needle='export const FEATHER_LO = 82;',
+        replacement='export const FEATHER_LO = 84;',
         guard='test_the_cap_latitude_ladder_holds',
     ),
     # The URL is rebuilt from the basename, which is what it used to be. Correct for Earth, whose
@@ -6066,9 +7576,16 @@ SABOTAGES: list[Sabotage] = [
         #
         # A hand-edited leaf count now has no oracle inside the suite — only `check:tile-tokens`,
         # which reads the archives themselves and so cannot run on a checkout without a data store.
+        #
+        # THIS NEEDLE RE-ANCHORS ON EVERY RE-CUT OF THE ARCHIVE IT NAMES, and it is the only case
+        # here whose file is GENERATED — so it breaks when a pipeline runs rather than when someone
+        # edits code, and the break surfaces on CI well after the run that caused it. The guard
+        # quantifies over every entry, so any token would serve; this one is Earth's relief because
+        # that is the archive the deploy rule is written about, which keeps the coupling visible.
+        # Re-cut procedure, including this line: `.claude/rules/tile-worker-and-delivery.md`.
         label='a token is committed as its placeholder, addressing an archive nothing can bust',
         path='web/src/lib/tileTokens.json',
-        needle='"token": "4d04db58"',
+        needle='"token": "7a5e21c1"',
         replacement='"token": "00000000"',
         guard='holds a real hash for every one, never the placeholder',
     ),
@@ -6322,6 +7839,120 @@ SABOTAGES: list[Sabotage] = [
         replacement='',
         guard='says so in the read-out rather than going quiet',
     ),
+    # --- what a night reports, and what it deliberately does not ----------------------------------
+    # Every case here leaves the pass rendering correct pixels. What breaks is the reader's view of a
+    # 22-hour run: either it goes silent, which is how four of Earth's five surface layers went
+    # unreported for months, or it goes loud 4,096 times, which is the same failure spent the other
+    # way. Neither shows in any output, and no other gate is about a print.
+    Sabotage(
+        suite='python',
+        # The marker dropped from the helper. Reads like removing noise from a log, and every call
+        # site still prints exactly what it printed before -- so the pass looks identical and the
+        # watcher matches nothing on any body, producer or layer.
+        label='the stage helper stops marking, so nothing the pass announces is reported',
+        path='pipeline/progress.py',
+        needle='    return f"{STAGE_MARKER} {message}"',
+        replacement='    return message',
+        guard='test_a_stage_no_one_has_written_yet_is_reported',
+    ),
+    Sabotage(
+        suite='python',
+        # The regex goes back to a list of phrasings. It is CORRECT for every stage on it, which is
+        # what made the original survive: a stage the list has not been taught about is invisible,
+        # and an invisible stage looks exactly like one that has not started.
+        label='the watcher holds its own list of phrasings again instead of matching the marker',
+        path='pipeline/profile/watchdog.py',
+        needle='STAGE_RE = re.compile(re.escape(progress.STAGE_MARKER))',
+        replacement='STAGE_RE = re.compile(r"warp height ->|per-row-z hillshade|cutting z0-8")',
+        guard='test_a_stage_no_one_has_written_yet_is_reported',
+    ),
+    Sabotage(
+        suite='python',
+        # The keyword accepted and ignored: every call site still reads as if it marks a boundary.
+        label='block_render takes the stage flag and drops it, so the runner announces nothing',
+        path='pipeline/tile/block_render.py',
+        needle='    if stage:\n        message = progress.marked(message)\n',
+        replacement='',
+        guard='test_the_run_starting_is_a_stage',
+    ),
+    Sabotage(
+        suite='python',
+        # The other direction, and the one that reads as fixing an omission: the per-block line is
+        # the most informative line in the run, so marking it looks like an improvement. It is 4,096
+        # wake-ups in a night on Earth, which is why the sidecar carries progress instead.
+        label='the per-block line becomes a stage, so a night wakes the reader 4,096 times',
+        path='pipeline/tile/block_render.py',
+        needle="            f\"{status.done}/{status.total} ({100 * status.done / status.total:.1f}%)\")",
+        replacement="            f\"{status.done}/{status.total} ({100 * status.done / status.total:.1f}%)\",\n"
+                    "            stage=True)",
+        guard='test_the_per_block_line_wakes_nobody',
+    ),
+    Sabotage(
+        suite='python',
+        # A failure matched only when the exception text happens to carry the word. A CUDA message
+        # does; a segfault, an Xid MMU fault and a Blender exit code do not, so the failures that
+        # mean the GPU is gone are exactly the ones that stay quiet.
+        label='the fault net drops the runner s own words for a dead block and a dead run',
+        path='pipeline/profile/watchdog.py',
+        needle='FAULT_RE = re.compile(r"(Traceback|MemoryError|Killed|ABORT|FAILED|Error|error)")',
+        replacement='FAULT_RE = re.compile(r"(Traceback|MemoryError|Killed|Error|error)")',
+        guard='test_a_block_failing_is_a_fault_whatever_it_failed_with',
+    ),
+    Sabotage(
+        suite='python',
+        # Stage before fault, which is the order the reasons are declared in. An abort is a stage
+        # boundary too, so the reader is woken either way -- and told the run reached a stage.
+        label='a stage that is also a failure is reported as a stage',
+        path='pipeline/profile/watchdog.py',
+        needle='    if FAULT_RE.search(line):\n        return "FAULT"\n    if STAGE_RE.search(line):\n        return "STAGE"',
+        replacement='    if STAGE_RE.search(line):\n        return "STAGE"\n    if FAULT_RE.search(line):\n        return "FAULT"',
+        guard='test_the_run_giving_up_is_a_fault',
+    ),
+    Sabotage(
+        suite='python',
+        # Differencing instead of banding. It fires at roughly the right rate, which is what makes
+        # it survive review, and the milestones drift with wherever the previous report landed.
+        label='progress is differenced rather than banded, so the milestones drift off the planet',
+        path='pipeline/profile/watchdog.py',
+        needle='    return int(current // step) > int(previous // step)',
+        replacement='    return current - previous >= step',
+        guard='test_a_milestone_fires_and_the_steps_between_do_not',
+    ),
+    Sabotage(
+        suite='python',
+        # The baseline read reports. Harmless-looking, and it means a watcher pointed at a finished
+        # run announces last night's result as this night's progress before anything has happened.
+        label='the first sidecar read fires, so last night s status is reported as tonight s',
+        path='pipeline/profile/watchdog.py',
+        needle='    if previous is None:\n        return False',
+        replacement='    if previous is None:\n        return True',
+        guard='test_the_first_read_never_fires',
+    ),
+    Sabotage(
+        suite='python',
+        # An optional input that goes quiet when it is missing. A raytraced night watched without
+        # --status then looks exactly like one whose producer never rendered a block.
+        label='the missing sidecar stops saying which absence it is',
+        path='pipeline/profile/watchdog.py',
+        needle='        return None, "no --status given"',
+        replacement='        return None, None',
+        guard='test_absence_says_which_absence_it_is',
+    ),
+    Sabotage(
+        suite='python',
+        # Back to `: > pass.log`. The pass still resumes correctly -- blocks are skipped by marker
+        # existence -- so nothing is lost but the record of which of them failed on every night but
+        # the last, on a producer whose whole point is that it runs across several.
+        label='the pass log is emptied at the top of every run, so a resumed render loses its record',
+        path='pipeline/profile/run_pass.sh',
+        needle='if [[ -s "$PROF/pass.log" ]]; then\n'
+               '    # Named for when that run\'s log was last written rather than for now, so the filename says\n'
+               '    # which night it covers, and so re-running twice inside one second cannot land on one name.\n'
+               '    mv "$PROF/pass.log" "$PROF/pass-$(date -r "$PROF/pass.log" +%Y%m%dT%H%M%S).log"\n'
+               'fi\n',
+        replacement='',
+        guard='test_a_prior_runs_log_survives_the_next_run',
+    ),
     # --- the pass's memory cap becomes the body's --------------------------------------------------
     # Every case here restores "one cap for every planet" while the harness still starts, still caps,
     # and still prints a preflight line. The damage is asymmetric and that is why they are worth
@@ -6390,6 +8021,65 @@ SABOTAGES: list[Sabotage] = [
         replacement='STANDING_GIB = 16',
         guard='test_the_two_numbers_actually_differ',
     ),
+    Sabotage(
+        suite='python',
+        # A pass sized off a measurement instead of off the policy. It reads as the responsible
+        # change -- the caps peak 14.41 GiB and 20 G is honest headroom -- and it is a pass running
+        # outside the ratified one-heavy-job-at-a-time ceiling, which is a decision rather than a
+        # constant. Nothing checked the relationship, and the cap has sat exactly AT the ceiling
+        # since the caps stage pushed it there, so the first body to want more takes it silently.
+        label='the pass cap is raised past the ratified heavy-job ceiling',
+        path='pipeline/profile/pass_cap.py',
+        needle='CAP_RENDERING_GIB = 16',
+        replacement='CAP_RENDERING_GIB = 20',
+        guard='test_no_pass_is_capped_above_the_ratified_ceiling',
+    ),
+    Sabotage(
+        suite='python',
+        # The base grid starts varying with the plane span. It reads as a refinement -- dice in
+        # proportion to what you are dicing -- and it silently re-creates the thing a measured join
+        # step was wrongly blamed on: a per-block parameter that differs across a shared edge.
+        label='the base grid scales with the plane, so neighbours can dice differently again',
+        path='pipeline/render/scene_build.py',
+        needle='    return max(1, math.ceil(span_px / 2 ** RIG.max_subdivisions))',
+        replacement='    return max(1, math.ceil(span_px / 2048))',
+        guard='test_the_base_grid_cannot_discriminate_between_neighbouring_blocks',
+    ),
+    Sabotage(
+        suite='python',
+        # The document goes back to naming the module the pass used to live in. It reads as a true
+        # sentence -- shade_planet is still where the shared stages and the composite producer are
+        # -- and it names a module with no CLI at all, so a reader who runs it gets exit 0 and no
+        # output. This exact sentence carried the stale name for the whole of the arc.
+        label='the docs name a planet stage that has no entry point to require a body',
+        path='docs/pipeline.md',
+        needle='**The four planet-raster stages take a required `--body`**: `planet_pass`,',
+        replacement='**The four planet-raster stages take a required `--body`**: `shade_planet`,',
+        guard='test_every_stage_the_docs_name_actually_refuses_an_empty_argv',
+    ),
+    Sabotage(
+        suite='python',
+        # The wrapper forwards argv to one module while the resolver parses it with another. Both
+        # halves keep working on today's flags, because the two grammars still overlap; what breaks
+        # is the day one of them grows a flag, and nothing about the failure points here.
+        label='the harness forwards its argv to a module the cap resolver does not parse with',
+        path='pipeline/profile/run_pass.sh',
+        needle='"$VENV" -u -m pipeline.tile.planet_pass "$@" 2>&1',
+        replacement='"$VENV" -u -m pipeline.tile.shade_planet "$@" 2>&1',
+        guard='test_the_shell_and_the_resolver_name_the_same_module',
+    ),
+    Sabotage(
+        suite='python',
+        # A figure this module argues from goes stale against PROCESS, which is what it points at.
+        # Both retired figures got here exactly this way and neither was noticed: the prose still
+        # reads as sourced, and a reader who follows the pointer finds a different number with
+        # nothing saying the two disagree.
+        label='the module argues from a composite peak PROCESS no longer carries',
+        path='pipeline/profile/pass_cap.py',
+        needle='- Earth at z8: `cap_render` **14.41 GiB** · composite **12.56 GiB**',
+        replacement='- Earth at z8: `cap_render` **14.41 GiB** · composite **11.02 GiB**',
+        guard='test_every_figure_the_module_argues_from_is_one_PROCESS_still_carries',
+    ),
     # `set -u` does NOT catch this: a failed command substitution assigns the EMPTY STRING rather
     # than leaving the name unset, so the cap becomes `G`, the arithmetic compares against zero, and
     # a run with no body sails through the preflight into a cgroup scope.
@@ -6401,17 +8091,19 @@ SABOTAGES: list[Sabotage] = [
         replacement='pipeline.profile.pass_cap "$@")',
         guard='test_an_omitted_body_is_refused_before_the_scope_opens',
     ),
-    # The panel's own defect, restored: indexing `sizes[0]` unconditionally asks for
-    # `<slug>-undefined.webp`, which 404s behind a spinner. Nothing on Earth reaches it today, which
-    # is exactly why it survived — the branch only became reachable when a body with no renders
-    # arrived.
+    # RETIRED AND REPLACED, because the defect it modelled is now unreachable rather than merely
+    # unguarded: it restored `sizes[0]` indexed unconditionally, asking for `<slug>-undefined.webp`,
+    # and Earth's builder no longer composes a hero URL at all. What can still go wrong is the
+    # figure coming BACK, so that is what this mutates. `names no hero asset` catches it too, from
+    # the structural side, which is what would survive a figure rebuilt under another field name.
     Sabotage(
         suite='web',
-        label='an unrendered place asks for a hero variant that does not exist',
+        label='the country card grows a hero figure again',
         path='web/src/lib/detailPanel.ts',
-        needle='    sizes.length === 0\n      ? null\n      : {',
-        replacement='    false\n      ? null\n      : {',
-        guard='yields NO figure for an unrendered country rather than a broken image',
+        needle='    note: null,\n    figure: null,',
+        replacement='    note: null,\n    figure: { aspect: 1, src: HERO_BASE + slug + "-640.webp",'
+                    ' srcset: "", alt: name, border: null },',
+        guard='carries NEITHER a figure nor a note, whatever the country has rendered',
     ),
     # A portrait hero's key names its HEIGHT. Taking the descriptor from the key overstates every
     # portrait variant's width, so the browser settles for a rung too small — and the picture is
@@ -6440,9 +8132,20 @@ SABOTAGES: list[Sabotage] = [
         suite='web',
         label='a querySelector keeps a class the markup no longer carries',
         path='web/src/components/Globe.astro',
-        needle='panel.querySelector(".dp-note")!.textContent = content.note;',
-        replacement='panel.querySelector(".dp-caption")!.textContent = content.note;',
+        needle='const noteEl = panel.querySelector(".dp-note") as HTMLElement;',
+        replacement='const noteEl = panel.querySelector(".dp-caption") as HTMLElement;',
         guard='selects only classes the markup actually carries',
+    ),
+    # The note's element is emptied instead of hidden. The DOM reads correct and the screen does
+    # not: `.dp-note` keeps its 0.85rem bottom margin around an empty `<p>`, so every Earth card
+    # carries the gap its deleted sentence used to fill and the link sits away from the name.
+    Sabotage(
+        suite='web',
+        label='a card with no note empties the element instead of hiding it',
+        path='web/src/components/Globe.astro',
+        needle='    if (content.note === null) {\n      noteEl.hidden = true;',
+        replacement='    if (false) {\n      noteEl.hidden = true;',
+        guard="hides the note's own element, not just its text, on a card that has no note",
     ),
     # The note goes back to being a sentence in the markup that claims the card shows a ray-traced
     # render. True on Earth, false on Mars, and nothing renders differently on Earth either way.
@@ -7297,17 +9000,175 @@ SABOTAGES: list[Sabotage] = [
         replacement='    if True:',
         guard='test_a_source_no_grep_could_find_is_reported',
     ),
+    # The denoise device is the only Cycles setting the two callers of `scene_build` disagree about,
+    # and every failure below is silent in the direction that matters. Losing the opt-in costs six
+    # hours a pass and nothing reports it; gaining it on the hero path puts 203 pinned renders at a
+    # frame size where the driver is known to fault; losing it from the recipe leaves two denoisers
+    # writing one mosaic with nothing on disk saying which made which block.
+    Sabotage(
+        suite='python',
+        label='the block runner stops asking for GPU denoise and silently pays CPU for the planet',
+        path='pipeline/tile/block_render.py',
+        needle=('            "--denoise-device", BLOCK_DENOISE_DEVICE,\n'
+                '            "--base-grid", BLOCK_BASE_GRID]'),
+        replacement='            "--base-grid", BLOCK_BASE_GRID]',
+        guard='test_the_block_runner_opts_in',
+    ),
+    Sabotage(
+        suite='python',
+        label='the rig default flips to gpu, opting every hero into an untested frame size',
+        path='pipeline/render/scene_build.py',
+        needle='ap.add_argument("--denoise-device", choices=("cpu", "gpu"), default="cpu",',
+        replacement='ap.add_argument("--denoise-device", choices=("cpu", "gpu"), default="gpu",',
+        guard='test_the_default_the_hero_inherits_is_cpu',
+    ),
+    Sabotage(
+        suite='python',
+        label='the hero stage starts passing the denoise flag it must inherit instead',
+        path='pipeline/frame/country_config.py',
+        needle='         f" --body {bodies.EARTH.name} --render-dir {rd}"',
+        replacement='         f" --body {bodies.EARTH.name} --render-dir {rd} --denoise-device gpu"',
+        guard='test_the_hero_stage_does_not_pass_the_flag',
+    ),
+    Sabotage(
+        suite='python',
+        label='the block recipe forgets the denoise device, so switching it restages nothing',
+        path='pipeline/tile/block_render.py',
+        needle='        "denoise_device": BLOCK_DENOISE_DEVICE,',
+        replacement='',
+        guard='test_moving_it_moves_the_recipe',
+    ),
+    # The ice edge's softening. Each of the three below is silent: the alpha stays in 0..1, the
+    # composite blends it, every other test passes, and what changes is the shape of an edge at
+    # latitudes no unit test looked at until this one.
+    Sabotage(
+        suite='python',
+        label='the tile producer stops softening, so only the cap side of the crossfade is smooth',
+        path='pipeline/look/layer_producers.py',
+        needle='        persistence_alpha = snow.soften_source_cells(\n'
+               '            snow.snow_alpha(snow.unpack_persistence(window.raw), window.top, '
+               'window.bottom),\n'
+               '            window.ground_metres_per_px)',
+        replacement='        persistence_alpha = snow.snow_alpha(\n'
+                    '            snow.unpack_persistence(window.raw), window.top, window.bottom)',
+        guard='test_the_tile_producer_feathers',
+    ),
+    Sabotage(
+        suite='python',
+        label='the north cap stops softening, so only the tile side of the crossfade is smooth',
+        path='pipeline/look/perennial_ice.py',
+        needle='    return snow.soften_source_cells(alpha, inputs.ground_metres_per_px)',
+        replacement='    return alpha',
+        guard='test_the_cap_producer_feathers',
+    ),
+    Sabotage(
+        suite='python',
+        label='sigma becomes a pixel count, so the blur stops tracking the source cell',
+        path='pipeline/look/snow.py',
+        needle='    return SOFTEN_FRACTION * SOURCE_CELL_M / np.maximum(ground_metres_per_px, 1e-6)',
+        replacement='    return np.full(np.shape(ground_metres_per_px), 3.0)',
+        guard='test_sigma_rises_with_latitude_exactly_as_one_over_cosine',
+    ),
+    Sabotage(
+        suite='python',
+        label='the banded filter drops its halo, so every band edge takes the array edge instead',
+        path='pipeline/look/snow.py',
+        needle='        halo = int(np.ceil(SOFTEN_HALO_SIGMAS * band_sigma))',
+        replacement='        halo = 0',
+        guard='test_a_varying_resolution_matches_a_per_row_reference',
+    ),
+    Sabotage(
+        suite='python',
+        label='the whole array becomes one band, which is the per-window sigma the arm had',
+        path='pipeline/look/snow.py',
+        needle='               and abs(sigma[end] - reference) <= SOFTEN_BAND_TOLERANCE * reference):',
+        replacement='               and True):',
+        guard='test_no_band_is_wider_in_sigma_than_the_tolerance_allows',
+    ),
+    # The harness's own judging, whose every wrong answer is a case reading CAUGHT. All three
+    # mutations leave a harness that runs, prints a plausible table and exits 0.
+    Sabotage(
+        suite='python',
+        label='the guard credit goes back to a bare substring, so a sibling failing reads as caught',
+        path='scripts/sabotage.py',
+        needle='    return any(re.match(rf"{re.escape(guard)}(\\W|$)", name) for name in reported)',
+        replacement='    return any(guard in name for name in reported)',
+        guard='test_a_longer_sibling_failing_does_not_credit_the_guard',
+    ),
+    Sabotage(
+        suite='python',
+        label='the audit stops narrowing, so it runs the whole suite and answers a different question',
+        path='scripts/sabotage.py',
+        # Spanning the blank lines below it, because a needle that reads as one line of this file
+        # would match its own table entry as well as its subject.
+        needle='in_flight=case.path, only=case.guard), False)\n\n\ndef judge_fully',
+        replacement='in_flight=case.path), False)\n\n\ndef judge_fully',
+        guard='test_the_audit_calls_its_suite_once_and_narrowed',
+    ),
+    Sabotage(
+        suite='python',
+        label='a guard that ran and stayed silent is called proven, which is the audit lying',
+        path='scripts/sabotage.py',
+        needle='    if green:\n        return AUDIT_SILENT,',
+        replacement='    if green:\n        return AUDIT_PROVEN,',
+        guard='test_a_narrow_run_that_stays_green_is_silent',
+    ),
+
+    # --- Blender's temporary files leave tmpfs (2026-08-26) ---------------------------------------
+    # Two orphaned `cycles-tile-buffer-*.exr`, 2.7 GB each, were holding 5.4 GB of this box's RAM.
+    # `/tmp` is tmpfs here, Blender cleans its temp dir only on a CLEAN exit, and the cgroup cap
+    # exists to KILL a runaway render — so the protection is what strands the file, and tmpfs is not
+    # charged to the render's cgroup, so the limit cannot see the leak it caused.
+    Sabotage(
+        suite='python',
+        label='Blender is launched with the ambient environment again, so Cycles stages into tmpfs',
+        path='pipeline/render/blender_proc.py',
+        needle='    return {**os.environ, "TMPDIR": str(directory), **extra}',
+        replacement='    return {**os.environ, **extra}',
+        guard='test_it_sits_under_the_data_store',
+    ),
+    Sabotage(
+        suite='python',
+        label='the temp directory is named but never created, so Blender falls back to tmpfs silently',
+        path='pipeline/render/blender_proc.py',
+        needle='    directory.mkdir(parents=True, exist_ok=True)\n',
+        replacement='',
+        guard='test_the_directory_is_created_rather_than_merely_named',
+    ),
+    Sabotage(
+        suite='python',
+        label='the block render goes back to spelling its own launch, and loses the environment with it',
+        path='pipeline/tile/block_render.py',
+        needle='    result = blender_proc.run(\n        blender_command(body, render_dir, scratch / f"{name}.blend", png))',
+        replacement='    result = subprocess.run(blender_command(body, render_dir, scratch / f"{name}.blend", png),\n'
+                    '                            cwd=paths.ROOT, capture_output=True, text=True, check=False)',
+        guard='test_block_render_launches_through_the_shared_launcher',
+    ),
+    Sabotage(
+        suite='python',
+        label='the hero sweep keeps its venv PATH but drops the temp root, which is the 8K buffer',
+        path='pipeline/batch.py',
+        needle='    return blender_proc.env(\n        PATH=',
+        replacement='    return dict(\n        os.environ, PATH=',
+        guard='test_the_stage_environment_names_the_temp_root',
+    ),
 ]
 
 
-def run_suite(name: str, in_flight: str | None = None) -> tuple[bool, str]:
-    """Run one suite. Returns (green, combined output)."""
+def run_suite(name: str, in_flight: str | None = None,
+              only: str | None = None) -> tuple[bool, str]:
+    """Run one suite, or just the one guard named by `only`. Returns (green, combined output).
+
+    `only` is ignored where a suite cannot narrow: the caller still gets a correct answer, just a
+    slower one. See `Suite.narrow`.
+    """
     suite = SUITES[name]
     environment = {**os.environ, **suite.environment}
     if in_flight is not None:
         environment[IN_FLIGHT_ENV] = in_flight
+    command = suite.command if only is None or suite.narrow is None else suite.narrow(only)
     result = subprocess.run(
-        suite.command,
+        command,
         cwd=REPO_ROOT / suite.cwd,
         capture_output=True,
         text=True,
@@ -7329,6 +9190,19 @@ def failing_tests(name: str, output: str) -> list[str]:
         if reported and reported not in seen:
             seen.append(reported)
     return seen
+
+
+def guard_fired(guard: str, reported: Sequence[str]) -> bool:
+    """Did the NAMED guard fail, rather than a test whose name merely contains it?
+
+    `-k <guard>` selects by substring, so a guard that prefixes a longer test name drags that
+    sibling into the same run; a plain `in` then credits the guard with the sibling's failure and
+    the case reads as proven. Four cases in the table have such a sibling.
+
+    A web guard may legitimately be a prefix of its title, so the break is allowed at a non-word
+    character and nowhere else.
+    """
+    return any(re.match(rf"{re.escape(guard)}(\W|$)", name) for name in reported)
 
 
 def leftover_backups(
@@ -7371,21 +9245,101 @@ def restore_backups(backups: list[Path]) -> None:
         print(f"restored {target.relative_to(REPO_ROOT)}")
 
 
-def selected(pattern: str | None, suite: str | None) -> list[Sabotage]:
+def changed_paths(against: str) -> set[str]:
+    """Repo-relative paths differing from `against`, staged, unstaged and untracked alike.
+
+    All three, because `git diff <ref>` alone misses what is staged and misses new files entirely
+    — which is the work most in need of a run.
+    """
+    paths: set[str] = set()
+    for command in (["git", "diff", "--name-only", against],
+                    ["git", "diff", "--name-only", "--cached", against],
+                    ["git", "ls-files", "--others", "--exclude-standard"]):
+        result = subprocess.run(command, cwd=REPO_ROOT, capture_output=True, text=True, check=False)
+        paths.update(line.strip() for line in result.stdout.splitlines() if line.strip())
+    return paths
+
+
+def selected(pattern: str | None, suite: str | None, changed: str | None = None) -> list[Sabotage]:
+    """The cases to run: by suite, by label substring, and by which files actually moved.
+
+    PREFER `changed` TO `pattern`. A label names what breaks, so filtering on one finds the cases
+    whose author reached for your word — it has twice selected a subset of a batch just added. A
+    path cannot be phrased differently.
+    """
     cases = SABOTAGES if suite is None else [case for case in SABOTAGES if case.suite == suite]
+    if changed is not None:
+        moved = changed_paths(changed)
+        cases = [case for case in cases if case.path in moved]
     if pattern is None:
         return cases
     needle = pattern.lower()
     return [case for case in cases if needle in case.label.lower() or needle in case.path.lower()]
 
 
-def run_case(case: Sabotage) -> tuple[bool, str]:
-    """Apply one sabotage, run its suite, restore. Returns (green, output)."""
+def judge_while_mutated(case: Sabotage) -> tuple[bool, str, bool]:
+    """Run the narrow guard first and escalate to the whole suite unless it already answered.
+
+    THE ESCALATION IS WHAT MAKES THE SHORTCUT SAFE. A narrow run that goes red naming this case's
+    guard has settled it; every other outcome — nothing caught it, something else did, the `-k`
+    selected nothing — is indistinguishable without the full suite. So `MISSED` and `WRONG` stay
+    full-suite verdicts and no guard can be called vacuous by the fast path.
+
+    The third return says whether that happened, since a run's cost is bimodal and a wall-clock
+    total cannot show where it went.
+    """
+    green, output = run_suite(case.suite, in_flight=case.path, only=case.guard)
+    if not green and guard_fired(case.guard, failing_tests(case.suite, output)):
+        return green, output, False
+    return (*run_suite(case.suite, in_flight=case.path), True)
+
+
+def judge_narrowly(case: Sabotage) -> tuple[bool, str, bool]:
+    """Run the case's own guard and stop there, whatever the answer. For `--audit`.
+
+    Dropping the escalation drops the ability to tell a vacuous guard from a mislabelled one, and
+    keeps the ability to tell either from a working one — which is the whole question when sweeping
+    a table nobody has time to run in full.
+    """
+    return (*run_suite(case.suite, in_flight=case.path, only=case.guard), False)
+
+
+def judge_fully(case: Sabotage) -> tuple[bool, str, bool]:
+    """Run the whole suite with no narrowing. For `--harvest`, which asks which tests catch a case:
+    running only the guard you already named would answer with the name you put in."""
+    return (*run_suite(case.suite, in_flight=case.path), True)
+
+
+AUDIT_PROVEN = "PROVEN"
+AUDIT_SILENT = "SILENT"
+AUDIT_OTHER = "OTHER"
+AUDIT_UNSELECTED = "UNSELECT"
+
+
+def audit_verdict(case: Sabotage, green: bool, output: str) -> tuple[str, str]:
+    """Read one narrow run. Returns (verdict, detail).
+
+    Only PROVEN is a clean bill: the guard failed while it was the only thing running, so nothing
+    else can have failed on its behalf. The other three are all defects, differing in what to fix.
+    """
+    reported = failing_tests(case.suite, output)
+    if guard_fired(case.guard, reported):
+        return AUDIT_PROVEN, ""
+    if not reported and "no tests ran" in output:
+        return AUDIT_UNSELECTED, f"-k {case.guard} selected no test at all"
+    if green:
+        return AUDIT_SILENT, "the guard ran with the mutation live and did not fail"
+    return AUDIT_OTHER, "red, but reported " + (", ".join(reported) or "nothing this pattern reads")
+
+
+def run_case(case: Sabotage, judge: Callable[[Sabotage], tuple[bool, str, bool]] =
+             judge_while_mutated) -> tuple[bool, str, bool]:
+    """Apply one sabotage, judge it, restore. Returns (green, output, escalated)."""
     target = REPO_ROOT / case.path
     if not case.needle:
         target.write_text(case.replacement, encoding="utf-8")
         try:
-            return run_suite(case.suite, in_flight=case.path)
+            return judge(case)
         finally:
             target.unlink()
 
@@ -7395,7 +9349,7 @@ def run_case(case: Sabotage) -> tuple[bool, str]:
     try:
         target.write_text(source.replace(case.needle, case.replacement, 1), encoding="utf-8")
         target.touch()  # mtime, or a running Vite serves the sabotaged module after restore
-        return run_suite(case.suite, in_flight=case.path)
+        return judge(case)
     finally:
         shutil.move(str(backup), str(target))
         target.touch()
@@ -7418,13 +9372,26 @@ def main() -> int:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--filter", help="only cases whose label or path contains this substring")
+    parser.add_argument(
+        "--changed",
+        nargs="?",
+        const="HEAD",
+        metavar="REF",
+        help="only cases whose file differs from REF (default HEAD), untracked files included",
+    )
     parser.add_argument("--suite", choices=sorted(SUITES), help="only cases for this suite")
     parser.add_argument("--list", action="store_true", help="print the table and exit")
     parser.add_argument("--restore", action="store_true", help="undo leftover backups and exit")
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--harvest",
         action="store_true",
         help="report which tests catch each case instead of judging it — for assigning `guard`",
+    )
+    mode.add_argument(
+        "--audit",
+        action="store_true",
+        help="run each guard alone and never escalate — sweeps the table for guards that never fire",
     )
     arguments = parser.parse_args()
 
@@ -7436,9 +9403,19 @@ def main() -> int:
         restore_backups(backups)
         return 0
 
-    cases = selected(arguments.filter, arguments.suite)
+    cases = selected(arguments.filter, arguments.suite, arguments.changed)
+    if arguments.audit:
+        # PRINTED, NOT SILENT. A suite that cannot narrow would run whole for every one of its
+        # cases, which is the cost the audit exists to avoid — but a summary over a set quietly
+        # reduced to a third reads exactly like a summary over all of it.
+        blind = sorted({case.suite for case in cases if SUITES[case.suite].narrow is None})
+        cases = [case for case in cases if SUITES[case.suite].narrow is not None]
+        if blind:
+            print(f"AUDIT SKIPS every case in {', '.join(blind)}: those suites cannot be narrowed "
+                  f"to one guard, so an audit of them would cost a full run each.\n")
     if not cases:
-        print(f"no case matches filter={arguments.filter!r} suite={arguments.suite!r}")
+        print(f"no case matches filter={arguments.filter!r} suite={arguments.suite!r} "
+              f"changed={arguments.changed!r}")
         return 2
 
     if arguments.list:
@@ -7456,7 +9433,15 @@ def main() -> int:
         return 2
 
     suites = sorted({case.suite for case in cases})
-    print(f"{len(cases)} case(s) across {', '.join(suites)}; each edits a file and restores it.")
+    # THE DENOMINATOR, PRINTED, because a narrowed run's summary is a ratio over what it SELECTED
+    # and reads exactly like a complete one. `--filter` matches LABELS, and a label names what
+    # breaks rather than the noun you are hunting by: nine cases added for one layer, and
+    # `--filter <layer>` selected seven, the two missed being named for their mechanism. Both were
+    # caught once found, so the only cost was nearly reporting seven as the whole set.
+    narrowed = "" if len(cases) == len(SABOTAGES) else (
+        f" (of {len(SABOTAGES)}; the rest are not run)")
+    print(f"{len(cases)} case(s){narrowed} across {', '.join(suites)}; "
+          f"each edits a file and restores it.")
     print("If this is killed mid-run, `uv run scripts/sabotage.py --restore` puts the tree back.\n")
 
     for name in suites:
@@ -7470,6 +9455,7 @@ def main() -> int:
 
     caught: list[Sabotage] = []
     problems: list[tuple[str, str]] = []
+    escalations: list[str] = []
 
     for case in cases:
         stale = stale_reason(case)
@@ -7478,7 +9464,11 @@ def main() -> int:
             problems.append((case.label, stale))
             continue
 
-        green, output = run_case(case)
+        judge = judge_fully if arguments.harvest else (
+            judge_narrowly if arguments.audit else judge_while_mutated)
+        green, output, escalated = run_case(case, judge=judge)
+        if escalated and not arguments.harvest:
+            escalations.append(case.label)
 
         if arguments.harvest:
             print(f"HARVEST {case.label}")
@@ -7486,14 +9476,28 @@ def main() -> int:
                 print(f"        {reported}")
             continue
 
+        if arguments.audit:
+            verdict, detail = audit_verdict(case, green, output)
+            print(f"{verdict:<8} {case.label}" + (f"\n         {detail}" if detail else ""))
+            if verdict == AUDIT_PROVEN:
+                caught.append(case)
+            else:
+                problems.append((case.label, f"{verdict}  {detail}"))
+            continue
+
+        # PARSED FAILURE NAMES, NEVER THE RAW OUTPUT. pytest echoes a parametrised argument's repr
+        # into the failure detail, and the argument here is the `Sabotage` — so `guard='test_...'`
+        # appears whenever any check over this table fails. `case.guard in output` was reading the
+        # case back to itself and reporting CAUGHT for a mutation nothing caught.
+        reported = failing_tests(case.suite, output)
         if green:
             print(f"MISSED  {case.label}\n        nothing failed; expected: {case.guard}")
             problems.append((case.label, f"not caught; expected {case.guard}"))
-        elif case.guard in output:
+        elif guard_fired(case.guard, reported):
             print(f"CAUGHT  {case.label}")
             caught.append(case)
         else:
-            actual = ", ".join(failing_tests(case.suite, output)) or "(unparsed)"
+            actual = ", ".join(reported) or "(unparsed)"
             print(f"WRONG   {case.label}\n        expected: {case.guard}\n        got: {actual}")
             problems.append((case.label, f"caught by {actual}, not by {case.guard}"))
 
@@ -7501,9 +9505,28 @@ def main() -> int:
         print("\nharvest only — nothing judged")
         return 0
 
+    if arguments.audit:
+        print(f"\n{len(caught)}/{len(cases)} guards failed alone, which nothing else can explain")
+        for verdict in (AUDIT_SILENT, AUDIT_OTHER, AUDIT_UNSELECTED):
+            named = [label for label, why in problems if why.startswith(verdict)]
+            if named:
+                print(f"\n{len(named)} {verdict}:")
+                for label in named:
+                    print(f"  - {label}")
+        for name in suites:
+            green, _ = run_suite(name)
+            print(f"\nrestored baseline ({name}): " + ("green" if green else "RED — restore failed"))
+        return 0 if not problems else 1
+
     print(f"\n{len(caught)}/{len(cases)} caught by the named guard")
     for label, why in problems:
         print(f"  - {label}: {why}")
+    # Where the wall clock went: each of these ran the whole suite because narrowing did not
+    # answer, and each costs what every case used to.
+    if escalations:
+        print(f"\n{len(escalations)}/{len(cases)} escalated to the full suite:")
+        for label in escalations:
+            print(f"  - {label}")
 
     restored = True
     for name in suites:

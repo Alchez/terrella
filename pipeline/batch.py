@@ -55,15 +55,32 @@ from pipeline.frame.country_config import (
     resolve,
     stage_commands,
 )
+from pipeline.profile import pass_cap
+from pipeline.render import blender_proc, render_seam
 
 #: The CHECKOUT, and the working directory every stage subprocess is run from — so the
 #: checkout-relative paths in those commands (`pipeline/…`, `blender/…`) resolve. Data paths do NOT
 #: hang off it; they come from `country_work_dir`, which follows the store.
 ROOT = paths.ROOT
-# Stage commands say "python …" assuming a venv-active shell; put this runner's
-# own interpreter dir first on PATH so the subprocesses use the venv, not system.
-ENV = {**os.environ,
-       "PATH": f"{Path(sys.executable).parent}{os.pathsep}{os.environ.get('PATH', '')}"}
+
+
+def stage_env() -> dict[str, str]:
+    """The environment every stage subprocess runs under.
+
+    Stage commands say "python …" assuming a venv-active shell, so this runner's own interpreter
+    dir goes first on PATH and the subprocesses use the venv rather than the system one.
+
+    THE REST IS `blender_proc`'s, INCLUDING FOR THE STAGES THAT ARE NOT BLENDER. One of these
+    commands is the 8K hero render, which is the largest Cycles tile buffer this project produces
+    and the stage the memory gate below is sized for — and that gate is defeated by exactly the
+    tmpfs the buffer would otherwise fill. A per-stage env would mean deciding, at each stage,
+    whether it is the Blender one; handing every stage the same environment cannot get that wrong.
+
+    A function rather than a module constant, on `paths`' derive-at-call-time rule: frozen at
+    import, a relocated `MAPS_DATA` would move the store and leave this pointing at the old one.
+    """
+    return blender_proc.env(
+        PATH=f"{Path(sys.executable).parent}{os.pathsep}{os.environ.get('PATH', '')}")
 FAIL_LOG = ROOT / "blender/renders/batch_failures.jsonl"
 PREP_STAGES = 6           # stage_commands[:6] = download,mosaics,fuse,prep,snow,lake
 RENDER_STAGE = 6          # scene_build --render
@@ -118,7 +135,7 @@ def bootstrap() -> None:
     for cmd in ("bash pipeline/acquire/download_naturalearth.sh",
                 "python -m pipeline.acquire.download_gebco"):
         print(f"[bootstrap] {cmd}", flush=True)
-        if subprocess.run(cmd, shell=True, cwd=ROOT, env=ENV, check=False).returncode != 0:
+        if subprocess.run(cmd, shell=True, cwd=ROOT, env=stage_env(), check=False).returncode != 0:
             sys.exit(f"bootstrap failed: {cmd} — cannot proceed without it")
 
 
@@ -139,7 +156,7 @@ def run_country(slug, resolved, through, force, dry, cap_gib, use_cap, floor,
     """Run one country's stages; return a short outcome string."""
     do_clean = clean and through == "render" and not dry
     target = (ROOT / f"blender/renders/heroes/{slug}.png" if through == "render"
-              else country_render_dir(slug) / "lakedepth_aea.tif")
+              else country_render_dir(slug) / render_seam.LAKEDEPTH)
     if target.exists() and not force:
         if do_clean:
             prune_intermediates(slug)
@@ -175,7 +192,7 @@ def run_country(slug, resolved, through, force, dry, cap_gib, use_cap, floor,
                   flush=True)
         else:
             rc = subprocess.run(prefix + run_cmd, shell=True, cwd=ROOT,
-                                env=ENV, check=False).returncode
+                                env=stage_env(), check=False).returncode
             if rc != 0:
                 kind = "oom" if rc in (137, -9) else "error"
                 if raw_tmp:
@@ -190,10 +207,10 @@ def run_country(slug, resolved, through, force, dry, cap_gib, use_cap, floor,
             # writes the shaded hero as a SEPARATE file (atomic, internal .tmp), so
             # the raw stays pristine and post-look tweaks never re-render.
             sv = subprocess.run(
-                f"python -m pipeline.render.sky_view --render-dir {country_render_dir(slug)}"
+                f"python -m pipeline.look.sky_view --render-dir {country_render_dir(slug)}"
                 f" --hero {raw} --out {final}"
                 f" --strength {resolved['sky_view_strength']}", shell=True,
-                cwd=ROOT, env=ENV, check=False).returncode
+                cwd=ROOT, env=stage_env(), check=False).returncode
             if sv != 0:
                 log_failure(slug, idx, "sky_view", sv, "error")
                 return f"FAIL@{idx} (sky_view)"
@@ -235,7 +252,12 @@ def main() -> int:
         slugs = slugs[:args.limit]
 
     use_cap = False if args.dry_run else detect_cgroup_cap()
-    cap_gib = 0.85 * meminfo_gib("MemTotal")
+    # THE CEILING IS A POLICY AND MUST NOT BE DERIVED FROM THE HOST. This read `0.85 *
+    # MemTotal`, which scales the blast radius with the machine rather than bounding it, and it is
+    # the one place in the tree that sized a cap that way. It also hid a real fault: the largest
+    # hero under a base grid wants 17.0 GB, which dies loudly at the ratified 16 G here and would
+    # have passed silently on a bigger box, shipping a hero lane that only works on big machines.
+    cap_gib = pass_cap.HEAVY_JOB_GIB
     print(f"batch: {len(slugs)} countries, through={args.through}, "
           f"mem-floor={args.mem_floor_gib:g} GiB, cgroup-cap="
           f"{f'{cap_gib:.0f} GiB' if use_cap else 'unavailable'}"

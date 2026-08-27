@@ -32,7 +32,7 @@ import sys
 
 import numpy as np
 
-from pipeline.render import palette, seaice
+from pipeline.look import palette, seaice
 from pipeline.tile import shade
 
 WIDTH = 131072       # the planet grid's full width -- windows are always full-width
@@ -82,7 +82,7 @@ def main() -> int:
     # sea ramp skips one full-window LUT lookup.
     rgb = shade.composite(heights, ocean, water, snow_alpha, hillshade, occlusion,
                           SVF_SHAPE, shape, depth=depth, look=palette.EARTH_LOOK,
-                          snow_paint=(palette.SNOW_RGB, palette.SNOW_SHADOW_RGB), ice_paint=seaice.ice_white())
+                          snow_paint=(palette.SNOW_RGB, palette.SNOW_SHADOW_RGB), ice_paint=seaice.ice_paint())
     peak = peak_gib()
     print(f"  PEAK through composite()     : {peak:6.2f} GiB", flush=True)
     print(f"  composite's own working set  : {peak - after_inputs:6.2f} GiB", flush=True)

@@ -62,18 +62,26 @@ def reproject_argv(source: Path, target_srs: str, out: Path) -> list[str]:
 
 
 def rasterize_argv(vector: Path, bounds: tuple[float, float, float, float], width: int, height: int,
-                   out: Path, creation_options: tuple[str, ...] = ()) -> list[str]:
+                   out: Path, creation_options: tuple[str, ...] = (),
+                   layer: "str | None" = None) -> list[str]:
     """`gdal_rasterize` of an ALREADY-PROJECTED vector onto this grid, as a 0/1 Byte mask.
 
     `creation_options` is empty for a cap-sized target and carries TILED/DEFLATE/BIGTIFF for a
     planet-sized one — the axis two shipping callers actually differ on, rather than a knob invented
     for a caller that does not exist. Each entry is one `-co` argument, e.g. `"TILED=YES"`.
+
+    `layer` names which layer of a MULTI-layer source to burn, and defaults to absence rather than to
+    a name. A GeoPackage holds many; a GeoJSON or a shapefile holds one, and every caller that came
+    first hands over one of those, where `gdal_rasterize` needs no telling and the flag would change
+    a shipped command for nothing. Named where it matters, because the wrong layer burns cleanly:
+    two commands succeed and the mask lands wherever that other geometry happens to sit.
     """
     left, bottom, right, top = bounds
     options: list[str] = []
     for option in creation_options:
         options += ["-co", option]
     return ["gdal_rasterize", "-q", "-burn", "1", "-init", "0", "-ot", "Byte", *options,
+            *(["-l", layer] if layer is not None else []),
             "-te", str(left), str(bottom), str(right), str(top),
             "-ts", str(width), str(height), str(vector), str(out)]
 

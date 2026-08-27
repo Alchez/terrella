@@ -12,12 +12,17 @@ stage, so on it the 16 G is unbacked and the preflight would refuse a pass the b
 script, so what they pin is the WIRING — that the shell asks, and that the answer reaches the
 cgroup argument and the refusal message rather than a constant reaching them.
 
-MEMINFO points at a fixture and PREFLIGHT_ONLY is set, so both branches are observable without
-launching a multi-hour pass. The abort branch is the point: a guard that has never been seen to
-fire is indistinguishable from one that passed.
+MEMINFO points at a fixture and STOP_AFTER names how far to run, so both branches are observable
+without launching a multi-hour pass. The abort branch is the point: a guard that has never been
+seen to fire is indistinguishable from one that passed.
+
+MAPS_DATA points at a tmp dir on every call, which is a correctness requirement rather than tidiness:
+`STOP_AFTER=logs` runs far enough to prepare and rotate this run's log, and without the redirect
+that is the real store's `_profile_pass/pass.log` being rotated by the test suite.
 """
 
 import dataclasses
+import re
 import subprocess
 from pathlib import Path
 
@@ -26,7 +31,10 @@ import pytest
 from pipeline import bodies
 from pipeline.profile import pass_cap
 
-SCRIPT = Path(__file__).resolve().parents[1] / "pipeline" / "profile" / "run_pass.sh"
+REPO = Path(__file__).resolve().parents[1]
+SCRIPT = REPO / "pipeline" / "profile" / "run_pass.sh"
+PASS_CAP_SOURCE = REPO / "pipeline" / "profile" / "pass_cap.py"
+PROCESS = REPO / "PROCESS.md"
 GIB_IN_KIB = 1024 * 1024
 
 #: A body that renders no polar caps — the resolver's OTHER branch, and synthetic on purpose.
@@ -52,11 +60,16 @@ def write_meminfo(path: Path, available_kib: int) -> Path:
 
 
 def run_preflight(meminfo: Path, *args: str, **env_overrides: str):
+    """Drive the real script, stopping at the preflight unless a caller says otherwise.
+
+    MAPS_DATA defaults beside the meminfo fixture, which is already a tmp_path in every caller, so
+    no invocation here can reach the real store.
+    """
     return subprocess.run(
         ["bash", str(SCRIPT), *args],
         capture_output=True, text=True,
-        env={"PATH": "/usr/bin:/bin", "MEMINFO": str(meminfo), "PREFLIGHT_ONLY": "1",
-             **env_overrides},
+        env={"PATH": "/usr/bin:/bin", "MEMINFO": str(meminfo), "STOP_AFTER": "preflight",
+             "MAPS_DATA": str(meminfo.parent / "store"), **env_overrides},
         check=False,  # a refusing preflight is what most of these tests are asserting about
     )
 
@@ -111,7 +124,7 @@ class TestPreflightBlocksAnUnbackedCap:
 class TestBothRunLabelsAreGuarded:
     @pytest.mark.parametrize("args,label", [((), "pass"), (("--tiles",), "tiles")])
     def test_each_run_label_carries_the_bodys_cap_and_the_check(self, tmp_path, args, label):
-        """Earth wants 16 G under both labels — the caps stage ends the shade pass, and the tiler's
+        """Earth wants 16 G under both labels — the caps stage ends the planet pass, and the tiler's
         per-worker block cache makes the tiling run ask for the same. Neither may start without it.
         """
         meminfo = write_meminfo(tmp_path / "meminfo", 3 * GIB_IN_KIB)
@@ -167,6 +180,23 @@ class TestTheCapReachesTheCgroup:
         result = run_preflight(meminfo, "--body", "earth", MEMORY_CAP_OVERRIDE_GIB="12")
         assert "memory cap overridden: 12 G instead of this body's 16 G" in result.stdout
 
+    def test_the_shell_and_the_resolver_name_the_same_module(self):
+        """The one coupling in this harness that nothing checked, and it is silent when it breaks.
+
+        `run_pass.sh` forwards its argv to a module, and `pass_cap` parses that SAME argv with that
+        module's parser to size the cap. Point them at different modules and nothing raises: the cap
+        is resolved from one grammar and the pass run under another, so a flag one accepts and the
+        other does not either aborts the wrapper on a valid invocation or resolves a cap for a body
+        the pass never sees. The script's header spent this whole arc naming a module it had stopped
+        invoking, which is how long a prose-only version of this claim survives.
+        """
+        invoked = set(re.findall(r"-m (pipeline\.[a-z_.]+)", SCRIPT.read_text()))
+        assert pass_cap.__name__ in invoked, "the script stopped asking the resolver; re-read it"
+        assert invoked - {pass_cap.__name__} == {pass_cap.planet_pass.__name__}, (
+            f"run_pass.sh forwards its argv to {sorted(invoked - {pass_cap.__name__})}, and "
+            f"pass_cap sizes the cap by parsing that same argv with {pass_cap.planet_pass.__name__}"
+        )
+
     def test_the_resolver_still_runs_when_the_override_is_set(self, tmp_path):
         """The ordering, asserted rather than trusted. Read as `${OVERRIDE:-$(pass_cap ...)}` the
         override would skip the resolver, and with it the `--body` contract the wrapper enforces —
@@ -206,6 +236,65 @@ class TestTheCapReachesTheCgroup:
         assert "memory preflight" not in result.stdout
 
 
+class TestEveryRunsLogIsKept:
+    """The raytrace producer resumes across nights, so the pass's log has to survive one.
+
+    Rohan's requirement, and it is a correctness one rather than tidiness: the box will not be free
+    for 22 consecutive hours, so the record of which blocks failed is spread over several runs. The
+    script used to open the log with `: >`, which meant every night but the last was destroyed by
+    the act of continuing.
+    """
+
+    @staticmethod
+    def _profile_dir(meminfo: Path) -> Path:
+        """Where `run_pass.sh` puts a non-`--tiles` run's instruments, under the redirected store."""
+        return meminfo.parent / "store" / "work" / "_profile_pass"
+
+    def _run_to_the_log(self, meminfo: Path):
+        return run_preflight(meminfo, "--body", "earth", STOP_AFTER="logs")
+
+    def test_a_prior_runs_log_survives_the_next_run(self, tmp_path):
+        meminfo = write_meminfo(tmp_path / "meminfo", 20 * GIB_IN_KIB)
+        profile = self._profile_dir(meminfo)
+        profile.mkdir(parents=True)
+        (profile / "pass.log").write_text("r03c07 FAILED (1 in a row): blender exited with -11\n")
+
+        assert self._run_to_the_log(meminfo).returncode == 0
+        rotated = sorted(profile.glob("pass-*.log"))
+        assert len(rotated) == 1, f"expected one rotated log, found {rotated}"
+        assert "r03c07 FAILED" in rotated[0].read_text()
+
+    def test_this_runs_log_starts_empty(self, tmp_path):
+        """The other half: keeping the record must not mean every night reading last night's.
+
+        A watcher counts LINES into this file and starts at zero, so a log carrying four nights
+        would have it report night one's stages as this night's the moment it is pointed at it.
+        """
+        meminfo = write_meminfo(tmp_path / "meminfo", 20 * GIB_IN_KIB)
+        profile = self._profile_dir(meminfo)
+        profile.mkdir(parents=True)
+        (profile / "pass.log").write_text("last night\n")
+
+        self._run_to_the_log(meminfo)
+        assert (profile / "pass.log").read_text() == ""
+
+    def test_a_first_run_rotates_nothing(self, tmp_path):
+        """Anti-vacuity in the other direction: an unconditional rotation would leave an empty
+        `pass-*.log` beside every run, and the glob above would stop meaning "a night happened"."""
+        meminfo = write_meminfo(tmp_path / "meminfo", 20 * GIB_IN_KIB)
+        assert self._run_to_the_log(meminfo).returncode == 0
+        assert list(self._profile_dir(meminfo).glob("pass-*.log")) == []
+        assert (self._profile_dir(meminfo) / "pass.log").exists()
+
+    def test_stopping_at_the_preflight_touches_no_log_at_all(self, tmp_path):
+        """`STOP_AFTER=preflight` is the no-side-effects stop, and every other test in this file
+        relies on that: they run against the real script with the real store redirected, and a
+        preflight that created directories would be doing work a check must not do."""
+        meminfo = write_meminfo(tmp_path / "meminfo", 20 * GIB_IN_KIB)
+        assert run_preflight(meminfo, "--body", "earth").returncode == 0
+        assert not self._profile_dir(meminfo).exists()
+
+
 class TestTheCapResolver:
     """Both branches, one from the registry and one from `CAPLESS`.
 
@@ -225,10 +314,56 @@ class TestTheCapResolver:
         does the script — every pass would just run at whichever number survived."""
         assert pass_cap.CAP_RENDERING_GIB > pass_cap.STANDING_GIB
 
-    def test_the_standing_cap_is_the_projects_own(self):
-        """12 G is not a number chosen here. It is what every heavy job in this repo runs under,
-        and the pass was raised above it for the caps stage alone."""
-        assert pass_cap.STANDING_GIB == 12
+    def test_no_pass_is_capped_above_the_ratified_ceiling(self):
+        """The one relationship between these constants that is a POLICY rather than a measurement.
+
+        CLAUDE.md ratifies one heavy job at a time under 16 G with no exemptions, and `HEAVY_JOB_GIB`
+        is that number. A body whose measured stages wanted more would not simply get more: it would
+        be a pass running outside the policy, which is a decision rather than a constant. Nothing
+        checked it, and `CAP_RENDERING_GIB` has sat exactly at the ceiling since the caps stage
+        pushed it there, so the next body to need headroom would take it silently.
+        """
+        assert pass_cap.CAP_RENDERING_GIB <= pass_cap.HEAVY_JOB_GIB
+        assert pass_cap.STANDING_GIB <= pass_cap.HEAVY_JOB_GIB
+
+    def test_the_standing_cap_is_not_the_projects_own_number(self):
+        """WRITTEN AS THE INVERSE OF THE CLAIM IT REPLACES, because that claim read as settled.
+
+        The test here used to assert `STANDING_GIB == 12` and justify it as *"what every heavy job
+        in this repo runs under"*. That was true of an older ceiling and is not true of this one:
+        the project's heavy-job number is `HEAVY_JOB_GIB`, four GiB higher, and 12 is a measurement
+        off Mars's own stages. Pinning a real constant to a justification that has moved is worse
+        than pinning nothing, because the number then looks derived when it is orphaned.
+        """
+        assert pass_cap.STANDING_GIB != pass_cap.HEAVY_JOB_GIB
+
+    def test_every_figure_the_module_argues_from_is_one_PROCESS_still_carries(self, subtests):
+        """`pass_cap`'s docstring is a SECOND COPY of PROCESS.md's measurements, and this is what
+        makes the copy go red instead of quietly aging.
+
+        The copy has to exist: the module is where someone reads why the cap is 16, and a pointer
+        alone does not survive being read at 3 a.m. under an OOM. What it must not do is drift, and
+        it already had twice over -- it argued from Earth's composite at 10.55 GiB and Mars at
+        4.01 GiB, both of which PROCESS had retired in the section it points at, so a reader
+        checking the source of the number found a different one and no sign of the disagreement.
+
+        Retired figures stay in scope on purpose: naming one as retired is exactly as much a claim
+        about PROCESS as citing it, and the retraction is the sentence most likely to be dropped.
+        """
+        figures = set(re.findall(r"\d+\.\d+ Gi?B", PASS_CAP_SOURCE.read_text()))
+        assert len(figures) >= 8, f"only {figures} found; this scan is broken, not the module"
+        process = PROCESS.read_text()
+        for figure in sorted(figures):
+            with subtests.test(figure):
+                assert figure in process, (
+                    f"pass_cap argues from {figure}, which PROCESS.md no longer carries anywhere"
+                )
+
+    def test_that_scan_can_actually_miss_one(self):
+        """The positive control. Every figure in the module happens to be current, which is the
+        state where a scan that found nothing and a scan that checked nothing look identical."""
+        assert "999.99 GiB" not in PROCESS.read_text()
+        assert re.findall(r"\d+\.\d+ Gi?B", "sized off 999.99 GiB plus headroom") == ["999.99 GiB"]
 
     @pytest.mark.parametrize("slug", sorted(bodies.BODIES))
     def test_every_registered_body_resolves(self, slug):

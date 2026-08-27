@@ -1,8 +1,8 @@
 """Hero lake-depth stage: GLOBathy depth -> a log1p ramp-position raster for the scene.
 
-The hero twin of the tile pipeline's lake-depth layer (`render/lake_depth.py` +
-`shade.composite`'s lake branch), as `snow_mask.py` is the hero twin of `render/snow.py`.
-Emits `lakedepth_aea.tif` on the exact `heightfield_aea.tif` grid: Float32 storing the
+The hero twin of the tile pipeline's lake-depth layer (`look/lake_depth.py` +
+`shade.composite`'s lake branch), as `snow_mask.py` is the hero twin of `look/snow.py`.
+Emits `lakedepth.tif` on the exact `heightfield.tif` grid: Float32 storing the
 lake ramp POSITION 0..1 — `shade.lake_position`'s curve baked here, venv-side, where the
 tile implementation lives — so the scene just samples it into a ColorRamp over
 `palette.LAKE_STOPS`. Position 0 IS the flat `WATER_RGB` tint, so lakes without depth
@@ -31,7 +31,8 @@ from typing import Any
 import numpy as np
 import rasterio
 
-from pipeline.render import lake_depth
+from pipeline.look import lake_depth
+from pipeline.render import render_seam
 from pipeline.tile import shade
 
 
@@ -53,13 +54,15 @@ def depth_to_position(depth: np.ndarray, watercode: np.ndarray) -> np.ndarray:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--render-dir", type=Path, required=True,
-                    help="existing render dir with heightfield_aea.tif + watermask_aea.tif")
+                    help=f"existing render dir with {render_seam.HEIGHTFIELD} + "
+                         f"{render_seam.WATERMASK}")
     args = ap.parse_args()
     render_dir = args.render_dir.resolve()
 
-    out_tif = render_dir / "lakedepth_aea.tif"
+    out_tif = render_dir / render_seam.LAKEDEPTH
     if out_tif.exists():
         print(f"{out_tif} exists — skipping", flush=True)
+        render_seam.declare(render_dir, render_seam.LAKE, [render_seam.LAKEDEPTH])
         return
 
     # The VRT is a local build product (pipeline.acquire.extract_globathy), so its
@@ -70,7 +73,7 @@ def main():
 
     # grid + CRS from the existing heightfield (the snow_mask/render_prep pattern):
     # the raster must land pixel-for-pixel on the grid the render was made from
-    heightfield_path = render_dir / "heightfield_aea.tif"
+    heightfield_path = render_dir / render_seam.HEIGHTFIELD
     with rasterio.open(heightfield_path) as heightfield_dataset:
         dst_crs, transform = heightfield_dataset.crs, heightfield_dataset.transform
         width, height = heightfield_dataset.width, heightfield_dataset.height
@@ -103,7 +106,7 @@ def main():
     depth = np.where(np.isfinite(depth_raw) & (depth_raw > 0.0),
                      depth_raw, 0.0).astype(np.float32)
 
-    with rasterio.open(render_dir / "watermask_aea.tif") as watermask_dataset:
+    with rasterio.open(render_dir / render_seam.WATERMASK) as watermask_dataset:
         watercode = watermask_dataset.read(1)
 
     position = depth_to_position(depth, watercode)
@@ -119,6 +122,7 @@ def main():
         out.write(position, 1)
     os.replace(tmp, out_tif)
 
+    render_seam.declare(render_dir, render_seam.LAKE, [render_seam.LAKEDEPTH])
     lake_px = int((position > 0).sum())
     km2 = lake_px * (xres * xres) / 1e6
     print(f"wrote {out_tif}", flush=True)

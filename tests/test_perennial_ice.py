@@ -19,7 +19,7 @@ import pytest
 from conftest import cap_ground_metres_per_px_from_ground_radius
 
 from pipeline import bodies, layers, mercator
-from pipeline.render import layer_producers, mars_ice, perennial_ice, snow
+from pipeline.look import layer_producers, mars_ice, perennial_ice, snow
 from pipeline.tile import cap_render
 
 
@@ -130,19 +130,37 @@ class TestEarthsProducersComputeWhatTheyComputedInline:
         Mercator-specific and simply wrong on an AEQD grid.
 
         `snow.snow_alpha` is the oracle rather than a smoothstep written out here: a second copy of
-        the formula would prove the two copies agree, not that either matches what ships."""
-        packed = (np.arange(16, dtype=np.float32) * 700.0).reshape(4, 4)  # 0.00 .. 1.05 unpacked
+        the formula would prove the two copies agree, not that either matches what ships.
+
+        THE SOFTENING RIDES ON BOTH SIDES AND AGREES IN GROUND METRES, NOT IN PIXELS, which is why
+        it is applied here at the CAP's resolution rather than at the Mercator window's. The two
+        grids resolve the same 0.01 degree source cell at different pixel counts — a Mercator pixel
+        at 82N is ~43 ground metres and the cap disc's is its own fixed figure — so a sigma equal on
+        both sides in pixels would be unequal in the world, which is the axis the crossfade is
+        judged on. `soften_source_cells` takes ground metres for exactly this reason, and pinning
+        the equality here is what stops that seam being re-decided in pixels later."""
+        # A 4x4 FIXTURE CANNOT CARRY THIS CLAIM ANY MORE, and the "saturated or dead" guard below is
+        # what said so: the softening is a spatial operator with a ~1.4 px sigma on this grid, so a
+        # 4-wide ramp comes out smeared to 0.72 at both ends and the test would be comparing two
+        # mushes. The field is constant DOWN each column, which makes the vertical pass an exact
+        # identity under `mode="nearest"`, and it over- and under-shoots the ramp by ten columns at
+        # each end, which is past three sigma — so the extremes survive and the interior is the
+        # gradient the comparison is about.
+        profile = np.clip(np.linspace(-0.8, 1.8, 32), 0.0, 1.05) * 10_000.0
+        packed = np.tile(profile.astype(np.float32), (32, 1))
         log: list[str] = []
         inputs = perennial_ice.CapIceInputs(
-            land=np.ones((4, 4), dtype=bool),
-            latitude=np.full((4, 4), 82.0, dtype=np.float32),
+            land=np.ones((32, 32), dtype=bool),
+            latitude=np.full((32, 32), 82.0, dtype=np.float32),
             warp=_fixed_warp(log, packed), burn=_refusing_burn,
             ground_metres_per_px=EARTH_CAP_GROUND_M_PER_PX)
         alpha = perennial_ice.cap_ice(bodies.EARTH, "north").alpha(inputs)
 
         top, bottom = (float(mercator.northing_at(lat, mercator.WEB_MERCATOR_RADIUS_M))
                        for lat in (84.0, 78.0))
-        expected = snow.snow_alpha(snow.unpack_persistence(packed), top, bottom)
+        expected = snow.soften_source_cells(
+            snow.snow_alpha(snow.unpack_persistence(packed), top, bottom),
+            EARTH_CAP_GROUND_M_PER_PX)
         assert alpha == pytest.approx(expected)
         assert alpha.max() > 0.9 and alpha.min() == 0.0, "a saturated or dead ramp proves nothing"
 
@@ -155,6 +173,58 @@ class TestEarthsProducersComputeWhatTheyComputedInline:
             snow.antarctic_snow_mask(ice_inputs.land, ice_inputs.latitude))
         assert alpha[0].max() == 0.0, "the −58 row is north of the threshold and must stay bare"
         assert alpha[3].min() == 1.0, "the −89 row is all land and must be forced white"
+
+
+class TestOnlyEarthsSouthDeclaresTheOutcropAsAnExclusion:
+    """SCAR ADD's rock at the cap tier, where the producer now has nothing to do with it.
+
+    `_earth_south` answers only where Antarctic ice IS. The outcrop is a `CapIce.exclusions` member
+    that `cap_render` burns and `layer_producers.fold_white` removes after the union folds, which is
+    the same law the tiles run and is what makes the two sides of the −84 crossfade agree by
+    construction rather than by a docstring saying so.
+
+    THE DECLARATION IS WHAT KEEPS THE POLE A FACT OF THE REGISTRY KEY, rather than a
+    `grid.name == "south"` written into the renderer — the shape `cap_sources`' own docstring
+    records as the mistake it was extracted to remove. It is also what keeps the burn off every
+    other disc: an ogr2ogr of the whole ADD GeoPackage onto an Arctic or Martian grid comes back
+    empty, and `must_draw` turns that into a raised exception on a shipping pass.
+    """
+
+    def test_only_earths_south_declares_an_exclusion(self, subtests):
+        """Asserted HERE and never in `test_cap_render.py`, whose autouse fixture aliases every
+        ("mars", pole) key to Earth's producer — `mars` is an Earth-shaped stand-in there, so a
+        registry-wide claim written in that file reads a registry doctored for another question."""
+        for key, expected in ((("earth", "south"), (layers.ANTARCTIC_ROCK,)),
+                              (("earth", "north"), ()),
+                              (("mars", "north"), ()),
+                              (("mars", "south"), ())):
+            with subtests.test(str(key)):
+                got = perennial_ice.CAP_ICE_BY_BODY[key].exclusions()
+                assert got == expected, (
+                    f"{key} declares {[layer.name for layer in got]}, "
+                    f"expected {[layer.name for layer in expected]}")
+
+    def test_every_declared_exclusion_is_one_the_fold_actually_applies(self, subtests):
+        """`fold_white` iterates `WHITE_EXCLUSIONS`, so a layer declared here and absent from that
+        tuple is handed over and silently ignored: white a reader believes is being removed, with
+        nothing going red. The two declarations are kept in step here."""
+        for key, producer in perennial_ice.CAP_ICE_BY_BODY.items():
+            with subtests.test(str(key)):
+                for layer in producer.exclusions():
+                    assert layer in layer_producers.WHITE_EXCLUSIONS
+
+    def test_the_producer_is_rock_blind_and_is_the_bare_rule(self, ice_inputs):
+        """The inversion guard, and the reason the declaration is the whole of the cap's
+        involvement. A producer that could still see a rock mask could still subtract it inside its
+        own answer, which is the placement that discarded 63% of the subtraction one tier up."""
+        assert perennial_ice.cap_ice(bodies.EARTH, "south").alpha(ice_inputs) == pytest.approx(
+            snow.antarctic_snow_mask(ice_inputs.land, ice_inputs.latitude))
+
+    def test_no_cap_producer_can_be_handed_a_rock_at_all(self):
+        """The field is GONE from `CapIceInputs` rather than passed as None, exactly as
+        `LayerWindow.rock` is — which is what makes the old placement unwritable here too."""
+        assert "rock" not in {field.name
+                              for field in dataclasses.fields(perennial_ice.CapIceInputs)}
 
 
 @pytest.fixture
@@ -393,7 +463,11 @@ class TestTheTwoTiersAgreeOnTheColourOfTheSameIce:
                 latitude = snow.latitude_per_row(top, bottom, 4)
                 window = layer_producers.LayerWindow(
                     raw=None, watercode=None, land=np.ones((4, 4), dtype=bool),
-                    latitude=latitude, top=top, bottom=bottom)
+                    ocean=np.zeros((4, 4), dtype=bool), latitude=latitude,
+                    ground_metres_per_px=mercator.ground_metres_per_pixel(
+                        latitude, (top - bottom) / 4,
+                        bodies.ground_metres_per_mercator_unit(body)),
+                    top=top, bottom=bottom)
                 tile_paint = layer_producers.producer_for(
                     body, layers.PERENNIAL_ICE).paint(window)
                 assert tile_paint is not None

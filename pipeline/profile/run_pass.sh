@@ -2,14 +2,19 @@
 # Instrumented planet pass.
 #
 # Usage:
-#   pipeline/profile/run_pass.sh --body earth           # shade only
-#   pipeline/profile/run_pass.sh --body earth --tiles   # shade (skipped when fresh) + cut z0-8 tiles
+#   pipeline/profile/run_pass.sh --body earth           # the planet raster only
+#   pipeline/profile/run_pass.sh --body earth --tiles   # the raster (skipped when fresh) + the cut
+#
+# "the planet raster" rather than "shade", because which producer fills it is the BODY's answer
+# (Body.planet_producer) and this wrapper never learns it; and the cut runs to that body's own
+# ceiling, z8 on Earth and z7 on Mars, rather than to a number spelled here.
 #
 # `--body` is REQUIRED and this wrapper deliberately does not supply one: injecting a default here
-# would reintroduce, one layer up, exactly the silent Earth assumption shade_planet refuses to make.
+# would reintroduce, one layer up, exactly the silent Earth assumption planet_pass refuses to make.
 #
-# Args are passed through to shade_planet.py; --tiles additionally picks its own output dir,
-# scope name and memory cap, so a tiling run never overwrites a shade run's profile.
+# Args are passed through to pipeline.tile.planet_pass, which is the pass's entry point and the
+# module that chooses the body's producer; --tiles additionally picks its own output dir, scope name
+# and memory cap, so a tiling run never overwrites a shade run's profile.
 #
 # Four instruments, chosen because each answers something the others cannot:
 #   1. perf record   -> WHERE the CPU goes, at symbol level, for every forked child (perf inherits
@@ -17,8 +22,9 @@
 #   2. sample_tree   -> RSS, peak RSS, thread count, real disk bytes per process per second.
 #                       perf cannot answer "is it I/O-bound or single-threaded"; this can.
 #   3. stamp.py      -> per-stage wall clock from the pass's own existing stage prints, free.
-#   4. the cgroup    -> memory.peak for the whole scope, and the 12 G cap that kills the job not
-#                       the box (proven today: a 4-cell region render hit it and died alone).
+#   4. the cgroup    -> memory.peak for the whole scope, and the body's own cap, which kills the job
+#                       rather than the box (proven: a 4-cell region render hit it and died alone).
+#                       The number is pass_cap.py's, never this script's -- see the block below.
 #
 # THE CAP IS THE BODY'S AND THIS SCRIPT DOES NOT KNOW IT -- pipeline/profile/pass_cap.py derives
 # it from the registry, and holds the whole argument plus the measurements behind both numbers.
@@ -122,16 +128,38 @@ awk -v available="$memory_available_kib" -v cap="$memory_cap_gib" 'BEGIN {
     printf "memory preflight: %.1f GiB available >= %d G cap -- OK\n", available/1048576, cap
 }'
 
-# PREFLIGHT_ONLY exists so the tests can exercise BOTH branches without launching a real pass.
-[[ -n "${PREFLIGHT_ONLY:-}" ]] && exit 0
+# STOP_AFTER exists so the tests can exercise branches without launching a real pass, and it names
+# the point rather than being a boolean: `preflight` stops above any side effect at all, `logs`
+# stops once this run's log is prepared, which is the only way to observe the rotation below.
+[[ "${STOP_AFTER:-}" == preflight ]] && exit 0
 
+# ONE LOG PER RUN, AND EVERY RUN'S LOG KEPT. The raytrace producer resumes across nights by design
+# -- the box is not free for 22 consecutive hours -- and this line used to be `: > pass.log`, which
+# meant a four-night render kept only the fourth night's record of which blocks failed.
+#
+# Rotated rather than appended, because the log is not the only per-run artifact and the others do
+# not append either: samples.jsonl is rewritten, and stamp.py's elapsed column counts from ITS OWN
+# start, so two runs in one file would carry two clocks under one heading. A rotated name keeps
+# each night internally consistent, and `grep FAILED "$PROF"/pass*.log` still reads the whole
+# render in one command.
 mkdir -p "$PROF"
+if [[ -s "$PROF/pass.log" ]]; then
+    # Named for when that run's log was last written rather than for now, so the filename says
+    # which night it covers, and so re-running twice inside one second cannot land on one name.
+    mv "$PROF/pass.log" "$PROF/pass-$(date -r "$PROF/pass.log" +%Y%m%dT%H%M%S).log"
+fi
 : > "$PROF/pass.log"
 
+[[ "${STOP_AFTER:-}" == logs ]] && exit 0
+
 # Sampler first: it polls for the cgroup, so it is already watching when the scope appears.
-# 0.5 s, not 1 s: the composite forks ~728 short-lived snow subprocesses (gdalwarp +
-# gdal_rasterize per window x 364 windows) and a 1 s interval races their exit. perf catches
-# their CPU regardless, but only the sampler sees their RSS and disk bytes.
+# 0.5 s, not 1 s, AND THE REASON IS THE COMPOSITE PRODUCER'S ALONE: it forks ~728 short-lived snow
+# subprocesses (gdalwarp + gdal_rasterize per window x 364 windows) and a 1 s interval races their
+# exit. perf catches their CPU regardless, but only the sampler sees their RSS and disk bytes.
+# The raytrace producer forks one long-lived Blender per block instead, which nothing can race, so
+# on that producer the rate buys accuracy nobody needs and costs ~158k samples over a night. It is
+# left at 0.5 s rather than made per-producer because this script does not know which one runs --
+# the body does, and asking would be a second reader of pass_cap's question for a sampling rate.
 "$VENV" "$HARNESS/sample_tree.py" --unit "${UNIT}.scope" --out "$PROF/samples.jsonl" \
     --interval 0.5 2> "$PROF/sampler.log" &
 SAMPLER_PID=$!
@@ -155,7 +183,7 @@ fi
 
 systemd-run --user --scope --unit="$UNIT" -p MemoryMax="$MEMORY_CAP" -p MemorySwapMax=0 \
     ${PERF_PREFIX[@]+"${PERF_PREFIX[@]}"} \
-    env GDAL_CACHEMAX=512 "$VENV" -u -m pipeline.tile.shade_planet "$@" 2>&1 \
+    env GDAL_CACHEMAX=512 "$VENV" -u -m pipeline.tile.planet_pass "$@" 2>&1 \
     | "$VENV" "$HARNESS/stamp.py" | tee -a "$PROF/pass.log"
 
 STATUS=${PIPESTATUS[0]}

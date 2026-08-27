@@ -16,7 +16,7 @@ A capability probe picks one pessimistically and upgrades from there; the visito
 
 ## How it's built
 
-- **Heroes**: Blender Cycles, from Copernicus GLO-30 land and GEBCO bathymetry fused into one heightfield. Low sun, coloured by elevation and depth, after Frank Ramspott's *3D Render Topographic Map*.
+- **Heroes**: Blender Cycles, from Copernicus GLO-30 land and GEBCO bathymetry fused into one heightfield. Low sun, coloured by elevation and depth, in an aesthetic Frank Ramspott's topographic renders helped define.
 - **Tiles**: a raster pyramid approximating that look without ray tracing, using hillshade, sky-view shading and the same ramps.
 - **Mars is the same pipeline with a different body.** Exaggeration, zoom ceiling, ramp and radii all belong to the body. It arrives pre-fused, as the USGS MOLA/HRSC blend, so there is no fusion tier to run, and it has no ocean, borders or heroes.
 - **Delivery**: three PMTiles archives per body (relief, terrain-RGB, vectors), addressed `{body}/{layer}/{token}/{z}/{x}/{y}` so an address names its own archive. The browser never opens one; a tile server returns a single tile per request.
@@ -38,3 +38,14 @@ Code [MIT](LICENSE). Imagery [CC BY-SA 4.0](https://creativecommons.org/licenses
 - Measured stage runtimes → [`PROCESS.md`](PROCESS.md)
 - Data sources & licenses → [`ATTRIBUTIONS.md`](ATTRIBUTIONS.md)
 - Parked ideas, and what was deliberately not built → [`FUTURE.md`](FUTURE.md)
+- Driving Blender, and the shader gotchas → [`.claude/skills/blender-rig/`](.claude/skills/blender-rig/SKILL.md)
+- Acquiring or refetching a source dataset → [`.claude/skills/acquire-data/`](.claude/skills/acquire-data/SKILL.md)
+- Reclaiming disk, and what must never be deleted → [`.claude/skills/reclaim-pass/`](.claude/skills/reclaim-pass/SKILL.md)
+- Serving, the tile Worker and its landmine → [`.claude/rules/tile-worker-and-delivery.md`](.claude/rules/tile-worker-and-delivery.md)
+
+## Prior art
+
+Daniel Huffman, "Creating Shaded Relief in Blender", is the canonical technique this is built on.
+For land and sea fusion: ETOPO 2022 (NOAA), Tozer et al. 2019 (SRTM15+), the GMT `grdblend` docs and
+Tom Patterson's shadedrelief.com. The globe and the tile archive follow the MapLibre globe
+projection docs and the PMTiles spec (Protomaps).

@@ -1,6 +1,6 @@
 """The inverse Web-Mercator conversion, which existed twice before it existed once.
 
-`render/hillshade.py` and `render/snow.py` each carried their own `EARTH_RADIUS = 6378137.0` AND
+`look/hillshade.py` and `look/snow.py` each carried their own `EARTH_RADIUS = 6378137.0` AND
 their own transcription of `degrees(2*atan(exp(y/R)) - pi/2)`. Two copies of a constant is the drift
 this project has been bitten by; two copies of the FORMULA is the same hazard with more surface, and
 nothing related them. A second body makes it worse than drift — the radius is what turns a northing
@@ -58,3 +58,43 @@ def test_a_smaller_sphere_reads_the_same_northing_as_a_higher_latitude() -> None
     assert on_mars > on_earth
     assert on_earth == pytest.approx(40.9163, abs=1e-3)
     assert on_mars == pytest.approx(64.1585, abs=1e-3)
+
+
+def test_a_pixel_covers_less_ground_the_further_from_the_equator_it_sits() -> None:
+    """The cos(latitude) half of `ground_metres_per_pixel`, against a hand-computed value.
+
+    Written as a ratio at one latitude and an absolute at another, because a formula that dropped
+    the cosine entirely still satisfies any ratio taken against itself.
+    """
+    at_equator = mercator.ground_metres_per_pixel(0.0, 305.7483, 1.0)
+    assert at_equator == pytest.approx(305.7483)
+    assert mercator.ground_metres_per_pixel(60.0, 305.7483, 1.0) == pytest.approx(
+        305.7483 * 0.5, abs=1e-6), "cos(60) is exactly one half, so this needs no second formula"
+    assert mercator.ground_metres_per_pixel(79.5, 305.7483, 1.0) == pytest.approx(55.7182,
+                                                                                  abs=1e-3)
+
+
+def test_the_body_term_is_a_separate_factor_and_is_1_0_on_earth_alone() -> None:
+    """The half that is inert on the only planet anyone tests against, which is why it is pinned.
+
+    A caller that dropped `ground_scale` would be exactly right on Earth and would undersize every
+    Martian distance by 1.878 — the failure the `ground_width_m` docstring records having already
+    happened once in this tree.
+    """
+    earth_scale = bodies.ground_metres_per_mercator_unit(bodies.EARTH)
+    mars_scale = bodies.ground_metres_per_mercator_unit(bodies.get("mars"))
+    assert earth_scale == 1.0, "if Earth's term stops being exactly 1.0 this test is the wrong shape"
+    assert mars_scale != 1.0
+
+    on_earth = mercator.ground_metres_per_pixel(45.0, 100.0, earth_scale)
+    on_mars = mercator.ground_metres_per_pixel(45.0, 100.0, mars_scale)
+    assert on_mars == pytest.approx(on_earth * mars_scale)
+
+
+def test_it_takes_a_row_of_latitudes_and_keeps_the_shape() -> None:
+    """Its Mercator caller hands a whole window's rows at once; its AEQD caller hands one scalar."""
+    latitudes = np.linspace(0.0, 84.0, 7)
+    out = mercator.ground_metres_per_pixel(latitudes, 305.7483, 1.0)
+    assert out.shape == latitudes.shape
+    assert np.all(np.diff(out) < 0.0), "ground metres per pixel must fall monotonically northward"
+    assert np.ndim(mercator.ground_metres_per_pixel(0.0, 305.7483, 1.0)) == 0

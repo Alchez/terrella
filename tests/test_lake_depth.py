@@ -23,7 +23,7 @@ import numpy as np
 import pytest
 from conftest import hillshade_for_light
 
-from pipeline.render import lake_depth, palette, seaice
+from pipeline.look import lake_depth, palette, seaice
 from pipeline.tile import shade
 
 CURVES = ["log1p", "sqrt", "linear"]
@@ -198,7 +198,7 @@ class TestCompositeUsesDepth:
         shade.KNOBS["lake_curve"] = curve
         return shade.composite(heights, ocean, water, snow_a, hs, occ, (1, 1), shape,
                                depth=depth, look=palette.EARTH_LOOK,
-                               snow_paint=(palette.SNOW_RGB, palette.SNOW_SHADOW_RGB), ice_paint=seaice.ice_white())
+                               snow_paint=(palette.SNOW_RGB, palette.SNOW_SHADOW_RGB), ice_paint=seaice.ice_paint())
 
     def test_deep_lake_renders_darker_than_a_shallow_one(self):
         """Absolute depth, not per-lake normalisation: a pond must NOT look like Baikal.

@@ -29,8 +29,8 @@ meters-per-pixel scale plus the frame center.
 Usage:
   overlay_borders.py --mode oracle \
       --render blender/renders/india_hero_8k_v3_water.png \
-      --heightfield data/work/india/render/heightfield_aea.tif \
-      --mask data/work/india/render/oceanmask_aea.tif \
+      --heightfield data/work/india/render/heightfield.tif \
+      --mask data/work/india/render/oceanmask.tif \
       --outdir data/work/india/render/overlay
 
 `--ne-dir` defaults to the store's own vector directory and is only worth naming when pointing at

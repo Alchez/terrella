@@ -422,6 +422,6 @@ class TestTheStoreIsWhereTheStoreIs:
             predicate, "if attribute == '__name__':",
         ).replace('f"{module.name}.{attribute} = {value}"', "module.name")
         reached = set(run_probe(listing, {"MAPS_DATA": str(tmp_path / "elsewhere")}).split("\n"))
-        for module in ("pipeline.tile.cap_render", "pipeline.compose.gen_spotlight",
+        for module in ("pipeline.tile.cap_pass", "pipeline.compose.gen_spotlight",
                        "pipeline.frame.frame_country", "pipeline.acquire.download_gebco"):
             assert module in reached, f"{module} was never imported by the probe"

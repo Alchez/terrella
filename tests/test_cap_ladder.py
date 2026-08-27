@@ -171,7 +171,7 @@ class TestTheLadderIsBodyScoped:
         assert cap_ladder.ladder_dir(other, SWEPT_KNOB) != earth
 
     def test_the_body_is_required_with_no_default(self):
-        """Matching the cap and shade passes. A defaulted body would let a sweep of one planet's
+        """Matching the cap and planet passes. A defaulted body would let a sweep of one planet's
         knob land in another planet's served directory."""
         parser = cap_ladder.build_parser()
         with pytest.raises(SystemExit):

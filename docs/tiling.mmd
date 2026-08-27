@@ -11,7 +11,7 @@
 
 flowchart TD
 
-  M[("Shaded planet master, tile/shade_planet.py<br/>planet_rgb.tif, EPSG:3857, uint8 RGB<br/>Earth: 131072 x 131072 (full Mercator square, Antarctica included), 305.7483 m/px<br/>MAX-ZOOM-NATIVE: width = 512 x 2^maxzoom, so its pixels ARE the finest grid<br/>the ceiling is the BODY's (Body.tile_max_zoom), so this size is a body fact, not a constant")]
+  M[("Shaded planet master, written by whichever producer the body names<br/>tile/planet_pass.py dispatches: shade_planet composites, block_render raytraces<br/>planet_rgb.tif, EPSG:3857, uint8 RGB, one path and one done-marker either way<br/>Earth: 131072 x 131072 (full Mercator square, Antarctica included), 305.7483 m/px<br/>MAX-ZOOM-NATIVE: width = 512 x 2^maxzoom, so its pixels ARE the finest grid<br/>the ceiling is the BODY's (Body.tile_max_zoom), so this size is a body fact, not a constant")]
 
   subgraph CUT["gdal raster tile: build_tiles (one call, two phases)"]
     P1["Phase 1: max-zoom cut (z8 on Earth)<br/>each tile = the source region it covers, 512 px<br/>source is already 3857, grid-aligned, at that resolution, so this is a<br/>pure copy: --resampling=cubic is INERT here (proven byte-identical to nearest)"]

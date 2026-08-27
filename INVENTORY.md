@@ -4,21 +4,94 @@
   reclaimable. This file is maintained, not a snapshot: **re-measure when the chain moves; if a
   row and the disk disagree, the row is the bug.** Past states live in git history; reclaim
   passes and their lessons live in HISTORY (§ the reclaim log moves out of INVENTORY).
-- Two gitignored stores hold everything: `data/` (sources + intermediates) and
-  `blender/renders/` (the hero products); no assets or DEM data are in git. Free space:
-  **~389 GB** of a 1.8 TB ext4 root. Sizes approximate.
+- Three gitignored stores hold everything: `data/` (sources + intermediates),
+  `blender/renders/` (the hero products) and `web/public/caps/` (**26 MB**, Earth at the root and
+  Mars's 11 files under `mars/`: the only rendered assets that ship inside the site build rather
+  than from R2, gitignored at `web/.gitignore:26`);
+  no assets or DEM data are in git. Free space:
+  **~359 GB** of a 1.8 TB ext4 root. Sizes approximate.
 
-## Raw sources: `data/raw/` (~688 GB)
+## The chain, from download to browser
+
+- **Organised by BYTES, which is this file's axis and nothing else's.** `docs/pipeline-overview.mmd`
+  draws the same chain as a process and `PROCESS.md` draws it as stage timings; neither says what is
+  on disk or who can delete it. Read this one to find a store, those to find a stage.
+- **The dashed edges are the only ones that leave the box, and they have two destinations.** The
+  three archives and the hero store go to R2; the caps alone ride inside the site build. Everything
+  left of that line is local and rebuildable, and a raw source is the sole thing that cannot be
+  re-derived, only re-downloaded.
+- **Two rasters fuse and no others.** Every other layer is warped onto the render grid at composite
+  time, which is why a finer re-fuse would not have to redo any of them.
+
+```mermaid
+flowchart LR
+  subgraph SRC["data/raw/ · 689 GB · re-downloadable, never re-derivable"]
+    GLO["glo30 · 551 GB"]
+    GEB["gebco · 7.3 GB"]
+    LAY["rgi · snow · seaice · addrock<br/>globathy · naturalearth"]
+  end
+
+  subgraph MID["data/work/ · 330 GB · every byte rebuildable"]
+    FUSE["planet/ · 14 GB<br/>fused heightfield + masks · 648 cells"]
+    W["*_3857.tif · ~85 GB<br/>height, masks, surface layers<br/>on the one 131072² grid"]
+    RGB["planet_rgb.tif<br/>the colour master"]
+    PYR["tiles/ · 3.1 GB<br/>87,381 WebP · z0-8"]
+    CTRY["per-country dirs · ~190 GB<br/>hero intermediates"]
+  end
+
+  subgraph OUT["delivered · the only bytes a visitor fetches"]
+    PM["planet.pmtiles · 2.50 GB"]
+    TER["terrain.pmtiles · 2.63 GB"]
+    VEC["vector.pmtiles · 10.2 MB"]
+    CAP["web/public/caps/ · WebP rungs"]
+    HERO["variants/ · 3.5 GB<br/>hero WebP + overlays"]
+  end
+
+  GLO --> FUSE
+  GEB --> FUSE
+  FUSE --> W
+  LAY --> W
+  W -->|"Body.planet_producer<br/>composite or raytrace"| RGB
+  RGB --> PYR
+  PYR --> PM
+  W --> TER
+  FUSE --> CAP
+  LAY --> VEC
+  GLO --> CTRY
+  GEB --> CTRY
+  CTRY --> HERO
+  PM -.-> R2[("R2 · ranged by the tile Worker")]
+  TER -.-> R2
+  VEC -.-> R2
+  HERO -.-> R2
+  CAP -.-> SITE[("web/dist · the site Worker's static assets")]
+```
+
+- **`Body.planet_producer` is the one fork in the chain**, and it is a per-body field rather than a
+  flag: Earth answers `raytrace` and Mars answers `composite`. Only `planet_producer.json` beside the
+  master records which one actually filled it, because the bytes cannot say.
+- **The caps branch at the FUSION and never touch the render grid.** `cap_sources` warps AEQD from
+  the planet VRTs, so the caps share no warped intermediate and no pyramid with the tiles they
+  feather into. What couples them is the recipe rather than a file: their sidecar carries
+  `composite_params`, so a look change restages both, and nothing else would keep them from drifting
+  apart at the seam.
+  - **The fork above is the one look change `composite_params` cannot see**, so the cap sidecar
+    carries `planet_producer` beside it. Those constants are identical under either producer and the
+    master is not a cap source, so without that key a switch repaints every tile and leaves both
+    discs reading fresh, in either direction.
+
+## Raw sources: `data/raw/` (~689 GB)
 
 | Store | Size | What it is | Used by | Reclaim? |
 |---|---|---|---|---|
 | `glo30/` | 551 GB | Copernicus GLO-30 land DEM tiles (downloaded per-country, on demand) | fusion (heroes + planet) | Keep: any re-fuse, new country, or z9/z10 extension reads it; largest store |
 | `worldcover/` | 114 GB | ESA WorldCover 2021 (class-70 permanent snow/ice) | **hero snow only** (`render/snow_mask.py`), NOT the tile pipeline | Reclaimable: see reclaim picture |
 | `gebco/` | 7.3 GB | GEBCO 2026 bathymetry / ice-surface | fusion (heroes + planet); Caspian bathymetry | Keep |
-| `rgi/` | 2.6 GB | RGI 7.0 glaciers (merged `rgi7_g_3857.gpkg` + source shp) | tile snow (`render/snow.py`) | Keep |
-| `snow/` | 1.6 GB | NSIDC-0791 snow-persistence climatology | tile snow (`render/snow.py`) | Keep |
-| `seaice/` | 640 MB | OSI SAF OSI-450-a monthly EASE2 files + the derived 1991–2020 ice-frequency climatology (`seaice_frequency_1991-2020_4326.tif`) + native `freq_{nh,sh}_ease2.tif` | tile sea ice (`render/seaice.py`) + both caps | Keep (climatology is tiny); `monthly/` regenerable from anonymous THREDDS |
+| `rgi/` | 2.7 GB | RGI 7.0 glaciers, **all 19 regions** (merged `rgi7_g_3857.gpkg` 1.1 GB + source shp) | tile snow (`look/snow.py`) | Keep |
+| `snow/` | 1.6 GB | NSIDC-0791 snow-persistence climatology | tile snow (`look/snow.py`) | Keep |
+| `seaice/` | 640 MB | OSI SAF OSI-450-a monthly EASE2 files + the derived 1991–2020 ice-frequency climatology (`seaice_frequency_1991-2020_4326.tif`) + native `freq_{nh,sh}_ease2.tif` | tile sea ice (`look/seaice.py`) + both caps | Keep (climatology is tiny); `monthly/` regenerable from anonymous THREDDS |
 | `cop30_void/` | 1.2 GB | Cop30 void-fill DEM | fusion void-fill | Keep |
+| `addrock/` | 410 MB | SCAR ADD rock outcrop, the LANDSAT auto-extraction (zip + unzipped shp + the reprojected `add_rock_3857.gpkg`) | Antarctic ice subtraction (`look/snow.py`), tiles + block + south cap | Keep the gpkg; the unzipped shp is regenerable from the zip, and the zip from `acquire/download_add_rock.py` |
 | `naturalearth/` | 38 MB | NE vectors (borders, framing polygons, coastline oracle) | framing, borders, countries/boundary GeoJSON | Keep (tiny) |
 | `mars/` | 12 GB | Two whole-planet downloads, no per-tile machinery. The MOLA/HRSC blended DEM (`Mars_HRSC_MOLA_BlendDEM_Global_200mp_v2.tif`, 11,384,463,908 B, 106694 × 53347 int16) is the heightfield. `Mars_Viking_ClrMosaic_global_925m.tif` (797,888,177 B, 23059 × 11530 RGB, SimpleCylindrical metres) is **an acquired input**: it is the field Mars's polar ice alpha is graded from, and `mars_ice.ALPHA_LEVELS` was measured over these exact bytes; it is also what the land ramp's hue was measured against | the DEM feeds Mars's planet seam (`fuse/relabel_mars.py`); the mosaic is acquired by `acquire/download_viking_mosaic.py` and read so far only by the ice-level scripts, no render stage yet | Keep the DEM: re-downloadable, but a ~23 min single-stream fetch with its edition pinned by size and Last-Modified. The mosaic is **re-fetchable exactly**, its acquirer pinning the publisher's own md5, so a deleted copy returns byte-identical in ~90 s, but it is no longer spare, and deleting it now costs a re-fetch rather than nothing |
 
@@ -32,14 +105,15 @@
 | `planet/` | 14 GB | Fused planet heightfield + masks, 648 cells of 10° (36 lon × 18 lat, pole to pole) | Keep: input to the tiler |
 | `planet_terrain/` | **7.6 GB** | Terrain-RGB (Tier 3 displacement), built by `tile/terrain_rgb.py` from `height_3857.tif`. Shipping pyramid is `bathy_s8_webp/` (**2.63 GB, 87,381 tiles, z0–8**), stamped `tiles.done` + `terrain_params.json` so it will not restage, packed to **`terrain.pmtiles` (2.63 GB)** via **`terrain.mbtiles` (2.69 GB)**. **Both the 60 GB `elev/` chain and the spike A/B builds are gone**: this store is now only the shipping pyramid, its archive, and the bridge | Mixed: `terrain.mbtiles` (2.69 GB) is the bridge format and is dead now that the archive is live in production; it rebuilds from `tiles/` in 12 s, the same standing exception `planet.mbtiles` takes. Keep `bathy_s8_webp/` (the pack source) and `terrain.pmtiles` (the deployment artifact). A rebuild re-derives the chain from `height_3857.tif` and no longer copies the master, so it costs ~13 GB transiently, not 60 |
 | `planet_vector/` | **10.2 MB** | Earth's VECTOR tiles (MVT), cut by `compose/countries_pmtiles.py` from `borders/countries.geojson` plus the two layers it derives. One archive, three source-layers (`country_fill`, `country_outline`, `country_hit`), z0–8, stamped `countries_tiles_params.json`: the sidecar keeps its producer's name, the archive takes the layer's. **Three orders of magnitude smaller than the raster pyramids**: it is geometry, not pixels | Keep. Re-cuts from `countries.geojson` in **17 s**, so the archive is cheap to regenerate; the recipe sidecar is what makes a settings change visible, since the filename cannot carry one |
-| `cap/` | 1.3 GB | Both caps' render intermediates (`tile/cap_render.py`): AEQD warps + `cap_{north,south}.tif` + **the freshness sidecars `cap_{north,south}_params.json`** + the A/B rung archives (decision records, ~10 MB). Served outputs live at `web/public/caps/` (two WebP rungs per pole + `caps.json`) | Reclaimable: regenerated by a cap render (deleting the sidecars merely forces one), but budget **≥16 G**: the render peaks ~14 GB and OOMs under the standard 12 G cap (PROCESS § Polar cap render) |
+| `cap/` | 2.07 GB | Both caps' render intermediates (`tile/cap_pass.py`, either arm): AEQD warps + `cap_{north,south}.tif` + **the freshness sidecars `cap_{north,south}_params.json`** + the A/B rung archives (decision records, ~10 MB). Excludes the four raytraced-arm directories, which the row below owns. Served outputs live at `web/public/caps/`: one WebP per `cap_render.CAP_RUNGS` entry per pole, currently four, plus a `cap_{north,south}_elev.webp` and `caps.json` | Reclaimable: regenerated by a cap render (deleting the sidecars merely forces one), but budget **≥16 G**: the render peaks ~14 GB and OOMs under the standard 12 G cap (PROCESS § Polar cap render) |
+| `cap/render_{north,south}/` + `cap/frames_{north,south}/` | **1.42 GB** when the raytraced arm has run, else absent | The raytraced arm only: one prepped render directory per pole (heightfield + masks + `frame.json`) at 218 + 207 MB, and the 28 Cycles frames per pole it is photographed as at 503 + 492 MB. **Measured in production**, superseding a 950 MB estimate that had priced the frames and forgotten the two render directories the row also names; the frames half of that estimate was good to 5%. Kept between runs on purpose: they are what makes a stopped render cost one frame instead of the ring | Reclaimable, but deleting them costs **45:35** of GPU and prep to rebuild (PROCESS § Polar cap render). The blended disc and its rungs do not live here |
 | `borders/` | <1 GB | `countries.geojson` + `boundary_lines.geojson` (NE → GeoJSON emitters), served at `/borders/` | Keep (tiny); regenerable from `naturalearth/` |
 | `mars/` | 4.2 GB | **The second body's whole work tree**, nested under its own prefix where Earth's stages sit un-prefixed at the root. `planet/` is 12 KB: a CRS-relabelled VRT over the raw blend plus its seam declaration, no copy of the 11 GB. `planet_tiles/` holds the two products of the z7 cut, `tiles/` 1.4 GB (21,845 tiles, z0–7) and **`planet.pmtiles` 1.40 GB** (the deployment artifact, 20,950 unique tile bodies), plus the four recipe sidecars and the burnt ice GeoJSONs. **Its intermediates are deliberately absent**: `height_3857.tif` (11 GB at 65536²), `planet_rgb.tif` 4.1 GB, `hs_3857.tif` 3.2 GB, the six ice rasters and the alpha, and `planet.mbtiles` were all reclaimed once the cut was accepted, because no remaining phase reads them: vectors are a web overlay and heroes render from the raw DEM | Mixed: the archive and `tiles/` are the products and `tiles/` stays until R2 holds a second copy of the archive. Everything reclaimed rebuilds from raw in ~16:10; the `.done` markers left vouching for absent outputs are safe, since every guard returns "rebuild" for a missing file |
 | `mars/ice/` | 205 MB | **Live.** `viking_luma_4326.tif`: the Viking mosaic collapsed to one Float32 brightness band on a 4326 grid covering the whole sphere, which is the field BOTH ice tiers grade against, beside the two VRTs that reach it and `viking_luma_params.json`. Whole-planet on purpose though only the poles are read: a polar crop would save ~160 MB and cost a crop latitude whose failure is ice quietly missing at the band edge | Keep: a 45 s rebuild from the raw mosaic, and the sidecar makes a re-run a skip. `mars_ice.ALPHA_LEVELS` is four percentiles OF THIS FILE, so rebuilding it on a different grid means re-measuring them |
-| `mars/cap/` | 1.3 GB | **Live.** The cap stage's intermediates for both poles: the AEQD height warps and the full-size colour renders, beside the `*_params.json` sidecars that decide whether a re-run restages them. `MARS.renders_polar_caps` is `True`, so the shade pass refreshes these on every run | Keep: deleting them costs a ~1:15 re-render, and the sidecars are what make it a skip |
-| `_profile_tiles/` | 6 MB | The latest `run_pass.sh --tiles` run: `pass.log` (stage timings) + `samples.jsonl`. **Truncated on every run**: only ever the most recent pass | Keep: the source of PROCESS.md's numbers |
+| `mars/cap/` | 1.3 GB | **Live.** The cap stage's intermediates for both poles: the AEQD height warps and the full-size colour renders, beside the `*_params.json` sidecars that decide whether a re-run restages them. `MARS.renders_polar_caps` is `True`, so the planet pass refreshes these on every run | Keep: deleting them costs a ~1:15 re-render, and the sidecars are what make it a skip |
+| `_profile_tiles/` | 6 MB | The latest `run_pass.sh --tiles` run: `pass.log` (stage timings) + `samples.jsonl`. `samples.jsonl` is rewritten every run, so it is only ever the most recent pass; `pass.log` is ROTATED to `pass-<timestamp>.log` instead, because a producer that resumes across nights would otherwise keep only the last night's record of which blocks failed | Keep: the source of PROCESS.md's numbers |
 | `_profile_mars_tiles/` | 540 KB | The same two files for the FIRST Mars pass, under its own name because that one predates the harness knowing about bodies and was run by hand. Mars runs through `run_pass.sh` now and lands in `_profile_tiles/` beside Earth: the 16 G cap that forced the detour is derived from `renders_polar_caps` and answers 12 G for a capless body | Keep: the source of PROCESS.md's first Mars row, which no later run reproduces |
-| `_profile_pass/` | 17 MB | The same two files for the most recent `run_pass.sh` with NO `--tiles`, kept separate from `_profile_tiles/` so a composite-only look iteration does not overwrite the timings of the last full cut. **Truncated on every run** | Keep: the source of PROCESS.md's warm-loop row |
+| `_profile_pass/` | 17 MB | The same two files for the most recent `run_pass.sh` with NO `--tiles`, kept separate from `_profile_tiles/` so a composite-only look iteration does not overwrite the timings of the last full cut. Same split as above: `samples.jsonl` rewritten, `pass.log` rotated, so this directory grows by one log per run | Keep: the source of PROCESS.md's warm-loop row |
 | `_*/` experiment scratch | 0 now | A/B and investigation output, by convention leading-underscore (`_ab_shadow`, `_pinecone_exp`, …) | **Reclaim as soon as the decision lands in HISTORY**: the finding is the product, the pixels are not |
 
 ### `planet_tiles/` breakdown
@@ -48,19 +122,26 @@
   generations once hid; and a *deferred* measurement of a growing directory is the same failure
   as a stale one. Re-measure when the chain moves.
 - Steady state is **one live pyramid + one rollback**: `tiles/` plus the `tiles_old/` that
-  `build_tiles` auto-rotates on each cut. `tiles_old/` is currently absent: the WebP pyramid it
-  guarded is live and served, so the rollback window closed and its 16 GB was reclaimed.
+  `build_tiles` auto-rotates on each cut. Both are present at 2.6 GB each, and **both are now
+  raytraced cuts**: the rotation happened twice in one day, so the second one pushed the composite
+  out. The rollback window is one cut deep, never one producer deep.
+- **THE COMPOSITE PYRAMID NO LONGER EXISTS LOCALLY, and `tiles_old` is not a stand-in for it.** That
+  matters because a composite arm is the only control for judging what the producer switch changed,
+  and rotation destroys it silently: the directory is the right size and the wrong contents, so an
+  `ls` says nothing. It survives in R2 as the deployed `planet-v2.pmtiles`, and as **64 z8 tiles
+  fetched from it into `~/terrella-scratch/cap-join/composite/`, which is the only local copy and
+  must not be reclaimed** while the polar disc is open.
 - `pack_pmtiles.py` emits an intermediate `planet.mbtiles` (3.19 GB) that `pmtiles convert` reads: 
   **transient by design**, and currently absent: it is deleted once the archive verifies and rebuilds
   from `tiles/` in ~10 s.
 
 | File | Size | What it is | Reclaim? |
 |---|---|---|---|
-| `height_3857.tif` + `.done` | 44 GB | planet heightfield on the WMQ 3857 grid (131072², Float32, full Mercator extent incl. Antarctica) | Keep: the composite's direct colour input (ramps apply from elevation) |
+| `height_3857.tif` + `.done` | 46 GB | planet heightfield on the WMQ 3857 grid (131072², Float32, full Mercator extent incl. Antarctica) | Keep: the composite's direct colour input (ramps apply from elevation) |
 | `seaice_3857.tif` + `.done` | 18 GB | OSI SAF ice-frequency climatology warped ONCE to the 3857 grid, raw packed Float32, in latitude bands (a coarse 25 km source decimates under a single whole-grid warp); composite reads window slices, ocean-gated | Keep: fresh; dep is `seaice_frequency_1991-2020_4326.tif`. Regenerable |
 | `tiles/` | **3.1 GB** | **LIVE and APPROVED**: the ratified look (z0–8, 512 px WebP q95, rows to y=255) | Keep (live) |
-| `planet.pmtiles` | **3.1 GB** | the serving archive (`pmtiles convert`, capped, `--tmpdir` on ext4): spec v3, clustered, z0–8, ~5% duplicate tiles collapsed; verified via `pmtiles verify` + 5-tile byte-compare | Keep: the deployment artifact; ~34 s + ~1m11s to rebuild from `tiles/` |
-| `planet_rgb.tif` + `.done` | 11 GB | the composite at the full 131072² grid: the approved look the tiles are cut from | Keep: `--tiles` reads it |
+| `planet.pmtiles` | **2.50 GB** | the serving archive (`pmtiles convert`, capped, `--tmpdir` on ext4): spec v3, clustered, z0–8, 87,366 distinct contents of 87,381; verified via `pmtiles verify` + 5-tile byte-compare. **0.80× the composite archive it replaced**, so a raytraced pyramid is smaller on disk despite a master 2.7× larger | Keep: the deployment artifact; ~10 s + ~7 s to rebuild from `tiles/` |
+| `planet_rgb.tif` + `.done` | **30 GB** | the approved look at the full 131072² grid, which the tiles are cut from. Written by whichever producer this body names, and `planet_producer.json` beside it is the only thing on disk that says which. **The raytraced master is 2.7× the composite's 11 GB at identical dimensions**: the pixel count is the grid either way and the difference is entirely how well deflate compresses raytraced detail | Keep: `--tiles` reads it |
 | `snow_persistence_3857.tif` + `.done` | 10 GB | NSIDC-0791 persistence warped ONCE to the 3857 grid, raw packed Float32, in 256-row latitude bands (whole-grid warp decimates the ~1.1 km source; banding == the per-window warp, byte-identical); composite reads window slices | Keep: fresh; dep is `snow/*.nc`. Regenerable |
 | `hs_3857.tif` + `.done` | 10 GB | per-row-z hillshade **+ the fill sun, baked**: *combined light*, not a bare hillshade, still on the `flat = 255·sin(alt)` contract; max DN 226 | Keep: fresh |
 | `glacier_3857.tif` + `.done` | 30 MB | RGI 7.0 glacier mask (Byte 0/1) rasterized ONCE to the 3857 grid; exact vector burn, so no banding needed | Keep: fresh; dep is `rgi7_g_3857.gpkg`. Regenerable |

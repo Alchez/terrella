@@ -194,9 +194,9 @@ def restore_live_caps(body: bodies.Body) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     """The CLI, split out of `main` so its contract is testable without rendering a cap — the same
-    split `cap_render.build_parser` makes, and for the same reason."""
+    split `cap_pass.build_parser` makes, and for the same reason."""
     parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n")[0])
-    # Required and defaultless, matching the cap and shade passes. A ladder writes into a body's
+    # Required and defaultless, matching the cap and planet passes. A ladder writes into a body's
     # served directory, so an omitted body here would sweep one planet's knob onto another's assets.
     parser.add_argument("--body", required=True,
                         help=f"which planet's caps to sweep ({', '.join(sorted(bodies.BODIES))})")

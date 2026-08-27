@@ -454,12 +454,19 @@ export function describeTerrainState(
  *  skirts appear and vanish at new boundaries every frame.
  *
  *  RATIFIED "none" by eye, in motion: **basically zero tearing on pan**, traded
- *  for tiny black specks. The specks confirm the mechanism twice over — they sit **only on drastic
- *  elevation changes and never on flatland**, which is exactly where the LOD crack is widest, and
- *  they read BLACK rather than sea-coloured because with terrain on the `space-floor` background is
- *  drawn INTO each render tile's texture, so a gap between tiles is not covered by it at all and
- *  shows the transparent canvas clear behind the globe. No background colour can fix that; only
- *  geometry could. */
+ *  for tiny black specks. They read BLACK rather than sea-coloured because with terrain on the
+ *  `space-floor` background is drawn INTO each render tile's texture, so a gap between tiles is not
+ *  covered by it at all and shows the transparent canvas clear behind the globe. No background
+ *  colour can fix that; only geometry could.
+ *
+ *  RELIEF IS NOT WHAT SELECTS WHERE THEY APPEAR, and a narrower claim here was wrong. This note
+ *  used to say they sit "only on drastic elevation changes and never on flatland", reasoning that
+ *  the LOD crack is widest there. Observed under a pitched camera on FLAT sea ice at 81.6N: a
+ *  dashed horizontal hairline straight across the view, which "auto" removes and replaces with the
+ *  ragged tile edges it trades for. The selector is a boundary between zoom levels, which a flat
+ *  surface has exactly as often as a mountain, so the gap is a property of the covering set rather
+ *  than of the terrain under it. Reproduce with `?skirt=auto` against `?skirt=none` on one camera,
+ *  each as its own page load: the option is read by the Map CONSTRUCTOR. */
 export const TERRAIN_SKIRT_MODES = ["auto", "none"] as const;
 export type TerrainSkirtMode = (typeof TERRAIN_SKIRT_MODES)[number];
 

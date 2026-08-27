@@ -139,7 +139,7 @@ export interface PublishedArchive {
    *
    *  DELIBERATELY NOT `{body}/{layer}-v{N}.pmtiles`. The keys carry the history of what has been
    *  uploaded (`planet-v2.pmtiles` is the WebP cut that replaced a PNG one), and renaming them
-   *  means copying 5.7 GB into a bucket with under a gigabyte of headroom. A field costs one line
+   *  means recopying multi-GB objects for no byte change. A field costs one line
    *  and lets each key be tidied the next time that archive is re-cut anyway. */
   objectKey: string;
   /** Cache-busting segment; see the module note. Generated, never typed by hand. */
@@ -187,8 +187,11 @@ export interface PublishedArchives extends Record<LayerId, PublishedArchive | nu
 /** Which cuts exist, per body. */
 export const PUBLISHED: Record<BodySlug, PublishedArchives> = {
   earth: {
+    // `-v2` was the WebP cut that replaced a PNG one; `-v3` is the raytraced planet, where every
+    // block is a Cycles render rather than a composite. Same rule as Mars below: the bytes changed,
+    // so the key changes.
     relief: {
-      objectKey: "planet-v2.pmtiles",
+      objectKey: "planet-v3.pmtiles",
       token: TOKENS.earth.relief.token,
       indexLeaves: TOKENS.earth.relief.indexLeaves,
       zoomConstants: "RELIEF_MIN_ZOOM/RELIEF_MAX_ZOOM in web/src/lib/reliefTiles.ts",
@@ -205,7 +208,7 @@ export const PUBLISHED: Record<BodySlug, PublishedArchives> = {
     },
     // THE OBJECT KEY KEEPS ITS OLD NAME ON PURPOSE. `objectKey` is recorded rather than derived
     // precisely so a rename of the layer word costs nothing in R2 — renaming the object would mean
-    // copying it into a bucket with under a gigabyte of headroom, for no byte change.
+    // recopying a multi-GB archive for no byte change.
     vector: {
       objectKey: "countries-v2.pmtiles",
       token: TOKENS.earth.vector.token,

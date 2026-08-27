@@ -20,7 +20,7 @@ import pytest
 from conftest import hillshade_for_light
 
 from pipeline import bodies, planet_seam
-from pipeline.render import palette, seaice
+from pipeline.look import palette, seaice
 from pipeline.tile import shade
 from pipeline.tile.shade import SHADOW_TINT, shadow_tint
 
@@ -52,7 +52,7 @@ def composite_at(light_value, *, ocean=False, water=False, snow=0.0):
                            np.full(shape, snow, dtype="float32"),
                            np.full(shape, hillshade_for_light(pre), dtype="float32"),
                            np.zeros((1, 1), dtype="float32"), (1, 1), shape, look=palette.EARTH_LOOK,
-                           snow_paint=(palette.SNOW_RGB, palette.SNOW_SHADOW_RGB), ice_paint=seaice.ice_white())[:, 0, 0].astype(float)
+                           snow_paint=(palette.SNOW_RGB, palette.SNOW_SHADOW_RGB), ice_paint=seaice.ice_paint())[:, 0, 0].astype(float)
 
 
 class TestOffIsExactlyToday:

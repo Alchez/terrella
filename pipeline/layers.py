@@ -17,8 +17,10 @@ structural, and the split itself is still pinned against literals in `tests/test
 a table can hold a wrong column as easily as two sets can disagree.
 
 STAGE MEMBERSHIP IS A FIELD PER STAGE, NOT A SET OF NAMES, for the reason `bodies.Body` carries no
-defaults: a fourth stage must be a hard error at every row until each layer answers for it. A set
-would let the rows that need it be edited and the rest inherit "not mine" unexamined.
+defaults: a new stage must be a hard error at every row until each layer answers for it. A set would
+let the rows that need it be edited and the rest inherit "not mine" unexamined — which is how the
+block render would have inherited the composite's `sea_ice` back when its rig had no ice input at
+all: a recorded layer no node could consume.
 
     from pipeline import layers
     if layers.layer_is_buildable(body, layers.SEA_ICE, source, "bathymetry bare at the poles"): ...
@@ -42,8 +44,17 @@ class Layer:
     name: str
     #: Read by the Mercator tile composite (`tile/shade_planet.py`).
     in_composite: bool
-    #: Read by the polar cap render (`tile/cap_render.py`).
+    #: Read by the polar cap pass (`tile/cap_pass.py`), whichever arm it dispatches to.
     in_cap: bool
+    #: Read by the raytraced block render (`render/scene_build.py`, staged by the block prep).
+    #:
+    #: THE THIRD STAGE. It shades the same Mercator grid the composite does and is the OTHER
+    #: producer of `planet_rgb`, chosen per body by `Body.planet_producer`, which makes copying the
+    #: `in_composite` column the natural mistake. Today the two columns agree row for row — the rig
+    #: paints every raster layer the composite does, `sea_ice` included — but the agreement is an
+    #: answer per row and not a rule: `tests/test_bodies.py` pins it as literals so a new layer
+    #: still answers here on purpose.
+    in_block: bool
     #: The planet raster this layer cannot be computed without, or None.
     #:
     #: Held as a NAME rather than an imported constant so this module never imports `planet_seam`,
@@ -65,7 +76,7 @@ class Layer:
     def warped_in(self, work: Path) -> Path:
         """This layer's built raster inside one body's work directory — the one place they join.
 
-        Only meaningful for a `WARPED_LAYERS` row, and the assertion is that filter restated where a
+        Only meaningful for a row `warped_for` returns, and the assertion is that filter restated where a
         type checker can see it rather than a condition anything is expected to reach.
         """
         assert self.warped_basename is not None, f"{self.name} builds no raster"
@@ -87,18 +98,36 @@ class Layer:
 #:
 #: THE BASENAMES BELOW ARE SHIPPED AND MUST NOT BE TIDIED. Each is a dependency of the composite by
 #: mtime, so renaming one restages Earth's whole pyramid to reproduce the pixels already on disk.
-LAKE_DEPTH = Layer("lake_depth", in_composite=True, in_cap=False,
+LAKE_DEPTH = Layer("lake_depth", in_composite=True, in_cap=False, in_block=True,
                    requires_raster="watermask", warped_basename="lakedepth_3857.tif")
-PERENNIAL_ICE = Layer("perennial_ice", in_composite=True, in_cap=True,
+PERENNIAL_ICE = Layer("perennial_ice", in_composite=True, in_cap=True, in_block=True,
                       requires_raster=None, warped_basename="snow_persistence_3857.tif")
-GLACIERS = Layer("glaciers", in_composite=True, in_cap=False,
+GLACIERS = Layer("glaciers", in_composite=True, in_cap=False, in_block=True,
                  requires_raster=None, warped_basename="glacier_3857.tif")
-SEA_ICE = Layer("sea_ice", in_composite=True, in_cap=True,
+SEA_ICE = Layer("sea_ice", in_composite=True, in_cap=True, in_block=True,
                 requires_raster="oceanmask", warped_basename="seaice_3857.tif")
-COASTLINE = Layer("coastline", in_composite=False, in_cap=True,
+COASTLINE = Layer("coastline", in_composite=False, in_cap=True, in_block=False,
                   requires_raster=None, warped_basename=None)
+#: THE ONE ROW WHOSE RASTER IS READ BY ANOTHER LAYER'S PRODUCER, and it paints nothing of its own.
+#: `perennial_ice` forces Antarctic land white by a latitude rule with no dataset behind it, and this
+#: is the dataset that takes exposed rock back out from under that white — subtracted rather than
+#: unioned, which is why it is outside `layer_producers.WHITE_UNION` and why its contribution is
+#: None on every window.
+#:
+#: A LAYER ALL THE SAME, and not a fourth planet raster. Those three are the fused planet's own
+#: outputs; this is a third-party vector burnt onto the grid as 0/1, which is exactly what `glaciers`
+#: already is. The deciding argument is Mars: it simply omits the name from `surface_layers` and
+#: `layers_off` records it off, where a planet raster would have made every `planet_seam.declared`
+#: reader answer for a mask no body but Earth can have.
+#:
+#: EVERY STAGE COLUMN IS True BECAUSE ALL THREE RUN THE RULE — the tile composite, the block prep and
+#: the south cap. A stage that subtracts rock and does not record the layer would keep its old output
+#: looking fresh the day the layer was switched off.
+ANTARCTIC_ROCK = Layer("antarctic_rock", in_composite=True, in_cap=True, in_block=True,
+                       requires_raster=None, warped_basename="addrock_3857.tif")
 
-LAYERS: tuple[Layer, ...] = (LAKE_DEPTH, PERENNIAL_ICE, GLACIERS, SEA_ICE, COASTLINE)
+LAYERS: tuple[Layer, ...] = (LAKE_DEPTH, PERENNIAL_ICE, GLACIERS, SEA_ICE, COASTLINE,
+                             ANTARCTIC_ROCK)
 
 
 #: The whole vocabulary, as names.
@@ -115,15 +144,29 @@ SURFACE_LAYERS = frozenset(layer.name for layer in LAYERS)
 #: glaciers (`depth=None`, persistence-only snow). Over- and under-tracking are both silent.
 COMPOSITE_LAYERS = frozenset(layer.name for layer in LAYERS if layer.in_composite)
 CAP_LAYERS = frozenset(layer.name for layer in LAYERS if layer.in_cap)
+BLOCK_LAYERS = frozenset(layer.name for layer in LAYERS if layer.in_block)
 
-#: The composite layers with a file behind them, as rows and IN `LAYERS` ORDER — the three places
-#: `shade_planet` handles a built layer walk this, so the warp, the dependency tuple and the window
-#: reads cannot disagree about the set or about its order.
-#:
-#: ORDER IS PART OF THE CONTRACT, not tidiness: `composite_deps` returns a tuple whose contents a
-#: test pins, and `LAYERS` is written in the order that tuple has always had.
-WARPED_LAYERS: tuple[Layer, ...] = tuple(
-    layer for layer in LAYERS if layer.in_composite and layer.warped_basename)
+def warped_for(vocabulary: frozenset[str]) -> tuple[Layer, ...]:
+    """One stage's layers that have a file to read, as rows and IN `LAYERS` ORDER.
+
+    ASKED PER STAGE BECAUSE THE ANSWER DIFFERS PER STAGE, which the three views above already say
+    and which one shared tuple used to deny. Its predecessor filtered on `in_composite` and was read
+    by the block prep, the block render's dependency list and `producers_for` alike. That agreed
+    with the block's own view for every live row and disagreed with the cap's by two, so the cap
+    could not use it and no test could see the disagreement.
+
+    BOTH DIRECTIONS OF THE MISMATCH ARE SILENT, which is why the vocabulary is an argument rather
+    than a default. A block-tier layer outside the composite is dropped from the only list the prep
+    reads: declared, warped, and reaching no pixel, with its file unable to help because a path
+    nobody names is not a dependency. A composite-only layer handed to the block tier is the same
+    bug facing the other way, and the price is in the note above: switching it restages a render
+    that cannot contain it.
+
+    ORDER IS PART OF THE CONTRACT, not tidiness: `composite_deps` returns a tuple whose contents a
+    test pins, and `LAYERS` is written in the order that tuple has always had.
+    """
+    return tuple(layer for layer in LAYERS
+                 if layer.warped_basename and layer.name in vocabulary)
 
 #: Which planet raster each dependent layer needs, derived. Read by `planet_seam._require_coherent`.
 #:

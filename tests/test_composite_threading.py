@@ -27,7 +27,7 @@ from rasterio.crs import CRS
 from rasterio.transform import from_bounds
 
 from pipeline import bodies, planet_seam
-from pipeline.render import snow
+from pipeline.look import snow
 from pipeline.tile import shade, shade_planet
 from pipeline.verify import compare_rasters
 

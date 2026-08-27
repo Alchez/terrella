@@ -22,12 +22,15 @@ import math
 import numpy as np
 import pytest
 
-from pipeline.render.cast_shadow import (
-    SUN_ANGULAR_DIAMETER,
+from pipeline.look import palette
+from pipeline.look.cast_shadow import (
     shadow_mask,
     shadow_reach_px,
     sun_offsets,
 )
+
+#: The shared disc, spelled once here so the oracles below read the same width the code does.
+SUN_ANGULAR_DIAMETER = palette.SUN_ANGULAR_DIAMETER_DEG
 
 M_PER_PX = 305.7483   # the z8 grid, so the numbers here are production-scale
 ZFACTOR = 15.0        # the locked hero exaggeration
@@ -186,3 +189,31 @@ class TestOutputContract:
     def test_range_is_a_fraction(self):
         mask = shadow_mask(wall_grid(rows=3), ZFACTOR, M_PER_PX)
         assert mask.min() >= 0.0 and mask.max() <= 1.0
+
+
+class TestTheDiscsWidthHasOneOwner:
+    """The penumbra's width is a LOOK constant shared with the rig, not this module's own.
+
+    It carried its own 12.0 beside a comment naming the rig's, which is the 46-vs-45 altitude
+    split's exact shape. The context law reads the same width to size every block's ring, so a
+    drift between the two copies silently mis-sizes the whole planet.
+    """
+
+    def test_the_ramp_follows_the_shared_width_rather_than_a_local_copy(self, monkeypatch):
+        """Read at CALL time, so widening the disc widens the penumbra with nothing restated."""
+        narrow = shadow_mask(wall_grid(), ZFACTOR, M_PER_PX)
+        monkeypatch.setattr(palette, "SUN_ANGULAR_DIAMETER_DEG",
+                            palette.SUN_ANGULAR_DIAMETER_DEG * 2.0)
+        widened = shadow_mask(wall_grid(), ZFACTOR, M_PER_PX)
+        assert not np.array_equal(narrow, widened), (
+            "doubling the shared disc changed no pixel, so this module is reading its own copy")
+
+    def test_a_wider_disc_makes_a_longer_penumbra(self, monkeypatch):
+        """The direction, so the guard above cannot pass on any change at all."""
+        def lit_span(mask):
+            return int((mask[mask.shape[0] // 2] < 1.0).sum())
+
+        narrow = lit_span(shadow_mask(wall_grid(), ZFACTOR, M_PER_PX))
+        monkeypatch.setattr(palette, "SUN_ANGULAR_DIAMETER_DEG",
+                            palette.SUN_ANGULAR_DIAMETER_DEG * 2.0)
+        assert lit_span(shadow_mask(wall_grid(), ZFACTOR, M_PER_PX)) > narrow

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from pipeline import bodies
+from pipeline import bodies, planet_seam
 from pipeline.tile import cap_render, shade
 
 #: The REAL served root, resolved once while `paths.ROOT` still points at this checkout.
@@ -59,6 +59,57 @@ def the_suite_never_writes_into_the_served_tree():
     pytest.fail(f"this test wrote into the SERVED tree, which ships to web/dist/ and deploys: "
                 f"{named}. Point the write at tmp_path — and if the fixture already redirects "
                 f"paths.ROOT, check every root derived from it is read at call time.")
+
+
+def write_planet_vrt(path: Path, grid: tuple[int, int] = (3600, 3600),
+                     bounds: tuple[float, float, float, float] = (-180.0, -90.0, 180.0, 90.0),
+                     ) -> None:
+    """Write a stand-in planet VRT carrying a real grid, the way a producer's `gdalbuildvrt` would.
+
+    ONE OWNER BECAUSE TWO SUITES FABRICATE THESE. `planet_seam.declare` reads a GeoTransform now, to
+    refuse rasters whose pixels straddle each other, so `<VRTDataset/>` stopped being enough — and it
+    stopped being enough in `test_relief_scan` as well as in `test_planet_seam`, which is how a
+    second copy of this string would have been born. Change the shape here and both go red together.
+
+    Written as XML rather than built with `gdalbuildvrt` because these back no real files: the point
+    is the grid a declaration is checked against, and a real VRT would need real chunks to index.
+    """
+    west, south, east, north = bounds
+    width, height = grid
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f'<VRTDataset rasterXSize="{width}" rasterYSize="{height}">'
+        f"<GeoTransform>{west}, {(east - west) / width}, 0.0, "
+        f"{north}, 0.0, {-(north - south) / height}</GeoTransform>"
+        f"</VRTDataset>")
+
+
+#: What each body's planet producer really declares, keyed by body name.
+#:
+#: A LITERAL, because there is nothing to derive it from: `planet_seam.declared` reads the producer's
+#: own declaration off a disk that a fresh clone does not have, so the set is a production fact
+#: rather than a registry answer.
+#:
+#: SUITE-WIDE RATHER THAN PER-FILE, because three test modules have now walked into the same trap
+#: independently. A store read passes on the maintainer's box and goes red in CI, so it is invisible
+#: exactly where it is written, and each module discovered it separately and wrote its own copy.
+#: `tests/test_planet_seam.py` holds this table against the real declarations.
+DECLARED_RASTERS = {
+    "earth": frozenset(planet_seam.KNOWN_RASTERS),
+    # `relabel_mars` declares the heightfield alone: Mars has no sea, so no mask classifies one.
+    "mars": frozenset({"heightfield"}),
+}
+
+
+def declare_planet_rasters(monkeypatch) -> dict[str, frozenset[str]]:
+    """Answer the planet seam from `DECLARED_RASTERS` rather than from this machine's store, and
+    return the table for a caller that wants the set rather than the substitution.
+
+    THE MODE THIS SUITE IS ACTUALLY RUN IN BY ANYONE BUT THE MAINTAINER. Patches the module
+    attribute, not one importer's view of it, so every consumer in the process is answered.
+    """
+    monkeypatch.setattr(planet_seam, "declared", lambda body: DECLARED_RASTERS[body.name])
+    return DECLARED_RASTERS
 
 
 def hillshade_for_light(light: float) -> float:

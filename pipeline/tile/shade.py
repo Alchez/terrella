@@ -6,7 +6,7 @@ to a WebMercatorQuad-aligned 3857 grid, mosaic them (VRT), then shade the MOSAIC
 Knobs are locked to the values validated on the Nepal chunk (single-NW sun, the physical
 15x exaggeration via the latitude z-factor, the tuned composite defaults).
 
-Snow comes from NSIDC-0791 snow persistence (pipeline/render/snow.py) as a latitude-ramped
+Snow comes from NSIDC-0791 snow persistence (pipeline/look/snow.py) as a latitude-ramped
 soft alpha — replacing WorldCover class 70, which left mid/high-latitude ranges bare. The
 composite loads the whole region into RAM — fine per-region; a planet run must window it.
 
@@ -24,14 +24,15 @@ import rasterio
 from rasterio.enums import Resampling
 from scipy.ndimage import zoom
 
-from pipeline import bodies, paths
-from pipeline.raster_io import GTIFF_CREATE
-from pipeline.render import hillshade, lake_depth, palette, relief, snow
-from pipeline.render.sky_view import (
+from pipeline import bodies, mercator, paths
+from pipeline.acquire import download_rgi
+from pipeline.look import hillshade, lake_depth, palette, relief, snow
+from pipeline.look.sky_view import (
     OCCLUSION_TARGET_M_PER_PX,
     normalised_occlusion,
     occlusion_shape,
 )
+from pipeline.raster_io import GTIFF_CREATE
 
 DATA = paths.DATA
 CHUNKS = DATA / "work/planet/chunks"
@@ -93,12 +94,13 @@ class Knobs(TypedDict):
 # global SVF. It is the hero's own ratio, and any value >= 0.10 already drives pure black to 0.00%
 # everywhere; past ~0.20 the compression starts reading flat rather than soft.
 #
-# `hi` 1.30 -> 1.12 lands with it, as ART.md:56 demands (tune the pair, never each alone): the fill
-# lowers peak light, so the old 1.30 ceiling no longer binds and only clips the pale ramp.
+# `hi` 1.30 -> 1.12 lands with it, as ART.md § Fill sun — TILES demands (tune the pair, never each
+# alone): the fill lowers peak light, so the old 1.30 ceiling no longer binds and only clips the
+# pale ramp.
 # `ambient` deliberately STAYS 0.50 -- the sweep tried 0.56/0.62 and both re-created the "washed
 # rosy and flat" failure the hero's own A/B already rejected. The fill IS the shadow floor
-# (ART.md:90); a second floor under it only hazes the pale high country. Every metric said 0.62 was
-# best and every metric was wrong -- the eye decided it.
+# (ART.md § Fill sun — TILES); a second floor under it only hazes the pale high country. Every
+# metric said 0.62 was best and every metric was wrong -- the eye decided it.
 # hero's fill sun
 #
 # `snow_curve` **"gamma8", chosen by eye** off a four-curve A/B (linear/gamma4/gamma8/
@@ -304,19 +306,28 @@ def main():
     water = lake_depth.inland_water(watercode)
     hs = read1(hs_tif).astype(float)
 
-    # snow: NSIDC-0791 persistence -> latitude-ramped soft alpha (pipeline/render/snow.py)
+    # snow: NSIDC-0791 persistence -> latitude-ramped soft alpha (pipeline/look/snow.py)
     persistence = snow.warp_persistence(
         (bounds.left, bounds.bottom, bounds.right, bounds.top), grid_w, grid_h,
         args.out / "sp_merc.tif")
-    snow_a = snow.snow_alpha(persistence, bounds.top, bounds.bottom)
+    snow_a = snow.soften_source_cells(
+        snow.snow_alpha(persistence, bounds.top, bounds.bottom),
+        # Earth spelled through the registry rather than as a bare 1.0, for the reason the
+        # hillshade call above states: this path takes Copernicus cells, so Earth is the subject
+        # here and not a default. The grid is the region's own, so its pixel size comes from the
+        # bounds it was warped to rather than from a body's z8 figure.
+        mercator.ground_metres_per_pixel(
+            snow.latitude_per_row(bounds.top, bounds.bottom, grid_h),
+            (bounds.top - bounds.bottom) / grid_h,
+            bodies.ground_metres_per_mercator_unit(bodies.EARTH)))
     glacier = snow.rasterize_glaciers(
         (bounds.left, bounds.bottom, bounds.right, bounds.top), grid_w, grid_h,
-        args.out / "rgi_merc.tif")
+        args.out / "rgi_merc.tif", gpkg=download_rgi.GPKG, layer=download_rgi.LAYER)
     if glacier is not None:
         snow_a = np.maximum(snow_a, glacier.astype(float))
         print(f"unioned RGI glaciers: {int((glacier > 0).sum()):,} px", flush=True)
 
-    # lake depth: GLOBathy modelled depth, tint-only (pipeline/render/lake_depth.py)
+    # lake depth: GLOBathy modelled depth, tint-only (pipeline/look/lake_depth.py)
     depth = lake_depth.lakes_only(
         lake_depth.warp_depth((bounds.left, bounds.bottom, bounds.right, bounds.top),
                               grid_w, grid_h, args.out / "lakedepth_merc.tif"),
@@ -426,18 +437,24 @@ def apply_ambient_floor(raw, ambient: float, hi: float, knee: float):
     return np.minimum(softened, hi)
 
 
-# The hero's shadow is WARMER IN HUE, not merely darker: Cycles fills it with warm sky
-# (WORLD_RGBA F2E7D5 @ WORLD_STRENGTH 0.3) plus bounce off the rosy land, while our `light` is a
-# single scalar that multiplies all three channels equally and therefore cannot move hue at all.
-# Measured on heroes/raw/switzerland.png, inside narrow elevation bands so the ramp
-# colour is constant: linear R/B is 1.61-1.98x higher in the darkest quartile than the brightest,
-# monotonic across all ten luminance deciles. Ours is exactly 1.00x. -> ART.md "Hero -> tile map".
+# The hero's shadow is WARMER IN HUE, not merely darker: Cycles fills it with sky plus bounce off
+# the rosy land, while our `light` is a single scalar that multiplies all three channels equally and
+# therefore cannot move hue at all. Measured on heroes/raw/switzerland.png, inside narrow elevation
+# bands so the ramp colour is constant: linear R/B is 1.61-1.98x higher in the darkest quartile than
+# the brightest, monotonic across all ten luminance deciles. Ours is exactly 1.00x.
+# -> ART.md "Hero -> tile map".
 #
 # DERIVATION: the sky's own chromaticity only accounts for 1.334x of that, so the tint is the world
 # colour DEEPENED to the measured 1.80x mid-band ratio (world ** 2.0373), the residual being warm
 # GI bounce off the land ramp -- which our greyscale SVF stand-in structurally cannot carry.
 # Then normalised to luminance 1.0, so this knob moves HUE ONLY and cannot re-create the
 # brightness wash that got `ambient` raises rejected twice. That is the point of the design.
+#
+# THE `world` IN THAT DERIVATION IS F2E7D5, WHICH THE RIG NO LONGER EMITS. Its ambient is achromatic
+# now, and running the same derivation on a grey sky returns (1, 1, 1): the sky half of this tint's
+# source is gone and only the GI bounce would survive a re-measurement. The number stands because
+# nothing has re-measured a hero under the new sky, NOT because it was re-derived. Anyone re-tuning
+# it needs that render first; `scene_build.RIG.world_rgba` cannot be substituted in here.
 SHADOW_TINT = (1.205239, 0.972347, 0.669577)
 
 
@@ -627,18 +644,22 @@ def composite(heights, ocean, water, snow_a, hs, occ, occ_shape, grid, depth=Non
         snow_rgb = snow_shadow + (snow_lit - snow_shadow) * snow_t[None]
         final = base_rgb * (1.0 - alpha)[None] + snow_rgb * alpha[None]
 
-    # soft-alpha sea ice: the sea-side mirror of the snow blend above. Gated on `ocean` (the mirror
-    # of snow's ~(ocean|water) land gate) so ice paints ONLY over open sea -- never land, never the
-    # inland-water branch (the disc-glow trap). Reuses the same light-keyed white `snow_rgb`: one
-    # white family for both cryosphere layers. `ice_a` is already zero off the ice edge (the
-    # frequency field), so ice fades to the bathymetry at the margin -- the intended pole look. None
-    # on the region path (and any caller that passes no ice), which then behaves exactly as before.
+    # soft-alpha sea ice: the sea-side mirror of the snow blend above. Reuses the same light-keyed
+    # white `snow_rgb`: one white family for both cryosphere layers. `ice_a` is already zero off the
+    # ice edge (the frequency field), so ice fades to the bathymetry at the margin -- the intended
+    # pole look. None on the region path (and any caller that passes no ice), which then behaves
+    # exactly as before.
+    #
+    # ARRIVES ALREADY GATED ON `ocean`, and re-gating it here is what this consumer USED to do. That
+    # made the composite safe and left every other consumer of the same alpha -- the rig, through a
+    # prep -- to remember for itself, which one prep did not. `seaice.gated_alpha` is now applied by
+    # both producers, and `tests/test_sea_ice_gate.py` asserts this branch does not take it back.
     if ice_a is not None:
         # Sea ice is a cooler/dimmer white than snow (palette.ICE_*), light-keyed by the same snow_t
         # so it still takes the hillshade on pressure ridges / shelf edges. Distinct from land snow
         # without a hard colour split -- the coastline and relief carry the rest.
         ice_shadow, ice_lit = paint_end(ice_paint[1]), paint_end(ice_paint[0])
-        gated_ice = np.where(ocean, np.asarray(ice_a, dtype=np.float32), 0.0)
+        gated_ice = np.asarray(ice_a, dtype=np.float32)
         ice_light_key = snow_t
         if KNOBS["ice_relief_damp"] > 0.0:
             # Thick ice conceals the floor's SHADING (this key), never its COLOUR (the (1 - alpha)

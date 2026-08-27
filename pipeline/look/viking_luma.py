@@ -41,9 +41,9 @@ Idempotency: the recipe sidecar is written LAST and compared on the next run, so
 leaves the output stale rather than fresh. `--force` rebuilds regardless.
 
 Usage:
-  python3 -m pipeline.render.viking_luma            # build if stale, else report and stop
-  python3 -m pipeline.render.viking_luma --force    # rebuild unconditionally
-  python3 -m pipeline.render.viking_luma --check    # report freshness, write nothing
+  python3 -m pipeline.look.viking_luma            # build if stale, else report and stop
+  python3 -m pipeline.look.viking_luma --force    # rebuild unconditionally
+  python3 -m pipeline.look.viking_luma --check    # report freshness, write nothing
 """
 
 import argparse
@@ -59,8 +59,8 @@ from rasterio.windows import Window
 
 from pipeline import bodies, freshness
 from pipeline.acquire import download_viking_mosaic
+from pipeline.look import mars_ice
 from pipeline.raster_io import row_bands
-from pipeline.render import mars_ice
 
 #: The mosaic's own sphere. Warping out of SimpleCylindrical metres has to stay on one celestial
 #: body — PROJ refuses to cross — so this is the intermediate the EPSG:4326 relabel then renames.

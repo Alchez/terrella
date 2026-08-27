@@ -13,13 +13,17 @@ composite is per-pixel, so windowing it cannot seam):
 
   1. warp the 4326 planet heightfield + masks once to a WebMercatorQuad-aligned 3857 grid;
   2. `gdaldem color-relief` the height globally (per-pixel -> seamless);
-  3. custom per-row-z hillshade (pipeline/render/hillshade.py) -> seamless + correct 15x;
+  3. custom per-row-z hillshade (pipeline/look/hillshade.py) -> seamless + correct 15x;
   4. sky-view factor once on a global downsample with a single global normalisation;
   5. composite each full-width horizontal window (reusing tile/shade.py::composite) with the
      latitude-ramped snow (blue-white shadows) and RGI glaciers, and cap both polar edges
      (>84N, <-59.5S -> flat pale sea-ice) so MapLibre's globe shows clean polar discs;
   6. cut 512px tiles from z0 to THIS BODY's ceiling -- z8 for Earth, and the body says so rather
      than this module (no overview step: `gdal raster tile` never reads them; see build_tiles).
+
+THIS MODULE IS NOT AN ENTRY POINT. It holds the shared stages above AND one of the two producers of
+step 5; `tile/planet_pass.py` owns the sequence and picks the producer from the body, so that the
+composite is not the host of its own alternative.
 
 Every stage skips if its output is FRESH -- present, completed, and newer than everything it
 derives from (`is_stale`). An exists()-only guard cannot tell "built" from "still correct":
@@ -28,15 +32,13 @@ skipped every stage and silently re-cut tiles from the pre-Caspian, pre-sea-rewo
 Grid matches the existing tile pyramid exactly (131072 x 131072 — square since Antarctica was
 fused in; it was 131072 x 93009 while the pyramid stopped at -60).
 
-    python -m pipeline.tile.shade_planet --body earth            # shade only
-    python -m pipeline.tile.shade_planet --body earth --tiles    # + cut tiles
+    python -m pipeline.tile.planet_pass --body earth            # produce only
+    python -m pipeline.tile.planet_pass --body earth --tiles    # + cut tiles
 """
 
-import argparse
 import gc
 import json
 import subprocess
-import sys
 import time
 from collections import deque
 from collections.abc import Callable
@@ -50,7 +52,7 @@ import rasterio
 from rasterio.enums import Resampling
 from rasterio.windows import Window
 
-from pipeline import bodies, layers, planet_seam, wrap_seam
+from pipeline import bodies, layers, mercator, planet_seam, progress, wrap_seam
 from pipeline.freshness import (
     done_marker,
     is_stale,
@@ -59,9 +61,7 @@ from pipeline.freshness import (
     warp_needs_rebuild,
     write_if_changed,
 )
-from pipeline.raster_io import GTIFF_CREATE, band_window
-from pipeline.render import (
-    cast_shadow,
+from pipeline.look import (
     hillshade,
     lake_depth,
     layer_producers,
@@ -69,8 +69,9 @@ from pipeline.render import (
     sky_view,
     snow,
 )
-from pipeline.render.sky_view import normalised_occlusion, occlusion_shape
-from pipeline.tile import shade
+from pipeline.look.sky_view import normalised_occlusion, occlusion_shape
+from pipeline.raster_io import GTIFF_CREATE, band_window
+from pipeline.tile import producer_seam, shade
 from pipeline.tile.shade import KNOBS
 
 # The grid resolution used to live here as a module constant named for the one zoom Earth cuts to.
@@ -111,11 +112,16 @@ N_WORKERS = 4              # composite worker threads. The knee: numpy is DRAM-b
 # smeared Mercator sliver past -84, not real Antarctica (which is shaded down to the -85.06 grid edge).
 # It was -59.5 while the pyramid stopped at -60 and the AEQD cap supplied everything south of it.
 #
-# ON A BODY THAT RENDERS CAPS THIS FILL IS DEAD PIXELS, AND THAT IS THE POINT OF IT. polarCaps.ts
-# feathers with `smoothstep(FEATHER_LO 81, feather_hi)` where `feather_hi` IS CAP_NORTH, so the cap
-# is fully opaque from exactly this latitude poleward and nothing under it is ever seen. The fill
+# ON A BODY THAT RENDERS CAPS THIS FILL IS MOSTLY DEAD PIXELS, AND THAT IS THE POINT OF IT. The fill
 # exists because the raster must hold SOMETHING between here and the 85.05 grid edge, and a smeared
 # Mercator sliver is uglier than a flat plug in the one case the plug shows.
+#
+# IT IS NO LONGER THE FEATHER'S CEILING, and that separation is deliberate. `caps_manifest` served
+# this same number as `feather_hi` until the cap edge moved to 82, which made one constant answer
+# two questions: where a composited raster starts being flat-filled, and where the cap finishes
+# fading over the tiles. The second is `cap_render.feather_hi_deg`, derived from the Mercator limit,
+# because a fade must end where there is nothing left beneath it to hide. Tied together, the fade
+# could not widen on Earth without moving the plug on Mars.
 #
 # It shows on a body with `renders_polar_caps = False`, where it becomes the whole pole — MapLibre
 # extends the top tile row over the projection's hole as well, so a flat disc replaces the ice cap.
@@ -191,7 +197,7 @@ def hs_params(body: bodies.Body) -> str:
     if KNOBS["shadow_strength"] != 0.0:
         params["shadow"] = {"strength": KNOBS["shadow_strength"],
                             "reach_px": int(KNOBS["shadow_reach"]),
-                            "disc": cast_shadow.SUN_ANGULAR_DIAMETER}
+                            "disc": palette.SUN_ANGULAR_DIAMETER_DEG}
     return json.dumps(params, sort_keys=True, indent=2)
 
 
@@ -284,19 +290,14 @@ def composite_params(variants, body: bodies.Body, rasters: frozenset[str],
     # when either layer is painted.
     keys_white = bool({layers.PERENNIAL_ICE.name, layers.SEA_ICE.name} & declared)
     # WHAT EACH DECLARED LAYER'S OWN PRODUCER READS, asked of the producer rather than spelled out
-    # here — `LayerProducer.recipe` carries the argument. This function gates on whether a body
-    # paints a layer, which stays right for every body; what it cannot know is HOW that body grades
-    # it, and a second planet painting the same layer by different arithmetic is exactly where a
-    # gate holding one body's constants starts recording the wrong ones. Merging keeps the answer
-    # beside the code that computes it and keeps a body's name out of this stage entirely.
+    # here — `layer_producers.constants_for` carries why, for both stages that ask it.
+    #
+    # `painted=True` because this stage blends the contribution and the white in one pass, so both
+    # halves of a producer's declaration reach a pixel here; the block render reads one of the two.
     #
     # Order-free by construction: `sort_keys` below normalises the output, so where a key enters
-    # this dict cannot move a byte of a live sidecar. `layers.LAYERS` all the same, for its stated
-    # contract rather than `declared`'s arbitrary set iteration order.
-    produced: dict[str, Any] = {}
-    for layer in layers.LAYERS:
-        if layer.in_composite and layer.name in declared:
-            produced.update(layer_producers.producer_for(body, layer).recipe())
+    # this dict cannot move a byte of a live sidecar.
+    produced = layer_producers.constants_for(body, layers.COMPOSITE_LAYERS, painted=True)
     return json.dumps({**missing, **sea_recipe, **produced,
                        "knobs": knobs,
                        "composite_window_rows": window_rows,
@@ -354,7 +355,7 @@ def composite_deps(work, hs, params) -> tuple:
     ramps itself from elevation, so the height raster IS the colour input. The ramp constants ride
     in `params` (composite_params) rather than in ramp_*.txt, which no longer exists.
 
-    THE BUILT LAYERS COME FROM `layers.WARPED_LAYERS`, so this list, the warp that fills it and the
+    THE BUILT LAYERS COME FROM `layers.warped_for(COMPOSITE_LAYERS)`, so this list, the warp that fills it and the
     per-window reads cannot disagree about the set or the order. Each is joined here because the
     composite reads a pre-warped slice per window instead of forking gdalwarp/gdal_rasterize in the
     loop (optimisation #4), so a re-warp -- new NSIDC/RGI, or a re-fuse to a new grid -- must restage
@@ -381,25 +382,53 @@ def composite_deps(work, hs, params) -> tuple:
     making this one exact, which trades a harmless imprecision for the chance to under-track — and
     under-tracking is the direction that is silent. `test_the_two_freshness_predicates_disagree_on_a
     _missing_input` is the executable form of this paragraph; read it before changing either.
+
+    THE PRODUCER STAMP IS THE ONE ENTRY HERE THAT IS NOT A WARP SOURCE, and it is here rather than
+    in the recipe for the reason the recipe cannot reach: the fact it records is not a constant this
+    composite read, it is WHICH PRODUCER wrote the raster this list is deciding about. A raster left
+    by the other producer is newer than every source and every recipe here, so nothing else in this
+    tuple can see it. `producer_seam` holds the argument in full.
     """
-    return (work / "height_3857.tif", hs, work / "ocean_3857.tif", work / "water_3857.tif",
-            *(layer.warped_in(work) for layer in layers.WARPED_LAYERS), params)
+    return (work / HEIGHT_3857, hs, work / OCEAN_3857, work / WATER_3857,
+            *(layer.warped_in(work) for layer in layers.warped_for(layers.COMPOSITE_LAYERS)),
+            params,
+            producer_seam.stamp_path(work))
 
 
 #: What the finished pixels lose when a layer is skipped at the WARP stage, by layer name.
 #:
 #: A CONSEQUENCE IS PER (LAYER, STAGE), which is why this is here and not a column on `Layer`:
+#: The planet rasters this stage warps onto the Mercator grid, named once.
+#:
+#: THEY REACHED FIVE SPELLINGS HERE AND WOULD HAVE REACHED EIGHT, because the block prep consumes
+#: exactly these files and would have restated all three to do it. `layers.Layer.warped_basename`
+#: already owns the optional layers' names; these three are the planet seam's rasters, which have
+#: no such row. THE BASENAMES ARE SHIPPED AND MUST NOT BE TIDIED — each is a composite dependency
+#: by mtime, so renaming one restages Earth's whole pyramid to reproduce the pixels already there.
+HEIGHT_3857 = "height_3857.tif"
+OCEAN_3857 = "ocean_3857.tif"
+WATER_3857 = "water_3857.tif"
+
+#: The shaded colour raster the tile cut reads, whatever produced it.
+#:
+#: NAMED HERE BECAUSE IT NOW HAS TWO PRODUCERS. `composite_planet` builds it window by window and
+#: `tile.block_render` renders it block by block, and the tile cut, the freshness marker and the
+#: publish all key on this one basename — so it is exactly the kind of spelling the second writer
+#: would otherwise copy. The variant suffix stays a local f-string: only the composite emits those.
+PLANET_RGB = "planet_rgb.tif"
+
 #: `cap_render` says something different about the same layers because it paints a different
 #: picture. Each states what the reader will see rather than what was missing, so a partial build
 #: can be read back off its own output.
 #:
-#: Keyed by name and looked up unconditionally, so a layer added to `WARPED_LAYERS` and forgotten
+#: Keyed by name and looked up unconditionally, so a layer added to the composite's set and forgotten
 #: here raises on the next pass of any body rather than being quietly skipped forever.
 WARP_CONSEQUENCE: dict[str, str] = {
     layers.LAKE_DEPTH.name: "lakes stay flat; run pipeline.acquire.extract_globathy",
     layers.PERENNIAL_ICE.name: "no ice painted; the composite reads None and skips it",
     layers.GLACIERS.name: "persistence-only snow",
     layers.SEA_ICE.name: "bathymetry bare at the poles",
+    layers.ANTARCTIC_ROCK.name: "Antarctic outcrop stays under the forced white",
 }
 
 
@@ -416,12 +445,12 @@ def warp_inputs(work: Path, planet: Path, body: bodies.Body, rasters: frozenset[
     gains a sea at a chosen contour has an ocean mask and still no inland water.
     """
     chunks = planet / "chunks"
-    height = work / "height_3857.tif"
+    height = work / HEIGHT_3857
     resolution = body.map_units_per_pixel
     # NOT `is_stale` ALONE: this raster's inputs are a VRT and a chunk directory, and neither moves
     # when the body's ceiling does. `reference_needs_rebuild` asks the raster its own pixel size.
     if reference_needs_rebuild(height, resolution, planet / "planet_heightfield.vrt", chunks):
-        print("warp height -> 3857 ...", flush=True)
+        progress.stage("warp height -> 3857 ...")
         height.unlink(missing_ok=True)  # gdalwarp UPDATES an existing target; it must be gone
         _run(["gdalwarp", "-q", "-t_srs", "EPSG:3857", "-tr", resolution, resolution, "-tap",
               "-r", "bilinear", "-ot", "Float32", "-co", "TILED=YES", "-co", "COMPRESS=DEFLATE",
@@ -455,13 +484,13 @@ def warp_inputs(work: Path, planet: Path, body: bodies.Body, rasters: frozenset[
     grid = (grid_width, grid_height, grid_bounds)
     for name, raster in (("ocean", "oceanmask"), ("water", "watermask")):
         if raster not in rasters:
-            print(f"{body.name}'s planet stage emitted no {raster} -> {name}_3857 skipped "
-                  f"(the composite reads None and treats every pixel as land)", flush=True)
+            progress.stage(f"{body.name}'s planet stage emitted no {raster} -> {name}_3857 "
+                           f"skipped (the composite reads None and treats every pixel as land)")
             continue
         src = f"planet_{raster}.vrt"
         out = work / f"{name}_3857.tif"
         if warp_needs_rebuild(out, grid, planet / src, chunks):
-            print(f"warp {name} -> 3857 ...", flush=True)
+            progress.stage(f"warp {name} -> 3857 ...")
             out.unlink(missing_ok=True)
             _run(["gdalwarp", "-q", "-t_srs", "EPSG:3857", "-te", *bounds, "-ts", *size,
                   "-r", "near", "-ot", "Byte", "-co", "TILED=YES", "-co", "COMPRESS=DEFLATE",
@@ -473,7 +502,7 @@ def warp_inputs(work: Path, planet: Path, body: bodies.Body, rasters: frozenset[
     # fixed-path temps -- the shared paths that blocked threading the composite. Deliberately NOT in
     # the mask loop above: those are class codes wanting `near`/Byte, and every one of these is a
     # continuous or vector source with its own resampling.
-    for layer in layers.WARPED_LAYERS:
+    for layer in layers.warped_for(layers.COMPOSITE_LAYERS):
         consequence = WARP_CONSEQUENCE[layer.name]
         out = layer.warped_in(work)
         # THE BODY IS ASKED FIRST AND THE PRODUCER SECOND, and the order is what makes the disk
@@ -525,8 +554,8 @@ def build_hillshade(work: Path, height: Path, body: bodies.Body):
         fill_note = (f", fill {KNOBS['fill_strength']:.2f}" if KNOBS["fill_strength"] else "")
         shadow_note = (f", shadow {KNOBS['shadow_strength']:.2f}" if KNOBS["shadow_strength"]
                        else "")
-        print(f"per-row-z hillshade (exag={body.exaggeration}{fill_note}{shadow_note}) ...",
-              flush=True)
+        progress.stage(f"per-row-z hillshade (exag={body.exaggeration}"
+                       f"{fill_note}{shadow_note}) ...")
         hillshade.per_row_zfactor_hillshade(
             height, hs, body.exaggeration, ALT, AZ,
             fill_strength=KNOBS["fill_strength"],
@@ -611,7 +640,7 @@ class _WindowInputs:
     ocean_raw: "np.ndarray | None"
     watercode: "np.ndarray | None"
     hs_raw: np.ndarray
-    #: One slice per `layers.WARPED_LAYERS` row, keyed by layer name, None where that layer's
+    #: One slice per `layers.warped_for(COMPOSITE_LAYERS)` row, keyed by layer name, None where that layer's
     #: raster was never built. ONE DICT AND NOT A FIELD PER LAYER: the reads are gated identically,
     #: so a field each is four chances for the fourth to be written without the guard — which is
     #: exactly what happened to snow persistence before this was one expression.
@@ -698,39 +727,25 @@ def _compute_shared(inputs: _WindowInputs) -> _WindowShared:
     hs_win = inputs.hs_raw.astype(float)
     land_win = ~(ocean_win | water_win)
     latitude = snow.latitude_per_row(inputs.win_top, inputs.win_bottom, inputs.win_h)
-    # ASKED OF THE BODY, never of the raster on disk. A producer runs because the planet DECLARED
-    # the layer, which is what lets Earth's perennial ice carry the forced Antarctic patch — a
-    # latitude-and-land rule with no file behind it, so no missing raster could ever switch it off.
-    # Reading the declaration off `layer_raw` instead would drop it the day NSIDC went absent.
-    contributions: dict[str, np.ndarray] = {}
-    paints: dict[str, tuple[Any, Any]] = {}
-    for layer in layers.WARPED_LAYERS:
-        if layer.name not in inputs.body.surface_layers:
-            continue
-        producer = layer_producers.producer_for(inputs.body, layer)
-        window = layer_producers.LayerWindow(
-            raw=inputs.layer_raw[layer.name], watercode=watercode, land=land_win,
-            latitude=latitude, top=inputs.win_top, bottom=inputs.win_bottom)
-        value = producer.contribution(window)
-        if value is not None:
-            contributions[layer.name] = value
-            # Asked ONLY of a layer that contributed, so a producer that paints nothing this window
-            # never has to answer what colour it would have used.
-            paint = producer.paint(window)
-            if paint is not None:
-                paints[layer.name] = paint
+    # THE WALK AND THE FOLD BELONG TO `layer_producers`, and the block render is the second caller
+    # that proves it: which layers a stage reads, how a `LayerWindow` is built, and the order and
+    # dtype the whites fold in are all decisions, and a stage that re-wrote them would re-decide
+    # every one with nothing going red. What stays here is the PAINT, because only the compositor
+    # paints — the raytraced rig reads a ramp.
+    contributions, paints, exclusions = layer_producers.gather(
+        inputs.body, inputs.layer_raw,
+        layer_producers.LayerWindow(raw=None, watercode=watercode, land=land_win,
+                                    ocean=ocean_win, latitude=latitude,
+                                    ground_metres_per_px=mercator.ground_metres_per_pixel(
+                                        latitude, inputs.body.map_units_per_pixel,
+                                        bodies.ground_metres_per_mercator_unit(inputs.body)),
+                                    top=inputs.win_top, bottom=inputs.win_bottom),
+        layers.COMPOSITE_LAYERS)
     depth_win = contributions.get(layers.LAKE_DEPTH.name)
-    # The white union, in the table's order. float64 base because that is what `snow_alpha` returns
-    # and what the maxima promote to; a float32 base would narrow every pixel `composite` blends.
-    # `np.maximum` reorders freely and every contribution is non-negative, so which layer lands
-    # first cannot move a bit.
-    snow_a = np.zeros(inputs.height_win.shape, dtype=float)
-    snow_paint = None
-    for layer in (layers.PERENNIAL_ICE, layers.GLACIERS):
-        contribution = contributions.get(layer.name)
-        if contribution is not None:
-            snow_paint = _merge_paint(snow_paint, snow_a, paints.get(layer.name), contribution)
-            snow_a = np.maximum(snow_a, contribution)
+    snow_a, snow_paint = layer_producers.fold_white(
+        contributions, inputs.height_win.shape, exclusions=exclusions,
+        merge=lambda carried, alpha, name, contribution:
+            _merge_paint(carried, alpha, paints.get(name), contribution))
     # The sea-side twin, kept OUT of that union on purpose: `shade.composite` gates it on the ocean
     # selector where snow_a paints land, and None there means the layer is absent rather than zero.
     ice_a = contributions.get(layers.SEA_ICE.name)
@@ -794,18 +809,25 @@ def composite_planet(work: Path, hs, compute_occlusion: Callable[[], np.ndarray]
     """
     if variants is None:
         variants = {None: None}
-    outs = {name: work / f"planet_rgb{f'_{name}' if name else ''}.tif" for name in variants}
+    outs = {name: work / (PLANET_RGB if not name else f"planet_rgb_{name}.tif")
+            for name in variants}
+    # THIS PRODUCER NAMES ITSELF, and it does so before its own freshness question because that
+    # question depends on the answer. Only when the canonical raster is among the outputs: a
+    # variants-only pass writes `planet_rgb_<name>.tif` and leaves `planet_rgb.tif` to whoever made
+    # it, so claiming it here would restage a raster this call never touched.
+    if None in outs:
+        producer_seam.declare(work, "composite")
     params = write_if_changed(work / "composite_params.json",
                               composite_params(variants, body, rasters, window_rows))
     deps = composite_deps(work, hs, params)
     # One shared params file is sound because every variant is composited in a single pass:
     # the guard rebuilds all of them or none.
     if max_windows is None and not any(is_stale(tif, *deps) for tif in outs.values()):
-        print("planet_rgb fresh -> skip composite", flush=True)
+        progress.stage("planet_rgb fresh -> skip composite")
         return outs
-    print("global sky-view factor ...", flush=True)
+    progress.stage("global sky-view factor ...")
     occ = compute_occlusion()
-    with rasterio.open(work / "height_3857.tif") as h:
+    with rasterio.open(work / HEIGHT_3857) as h:
         width, height, transform = h.width, h.height, h.transform
     small_h, _small_w = occ.shape
     # dict[str, Any]: GDAL creation options are a heterogeneous bag, and `**profile` otherwise
@@ -814,8 +836,9 @@ def composite_planet(work: Path, hs, compute_occlusion: Callable[[], np.ndarray]
         driver="GTiff", width=width, height=height, count=3, dtype="uint8",
         crs="EPSG:3857", transform=transform, photometric="RGB", BIGTIFF="YES",
         num_threads="ALL_CPUS", **GTIFF_CREATE)
-    ocean_p, water_p = work / "ocean_3857.tif", work / "water_3857.tif"
-    layer_paths = {layer.name: layer.warped_in(work) for layer in layers.WARPED_LAYERS}
+    ocean_p, water_p = work / OCEAN_3857, work / WATER_3857
+    layer_paths = {layer.name: layer.warped_in(work)
+                   for layer in layers.warped_for(layers.COMPOSITE_LAYERS)}
 
     def read_window(row0: int) -> _WindowInputs:
         """Gather one window's raw reads + geometry — MAIN thread only (GDAL is not thread-safe)."""
@@ -828,7 +851,7 @@ def composite_planet(work: Path, hs, compute_occlusion: Callable[[], np.ndarray]
             win=win, win_h=row1 - row0,
             win_top=transform.f + row0 * transform.e,
             win_bottom=transform.f + row1 * transform.e,
-            height_win=read1_window(work / "height_3857.tif", win),
+            height_win=read1_window(work / HEIGHT_3857, win),
             # Gated on the SEAM'S DECLARATION, never on `ocean_p.exists()`. A declared mask that is
             # missing from disk must crash here — the planet said it has one — where an existence
             # check would quietly composite a sea-less Earth after a half-finished warp.
@@ -894,13 +917,13 @@ def composite_planet(work: Path, hs, compute_occlusion: Callable[[], np.ndarray]
             writer.close()
     elapsed = time.monotonic() - started
     mode = f"threaded x{max_workers}" if threaded else "serial"
-    print(f"composite: {len(rows)} windows in {elapsed:.1f}s "
-          f"({len(rows) / max(elapsed, 1e-9):.2f} win/s, {mode})", flush=True)
+    progress.stage(f"composite: {len(rows)} windows in {elapsed:.1f}s "
+                   f"({len(rows) / max(elapsed, 1e-9):.2f} win/s, {mode})")
     if max_windows is None and row_start == 0:  # a partial raster (smoke/region) is never done
         for tif in outs.values():
             mark_done(tif)
     for tif in outs.values():
-        print(f"wrote {tif}", flush=True)
+        progress.stage(f"wrote {tif}")
     return outs
 
 
@@ -1044,13 +1067,13 @@ def build_tiles(planet_tif: Path, out: Path, body: bodies.Body):
     cut = tile_cut(body)
     write_if_changed(tile_params_path(out), tile_params(body))
     if tiles_are_fresh(planet_tif, out):
-        print("tiles fresh -> skip cut", flush=True)
+        progress.stage("tiles fresh -> skip cut")
         return
     staging = out / "tiles_new"
     if staging.exists():
         _run(["rm", "-rf", str(staging)])   # a partial from a prior mid-cut crash: never resume over it
-    print(f"cutting z{cut['min_zoom']}-{cut['max_zoom']} {cut['tile_size']}px tiles "
-          f"-> {staging} ...", flush=True)
+    progress.stage(f"cutting z{cut['min_zoom']}-{cut['max_zoom']} {cut['tile_size']}px tiles "
+                   f"-> {staging} ...")
     _run(_tile_cmd(planet_tif, staging, body))
     live = out / "tiles"
     if live.exists():
@@ -1060,114 +1083,4 @@ def build_tiles(planet_tif: Path, out: Path, body: bodies.Body):
         live.rename(old)
     staging.rename(live)
     mark_done(live)
-    print(f"tiles live -> {live} (previous kept at {out / 'tiles_old'})", flush=True)
-
-
-def build_parser() -> argparse.ArgumentParser:
-    """The CLI, split out of `main` so its contract is testable without running a pass."""
-    ap = argparse.ArgumentParser()
-    # REQUIRED, WITH NO DEFAULT, and that is the whole point. A pass that assumes Earth because
-    # nobody said otherwise does not fail — it produces a complete, plausible, entirely wrong
-    # pyramid, and the cost of discovering that late is a planet. Naming it costs one word.
-    ap.add_argument("--body", required=True,
-                    help=f"which planet this pass is for ({', '.join(sorted(bodies.BODIES))})")
-    # Optional override. Left unset it follows the body, which also honours the MAPS_DATA seam its
-    # checkout-rooted default used to bypass; set, it is how a look A/B is pointed elsewhere. The
-    # old spelling is described rather than quoted — `tests/test_paths.py` scans for it, and a
-    # comment reproducing it re-creates the needle the scan exists to find.
-    ap.add_argument("--out", type=Path, default=None)
-    ap.add_argument("--tiles", action="store_true",
-                    help="also cut tiles from the mosaic, z0 to the body's own ceiling")
-    ap.add_argument("--knob", action="append", default=[], metavar="KEY=VALUE",
-                    help="override a locked KNOBS entry (repeatable), as tile/shade.py does. "
-                         "Look changes used to be made by EDITING the constant, which meant an "
-                         "experiment and production shared one source of truth. Overrides are "
-                         "safe for freshness by construction: composite_params/hs_params "
-                         "serialise KNOBS, so an override restages exactly what it changes and "
-                         "the recorded params always describe the pyramid that exists.")
-    return ap
-
-
-def resolve_body(args: argparse.Namespace) -> bodies.Body:
-    """The body this run is for. Raises through the registry, which names the ones that exist."""
-    return bodies.get(args.body)
-
-
-def runs_cap_pass(body: bodies.Body) -> bool:
-    """Whether a shade pass for this body ends by rendering polar caps.
-
-    A named predicate rather than the field read inline, so the DECISION is testable without
-    spawning a subprocess. Inline, the only way to prove the pass respects the registry is to run it
-    and watch what it shells out to — which needs a composited planet on disk, so in practice it
-    would be proven by nothing.
-    """
-    return body.renders_polar_caps
-
-
-def cap_pass_command(body: bodies.Body) -> list[str]:
-    """The command that renders this body's polar caps at the tail of a shade pass.
-
-    Built here rather than spelled inline because the body crosses a PROCESS boundary as a string
-    on a command line, which is the one hop the registry cannot type-check. Left off, the cap pass
-    would refuse to start (its `--body` is required too) — which is the failure this shape converts
-    into a hard stop instead of a Mars pass quietly re-rendering Earth's poles.
-    """
-    return [sys.executable, "-m", "pipeline.tile.cap_render", "--body", body.name]
-
-
-def resolve_out(args: argparse.Namespace) -> Path:
-    """Where this run writes: the explicit `--out`, else the body's own tile-work directory."""
-    return args.out if args.out is not None else bodies.work_dir(resolve_body(args), "planet_tiles")
-
-
-def main():
-    args = build_parser().parse_args()
-    # A key off argv is dynamic by construction, so a TypedDict cannot check it -- this view is
-    # the honest escape hatch, and the membership test below is what actually validates the key.
-    knobs = cast(dict[str, Any], KNOBS)
-    for override in args.knob:
-        key, _, value = override.partition("=")
-        if key not in knobs:
-            raise SystemExit(f"unknown knob {key!r}; valid: {', '.join(sorted(knobs))}")
-        knobs[key] = value if isinstance(knobs[key], str) else float(value)
-        print(f"knob override: {key} = {knobs[key]}", flush=True)
-    body = resolve_body(args)
-    work = resolve_out(args)
-    work.mkdir(parents=True, exist_ok=True)
-
-    # Read ONCE, at the top, and threaded down. The planet stage declares what it emitted and this
-    # raises if it never finished, so a half-built planet stops here rather than being shaded into a
-    # plausible-looking pyramid. Threading it (rather than each stage reading the file) keeps
-    # `_compute_shared` a pure function of its arguments, which is what lets it run on workers.
-    rasters = planet_seam.declared(body)
-    height = warp_inputs(work, planet_seam.planet_dir(body), body, rasters)
-    hs = build_hillshade(work, height, body)
-    # Passed unevaluated: composite_planet runs it only if the composite is actually stale.
-    # Production composite is threaded at COMPOSITE_ROWS/N_WORKERS (optimisation #5); the snow
-    # persistence stays banded at WINDOW_ROWS (256), sliced 128 rows at a time.
-    planet_tif = composite_planet(work, hs, lambda: global_occlusion(height, body), body, rasters,
-                                  window_rows=COMPOSITE_ROWS, max_workers=N_WORKERS)[None]
-    if args.tiles:
-        build_tiles(planet_tif, work, body)
-    # The polar caps are shade-stage outputs too: they run the same composite over the same
-    # sources, so a look change that restages planet_rgb must restage them. Both caps once sat
-    # stale against the tiles they feather into (the north −6.7 DN adrift) because nothing
-    # coupled them to the recipe. cap_render guards
-    # itself (cap_is_fresh), so a fresh pass pays only the ~2 s import here. Subprocess, not
-    # import: cap_render imports FROM this module, and the caps' pyproj/scipy stack stays out
-    # of the tile pass.
-    if runs_cap_pass(body):
-        print("polar caps ...", flush=True)
-        subprocess.run(cap_pass_command(body), check=True)
-    else:
-        # SAID OUT LOUD, because the alternative is a pass that silently does less than the last one
-        # did. The cap pass would otherwise run and SUCCEED here — it needs only the heightfield once
-        # a body declares no surface layers — spending ~14 GB per pole to publish discs shaded by
-        # ramps this body has not ratified.
-        print(f"polar caps: {body.name} publishes none — skipped "
-              f"(the globe carries a hole above the Mercator limit)", flush=True)
-    print("DONE", flush=True)
-
-
-if __name__ == "__main__":
-    sys.exit(main())
+    progress.stage(f"tiles live -> {live} (previous kept at {out / 'tiles_old'})")

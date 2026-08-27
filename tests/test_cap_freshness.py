@@ -4,6 +4,7 @@ adrift. The guard is a recipe sidecar built on
 shade_planet.composite_params (one recipe home) plus source-mtime comparison.
 """
 
+import dataclasses
 import json
 import os
 from pathlib import Path
@@ -11,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from pipeline import bodies, planet_seam
-from pipeline.render import perennial_ice
+from pipeline.look import perennial_ice
 from pipeline.tile import cap_render
 from pipeline.tile.shade import KNOBS
 
@@ -120,6 +121,47 @@ class TestCapRecipe:
         """Grid geometry (edge_lat, taper, ice overrides) rides in the recipe, so the poles never
         share a sidecar."""
         assert cap_render.cap_recipe(EARTH_NORTH, WHOLE_PLANET) != cap_render.cap_recipe(EARTH_SOUTH, WHOLE_PLANET)
+
+
+class TestTheCapRecipeTracksWhoMakesTheTiles:
+    """A disc is built to match the tiles it feathers into, so which producer fills `planet_rgb` is
+    a cap dependency — and it is one nothing else in this recipe can stand in for.
+
+    THE SWITCH IS SILENT IN BOTH DIRECTIONS WITHOUT IT, the same hazard `producer_seam` closes one
+    tier up: `composite_params` serialises look constants that are identical under either producer,
+    and `planet_rgb` is not a cap source, so both discs read fresh across a flip that repaints every
+    tile beneath them.
+    """
+
+    def test_flipping_the_producer_restages_both_discs(self):
+        flipped = dataclasses.replace(bodies.EARTH, planet_producer="composite")
+        assert bodies.EARTH.planet_producer != flipped.planet_producer, (
+            "the fixture no longer flips the field, so both arms below are the same body")
+        for grid_of in (cap_render.north_grid, cap_render.south_grid):
+            assert (cap_render.cap_recipe(grid_of(bodies.EARTH), WHOLE_PLANET)
+                    != cap_render.cap_recipe(grid_of(flipped), WHOLE_PLANET)), (
+                f"the {grid_of(bodies.EARTH).name} disc reads fresh across a producer switch")
+
+    def test_every_registered_body_records_its_own_answer(self):
+        """Swept over the registry rather than asserted on Earth, because the two bodies genuinely
+        disagree today — which is what makes a hardcoded value fail here instead of passing on
+        whichever one it was hardcoded to."""
+        answers = {body.planet_producer for body in bodies.BODIES.values()}
+        assert len(answers) > 1, (
+            f"every body names {answers}, so this sweep cannot tell a read from a literal")
+        for body in bodies.BODIES.values():
+            recipe = json.loads(cap_render.cap_recipe(cap_render.north_grid(body), WHOLE_PLANET))
+            assert recipe["planet_producer"] == body.planet_producer, (
+                f"{body.name}'s cap recipe records {recipe.get('planet_producer')!r} "
+                f"where the body names {body.planet_producer!r}")
+
+    def test_the_displacement_texture_does_not_follow_it(self):
+        """The control, and the over-tracking half of the same trap. `cap_elev_recipe` encodes
+        metres with no light in them, so a producer flip must not drag both textures through a
+        re-encode — the reason `grid_recipe_fields` is where this key does NOT go."""
+        flipped = dataclasses.replace(bodies.EARTH, planet_producer="composite")
+        assert (cap_render.cap_elev_recipe(cap_render.north_grid(bodies.EARTH))
+                == cap_render.cap_elev_recipe(cap_render.north_grid(flipped)))
 
 
 class TestCapSources:

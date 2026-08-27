@@ -28,6 +28,57 @@ def _probe(cell_west, cell_north, lon, lat, wbm_value, land_value):
     return bool(np.any(result))
 
 
+class TestTheGridCanBeFinerInLATITUDEALONE:
+    """The high-latitude coastline lattice is a LATITUDE artefact, so the fix is a latitude grid.
+
+    WHY ONLY ONE AXIS. The fusion master is geographic, so a source row is a fixed ground distance
+    at every latitude while a Web-Mercator pixel spans `305.748 * cos(lat)` in BOTH axes. A source
+    COLUMN shrinks by `cos(lat)` too, so the longitude ratio is 1.011 everywhere and only ROWS are
+    replicated — 5.55x at 79.5N. Refining longitude would upsample 3 arcsec of native GLO-30 to 1
+    and invent data; refining latitude is at the source's own resolution, which is 1 arcsec in
+    latitude at every band.
+
+    THE CONSUMER OF THIS IS `planet_seam._require_nested_grids`, which refuses a mask whose pixels
+    straddle the heightfield's. That is why the ratio matters and not merely the size: these tests
+    pin that a whole-number multiple is what comes out.
+    """
+
+    def test_the_default_is_square_and_unchanged(self):
+        """The isotropic call must be untouched — every existing chunk on disk was written by it."""
+        transform, width, height = fuse_heightfield.make_grid((10, 70, 20, 80), 10)
+        assert (width, height) == (3600, 3600)
+        assert transform.a == pytest.approx(RES)
+        assert transform.e == pytest.approx(-RES)
+
+    def test_a_finer_latitude_multiplies_ROWS_and_leaves_columns_alone(self):
+        transform, width, height = fuse_heightfield.make_grid((10, 70, 20, 80), 10,
+                                                              lat_res_arcsec=1)
+        assert width == 3600, "longitude must not move: refining it would invent data"
+        assert height == 36000
+        assert transform.a == pytest.approx(RES), "the column width is the longitude resolution"
+        assert transform.e == pytest.approx(-RES / 10)
+
+    def test_the_origin_is_the_cells_corner_either_way(self):
+        """A shifted origin would put the fine mask off the terrain it classifies, and the size
+        ratio would still be a clean 10 — so nothing downstream would notice."""
+        square = fuse_heightfield.make_grid((10, 70, 20, 80), 10)[0]
+        fine = fuse_heightfield.make_grid((10, 70, 20, 80), 10, lat_res_arcsec=1)[0]
+        assert (fine.c, fine.f) == (square.c, square.f) == (10, 80)
+
+    def test_the_row_count_is_a_whole_multiple_so_the_grids_NEST(self):
+        """`planet_seam._require_nested_grids` refuses anything else, so this is the property that
+        actually has to hold rather than a restatement of the arithmetic above."""
+        _, _, square = fuse_heightfield.make_grid((10, 70, 20, 80), 10)
+        _, _, fine = fuse_heightfield.make_grid((10, 70, 20, 80), 10, lat_res_arcsec=1)
+        assert fine % square == 0
+
+    def test_a_latitude_resolution_that_does_not_divide_the_longitude_one_is_refused(self):
+        """2.5 into 10 is 4 rows per row and nests; 3 does not, and the failure it causes is a
+        sub-pixel misregistration that no image makes obvious."""
+        with pytest.raises(ValueError, match="whole number"):
+            fuse_heightfield.make_grid((10, 70, 20, 80), 10, lat_res_arcsec=3)
+
+
 class TestIsCaspian:
     @pytest.mark.parametrize("lon,lat,label", [
         (51.0, 41.5, "deep basin"),

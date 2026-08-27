@@ -28,8 +28,8 @@ import numpy as np
 import rasterio
 
 from pipeline import mercator
+from pipeline.look import cast_shadow
 from pipeline.raster_io import GTIFF_CREATE, band_window, row_bands
-from pipeline.render import cast_shadow
 
 # The hero's fill sun, ported to the tiles (scene_build.FILL_ROTATION (30, 0, 135) -> 60 deg up
 # from the SE; FILL_ANGLE 10; use_shadow off). "Shadowless" used to reproduce for free, because a
@@ -46,8 +46,8 @@ from pipeline.render import cast_shadow
 # ambient; the tiles copied its main sun and none of the three. See ART.md "Fill sun".
 #
 # GEOMETRY, NOT AN ART DIAL: the main sun's NW azimuth is a locked cartographic convention
-# (ART.md:63) and the fill is its mirror. The STRENGTH is the art lever and lives in
-# `shade.KNOBS["fill_strength"]`, beside `alt`, which is likewise consumed at this stage.
+# (ART.md § Sun altitude & azimuth) and the fill is its mirror. The STRENGTH is the art lever and
+# lives in `shade.KNOBS["fill_strength"]`, beside `alt`, which is likewise consumed at this stage.
 FILL_ALTITUDE = 60.0
 FILL_AZIMUTH = 135.0
 

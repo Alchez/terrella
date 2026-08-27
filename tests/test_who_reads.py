@@ -16,7 +16,7 @@ from types import ModuleType
 
 import pytest
 
-from pipeline.render import layer_producers, perennial_ice
+from pipeline.look import layer_producers, perennial_ice
 from scripts import who_reads
 
 
@@ -244,7 +244,7 @@ class TestTheModuleViewIsWhatAHookCanHandOver:
 
     def test_a_file_in_the_package_resolves_to_its_dotted_name(self):
         assert who_reads.module_name(
-            who_reads.ROOT / "pipeline/render/viking_luma.py") == "pipeline.render.viking_luma"
+            who_reads.ROOT / "pipeline/look/viking_luma.py") == "pipeline.look.viking_luma"
 
     @pytest.mark.parametrize("relative", ["scripts/who_reads.py", "web/package.json",
                                           "tests/test_who_reads.py"])

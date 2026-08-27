@@ -32,8 +32,9 @@ from conftest import cap_ground_metres_per_px_from_ground_radius
 from rasterio.transform import from_bounds
 
 from pipeline import bodies, layers, paths, planet_seam
-from pipeline.render import layer_producers, palette, perennial_ice, seaice, snow
-from pipeline.tile import cap_render, shade_planet, terrain_rgb
+from pipeline.acquire import download_add_rock
+from pipeline.look import layer_producers, palette, perennial_ice, seaice, snow
+from pipeline.tile import cap_render, terrain_rgb
 
 #: A planet whose seam emitted all three rasters — what Earth declares, and the only
 #: shape these tests care about unless they say otherwise.
@@ -96,8 +97,24 @@ class TestCapGridGeometry:
             assert cap_render.CAP_EDGE_LAT <= found["MESH_EDGE_LAT"]
         with subtests.test("the visible feather opens inside the mesh"):
             assert found["MESH_EDGE_LAT"] <= found["FEATHER_LO"]
-        with subtests.test("the feather closes below the plug boundary"):
-            assert found["FEATHER_LO"] < abs(shade_planet.CAP_NORTH)
+        with subtests.test("the feather closes where Mercator tiles stop existing"):
+            assert found["FEATHER_LO"] < cap_render.feather_hi_deg()
+        with subtests.test("the feather is wide enough to have hidden the handover"):
+            # THE RUNG THE LADDER WAS MISSING. Ordering alone is satisfied by a feather 0.05
+            # degrees wide, which is what an edge-84 arm shipped and what showed the disc as a
+            # hard-edged circle. The width is the thing that collapses silently when the edge moves.
+            assert (cap_render.feather_hi_deg() - found["FEATHER_LO"]
+                    >= cap_render.CAP_FEATHER_MIN_DEG)
+
+    def test_the_width_rung_rejects_a_collapsed_feather(self):
+        """The rung above passes on the shipped numbers, so its catching power is asserted here.
+
+        A guard added beside a configuration that already satisfies it has never been shown to fail,
+        which is the shape that lets a broken check sit green for months.
+        """
+        assert not cap_render.feather_is_wide_enough(84.0, 84.05)   # the arm that showed the disc
+        assert not cap_render.feather_is_wide_enough(82.0, 83.05)   # 1.05, measured as visible
+        assert cap_render.feather_is_wide_enough(82.0, 85.05)       # the ratified 3.05
 
 
 class TestLonlatGrid:
@@ -141,6 +158,102 @@ class TestShade:
         assert np.array_equal(shaded, again)
 
 
+class TestTheLongitudeRotationHasOneOwner:
+    """The cap's light turns with the meridian, and TWO producers have to turn it the same way.
+
+    The composite turns it per pixel inside `_shade`. The raytraced arm cannot: Cycles takes one
+    sun direction for a whole frame, so it renders a ring of rigidly rotated passes and blends the
+    two a pixel falls between. Both are the same law — `azimuth_delta` — and the blend lives in a
+    module this process never imports, which is why these pin the law's MEANING and not just that
+    `_shade` reads it.
+    """
+
+    #: Big enough that a central difference near the middle of the disc is not curvature-dominated,
+    #: small enough to shade in milliseconds.
+    PX = 128
+
+    def _azimuths(self, monkeypatch, grid, longitude):
+        """The (main, fill) azimuth fields `_shade` actually drives the two lights with."""
+        seen: list[np.ndarray] = []
+        real = cap_render.hillshade.hillshade_array
+
+        def spy(heights, cell, zfactor, altitude, azimuth):
+            seen.append(np.asarray(azimuth, dtype=np.float64))
+            return real(heights, cell, zfactor, altitude, azimuth)
+
+        monkeypatch.setattr(cap_render.hillshade, "hillshade_array", spy)
+        cap_render._shade(grid, np.zeros((grid.px, grid.px), dtype=np.float32), longitude)
+        assert len(seen) == 2, f"two lights means two azimuth fields, got {len(seen)}"
+        return seen
+
+    def _local_north_bearing(self, grid):
+        """Image-frame bearing of LOCAL north at each pixel, read off the grid's own latitudes.
+
+        THE INDEPENDENT ORACLE FOR `az_sign`, and it never mentions longitude. North is the
+        direction latitude increases, which on a pole-centred azimuthal projection turns with the
+        meridian — so if the sign is wrong the light sits north-EAST of local north and this
+        notices, where an oracle built from `az_sign * longitude` would agree with any sign at all.
+        Row runs DOWN the image, so a gradient's up-component is its negation.
+        """
+        _longitude, latitude = cap_render._lonlat_grid(grid)
+        grad_row, grad_col = np.gradient(np.asarray(latitude, dtype=np.float64))
+        return np.degrees(np.arctan2(grad_col, -grad_row)) % 360.0
+
+    def _ring(self, grid):
+        """Pixels far enough from the centre for a central difference to resolve the direction, and
+        inside the disc. The exact pole is a singularity in BEARING though not in latitude."""
+        rows, cols = np.indices((grid.px, grid.px))
+        radius = np.hypot(rows - (grid.px - 1) / 2, cols - (grid.px - 1) / 2) / (grid.px / 2)
+        ring = (radius > 0.4) & (radius < 0.9)
+        assert ring.sum() > 5000, f"the oracle sampled {int(ring.sum())} px, which is not a disc"
+        return ring
+
+    @pytest.mark.parametrize("shipped", (EARTH_NORTH, EARTH_SOUTH), ids=("north", "south"))
+    def test_the_light_arrives_north_west_of_LOCAL_north_at_every_longitude(self, monkeypatch,
+                                                                            shipped):
+        """The claim the rotation exists to make, measured against the projection's own geometry.
+
+        BOTH POLES, because `az_sign` is the one field where they disagree and a north-only
+        assertion is satisfied by hardcoding -1. The south's latitudes increase OUTWARD from its
+        pole, so the same gradient reads its north correctly with no case here.
+        """
+        grid = dataclasses.replace(shipped, px=self.PX)
+        longitude, _latitude = cap_render._lonlat_grid(grid)
+        main, _fill = self._azimuths(monkeypatch, grid, longitude)
+        offset = (main - self._local_north_bearing(grid)) % 360.0
+        ring = self._ring(grid)
+        assert np.allclose(offset[ring], cap_render.AZ, atol=0.5)
+
+    def test_both_lights_turn_together_so_a_rigid_rotation_reproduces_them(self, monkeypatch):
+        """WHY THE RAYTRACED ARM MAY ROTATE THE WHOLE RIG AT ONCE. Turning only the key light would
+        make a rendered pass a different intervention from the per-pixel one it must match, and the
+        two would agree everywhere the fill happens not to reach."""
+        grid = dataclasses.replace(EARTH_NORTH, px=self.PX)
+        longitude, _latitude = cap_render._lonlat_grid(grid)
+        main, fill = self._azimuths(monkeypatch, grid, longitude)
+        # Anti-vacuity: two CONSTANT fields would satisfy the separation below trivially, which is
+        # exactly what a deleted rotation leaves behind.
+        assert np.ptp(main) > 300.0, "the main azimuth barely moves, so nothing is rotating"
+        separation = (cap_render.AZ - cap_render.hillshade.FILL_AZIMUTH) % 360.0
+        assert np.allclose((main - fill) % 360.0, separation)
+
+    def test_the_shade_pass_reads_the_shared_delta_rather_than_spelling_it(self, monkeypatch):
+        """THE OTHER READER IS NOT IN THIS PROCESS, so ownership is the only thing that binds it.
+
+        `cap_raytrace` imports this expression to decide which rendered pass a pixel wants. Spelled
+        inline here it would be a second copy free to drift, and the drift is invisible: both
+        producers render a plausible disc, lit a few degrees apart, and only the feather into the
+        tiles shows it.
+        """
+        monkeypatch.setattr(cap_render, "azimuth_delta",
+                            lambda grid, longitude: np.full_like(longitude, 7.0, dtype=np.float64))
+        grid = dataclasses.replace(EARTH_NORTH, px=16)
+        longitude, _latitude = cap_render._lonlat_grid(grid)
+        main, fill = self._azimuths(monkeypatch, grid, longitude)
+        assert np.allclose(main, cap_render.AZ + 7.0)
+        assert np.allclose(fill, cap_render.hillshade.FILL_AZIMUTH + 7.0)
+
+
 #: Both poles as they shipped, field for field — the golden this module's grids are held to.
 #:
 #: EVERY FIELD, not the interesting ones. The grids stopped being module constants and became
@@ -151,10 +264,10 @@ class TestShade:
 #: once, in full, rather than trusting eight separate assertions to stay complete.
 SHIPPED_GRIDS = {
     "north": {"aeqd_radius_m": 6371000.0, "az_sign": -1.0, "coast_dilate": 1,
-              "coast_opacity": 0.55, "edge_lat": 80.0, "ice_lo": None, "ice_max_alpha": None,
+              "coast_opacity": 0.55, "edge_lat": 82.0, "ice_lo": None, "ice_max_alpha": None,
               "lat_0": 90.0, "name": "north", "px": 8192},
     "south": {"aeqd_radius_m": 6371000.0, "az_sign": 1.0, "coast_dilate": 0,
-              "coast_opacity": 0.0, "edge_lat": -80.0, "ice_lo": 0.62, "ice_max_alpha": 0.55,
+              "coast_opacity": 0.0, "edge_lat": -82.0, "ice_lo": 0.62, "ice_max_alpha": 0.55,
               "lat_0": -90.0, "name": "south", "px": 8192},
 }
 
@@ -283,27 +396,25 @@ class TestTheGridsAreBuiltPerBody:
                             == cap_render.cap_elev_asset(grid))
 
 
-class TestTheCapPassRequiresABody:
-    """`--body` has no default here for the same reason the shade pass has none.
+class TestTheCompositeArmIsOnePoleDeep:
+    """`render_cap` is what `cap_pass` dispatches to, and its whole job is picking a pole.
 
-    A cap is the one output where the wrong sphere is entirely invisible: it projects, it blends,
-    it downsamples to every rung — and it sits on the wrong parallel, feathering into tiles drawn on
-    a different globe. Nothing in the pipeline can report that, and nothing in the picture shows it.
+    A cap is the one output where the wrong hemisphere is entirely invisible: it projects, blends
+    and downsamples to every rung, and simply shows somewhere else. The CLI that used to live here
+    moved to `cap_pass` with the registry; `tests/test_cap_pass.py` holds its contract.
     """
 
-    def test_omitting_the_body_is_an_error_rather_than_an_assumption(self):
-        with pytest.raises(SystemExit):
-            cap_render.build_parser().parse_args([])
-
-    def test_a_named_body_still_parses_the_pole_and_force_flags(self):
-        """The required argument must not have displaced the flags a pole-look loop actually uses."""
-        args = cap_render.build_parser().parse_args(["--body", "earth", "--north", "--force"])
-        assert (args.body, args.north, args.south, args.force) == ("earth", True, False, True)
-
-    def test_an_unknown_body_is_rejected_by_the_registry_not_silently_accepted(self):
-        args = cap_render.build_parser().parse_args(["--body", "pluto"])
-        with pytest.raises(KeyError):
-            bodies.get(args.body)
+    def test_each_pole_reaches_its_own_renderer(self, monkeypatch, subtests):
+        seen: list[str] = []
+        monkeypatch.setattr(cap_render, "render_cap_north",
+                            lambda grid, rasters: seen.append("north"))
+        monkeypatch.setattr(cap_render, "render_cap_south",
+                            lambda grid, rasters: seen.append("south"))
+        for grid in (EARTH_NORTH, EARTH_SOUTH):
+            with subtests.test(pole=grid.name):
+                seen.clear()
+                cap_render.render_cap(grid, WHOLE_PLANET)
+                assert seen == [grid.name]
 
 
 class TestCapPathsFollowTheBody:
@@ -370,8 +481,11 @@ class TestCapsManifest:
             assert [rung["px"] for rung in entry["rungs"]] == list(cap_render.CAP_RUNGS)
             for rung in entry["rungs"]:
                 assert rung["url"] == f"/caps/cap_{name}_{rung['px']}.webp"
-        assert manifest["north"]["feather_hi"] == shade_planet.CAP_NORTH
-        assert manifest["south"]["feather_hi"] == shade_planet.CAP_SOUTH
+        # NOT `shade_planet.CAP_NORTH` any more: that is the plug boundary, a statement about what a
+        # COMPOSITED raster holds in its polar sliver. The fade's ceiling is where Mercator tiles
+        # stop, which is why it derives from the limit rather than from the plug.
+        assert manifest["north"]["feather_hi"] == cap_render.feather_hi_deg()
+        assert manifest["south"]["feather_hi"] == -cap_render.feather_hi_deg()
 
     def test_rungs_are_ascending_and_topped_by_the_render_grid(self):
         """The largest rung IS the render grid — every smaller one is downsampled from it, so a
@@ -602,6 +716,34 @@ class TestCapElevationTexture:
             cap_render.write_cap_elevation(grid)
 
 
+class TestTheRungLadderHasASecondCaller:
+    """The ladder is no longer the compositing branch's private tail.
+
+    A raytraced disc arrives as a rendered TIF and never passes through `shade.composite`, so a
+    caller holding only that file has to be able to ship every rung. Written against the SECOND
+    caller because the first passes by construction: the loop was correct while it was welded in.
+    """
+
+    @pytest.mark.skipif(not HAS_WEBP_WRITE, reason="GDAL here cannot write WEBP")
+    def test_a_caller_holding_only_a_tif_writes_every_rung_at_its_own_size(self, tmp_path,
+                                                                          monkeypatch):
+        grid = _tiny_cap(monkeypatch, tmp_path, cap_px=64, elev_px=16)
+        monkeypatch.setattr(cap_render, "CAP_RUNGS", (16, 32, 64))
+        tif = cap_render.cap_work_dir(grid.body) / "cap_tiny.tif"
+        band = np.linspace(0, 255, grid.px * grid.px, dtype=np.uint8).reshape(grid.px, grid.px)
+        profile: dict[str, Any] = dict(driver="GTiff", width=grid.px, height=grid.px, count=3,
+                                       dtype="uint8", photometric="RGB")
+        with rasterio.open(tif, "w", **profile) as dataset:  # pyright: ignore[reportCallIssue]
+            dataset.write(np.stack([band, band[::-1], band.T]))
+
+        top = cap_render.write_cap_rungs(grid, tif)
+
+        assert top == cap_render.cap_asset(grid, grid.px)
+        for px in (16, 32, 64):
+            with rasterio.open(cap_render.cap_asset(grid, px)) as rung:
+                assert (rung.width, rung.height) == (px, px)
+
+
 class TestCapElevationContract:
     def test_the_encoding_is_imported_from_terrain_rgb_and_never_restated(self, monkeypatch):
         """The cap and the tiles are both drawn across the alpha crossfade, so they must encode
@@ -643,6 +785,16 @@ class TestCapElevationContract:
             assert manifest[name]["elev_url"] == f"/caps/cap_{name}_elev.webp"
             assert cap_render.cap_elev_asset(grid).name == f"cap_{name}_elev.webp"
 
+    def test_the_manifest_states_the_elevation_texture_s_size(self, monkeypatch):
+        """Sized like every colour rung, and from `CAP_ELEV_PX` rather than a repeated literal.
+
+        The web side divides by it to check its mesh is coarser than the texture it samples, which
+        it could not express while the contract named the texture without measuring it.
+        """
+        monkeypatch.setattr(cap_render, "CAP_ELEV_PX", 256)
+        manifest = json.loads(cap_render.caps_manifest(bodies.EARTH))
+        assert [manifest[pole]["elev_px"] for pole in ("north", "south")] == [256, 256]
+
 
 #: A body that declares no layers at all — the whole of what a second planet costs the cap pass.
 #:
@@ -653,7 +805,7 @@ LAYERLESS_BODY = dataclasses.replace(bodies.EARTH, name="layerless", path_prefix
                                      surface_layers=frozenset())
 
 
-def _drive_cap(monkeypatch, tmp_path, body, pole, missing=(), rasters=None):
+def _drive_cap(monkeypatch, tmp_path, body, pole, missing=(), rasters=None, ocean=False):
     """Run one REAL cap renderer with its two GDAL edges recorded rather than executed.
 
     `_warp` and `_write_cap` are the boundaries of the code under test — one shells out to gdalwarp,
@@ -687,12 +839,49 @@ def _drive_cap(monkeypatch, tmp_path, body, pole, missing=(), rasters=None):
                             str(absent if attribute in missing else present))
     monkeypatch.setattr(cap_render, "COAST_SHP",
                         absent if "COAST_SHP" in missing else present)
+    # A Path and not a str, unlike the two above: this one is consumed as a Path everywhere, and
+    # the layer gate calls `.exists()` on it directly. Redirected for the reason the loop above is
+    # — untouched, the rock gate would read whether THIS BOX holds a 206 MB download, and the burn
+    # underneath it would shell out to a real ogr2ogr on the real file inside a unit test.
+    monkeypatch.setattr(download_add_rock, "GPKG",
+                        absent if "ADD_ROCK" in missing else present)
 
     warped: list[str] = []
+    burnt: list[str] = []
 
     def fake_warp(grid, src, out, resampling, dtype, srcnodata=None):
-        warped.append(Path(out).stem.split("_", 1)[1])
-        return np.zeros((grid.px, grid.px), dtype=np.float32)
+        layer = Path(out).stem.split("_", 1)[1]
+        warped.append(layer)
+        # THE OCEAN STAND-IN IS THE CALLER'S CHOICE, and there is no default that serves both tests
+        # in this class. The sea-ice producer gates on this mask, so a disc with no sea returns None
+        # and a "was this layer painted" assertion fails for a reason about the fixture; but the
+        # forced Antarctic patch needs LAND to paint, so a disc that is all sea breaks that one.
+        # All land stays the default, which is what every case here asked for before ice was gated.
+        if layer == "ocean":
+            # HALF THE DISC, not all of it, when a caller asks for sea. A disc that is entirely
+            # ocean has no land for the forced Antarctic patch to paint, and one that is entirely
+            # land gives the gated ice alpha nowhere to survive; the south case asserts both.
+            sea = np.zeros((grid.px, grid.px), dtype=np.float32)
+            if ocean:
+                sea[:, : grid.px // 2] = 1.0
+            return sea
+        # THE ICE STAND-IN CARRIES REAL FREQUENCY, for the same reason. Zeros unpack to alpha zero,
+        # and `seaice.gated_alpha` collapses an all-zero result to None precisely so that None means
+        # "this layer reaches no pixel here" — so a zeros stand-in cannot tell "read and empty" from
+        # "never read", which is the distinction every assertion in this class is about. 9000 packs
+        # to 0.9 frequency, well above `seaice.ICE_LO`.
+        fill = 9_000.0 if layer == "seaice" else 0.0
+        return np.full((grid.px, grid.px), fill, dtype=np.float32)
+
+    def fake_burn(grid, source, name, must_draw):
+        """`_burn` IS A BOUNDARY OF THE CODE UNDER TEST NOW, which it was not before the rock layer.
+
+        Earth's south went from reading no file to burning a vector, so the same argument that
+        captures `_warp` applies: recording the call is the assertion, and a version that burnt
+        Antarctic geometry onto the Arctic disc would otherwise be invisible here.
+        """
+        burnt.append(name)
+        return np.zeros((grid.px, grid.px), dtype=bool)
 
     painted: dict[str, Any] = {}
 
@@ -701,13 +890,14 @@ def _drive_cap(monkeypatch, tmp_path, body, pole, missing=(), rasters=None):
         return tmp_path / f"cap_{grid.name}.webp"
 
     monkeypatch.setattr(cap_render, "_warp", fake_warp)
+    monkeypatch.setattr(cap_render, "_burn", fake_burn)
     monkeypatch.setattr(cap_render, "_write_cap", fake_write)
 
     factory, render = ((cap_render.north_grid, cap_render.render_cap_north) if pole == "north"
                        else (cap_render.south_grid, cap_render.render_cap_south))
     render(dataclasses.replace(factory(body), px=8),
            WHOLE_PLANET if rasters is None else rasters)
-    return sorted(warped), painted
+    return sorted(warped), painted, sorted(burnt)
 
 
 class TestTheCapPassAsksTheBodyBeforeTheDisk:
@@ -721,18 +911,39 @@ class TestTheCapPassAsksTheBodyBeforeTheDisk:
     def test_earth_warps_its_cryosphere_at_both_poles(self, tmp_path, monkeypatch, subtests):
         """The positive control, and the reason the negatives below mean anything: with the layers
         declared, both climatologies are read exactly as they always were."""
-        north, painted_n = _drive_cap(monkeypatch, tmp_path, bodies.EARTH, "north")
+        # Sea under both discs, because this case asserts the ICE alpha reaches the composite and
+        # its producer gates on ocean. The forced-patch case below wants the opposite and says so.
+        north, painted_n, burnt_n = _drive_cap(monkeypatch, tmp_path, bodies.EARTH, "north",
+                                               ocean=True)
         with subtests.test("north"):
             assert north == ["height", "ocean", "seaice", "sp", "water"]
             assert painted_n["ice_a"] is not None
 
-        south, painted_s = _drive_cap(monkeypatch, tmp_path, bodies.EARTH, "south")
+        south, painted_s, burnt_s = _drive_cap(monkeypatch, tmp_path, bodies.EARTH, "south",
+                                               ocean=True)
         with subtests.test("south"):
             # No `sp`: the south's snow is forced, never read from a dataset.
             assert south == ["height", "ocean", "seaice", "water"]
             assert painted_s["ice_a"] is not None
-            # Antarctica forced white — the whole disc is land below -60 in this fixture.
-            assert np.all(painted_s["snow_a"] == 1.0)
+            # Antarctica forced white over the LAND half. Not the whole disc any more: this fixture
+            # now puts sea in the other half so the gated ice alpha has somewhere to survive, and a
+            # forced patch that painted open ocean white would be the defect, not the assertion.
+            # Halved off the ARRAY's own width, never off `CAP_PX`: this fixture shrinks the grid,
+            # so a CAP_PX slice is empty and `np.all` of nothing is True — the assertion passes
+            # while touching no pixel at all.
+            snow_s = painted_s["snow_a"]
+            half = snow_s.shape[1] // 2
+            assert half > 0, "the fixture grid has no width to halve"
+            assert np.all(snow_s[:, half:] == 1.0)          # land: forced white
+            assert np.all(snow_s[:, :half] == 0.0)          # open sea: the patch must not reach it
+
+        with subtests.test("only the south burns the outcrop"):
+            # THE POLE TEST LIVES IN THE REGISTRY KEY AND NOWHERE ELSE, driven end to end. The rock
+            # input is handed to every producer unevaluated, so what decides is which one calls it —
+            # and the north calling it would reproject the whole ADD GeoPackage onto an Arctic disc,
+            # where `must_draw` turns the empty answer into a raised exception mid-pass.
+            assert burnt_s == ["addrock"]
+            assert burnt_n == []
 
     def test_a_body_with_no_layers_opens_none_of_earths_files(self, tmp_path, monkeypatch,
                                                              subtests):
@@ -740,7 +951,7 @@ class TestTheCapPassAsksTheBodyBeforeTheDisk:
         the only thing that can refuse them is the body — and it must, at both poles."""
         for pole in ("north", "south"):
             with subtests.test(pole):
-                warped, painted = _drive_cap(monkeypatch, tmp_path, LAYERLESS_BODY, pole)
+                warped, painted, _burnt = _drive_cap(monkeypatch, tmp_path, LAYERLESS_BODY, pole)
                 assert warped == ["height", "ocean", "water"]
                 assert painted["ice_a"] is None
                 assert np.all(painted["snow_a"] == 0.0)
@@ -754,8 +965,8 @@ class TestTheCapPassAsksTheBodyBeforeTheDisk:
         Asserted against Earth's own south cap in the same fixture, which forces the whole disc
         white: the two runs differ in `surface_layers` and in nothing else.
         """
-        _, earths = _drive_cap(monkeypatch, tmp_path, bodies.EARTH, "south")
-        _, layerless = _drive_cap(monkeypatch, tmp_path, LAYERLESS_BODY, "south")
+        _, earths, _ = _drive_cap(monkeypatch, tmp_path, bodies.EARTH, "south")
+        _, layerless, _ = _drive_cap(monkeypatch, tmp_path, LAYERLESS_BODY, "south")
         assert np.all(earths["snow_a"] == 1.0)
         assert np.all(layerless["snow_a"] == 0.0)
 
@@ -764,8 +975,8 @@ class TestTheCapPassAsksTheBodyBeforeTheDisk:
         """Body first does not mean body only. Earth with the download absent must skip the layer
         rather than crash the pass — that half of the gate predates this commit and has to survive
         it, or a partial build stops being legal."""
-        warped, painted = _drive_cap(monkeypatch, tmp_path, bodies.EARTH, "north",
-                                     missing={"SP_NC"})
+        warped, painted, _burnt = _drive_cap(monkeypatch, tmp_path, bodies.EARTH, "north",
+                                     missing={"SP_NC"}, ocean=True)
         assert warped == ["height", "ocean", "seaice", "water"]  # no `sp`
         assert np.all(painted["snow_a"] == 0.0)
         assert painted["ice_a"] is not None  # the OTHER layer is unaffected
@@ -835,7 +1046,8 @@ class TestCapSourcesFollowTheLayers:
             monkeypatch.setitem(perennial_ice.CAP_ICE_BY_BODY, ("other", pole),
                                 perennial_ice.CapIce(sources=lambda: (elsewhere,),
                                                      alpha=lambda inputs: np.zeros(()),
-                                                     paint=lambda: ((0, 0, 0), (0, 0, 0))))
+                                                     paint=lambda: ((0, 0, 0), (0, 0, 0)),
+                                                     exclusions=lambda: ()))
             with subtests.test(pole):
                 other = dataclasses.replace(bodies.EARTH, name="other", path_prefix="other")
                 sources = cap_render.cap_sources(factory(other), WHOLE_PLANET)
@@ -1006,19 +1218,146 @@ class TestTheCapRecipeRecordsWhatIsOff:
         """The cap vocabulary, not the whole one: `lake_depth` and `glaciers` never reach a cap, so
         recording them would restage a 14 GB render on a decision it cannot contain."""
         recipe = json.loads(cap_render.cap_recipe(cap_render.north_grid(LAYERLESS_BODY), WHOLE_PLANET))
-        assert recipe["layers_off"] == ["coastline", "perennial_ice", "sea_ice"]
+        assert recipe["layers_off"] == ["antarctic_rock", "coastline", "perennial_ice", "sea_ice"]
 
     def test_turning_a_layer_off_restages_although_its_source_stops_being_a_dependency(self):
         """The two halves have to move together. Switching a layer off REMOVES its file from
-        `cap_sources`, so the mtime that would have noticed disappears along with the layer — the
-        recipe is the only thing left that can tell the cap it is stale."""
+        `cap_sources`, so the mtime that would have noticed disappears along with the layer, and
+        the recipe is the only thing left that can tell the cap it is stale.
+
+        ASSERTED ON THIS TIER'S OWN `layers_off` AND NEVER ON WHOLE-RECIPE INEQUALITY. The nested
+        `composite` sub-recipe records the same layer independently, so comparing the two documents
+        passes whether or not the cap records anything at all: `sabotage.py` deleted the cap's own
+        key and this test stayed green while two unrelated ones went red.
+        """
         with_ice = cap_render.north_grid(bodies.EARTH)
         without = cap_render.north_grid(
             dataclasses.replace(bodies.EARTH, name="noice",
                                 surface_layers=bodies.EARTH.surface_layers - {"sea_ice"}))
         assert Path(seaice.SEAICE_SRC) in cap_render.cap_sources(with_ice, WHOLE_PLANET)
         assert Path(seaice.SEAICE_SRC) not in cap_render.cap_sources(without, WHOLE_PLANET)
-        assert cap_render.cap_recipe(with_ice, WHOLE_PLANET) != cap_render.cap_recipe(without, WHOLE_PLANET)
+        assert "layers_off" not in json.loads(cap_render.cap_recipe(with_ice, WHOLE_PLANET))
+        assert json.loads(
+            cap_render.cap_recipe(without, WHOLE_PLANET))["layers_off"] == ["sea_ice"]
+
+
+class TestTheRockNeverGatesTheForcedWhite:
+    """THE DEFECT THIS CLOSES WAS PLANNED AND CAUGHT BEFORE IT WAS WRITTEN, and it is the sharpest
+    version of a trap this module already carries twice.
+
+    The obvious step 6 was for `_earth_south` to declare the ADD GeoPackage in its `CapIce.sources`,
+    the way `_earth_north` declares NSIDC. But `_cap_perennial_ice` refuses the whole layer unless
+    EVERY declared source exists, so a store without ADD downloaded would have switched off the
+    forced Antarctic white entirely and rendered the continent on the tan LAND ramp — from adding a
+    layer whose only job is to remove white from 0.2% of it.
+
+    So the rock is gated by its OWN layer, and these are the executable form of that: the ice
+    producer's mandatory sources must not grow, and the white must survive the file's absence.
+    """
+
+    def test_the_south_declares_no_mandatory_source_at_all(self):
+        """Earth's south reads no file it cannot do without, and that is what makes its `sources`
+        tuple empty rather than unset. A rock entry here is the defect, whatever else is true."""
+        assert perennial_ice.cap_ice(bodies.EARTH, "south").sources() == ()
+
+    def test_the_rock_is_a_cap_source_by_DECLARATION_and_drops_with_the_layer(self, subtests):
+        """It still has to be an mtime dependency — a re-burn must restage the cap — so it rides in
+        `cap_sources` under its own layer, exactly as `sea_ice` does, and never in the ice
+        producer's list where its absence would be fatal."""
+        without = dataclasses.replace(
+            bodies.EARTH,
+            surface_layers=bodies.EARTH.surface_layers - {layers.ANTARCTIC_ROCK.name})
+        for pole, factory in (("north", cap_render.north_grid),
+                              ("south", cap_render.south_grid)):
+            with subtests.test(pole):
+                assert download_add_rock.GPKG in cap_render.cap_sources(
+                    factory(bodies.EARTH), WHOLE_PLANET)
+                assert download_add_rock.GPKG not in cap_render.cap_sources(
+                    factory(without), WHOLE_PLANET)
+
+    def test_an_absent_rock_file_leaves_the_forced_white_untouched(self, monkeypatch, tmp_path):
+        """The regression guard, driven through `_cap_perennial_ice`'s real gate.
+
+        Pointed at a path that does not exist while the body still DECLARES the layer, which is the
+        only arrangement that can tell "gated on the rock" from "gated on the declaration". A test
+        that dropped the declaration too would pass against the broken version.
+        """
+        monkeypatch.setattr(download_add_rock, "GPKG", tmp_path / "never-downloaded.gpkg")
+        grid = cap_render.south_grid(bodies.EARTH)
+        shape = (8, 8)
+        alpha, paint = cap_render._cap_perennial_ice(
+            grid, ocean=np.zeros(shape, dtype=bool), water=np.zeros(shape, dtype=bool),
+            latitude=np.full(shape, -80.0, dtype=np.float32), consequence="no ice")
+        assert alpha.min() == 1.0, (
+            "Antarctica lost its forced white because SCAR ADD was not downloaded — the rock is an "
+            "optional subtraction and must never be able to switch the rule itself off"
+        )
+        assert paint is not None
+
+
+class TestTheCapFoldsThroughTheSameLawAsTheTiles:
+    """The cap's white is folded by `layer_producers.fold_white`, the function the tiles use.
+
+    Before this the cap returned its producer's alpha straight out while the tile tier folded, so
+    "the two tiers agree across the crossfade" was a sentence in a docstring that nothing executed.
+    It was false for months in the exact place it claimed to be true, by 25,198,053 pixels. Sharing
+    the function is what turns the claim from an assertion into a construction.
+    """
+
+    SHAPE = (8, 8)
+    HALF = SHAPE[1] // 2
+
+    def _covered(self):
+        mask = np.zeros(self.SHAPE, dtype=bool)
+        mask[:, : self.HALF] = True
+        return mask
+
+    def _alpha(self, monkeypatch, *, claims, rock):
+        """The south's alpha with its producer's answer and its rock mask both dictated.
+
+        `_cap_rock` is stubbed rather than driven off a real GeoPackage because the claim under
+        test is the FOLD, not the burn: what the burn does with a missing file is
+        `TestTheRockNeverGatesTheForcedWhite`'s subject, one class up.
+        """
+        monkeypatch.setattr(cap_render, "_cap_rock", lambda grid: rock)
+        monkeypatch.setitem(
+            perennial_ice.CAP_ICE_BY_BODY, ("earth", "south"),
+            dataclasses.replace(perennial_ice.cap_ice(bodies.EARTH, "south"),
+                                alpha=lambda inputs: claims))
+        alpha, _ = cap_render._cap_perennial_ice(
+            cap_render.south_grid(bodies.EARTH),
+            ocean=np.zeros(self.SHAPE, dtype=bool), water=np.zeros(self.SHAPE, dtype=bool),
+            latitude=np.full(self.SHAPE, -80.0, dtype=np.float32), consequence="no ice")
+        return alpha
+
+    def test_a_producer_claiming_every_pixel_still_loses_the_outcrop(self, monkeypatch):
+        """THE OUTCOME, and the cap's twin of the tile tier's glacier case.
+
+        A producer claiming the rock at full strength is exactly what a second white source on this
+        disc would be, and RGI region 19 is the concrete one now carried. Returning the producer's
+        array directly cannot answer it however carefully the producer itself subtracts.
+        """
+        alpha = self._alpha(monkeypatch, claims=np.ones(self.SHAPE), rock=self._covered())
+        assert not alpha[:, : self.HALF].any(), "the outcrop kept a white its producer claimed"
+        assert alpha[:, self.HALF:].all(), "the ice beside the outcrop lost its white"
+
+    def test_with_no_rock_the_producers_answer_survives_untouched(self, monkeypatch):
+        """The falsifier. Without it the assertion above is satisfied by a fold that zeroes the
+        disc for any reason at all."""
+        assert self._alpha(monkeypatch, claims=np.ones(self.SHAPE), rock=None).all()
+
+    def test_an_undeclared_exclusion_is_refused_rather_than_ignored(self):
+        """`_cap_exclusion` has no honest default. A producer naming a layer this renderer has no
+        burn for is a registry that has outgrown it, and the silent answer — None, meaning "nothing
+        to exclude" — renders as white over ground the declaration says is bare.
+        """
+        with pytest.raises(KeyError, match="no burn for it"):
+            cap_render._cap_exclusion(cap_render.south_grid(bodies.EARTH), layers.GLACIERS)
+
+    # WHICH POLES DECLARE WHAT IS ASSERTED IN `test_perennial_ice.py` AND MUST NOT MOVE HERE. An
+    # autouse fixture in this module aliases every ("mars", pole) key to EARTH's producer, because
+    # `mars` here is an Earth-shaped stand-in rather than the planet — so a registry-wide claim
+    # written in this file reads a registry that was doctored for a different question.
 
 
 class TestTheCapPassAsksTheSeamBeforeTheDisk:
@@ -1034,7 +1373,7 @@ class TestTheCapPassAsksTheSeamBeforeTheDisk:
     def test_an_undeclared_mask_is_never_warped(self, monkeypatch, tmp_path, subtests):
         for pole in ("north", "south"):
             with subtests.test(pole):
-                warped, _painted = _drive_cap(monkeypatch, tmp_path, LAYERLESS_BODY, pole,
+                warped, _painted, _burnt = _drive_cap(monkeypatch, tmp_path, LAYERLESS_BODY, pole,
                                               rasters=self.HEIGHTFIELD_ONLY)
                 assert "ocean" not in warped and "water" not in warped
                 assert "height" in warped, "the cap must still warp the heightfield"
@@ -1043,7 +1382,7 @@ class TestTheCapPassAsksTheSeamBeforeTheDisk:
         """The mirror arm, without which the test above passes against a cap that warps nothing."""
         for pole in ("north", "south"):
             with subtests.test(pole):
-                warped, _painted = _drive_cap(monkeypatch, tmp_path, LAYERLESS_BODY, pole)
+                warped, _painted, _burnt = _drive_cap(monkeypatch, tmp_path, LAYERLESS_BODY, pole)
                 assert "ocean" in warped and "water" in warped
 
     def test_the_forced_antarctic_patch_sees_a_planet_of_pure_land(self, monkeypatch, tmp_path):
@@ -1052,7 +1391,7 @@ class TestTheCapPassAsksTheSeamBeforeTheDisk:
         declarations, and it is pinned so nobody re-derives it as a bug in the mask gate."""
         snowy = dataclasses.replace(bodies.EARTH, name="snowy", path_prefix="snowy",
                                     surface_layers=frozenset({"perennial_ice"}))
-        _warped, painted = _drive_cap(monkeypatch, tmp_path, snowy, "south",
+        _warped, painted, _burnt = _drive_cap(monkeypatch, tmp_path, snowy, "south",
                                       rasters=self.HEIGHTFIELD_ONLY)
         assert painted["snow_a"].all()
 

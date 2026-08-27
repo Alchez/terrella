@@ -4,7 +4,7 @@ The sea half of the polar look: a static, timeless "how often is this sea-water 
 field that drives a translucent white overlay over the bathymetry, exactly the way land
 snow persistence (NSIDC-0791) drives snow over land. Sea ice is the SEA-side mirror of that
 layer, so this climatology is packed identically (see PACK_SCALE / PACK_FILL below, which
-match snow.SP_SCALE / snow.SP_FILL) and consumed the same way by pipeline/render/seaice.py.
+match snow.SP_SCALE / snow.SP_FILL) and consumed the same way by pipeline/look/seaice.py.
 
 Source: OSI SAF Global Sea Ice Concentration climate data record OSI-450-a, v3 (product_id
 osi-450-a, product_version 3.0), monthly-mean fields. Passive microwave (SMMR/SSM/I/SSMIS),

@@ -7,10 +7,12 @@
 // that mean nothing on Earth, or forking the panel. `PanelContent` is the third answer: the card
 // takes what it renders, and each body owns the builder that produces it.
 //
-// THE NOTE IS A FIELD BECAUSE IT MAKES A CLAIM ABOUT THE PICTURE. It sat in the markup as a
-// sentence about a ray-traced render — true wherever a hero exists, false on a body with none, and
-// invisible as a problem for exactly as long as one body had heroes. A static string cannot be
-// wrong on one planet and right on another, so it stops being static.
+// THE NOTE IS A FIELD BECAUSE IT MAKES A CLAIM ABOUT WHAT THE CARD IS SHOWING. It sat in the
+// markup as a sentence about a ray-traced render — true wherever a hero exists, false on a body
+// with none, and invisible as a problem for exactly as long as one body had heroes. A static
+// string cannot be wrong on one planet and right on another, so it stops being static. It is
+// nullable for the same reason one size further: Earth's card now has nothing to say under the
+// name, and Mars's etymology is the whole content of its own.
 
 import { HERO_BASE } from "./assetBase";
 import type { SearchEntry } from "./catalogueSearch";
@@ -34,8 +36,9 @@ export interface PanelContent {
   /** The uppercase line above the name — a continent on Earth, a feature type elsewhere. */
   eyebrow: string;
   name: string;
-  /** The sentence under the name. Describes whatever the card is actually showing. */
-  note: string;
+  /** The sentence under the name, or absent when the card has nothing to add to it. Describes
+   *  whatever the card is actually showing, which is why a card showing only a name has none. */
+  note: string | null;
   /** Absent on a body with no renders, which is what hides the figure. */
   figure: PanelFigure | null;
   /** Where the card sends a reader next, or absent when there is nowhere to go. */
@@ -94,10 +97,6 @@ export const FRAME_EDGE_PX = 60;
  * covering the screen anyway. Both bodies centre normally below this and accept the overlap.
  */
 export const PANEL_BESIDE_MIN_WIDTH_PX = 640;
-
-/** Earth's note: the card shows a render, and the render is not what the globe is drawing. */
-export const COUNTRY_PANEL_NOTE =
-  "A ray-traced relief render — softer shadows and heightened terrain than the globe's live tiles.";
 
 /** The real pixel WIDTH of a variant, which is what an `srcset` w-descriptor means.
  *
@@ -264,31 +263,18 @@ export function countrySearchEntry(country: Country): SearchEntry {
 
 /** Earth's builder: one country becomes one card.
  *
- *  An unrendered country yields `figure: null` rather than a broken image — `sizes` is empty for
- *  those, and the old code asked for `${slug}-undefined.webp` behind a spinner. */
+ *  NO FIGURE AND NO NOTE, and the two go together. The card carried a hero and a sentence
+ *  explaining that the hero was softer and more exaggerated than the globe's live tiles — a
+ *  difference the ray-traced tiles largely close, which left the picture showing the globe's own
+ *  picture and the sentence excusing a gap that was going away. The link is the route to the
+ *  full-size render now, and it always was the route to the page built around it. */
 export function countryPanelContent(country: Country): PanelContent {
-  const { slug, name, aspect, sizes, borderSizes, hasBorder } = country;
-  const figure: PanelFigure | null =
-    sizes.length === 0
-      ? null
-      : {
-          aspect,
-          src: `${HERO_BASE}${slug}-${sizes[0]}.webp`,
-          srcset: heroSrcset(slug, sizes, aspect),
-          alt: `Ray-traced relief map of ${name}`,
-          border:
-            hasBorder && borderSizes.length
-              ? {
-                  src: `${HERO_BASE}${slug}-border-${borderSizes[0]}.png`,
-                  srcset: heroSrcset(slug, borderSizes, aspect, true),
-                }
-              : null,
-        };
+  const { slug, name } = country;
   return {
     eyebrow: countrySummary(country),
     name,
-    note: COUNTRY_PANEL_NOTE,
-    figure,
+    note: null,
+    figure: null,
     link: { href: `/${slug}/`, label: HERO_LINK_LABEL, external: false },
   };
 }

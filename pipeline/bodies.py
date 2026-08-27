@@ -58,7 +58,7 @@ which body it holds — every one of them reads a FIELD (`body.exaggeration`, `b
 `"perennial_ice" in body.surface_layers`), so a subclass would carry no overridden behaviour and be a
 constructor call spelled longer. A body's facts are DATA, and a frozen dataclass is how Python
 states data. THIS ARGUMENT IS ABOUT BODIES AND DOES NOT CARRY TO PRODUCERS — those are behaviour and
-they do dispatch, which is why `render/perennial_ice.py` is a registry of functions instead.
+they do dispatch, which is why `look/perennial_ice.py` is a registry of functions instead.
 
     from pipeline import bodies
     body = bodies.get("earth")     # raises on an unknown name; never falls back
@@ -66,8 +66,18 @@ they do dispatch, which is why `render/perennial_ice.py` is a registry of functi
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal, get_args
 
 from pipeline import paths
+
+#: What may fill a body's planet raster. Both producers write the same file in the same directory,
+#: each with its own recipe beside it, so nothing downstream can tell which ran.
+PlanetProducer = Literal["composite", "raytrace"]
+
+#: The same vocabulary as a runtime value, DERIVED from the type rather than restated beside it.
+#: Widening the annotation to a bare `str` empties this instead of silently accepting anything,
+#: which is what `test_every_body_names_a_producer_the_vocabulary_knows` reads.
+PLANET_PRODUCERS: tuple[PlanetProducer, ...] = get_args(PlanetProducer)
 
 
 @dataclass(frozen=True)
@@ -147,10 +157,11 @@ class Body:
     #: field exists to close.
     #:
     #: THE ANTARCTIC LAND-ICE RULE RIDES WITH `perennial_ice`, and that is not a conflation. The rule
-    #: exists only because the snow dataset has a hole — NSIDC-0791 is northern-hemisphere-only and
-    #: RGI region 19 is excluded — so the continent would render on the tan LAND ramp. It is a patch
-    #: on that layer, so a body without it has nothing to patch. On a body with no sea it would
-    #: instead whiten every piece of land below 60 degrees south.
+    #: exists because the snow dataset has HOLES: NSIDC-0791 covers Antarctica and saturates over it,
+    #: but 9 to 14% of that land arrives as clustered fill that RGI's peripheral region 19 does not
+    #: reach either, so those patches would render on the tan LAND ramp. It is a patch on that layer, so a body without it
+    #: has nothing to patch. On a body with no sea it would instead whiten every piece of land below
+    #: 60 degrees south.
     surface_layers: frozenset[str]
     #: Whether this body PUBLISHES rendered polar-cap textures.
     #:
@@ -167,11 +178,31 @@ class Body:
     #: discs in a palette nobody has agreed to.
     #:
     #: A body fact rather than a look constant because the two consumers are in different processes:
-    #: the shade pass decides whether to invoke the cap pass at all, and the cap pass must give the
+    #: the planet pass decides whether to invoke the cap pass at all, and the cap pass must give the
     #: same answer when an operator runs it directly. Absence on disk cannot carry that — it cannot
     #: tell "this body publishes none" from "the render died", which is the distinction
     #: `planet_seam` exists to preserve one tier up.
     renders_polar_caps: bool
+    #: Which producer fills this body's planet raster: `composite` shades it window by window out of
+    #: numpy, `raytrace` renders it block by block through Cycles.
+    #:
+    #: A BEHAVIOUR CHOICE IN A REGISTRY OF FACTS, which the module note anticipated: producers
+    #: dispatch where bodies do not, so what a body answers here is which one runs, never what a
+    #: consumer then does with the result.
+    #:
+    #: NOT DERIVABLE FROM ANY OTHER FIELD, which is why it is asked rather than inferred. Radius,
+    #: exaggeration and surface layers say nothing about whether this planet's relief is worth a
+    #: night of GPU, and a body with no ratified look can still be composited.
+    #:
+    #: TRANSITIONAL BY CONSTRUCTION, said here because the declaration is where someone would
+    #: otherwise build on it. The field exists because two producers do, so it and the dispatcher
+    #: that reads it both end on the day the last body's planet raster stops being composited.
+    #:
+    #: THE CAPS DO NOT KEEP IT ALIVE, and they now dispatch on it TWICE — the two are not in
+    #: tension. A disc has to match the tiles it feathers into and the two producers disagree on
+    #: colour, so `cap_pass` picks the cap arm off this field and the arm records it as a freshness
+    #: dependency. Both ends the same day the tiles' dispatcher does, for the same reason.
+    planet_producer: PlanetProducer
 
 
 EARTH = Body(
@@ -186,11 +217,11 @@ EARTH = Body(
     # on Earth's equatorial radius, which is what makes Earth's ground ratio exactly 1.0 and every
     # existing pixel byte-identical through each call site that adopts the conversion.
     ground_radius_m=6378137.0,
-    # The ONE home now: the shade pass reads this, and a test scans it for a regrown literal. The
+    # The ONE home now: the planet pass reads this, and a test scans it for a regrown literal. The
     # number is what the live 46 GB raster was actually warped at, and it is a rounded value — the
     # exact z8 figure is 305.748113. See the field's note for why the rounding stays.
     map_units_per_pixel=305.7483,
-    # Duplicated today in render/palette.py, which the hero scene imports directly.
+    # Duplicated today in look/palette.py, which the hero scene imports directly.
     exaggeration=15.0,
     # Both cuts read this now — the raster pass and, since the two vector composers merged onto one
     # driver, `countries_pmtiles.MAX_ZOOM` as well. The bridging test that stood in for that second
@@ -200,10 +231,14 @@ EARTH = Body(
     path_prefix="",
     # All of them, written out rather than spelled `SURFACE_LAYERS`: Earth is the reference body, and
     # "whatever the vocabulary happens to contain" is how it would inherit the next layer unexamined.
-    surface_layers=frozenset({"lake_depth", "perennial_ice", "glaciers", "sea_ice", "coastline"}),
+    surface_layers=frozenset({"lake_depth", "perennial_ice", "glaciers", "sea_ice", "coastline",
+                              "antarctic_rock"}),
     # The reference body, and the caps are a signature feature rather than a detail: both poles
     # ship a full rung ladder, feathered into the tiles at the seam.
     renders_polar_caps=True,
+    # Raytraced. Reverting this is a look change rather than a rollback: `planet_rgb.tif` is
+    # rewritten in place by whichever producer runs, and the two do not agree on colour.
+    planet_producer="raytrace",
 )
 
 
@@ -276,6 +311,9 @@ MARS = Body(
     # textures exist to be drawn over, which MapLibre stretched across the pole and which was tested
     # on Earth's globe and rejected. Do not reach for False again as a cheap way to skip a render.
     renders_polar_caps=True,
+    # Composite. Nothing has calibrated the block margin law on this body, so a raytraced Mars would
+    # be its own first instrument rather than a product.
+    planet_producer="composite",
 )
 
 

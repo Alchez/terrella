@@ -2358,6 +2358,7 @@ import { REPO_URL } from "../lib/siteLinks";
   const heroImg = panel.querySelector(".dp-hero") as HTMLImageElement;
   const borderImg = panel.querySelector(".dp-border") as HTMLImageElement;
   const figure = panel.querySelector(".dp-figure") as HTMLElement;
+  const noteEl = panel.querySelector(".dp-note") as HTMLElement;
   const linkEl = panel.querySelector(".dp-link") as HTMLAnchorElement;
 
   /**
@@ -2388,7 +2389,16 @@ import { REPO_URL } from "../lib/siteLinks";
     searchPanel?.close();
     panel.querySelector(".dp-eyebrow")!.textContent = content.eyebrow;
     panel.querySelector(".dp-name")!.textContent = content.name;
-    panel.querySelector(".dp-note")!.textContent = content.note;
+    // BOTH DIRECTIONS OVER A REUSED ELEMENT, the link's rule below applied one element up. A card
+    // with no note leaves an empty `<p>` still carrying its bottom margin, so the link drifts away
+    // from the name — the version that reads correct in the DOM and wrong on the screen.
+    if (content.note === null) {
+      noteEl.hidden = true;
+      noteEl.textContent = "";
+    } else {
+      noteEl.hidden = false;
+      noteEl.textContent = content.note;
+    }
     if (content.link === null) {
       linkEl.hidden = true;
     } else {

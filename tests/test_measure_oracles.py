@@ -35,8 +35,9 @@ from rasterio.transform import from_bounds
 
 from pipeline import bodies, freshness, paths
 from pipeline.acquire import download_sim3292, download_viking_mosaic
-from pipeline.render import mars_ice, viking_luma
+from pipeline.look import mars_ice, viking_luma
 from pipeline.tile import cap_render
+from scripts import measure_cap_tile_agreement as agreement
 from scripts import measure_mars_ice_white as ice_white
 from scripts import measure_viking_levels as levels
 
@@ -372,3 +373,42 @@ class TestTheFixtureIsHonest:
         exist, so at least one of them has to be a file this fixture actually wrote."""
         assert download_viking_mosaic.mosaic_path().exists()
         assert tmp_path in download_viking_mosaic.mosaic_path().parents
+
+
+class TestTheAgreementProbeSamplesInsideTheDiscItReads:
+    """`measure_cap_tile_agreement` is the after-a-cut check, and it spelled its own sample band.
+
+    Its sampler refuses any latitude outside the cap disc, on purpose: the version that clamped to
+    the texture's edge instead reported a 1.2 km disagreement that was its own doing. So a spelled
+    band and a moved `CAP_EDGE_LAT` do not merely disagree, they take the whole instrument off the
+    air, exiting 1 on the first sample, with nothing between the edge moving and the next person
+    needing the check. `edge_lat` has moved twice now, which is the other half of this file's
+    subject one level down.
+    """
+
+    def test_every_sample_lies_inside_the_disc_that_will_be_read(self, subtests):
+        for pole in ("north", "south"):
+            grid = _grid(pole)
+            for latitude in agreement.sample_latitudes(grid):
+                with subtests.test(pole=pole, latitude=latitude):
+                    radius = (90.0 - abs(latitude)) / (90.0 - abs(grid.edge_lat))
+                    assert radius <= 1.0, f"lat {latitude} outside a disc reaching {grid.edge_lat}"
+
+    def test_the_band_moves_with_the_edge_rather_than_being_spelled(self, subtests):
+        """THE NON-VACUITY CONTROL, and the assertion above needs it: a band hard-coded anywhere
+        inside today's disc satisfies every `radius <= 1.0` there and is exactly the state this
+        class exists to refuse. A derived band has to MOVE when the disc does."""
+        near, far = _grid(edge_lat=84.0), _grid(edge_lat=70.0)
+        inner, outer = agreement.sample_latitudes(near), agreement.sample_latitudes(far)
+        with subtests.test("the bands differ"):
+            assert inner != outer
+        with subtests.test("each stays inside its own disc"):
+            assert min(inner) >= 84.0
+            assert min(outer) >= 70.0
+        with subtests.test("the wider disc reaches further equatorward"):
+            assert min(outer) < min(inner)
+
+    def test_the_band_stops_where_the_TILES_stop(self):
+        """The poleward end is the Mercator limit, not the pole: past it there is no tile to compare
+        against, so a sample there would read the cap against nothing and call it agreement."""
+        assert max(agreement.sample_latitudes(_grid())) < cap_render.feather_hi_deg()

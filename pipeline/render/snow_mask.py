@@ -1,6 +1,6 @@
 """Snow/ice mask stage for the hero shader.
 
-Produces snowmask_aea.png (0/255) on an existing render dir's grid from
+Produces snowmask.png (0/255) on an existing render dir's grid from
 ESA WorldCover 2021 v200 class 70 ("snow and ice") — a 10 m global
 classification from a full-year Sentinel-1/2 composite, so class 70 means
 *permanent* snow/glacier, not winter snowpack (the hero's editorial stance
@@ -42,6 +42,21 @@ from rasterio.warp import transform_bounds
 
 from pipeline import paths
 from pipeline.fetch import download_one
+from pipeline.look import palette
+from pipeline.render import render_seam
+
+
+def declare_snow_paint(render_dir: Path) -> None:
+    """What colour the mask above is painted, since the rig no longer holds a default.
+
+    The constant is spelled out rather than asked of `layer_producers`, which answers for the tile
+    tier's sources: the hero snow is WorldCover class 70, an Earth dataset with no registry entry.
+    A second body's hero would have to add its own here, because `render_seam.paint_for` raises
+    instead of guessing.
+    """
+    render_seam.declare_paint(render_dir, render_seam.SNOWMASK,
+                              palette.SNOW_RGB, palette.SNOW_SHADOW_RGB)
+
 
 BUCKET_URL = "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map"
 DATA_DIR = paths.DATA / "raw/worldcover"
@@ -73,18 +88,20 @@ def tiles_for_bounds(west, south, east, north) -> list[str]:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--render-dir", type=Path, required=True,
-                    help="existing render dir with heightfield_aea.tif")
+                    help=f"existing render dir with {render_seam.HEIGHTFIELD}")
     args = ap.parse_args()
     render_dir = args.render_dir.resolve()
 
-    out_png = render_dir / "snowmask_aea.png"
+    out_png = render_dir / render_seam.SNOWMASK
     if out_png.exists():
         print(f"{out_png} exists — skipping", flush=True)
+        render_seam.declare(render_dir, render_seam.SNOW, [render_seam.SNOWMASK])
+        declare_snow_paint(render_dir)
         return
 
     # grid + CRS from the existing heightfield (render_prep.py pattern):
     # the mask must land pixel-for-pixel on the grid the render was made from
-    hf = render_dir / "heightfield_aea.tif"
+    hf = render_dir / render_seam.HEIGHTFIELD
     with rasterio.open(hf) as heightfield_dataset:
         dst_crs, transform = heightfield_dataset.crs, heightfield_dataset.transform
         width, height = heightfield_dataset.width, heightfield_dataset.height
@@ -186,6 +203,8 @@ def main():
         os.replace(aux, out_png.with_name(out_png.name + ".aux.xml"))
     os.replace(tmp, out_png)
 
+    render_seam.declare(render_dir, render_seam.SNOW, [render_seam.SNOWMASK])
+    declare_snow_paint(render_dir)
     px = int((mask > 0).sum())
     km2 = px * (xres * xres) / 1e6
     print(f"wrote {out_png}", flush=True)

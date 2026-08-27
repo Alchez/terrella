@@ -1,6 +1,6 @@
 """Web-Mercator geometry, in one home and parameterised by the sphere it is projected on.
 
-WHY THIS MODULE EXISTS. `render/hillshade.py` and `render/snow.py` each carried their own
+WHY THIS MODULE EXISTS. `look/hillshade.py` and `look/snow.py` each carried their own
 `EARTH_RADIUS = 6378137.0` and their own transcription of the inverse projection. Two copies of a
 constant is the drift this project has already paid for; two copies of the FORMULA is the same
 hazard with more surface, and nothing related them — a fix applied to one would have looked
@@ -51,6 +51,22 @@ def latitude_at(mercator_y, radius_m: float):
     arrays, and a scalar-only implementation would broadcast into something silently reshaped.
     """
     return np.degrees(2.0 * np.arctan(np.exp(np.divide(mercator_y, radius_m))) - math.pi / 2.0)
+
+
+def ground_metres_per_pixel(latitude_deg, map_units_per_pixel: float, ground_scale: float):
+    """Ground metres one pixel of a Web-Mercator grid covers at this latitude.
+
+    TWO FACTORS AND NEITHER IS OPTIONAL. Mercator stretches by 1/cos(latitude), which is the first;
+    and a map unit is a ground metre only where the body's radius matches the projection sphere's,
+    which is the second and is `bodies.ground_metres_per_mercator_unit` — 1.0 on Earth and 1.878 on
+    Mars. Both are supplied rather than looked up, because this module stays clear of the body
+    registry (see the radius note above) and because a caller that has to name the body is a caller
+    that cannot silently get Earth.
+
+    Accepts a scalar or a per-row array of latitudes and preserves the shape, so a Mercator window
+    can ask for its whole column of rows at once.
+    """
+    return map_units_per_pixel * ground_scale * np.cos(np.radians(latitude_deg))
 
 
 def northing_at(latitude_deg, radius_m: float) -> NDArray[np.float64]:

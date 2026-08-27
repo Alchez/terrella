@@ -1,12 +1,15 @@
 """snow.antarctic_snow_mask: the shared rule that forces Antarctic land white in BOTH the tile
-composite and the south cap. NSIDC-0791 persistence is NH-only and RGI region 19 is excluded, so
-nothing else whitens the continent; one home for the rule keeps the two paths agreeing across the
--84 cap<->tile seam.
+composite and the south cap. NSIDC-0791 persistence saturates over the whole continent -- median
+0.9999 measured on exposed rock itself, against a ramp cutoff of 0.60 -- and RGI region 19 reaches
+only the periphery, so nothing else whitens the interior and nothing else could un-whiten it either;
+one home for the rule keeps the two paths agreeing across the -84 cap<->tile seam.
 """
+
+import inspect
 
 import numpy as np
 
-from pipeline.render import snow
+from pipeline.look import snow
 
 
 class TestAntarcticSnowMask:
@@ -56,3 +59,28 @@ class TestAntarcticSnowMask:
     def test_returns_float32(self):
         """composite does np.maximum(snow_a, mask) with a float snow_a, so the mask must be float."""
         assert snow.antarctic_snow_mask(np.ones((1, 1), bool), np.array([-80.0])).dtype == np.float32
+
+
+class TestTheRuleIsPureAndTheOutcropIsNotItsBusiness:
+    """SCAR ADD's outcrop is a `layer_producers.WHITE_EXCLUSIONS` member, removed after the whole
+    white union folds, in both tiers.
+
+    IT BRIEFLY TOOK A `rock` ARGUMENT HERE INSTEAD, and that placement put a negative inside one
+    positive claim: this rule is one term of a maximum, and every other white source re-claimed the
+    pixel in the next operation. Measured, it cost the outcrop 63% of its subtraction, because
+    NSIDC-0791 persistence reads a median 1.0000 on the very rock ADD maps.
+
+    So the guard here is that the argument cannot come back, and it has to be a SIGNATURE claim: a
+    rule that subtracted the rock perfectly would still be overruled by the union above it, so no
+    value test written against this function can see the defect. What the outcrop does to the
+    finished white is asserted where the fold is — `test_layer_producers.py` and
+    `test_prep_block.py` for the tiles, `test_cap_render.py` and `test_perennial_ice.py` for the cap.
+    """
+
+    def test_the_rule_takes_no_rock_argument(self):
+        assert "rock" not in inspect.signature(snow.antarctic_snow_mask).parameters
+
+    def test_cold_land_is_still_white_whatever_is_lying_on_it(self):
+        """The anti-vacuity companion: the signature claim above is equally satisfied by a function
+        that returns nothing at all, and by one that stopped forcing the white."""
+        assert (snow.antarctic_snow_mask(np.ones((1, 3), bool), np.array([-75.0])) == 1.0).all()

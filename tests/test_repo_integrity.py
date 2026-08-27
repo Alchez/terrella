@@ -113,10 +113,12 @@ SCRATCH_DIRS = (r"_ice_ab/|_ice_levels/|_ice_scout/|_viking_scout/|_crism_scout/
 
 # Paths this repo deliberately keeps out of version control, each of which becomes exactly the kind
 # of pointer this module exists to refuse: present for its author, absent from every clone.
-# `.claude/rules/` holds one author's agent instructions. Gitignoring a path is otherwise a change
-# nothing goes red for — this pattern is what makes it red, so extend it in the same commit that
-# adds a .gitignore entry.
-IGNORED_PATHS = r"\.claude/rules"
+# `.claude/rules/` and `.claude/skills/` USED to be here and are now TRACKED, so citing them is
+# legitimate: they are two of the three homes a topic may live in, and a clone receives both.
+# Gitignoring a path is otherwise a change nothing goes red for, and un-gitignoring one is the same
+# in reverse — this pattern is what makes both red, so it moves in the same commit as the .gitignore
+# entry it mirrors.
+IGNORED_PATHS = r"\.claude/settings\.local\.json"
 
 CHECK_GROUPS = {
     "BLOCK_COMMENT_FILES": BLOCK_COMMENT_FILES,
