@@ -20,6 +20,7 @@ import pytest
 
 from pipeline import bodies, layers, paths, planet_seam
 from pipeline.look import seaice
+from pipeline.render import blender_proc
 from pipeline.tile import cap_raytrace, cap_render
 
 EARTH = bodies.BODIES["earth"]
@@ -224,7 +225,11 @@ class TestAFrameIsOnlyCalledRenderedOnceItIsWhole:
             target.write_bytes(b"half a frame")
             return subprocess.CompletedProcess(command, returncode, stdout=stdout, stderr="")
 
-        monkeypatch.setattr(cap_raytrace.subprocess, "run", run)
+        # PATCHED ON THE SHARED LAUNCHER, not on this module. That is what keeps these tests a guard
+        # on the SHIPPING path: a `cap_raytrace` that went back to calling `subprocess.run` itself
+        # would not be intercepted here and would try to start real Blender, which fails loudly
+        # rather than passing green against a stand-in nothing uses.
+        monkeypatch.setattr(blender_proc.subprocess, "run", run)
 
     def test_a_partly_written_frame_is_never_left_under_its_final_name(self, monkeypatch, staged):
         self._fake_blender(monkeypatch, returncode=137, stdout="")   # 137 is the OOM kill

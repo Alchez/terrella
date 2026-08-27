@@ -9106,6 +9106,45 @@ SABOTAGES: list[Sabotage] = [
         replacement='    if green:\n        return AUDIT_PROVEN,',
         guard='test_a_narrow_run_that_stays_green_is_silent',
     ),
+
+    # --- Blender's temporary files leave tmpfs (2026-08-26) ---------------------------------------
+    # Two orphaned `cycles-tile-buffer-*.exr`, 2.7 GB each, were holding 5.4 GB of this box's RAM.
+    # `/tmp` is tmpfs here, Blender cleans its temp dir only on a CLEAN exit, and the cgroup cap
+    # exists to KILL a runaway render — so the protection is what strands the file, and tmpfs is not
+    # charged to the render's cgroup, so the limit cannot see the leak it caused.
+    Sabotage(
+        suite='python',
+        label='Blender is launched with the ambient environment again, so Cycles stages into tmpfs',
+        path='pipeline/render/blender_proc.py',
+        needle='    return {**os.environ, "TMPDIR": str(directory), **extra}',
+        replacement='    return {**os.environ, **extra}',
+        guard='test_it_sits_under_the_data_store',
+    ),
+    Sabotage(
+        suite='python',
+        label='the temp directory is named but never created, so Blender falls back to tmpfs silently',
+        path='pipeline/render/blender_proc.py',
+        needle='    directory.mkdir(parents=True, exist_ok=True)\n',
+        replacement='',
+        guard='test_the_directory_is_created_rather_than_merely_named',
+    ),
+    Sabotage(
+        suite='python',
+        label='the block render goes back to spelling its own launch, and loses the environment with it',
+        path='pipeline/tile/block_render.py',
+        needle='    result = blender_proc.run(\n        blender_command(body, render_dir, scratch / f"{name}.blend", png))',
+        replacement='    result = subprocess.run(blender_command(body, render_dir, scratch / f"{name}.blend", png),\n'
+                    '                            cwd=paths.ROOT, capture_output=True, text=True, check=False)',
+        guard='test_block_render_launches_through_the_shared_launcher',
+    ),
+    Sabotage(
+        suite='python',
+        label='the hero sweep keeps its venv PATH but drops the temp root, which is the 8K buffer',
+        path='pipeline/batch.py',
+        needle='    return blender_proc.env(\n        PATH=',
+        replacement='    return dict(\n        os.environ, PATH=',
+        guard='test_the_stage_environment_names_the_temp_root',
+    ),
 ]
 
 

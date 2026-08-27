@@ -20,7 +20,6 @@ blend reads: getting it wrong does not crash, it leaves those pixels unlit in a 
 """
 import json
 import os
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -29,7 +28,7 @@ import rasterio
 
 from pipeline import bodies, freshness, layers, paths, planet_seam, progress
 from pipeline.look import layer_producers
-from pipeline.render import prep_block, prep_cap, render_seam
+from pipeline.render import blender_proc, prep_block, prep_cap, render_seam
 from pipeline.tile import block_render, cap_render
 
 #: Bearings the ring is rendered at, evenly spaced. RATIFIED AT 24 on both poles against 12 and 1:
@@ -186,9 +185,8 @@ def render_frame(grid: cap_render.CapGrid, render_dir: Path, quadrant: tuple[int
     part = png.with_suffix(".part.png")
     part.unlink(missing_ok=True)
     blend = frames_dir(grid) / f"cap_{grid.name}.blend"
-    result = subprocess.run(
-        blender_command(grid, render_dir, blend, part, quadrant, index),
-        cwd=paths.ROOT, capture_output=True, text=True, check=False)
+    result = blender_proc.run(
+        blender_command(grid, render_dir, blend, part, quadrant, index))
     if result.returncode != 0 or not part.exists():
         raise RuntimeError(f"blender exited {result.returncode} for {png.name}: "
                            f"{result.stdout[-1500:]}{result.stderr[-1500:]}")

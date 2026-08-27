@@ -153,11 +153,41 @@ composite 4.37 > cut 2.95.
 
 **EARTH, PER STAGE, PEAK LIVE RSS** — composite **12.56 GiB** · tile cut z0–8 **3.74 GiB** ·
 `cap_pass` **14.41 GiB**, with the cgroup peak pinned at the 16 G cap throughout (page cache,
-reclaimed under the limit, never a kill). **The caps alone are what the cap has to back, on both
+reclaimed under the limit, never a kill).
+
+**THE RAYTRACED BLOCK PRODUCER PEAKS AT 8.18 GiB LIVE RSS, AND BLENDER IS ESSENTIALLY ALL OF IT** at
+8.04 GiB in a single process. Measured across a live Earth pass rather than a probe, so the widest
+contexts on the grid (2048 px, plane 8192) are inside the sample rather than standing in for it.
+**Nothing accumulates across blocks**: median live RSS by quarter of the run reads 5.99, 6.16, 6.19
+and 5.70 GiB, flat over a hundred sequential Blender subprocesses.
+
+**A SUPERSEDED 7.67 GiB FOR THIS STAGE WAS A CGROUP PEAK ON ONE BLOCK AND READ LOWER THAN THE LIVE
+RSS IT WAS TAKEN TO BOUND.** A cgroup peak overstates within its own metric, which does not make it a
+ceiling for another: a cold single-block probe is charged almost no page cache, so the inflation that
+was meant to leave it conservative never happened. The same live pass reads 12.61 GiB on the cgroup,
+the 4.43 GiB above live RSS being exactly the page cache the rule at the top of this section
+describes.
+
+**WHICH STAGE BINDS DEPENDS ON THE BODY'S PRODUCER AND ITS CAPS' FRESHNESS, AND `pass_cap.py`'s
+FIELD SEES NEITHER.** On a raytraced Earth pass whose caps are already current, the composite never
+runs (that is the fork) and `cap_render` never runs (`cap_sources` does not name `planet_rgb.tif`,
+so a block pass cannot make a cap stale), which leaves the block producer and the cut. Both peaks
+above that justify the 16 G are then unbacked, and the `MemAvailable` preflight refuses a pass the
+box could have run: the same failure that module's own header says it exists to remove, one case
+over. 16 G stays correct as a worst-case bound; it is simply not the binding one in that state. **The caps alone are what the cap has to back, on both
 bodies**, and two older claims fall out: the composite does not peak at 10.55 GiB, and the tiling
 stage does not approach 16 G. `GDAL_CACHEMAX=512` across `-j ALL_CPUS` workers is an upper bound
 that never fills — measured at 3.74 GiB across the whole cut, 537 samples, making it the LIGHTEST
 of the three stages rather than the reason for the cap.
+
+**"AN IDLE BOX" INCLUDES THE BROWSER, AND THE PRICE IS MEASURED: a Tier-3 globe left open costs the
+raytraced block producer 1.37x.** Tier 3 is terrain displacement plus the idle spin, so the page
+renders continuously rather than on interaction, and Chrome's GPU process sat at 1307 MiB beside
+Blender's 5882. Parking it took ten consecutive blocks to 1.07x, and on this pass's own remaining
+work that is 15.04 h against 11.75 h. **Measured by comparing the SAME BLOCK across two passes**,
+which is the only oracle that works here: per-block cost ranges 29 s to 158 s by context alone, so a
+rate average buries a 37% effect under the row-to-row spread. → HISTORY, *a browser tab showing the
+globe cost the planet pass 37%*.
 
 **THE COMPOSITE ROW SAYS 57:23, AND CONTENTION IS NOT WHAT PUT IT THERE.** The row read **21:37**
 for most of this file's life. A recipe-only restage of that same stage measured **26:40** while a

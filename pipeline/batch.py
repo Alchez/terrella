@@ -56,16 +56,31 @@ from pipeline.frame.country_config import (
     stage_commands,
 )
 from pipeline.profile import pass_cap
-from pipeline.render import render_seam
+from pipeline.render import blender_proc, render_seam
 
 #: The CHECKOUT, and the working directory every stage subprocess is run from — so the
 #: checkout-relative paths in those commands (`pipeline/…`, `blender/…`) resolve. Data paths do NOT
 #: hang off it; they come from `country_work_dir`, which follows the store.
 ROOT = paths.ROOT
-# Stage commands say "python …" assuming a venv-active shell; put this runner's
-# own interpreter dir first on PATH so the subprocesses use the venv, not system.
-ENV = {**os.environ,
-       "PATH": f"{Path(sys.executable).parent}{os.pathsep}{os.environ.get('PATH', '')}"}
+
+
+def stage_env() -> dict[str, str]:
+    """The environment every stage subprocess runs under.
+
+    Stage commands say "python …" assuming a venv-active shell, so this runner's own interpreter
+    dir goes first on PATH and the subprocesses use the venv rather than the system one.
+
+    THE REST IS `blender_proc`'s, INCLUDING FOR THE STAGES THAT ARE NOT BLENDER. One of these
+    commands is the 8K hero render, which is the largest Cycles tile buffer this project produces
+    and the stage the memory gate below is sized for — and that gate is defeated by exactly the
+    tmpfs the buffer would otherwise fill. A per-stage env would mean deciding, at each stage,
+    whether it is the Blender one; handing every stage the same environment cannot get that wrong.
+
+    A function rather than a module constant, on `paths`' derive-at-call-time rule: frozen at
+    import, a relocated `MAPS_DATA` would move the store and leave this pointing at the old one.
+    """
+    return blender_proc.env(
+        PATH=f"{Path(sys.executable).parent}{os.pathsep}{os.environ.get('PATH', '')}")
 FAIL_LOG = ROOT / "blender/renders/batch_failures.jsonl"
 PREP_STAGES = 6           # stage_commands[:6] = download,mosaics,fuse,prep,snow,lake
 RENDER_STAGE = 6          # scene_build --render
@@ -120,7 +135,7 @@ def bootstrap() -> None:
     for cmd in ("bash pipeline/acquire/download_naturalearth.sh",
                 "python -m pipeline.acquire.download_gebco"):
         print(f"[bootstrap] {cmd}", flush=True)
-        if subprocess.run(cmd, shell=True, cwd=ROOT, env=ENV, check=False).returncode != 0:
+        if subprocess.run(cmd, shell=True, cwd=ROOT, env=stage_env(), check=False).returncode != 0:
             sys.exit(f"bootstrap failed: {cmd} — cannot proceed without it")
 
 
@@ -177,7 +192,7 @@ def run_country(slug, resolved, through, force, dry, cap_gib, use_cap, floor,
                   flush=True)
         else:
             rc = subprocess.run(prefix + run_cmd, shell=True, cwd=ROOT,
-                                env=ENV, check=False).returncode
+                                env=stage_env(), check=False).returncode
             if rc != 0:
                 kind = "oom" if rc in (137, -9) else "error"
                 if raw_tmp:
@@ -195,7 +210,7 @@ def run_country(slug, resolved, through, force, dry, cap_gib, use_cap, floor,
                 f"python -m pipeline.look.sky_view --render-dir {country_render_dir(slug)}"
                 f" --hero {raw} --out {final}"
                 f" --strength {resolved['sky_view_strength']}", shell=True,
-                cwd=ROOT, env=ENV, check=False).returncode
+                cwd=ROOT, env=stage_env(), check=False).returncode
             if sv != 0:
                 log_failure(slug, idx, "sky_view", sv, "error")
                 return f"FAIL@{idx} (sky_view)"

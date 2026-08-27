@@ -34,7 +34,6 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
-import subprocess
 import sys
 import time
 import types
@@ -59,7 +58,7 @@ from pipeline import (
 from pipeline.block_plan import Block
 from pipeline.look import layer_producers, palette
 from pipeline.raster_io import GTIFF_CREATE
-from pipeline.render import prep_block, render_seam
+from pipeline.render import blender_proc, prep_block, render_seam
 from pipeline.tile import producer_seam, relief_scan, shade_planet
 
 #: Consecutive block failures that stop the run. A single block can fail for its own reasons — a
@@ -500,8 +499,8 @@ def render_block(body: bodies.Body, block: Block, mosaic: Path, scratch: Path,
     png.unlink(missing_ok=True)
 
     prep_block.cut(body, block, render_dir)
-    result = subprocess.run(blender_command(body, render_dir, scratch / f"{name}.blend", png),
-                            cwd=paths.ROOT, capture_output=True, text=True, check=False)
+    result = blender_proc.run(
+        blender_command(body, render_dir, scratch / f"{name}.blend", png))
     if result.returncode != 0 or not png.exists():
         raise RuntimeError(f"blender exited {result.returncode} for {name}: "
                            f"{result.stdout[-1500:]}{result.stderr[-1500:]}")
