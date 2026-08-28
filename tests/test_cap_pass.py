@@ -38,14 +38,31 @@ class TestEveryPlanetProducerCanAlsoPaintADisc:
             with subtests.test(body=name):
                 assert cap_pass.producer_for(bodies.BODIES[name]) is not None
 
-    def test_the_two_shipped_bodies_take_DIFFERENT_arms(self):
-        """The second instance, with no fixture involved: Earth is raytraced and Mars composited
-        today, so the dispatch is exercised on both sides by the registry as it ships. A test that
-        only ever saw one body would pass with the key ignored entirely."""
-        assert EARTH.planet_producer != MARS.planet_producer
-        assert cap_pass.producer_for(EARTH) is not cap_pass.producer_for(MARS)
-        assert cap_pass.producer_for(EARTH).render is cap_raytrace.render
-        assert cap_pass.producer_for(MARS).render is cap_render.render_cap
+    def test_each_producer_takes_a_DIFFERENT_arm(self):
+        """BOTH ARMS ARE BUILT RATHER THAN BORROWED FROM THE REGISTRY, and that is a change of
+        fixture forced by a change in the world rather than a weakening. This read on the two
+        shipped bodies while Earth was raytraced and Mars composited; MARS now raytraces too, so
+        the registry supplies one producer and the sweep it used to be would pass with the key
+        ignored entirely -- which is the exact failure its own docstring warned about.
+
+        `test_planet_pass.TestAKnobOverrideIsRefusedOnARaytracedBody` met this first when Earth
+        flipped and cured it the same way. The synthetic pair is strictly weaker than two real
+        bodies and is what exists: no registered body composites its planet raster any more, so the
+        composite arm below has no shipping user left.
+        """
+        composited = dataclasses.replace(EARTH, planet_producer="composite")
+        raytraced = dataclasses.replace(EARTH, planet_producer="raytrace")
+        assert composited.planet_producer != raytraced.planet_producer, (
+            "the fixture no longer flips the field, so both arms below are the same body")
+        assert cap_pass.producer_for(raytraced) is not cap_pass.producer_for(composited)
+        assert cap_pass.producer_for(raytraced).render is cap_raytrace.render
+        assert cap_pass.producer_for(composited).render is cap_render.render_cap
+
+    def test_every_shipped_body_now_raytraces_and_that_is_stated_not_assumed(self):
+        """The fact the fixture above had to be rewritten for, asserted so it cannot drift back
+        silently. If a body is ever registered as `composite` again, this goes red and the arm
+        above should go back to reading the registry, where a real instance is worth more."""
+        assert {body.planet_producer for body in bodies.BODIES.values()} == {"raytrace"}
 
 
 class TestAnArmCarriesItsRenderAndItsRecipeTogether:

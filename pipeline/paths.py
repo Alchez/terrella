@@ -22,12 +22,13 @@ in it: the frozen readers go stale together, so they still agree with each other
 assertion between them still passes. It has already cost one run that isolated its working tree and
 wrote its served output into the real `web/public/`. Write a function.
 
-THE RULE IS ENFORCED BY `TestNoNewPathFreezesTheStoreAtImport`, which quantifies over it rather
-than over one spelling: a module-level `Path` already under `DATA` was computed at import by
-construction, whatever function produced it. Its list of known violations is pinned and only
-shrinks. The older `STORE_PROBE` beside it asks a different question and cannot substitute, since
-it moves the store BEFORE importing, which is the one condition under which a frozen constant
-looks correct.
+THE RULE IS GUARDED BY `TestNoNewPathFreezesTheStoreAtImport` for one FORM of it, not for the rule
+entire: a module-level `Path` already under `DATA` was computed at import by construction, whatever
+function produced it, and its list of known violations is pinned and only shrinks. A DEFAULT
+ARGUMENT is the form it cannot see, being evaluated at import just the same and living where
+`vars(module)` does not reach. Write a function there too, and pass `None`. The older
+`STORE_PROBE` beside it asks a different question and cannot substitute, since it moves the store
+BEFORE importing, which is the one condition under which a frozen constant looks correct.
 """
 
 import os

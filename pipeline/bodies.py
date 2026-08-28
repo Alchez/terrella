@@ -311,9 +311,12 @@ MARS = Body(
     # textures exist to be drawn over, which MapLibre stretched across the pole and which was tested
     # on Earth's globe and rejected. Do not reach for False again as a cheap way to skip a render.
     renders_polar_caps=True,
-    # Composite. Nothing has calibrated the block margin law on this body, so a raytraced Mars would
-    # be its own first instrument rather than a product.
-    planet_producer="composite",
+    # Raytraced. The block margin law this waited on is calibrated on Mars now: its own context
+    # census is measured off the relief cache and `check_fits` clears the whole grid, so a pass is a
+    # product rather than the instrument that measures one. Earth's note above holds here too --
+    # `planet_rgb.tif` is rewritten in place by whichever producer runs and the two disagree on
+    # colour, so reverting is a look change rather than a rollback.
+    planet_producer="raytrace",
 )
 
 

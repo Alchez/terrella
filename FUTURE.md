@@ -600,7 +600,9 @@ The working plan had become the project's only backlog as well as its live state
   - In its favour: CC BY 4.0, no OAuth, 345 MB, 500 m EPSG:3031, and the only product carrying ice and rock together (classes grounded, transient, floating, rock, nodata).
   - Against it: its coastline is the grounding line and cannot match our fused DEM's, its nodata conflates sea with no-coverage, and its rock reads 75,627 km2 against ADD's 26,340 on our grid.
   - Reopening needs a coastline reconciliation, not a re-read of the licence.
-- **The four superseded R2 objects STAY**: `mars/relief-v2`, `mars/features-v1`, `terrain-v1`, `countries-v1`. Six cents a month buys revert-and-redeploy instead of rebuild, and R2 has no undelete.
+- **Every superseded R2 object STAYS**: R2 has no undelete, so the previous cut is the whole difference between a rollback that is a revert-and-redeploy and one that is a re-render.
+  - **Do not read a count or a list out of this line.** The enumeration it replaces named four objects and was already stale by two, because a re-cut supersedes an object without any reader that can go red.
+  - Derive the set instead: the objects in `terrella-tiles` that no `objectKey` in `web/src/lib/tileAddress.ts` names. It measures 6 objects and 8.57 GB, about 13 cents a month at $0.015 per GB-month, which prices the policy rather than any one object.
 - **`_crism_scout` (60 MB) is the one reclaim not taken.** Its index tables are the evidence behind a closed census, and 0.24% of the reclaim is not worth destroying them for.
 
 ### Unpriced or unscheduled work

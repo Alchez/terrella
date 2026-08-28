@@ -611,6 +611,14 @@ class TestNoNewPathFreezesTheStoreAtImport:
     The population is 53, of which one is legitimate. That number was never estimated: this class
     exists because it was measured, and it turned a queue that grew by one per unit into a list
     that only shrinks.
+
+    ITS OWN BLIND SPOT, STATED RATHER THAN LEFT TO BE REDISCOVERED: this reads module ATTRIBUTES,
+    so a default argument freezes the store invisibly. `def read(src=paths.DATA / "raw/x")` is
+    evaluated once at import exactly as a constant is, and lives in `read.__defaults__` where
+    `vars(module)` cannot see it. Three such freezes existed and every one was caught only because
+    the same value ALSO had a module-level name; a fourth written as a bare default would not be.
+    Closing it means walking each module's functions for `__defaults__` and `__kwdefaults__` too.
+    Until then this class covers one FORM of the rule and the docstring above says which.
     """
 
     #: `paths.DATA` IS the root rather than a reader of it, so being module-level is its job.

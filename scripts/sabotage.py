@@ -3259,14 +3259,19 @@ SABOTAGES: list[Sabotage] = [
     ),
     # HARDCODED RATHER THAN DELETED, which is the shape an Earth-only assertion cannot see: the
     # value is right for the body every other cap test is written about, and the switch is still
-    # silent. It is why that guard sweeps the registry instead of naming a planet.
+    # silent.
+    #
+    # A REGISTRY SWEEP STOPPED BEING ABLE TO CATCH THIS, which is why the guard named below is
+    # derived from `PLANET_PRODUCERS` instead. Both shipped bodies raytrace now, so every body in
+    # the registry agrees with the literal this plants and a sweep over them passes -- the mutation
+    # is caught only by a body BUILT to name the other producer.
     Sabotage(
         suite='python',
-        label="the cap recipe pins the producer to Earth's, so Mars records a planet it does not have",
+        label="the cap recipe pins the producer to a literal, so a body records one it does not have",
         path='pipeline/tile/cap_render.py',
         needle='                       "planet_producer": grid.body.planet_producer,',
         replacement='                       "planet_producer": "raytrace",',
-        guard='test_every_registered_body_records_its_own_answer',
+        guard='test_the_recipe_records_the_producer_it_was_HANDED',
     ),
     # The OVER-tracking direction, and the case that gives the control its teeth. `grid_recipe_fields`
     # is shared with the elevation texture, so a producer key landing there drags both displacement
