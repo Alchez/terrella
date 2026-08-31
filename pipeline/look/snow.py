@@ -17,10 +17,10 @@ import rasterio
 from rasterio.transform import from_bounds
 from scipy import ndimage
 
-from pipeline import datasets, mercator, paths, vector_raster
+from pipeline import datasets, mercator, vector_raster
 from pipeline.raster_io import band_window, row_bands
 
-DATA = paths.DATA
+
 def persistence_nc(sp_nc: Path | None = None) -> Path:
     """The NSIDC-0791 persistence NetCDF, or the override a caller passed.
 

@@ -6116,7 +6116,28 @@ SABOTAGES: list[Sabotage] = [
         path='web/src/lib/devStores.ts',
         needle='    stage: "planet_tiles",',
         replacement='    stage: "planet_relief",',
-        guard='test_the_dev_server_resolves_the_tile_stage_to_the_same_directory',
+        guard='test_the_dev_server_resolves_every_tile_stage_to_the_same_directory',
+    ),
+    Sabotage(
+        suite='python',
+        # The same boundary from the PYTHON side, which the relief case above cannot reach: it
+        # mutates the TypeScript. A stage renamed in the pipeline and nowhere else is the direction
+        # an author actually takes, since the pipeline is where the work is.
+        label='the terrain pyramid is renamed in the pipeline and the dev server is never told',
+        path='pipeline/tile/terrain_rgb.py',
+        needle='STAGE = "planet_terrain"',
+        replacement='STAGE = "planet_terrain_rgb"',
+        guard='test_the_dev_server_resolves_every_tile_stage_to_the_same_directory',
+    ),
+    Sabotage(
+        suite='python',
+        # The third archive, and the reason the guard loops rather than asserting three times: a
+        # vector cut writing where nothing serves it is the same defect wearing a different layer.
+        label='the vector cut writes to a stage the dev server does not serve',
+        path='pipeline/compose/vector_cut.py',
+        needle='STAGE = "planet_vector"',
+        replacement='STAGE = "planet_countries"',
+        guard='test_the_dev_server_resolves_every_tile_stage_to_the_same_directory',
     ),
     Sabotage(
         suite='python',
@@ -6124,8 +6145,8 @@ SABOTAGES: list[Sabotage] = [
         # this has to be caught without `cap` appearing anywhere in the test.
         label='a clean stage gains a second speller, and no guard names that stage',
         path='pipeline/compose/features_geojson.py',
-        needle='OUT_DIR = bodies.work_dir(bodies.MARS, "features")',
-        replacement='OUT_DIR = bodies.work_dir(bodies.MARS, "cap")',
+        needle='    return bodies.work_dir(bodies.MARS, "features")',
+        replacement='    return bodies.work_dir(bodies.MARS, "cap")',
         guard='test_every_stage_is_spelled_once_but_the_deferred_ones',
     ),
     Sabotage(
@@ -6206,12 +6227,24 @@ SABOTAGES: list[Sabotage] = [
     ),
     Sabotage(
         suite='python',
+        # The same freeze wearing a container, which the probe could not see until it walked into
+        # one. `features_geojson.GEOMETRY_OUTPUTS` was the only real instance and is gone, so this
+        # is the only thing standing between the hole and its silent refill.
+        label='a module freezes the store inside a dict, where a per-attribute isinstance cannot look',
+        path='pipeline/compose/borders_geojson.py',
+        needle='from pipeline.compose import countries_pmtiles\n',
+        replacement='from pipeline.compose import countries_pmtiles\n\n'
+                    'OUT_DIRS = {"borders": countries_pmtiles.borders_dir()}\n',
+        guard='test_the_frozen_set_is_exactly_the_one_pinned',
+    ),
+    Sabotage(
+        suite='python',
         # The probe goes blind and the shrinking end reads as a finished sweep. Set equality makes
         # this red from the other direction too, but the control is what names it honestly.
         label='the freeze probe stops recognising a path under the store',
         path='tests/test_paths.py',
-        needle='        if isinstance(value, Path) and value.is_relative_to(paths.DATA):\n            frozen.append',
-        replacement='        if isinstance(value, Path) and value.is_relative_to(paths.ROOT / "nowhere"):\n            frozen.append',
+        needle='            if isinstance(member, Path) and member.is_relative_to(paths.DATA):\n                frozen.append',
+        replacement='            if isinstance(member, Path) and member.is_relative_to(paths.ROOT / "nowhere"):\n                frozen.append',
         guard='test_the_probe_can_see_a_fresh_freeze',
     ),
     Sabotage(
@@ -6503,8 +6536,8 @@ SABOTAGES: list[Sabotage] = [
         # write wrong: moved one level up it passes for both planets and guards nothing.
         label='the output bound moves up to the shared work root, where both planets satisfy it',
         path='pipeline/tile/terrain_rgb.py',
-        needle='    stage = bodies.work_dir(body, "planet_terrain").resolve()',
-        replacement='    stage = bodies.work_dir(body, "planet_terrain").parent.resolve()',
+        needle='    stage = bodies.work_dir(body, STAGE).resolve()',
+        replacement='    stage = bodies.work_dir(body, STAGE).parent.resolve()',
         guard='test_a_cut_aimed_at_another_planet_s_tree_is_refused',
     ),
     Sabotage(
@@ -7690,8 +7723,8 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the vector cut sends every body to one directory',
         path='pipeline/compose/vector_cut.py',
-        needle='    return bodies.work_dir(cut.body, "planet_vector")',
-        replacement='    return bodies.work_dir(bodies.EARTH, "planet_vector")',
+        needle='    return bodies.work_dir(cut.body, STAGE)',
+        replacement='    return bodies.work_dir(bodies.EARTH, STAGE)',
         guard='test_each_cutter_writes_into_the_body_it_serves',
     ),
     # The gate that picks a style stack, mutated to Earth's answer for every planet. No type breaks:

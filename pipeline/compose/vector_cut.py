@@ -72,13 +72,20 @@ class VectorCut:
     extra_recipe: Callable[[], dict[str, Any]]
 
 
+#: This module's stage directory under a body's work tree, the same role `relief_scan.STAGE` plays
+#: for the colour pyramid. Declared here because this is the module that names the stage's contents,
+#: and read across the language boundary by `devStores.ts`, which resolves the dev server's archive
+#: under its own copy of the string. `tests/test_paths.py` refuses a second spelling on either side.
+STAGE = "planet_vector"
+
+
 def out_dir(cut: VectorCut) -> Path:
     """This body's vector stage directory.
 
     One stage name per LAYER under each body's own prefix — the convention `devStores.archivePath`
     rests on, so two bodies' vector cuts land in directories that differ only by planet.
     """
-    return bodies.work_dir(cut.body, "planet_vector")
+    return bodies.work_dir(cut.body, STAGE)
 
 
 def out(cut: VectorCut) -> Path:

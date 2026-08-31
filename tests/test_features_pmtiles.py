@@ -99,10 +99,10 @@ class TestTheArchiveIsUnfiltered:
         """The filter cannot hide one step upstream either — each staged layer is a file the fold
         wrote for the whole catalogue, not a subset derived here."""
         expected = {
-            cut.FILL_LAYER: features_geojson.POLYGONS,
+            cut.FILL_LAYER: features_geojson.polygons(),
             cut.OUTLINE_LAYER: cut.outlines_path(),
-            cut.LINE_LAYER: features_geojson.LINES,
-            cut.LABEL_LAYER: features_geojson.LABELS,
+            cut.LINE_LAYER: features_geojson.lines(),
+            cut.LABEL_LAYER: features_geojson.labels(),
         }
         for layer, path in expected.items():
             with subtests.test(layer=layer):
@@ -123,10 +123,10 @@ class TestStaging:
         """It is the one source this module owns; the other three are the fold's outputs. It has to
         land beside them, or the cut would stage a stale outline against fresh polygons from a
         different directory and neither file's mtime would say so."""
-        assert cut.outlines_path().parent == features_geojson.OUT_DIR
+        assert cut.outlines_path().parent == features_geojson.out_dir()
         assert cut.outlines_path().name not in {path.name for path in
-                                         (features_geojson.POLYGONS, features_geojson.LINES,
-                                          features_geojson.LABELS)}
+                                         (features_geojson.polygons(), features_geojson.lines(),
+                                          features_geojson.labels())}
 
 
 class TestRecipe:

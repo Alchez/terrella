@@ -76,6 +76,7 @@ Not a lower tier. Nobody has written down what would make them worth doing, and 
 - [The polar caps are a texture](#the-polar-caps-are-a-texture-because-maplibre-allows-nothing-else-and-the-ceiling-is-webps-analysed-2026-08-07) · MapLibre gaining a TileMatrixSet source
 - [MapLibre's WebGPU backend](#maplibres-webgpu-backend-irrelevant-to-our-memory-problem-and-not-the-no-op-we-recorded-analysed-2026-07-29) · MapLibre publishing a timeline
 - [GDAL 3.13](#gdal-313-assessed-and-skipped-analysed-2026-07-23) · a full-restage boundary, and rasterio bundling 3.13
+- [The layer-rename alias cannot be deleted yet](#the-layer-rename-alias-cannot-be-deleted-yet-and-the-clock-is-longer-than-it-reads-analysed-2026-08-31) · a year of `immutable` URLs expiring, then a production log read
 
 ### OBSERVED, NOT ANALYSED, so the next action is a measurement
 
@@ -454,6 +455,16 @@ Not a look change in the locked-constants sense: the sun, ramps and exaggeration
 - **Why it is parked and not done:** it is a **look change on DPR-1 screens** (supersampled → native 1:1, more aliasing), and look changes here get eyes on them at full scale before they ship. It is also small: tiles are ~2.6 MB of the cold window at q95, so it saves ~2 MB for desktop visitors: against the ~80 MB the hero rungs took off the gallery.
 - **Not proposed:** a 1024 px pyramid to serve DPR 3 at 1:1. That is 4× the tiles for the band that is merely soft, not broken.
 - **The polar caps solved this exact mechanism, and the tiles still have not** (2026-07-25). The cap now picks its texture from its projected on-screen size × the canvas backing ratio, so DPR is handled per-device with no look change reuse that: MapLibre's raster source has no DPR negotiation and `tileSize` is global, which is why the lever above is a one-line `tileSize` switch rather than a picker. Worth re-reading that implementation before picking this up: it settles what "demand" means here, and the `canvas.width / canvas.clientWidth` ratio is the right input for both.
+
+## The layer-rename alias cannot be deleted yet, and the clock is longer than it reads (analysed 2026-08-31)
+
+> **BLOCKED** on a year of `immutable` tile URLs expiring, and then on a production log actually being read. A deletion, not a design.
+
+- **What it is:** `RENAMED_LAYER_WORDS` in `web/src/lib/tileAddress.ts`, one entry mapping the word `countries` to the `vector` layer, so the tile Worker keeps serving requests spelled the way the site spelled them before the layer became a role.
+- **Why it cannot just go:** the layer token compiles into the SITE bundle while the Worker is a separate deploy, and every page a visitor already has open holds tile URLs marked `immutable` for a year. A Worker that refused the old spelling would blank the countries on a live globe rather than paint a stale name.
+- **The clock is longer than the calendar suggests, and the date is a floor rather than the signal.** A year from the rename puts the earliest possible removal around 2027-08, but expiry only stops NEW old-spelling requests being guaranteed; it does not say none arrive.
+- **The real signal is `addressedLayerWord` in production logs.** It reports the word a request SPELLED, and a server compares that against the layer the request resolved to. When that comparison stops finding a difference, the alias has no clients left. Nothing else can tell you, because an aliased request is served correctly and silently, which is exactly what makes it safe and exactly what makes it invisible.
+- **Carried here rather than on the plan's queue because it is not work.** It is a wait with a check at the end of it, and sitting in a numbered queue it reads as something someone could pick up.
 
 ## Brotli sidecars for the text-like assets (analysed 2026-07-25, BLOCKED)
 

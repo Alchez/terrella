@@ -184,10 +184,11 @@ def main() -> int:
     from pipeline.acquire import download_nomenclature
     from pipeline.compose import features_geojson
 
-    if not features_geojson.LABELS.exists():
-        sys.exit(f"missing {features_geojson.LABELS} — run "
+    label_path = features_geojson.labels()
+    if not label_path.exists():
+        sys.exit(f"missing {label_path} — run "
                  f"pipeline.compose.features_geojson first")
-    anchors = json.loads(features_geojson.LABELS.read_text(encoding="utf-8"))
+    anchors = json.loads(label_path.read_text(encoding="utf-8"))
     links = gazetteer_links(
         (row for layer in download_nomenclature.LAYERS
          for row in download_nomenclature.read_attributes(layer)),

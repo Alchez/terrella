@@ -16,6 +16,7 @@ time — reloading modules in-process would leak state between tests.
 
 import ast
 import collections
+import importlib
 import os
 import re
 import shutil
@@ -122,8 +123,16 @@ for module in pkgutil.walk_packages([str(paths.ROOT / "pipeline")], "pipeline.")
         continue
     loaded = importlib.import_module(module.name)
     for attribute, value in vars(loaded).items():
-        if isinstance(value, Path) and value.is_relative_to(paths.DATA):
-            frozen.append(f"{{module.name}}.{{attribute}}")
+        if isinstance(value, dict):
+            members = tuple(value.values())
+        elif isinstance(value, (list, tuple, set, frozenset)):
+            members = tuple(value)
+        else:
+            members = (value,)
+        for member in members:
+            if isinstance(member, Path) and member.is_relative_to(paths.DATA):
+                frozen.append(f"{{module.name}}.{{attribute}}")
+                break
 print("\\n".join(sorted(set(frozen))))
 """
 
@@ -417,30 +426,49 @@ class TestAStageDirectoryHasOneSpeller:
             f"{self._spellings()[relief_scan.STAGE]} — call relief_scan.work_dir(body)"
         )
 
-    def test_the_dev_server_resolves_the_tile_stage_to_the_same_directory(self):
-        """The one spelling Python cannot own, made executable so drift fails loudly.
+    #: Each archive the dev server resolves, against the module whose `STAGE` owns its directory
+    #: name. Checked for COMPLETENESS against `devStores.ts` below rather than trusted as written: a
+    #: hand-kept list of the things to check is silent on the fourth pyramid nobody added to it.
+    STAGE_OWNERS: ClassVar[dict[str, str]] = {
+        "relief": "pipeline.tile.relief_scan",
+        "terrain": "pipeline.tile.terrain_rgb",
+        "vector": "pipeline.compose.vector_cut",
+    }
 
-        `devStores.ts` resolves the dev middleware's tile archive under its own copy of the stage
+    def test_the_dev_server_resolves_every_tile_stage_to_the_same_directory(self):
+        """The spellings Python cannot own, made executable so drift fails loudly.
+
+        `devStores.ts` resolves the dev middleware's archives under its own copy of each stage
         name, and a language boundary is exactly where "they happen to be equal" stops being
         checkable by either side. The failure it prevents is quiet in the direction that matters:
         the pipeline writes to a renamed directory and the dev server keeps serving 404s from the
         old one, which reads as a cut that did not happen.
-
-        Only the relief archive is pinned, because it is the only one of the three whose Python
-        side has an owner to pin against; `planet_terrain` and `planet_vector` are still literals
-        at their single call sites.
         """
-        from pipeline.tile import relief_scan
         source = (REPO_ROOT / "web/src/lib/devStores.ts").read_text()
-        match = re.search(r'relief:\s*\{[^}]*?stage:\s*"([^"]+)"', source, re.DOTALL)
-        assert match is not None, (
-            "devStores.ts no longer spells the relief archive's stage as a plain string literal — "
-            "this guard cannot see it, and an assertion it cannot make is not one it passes"
+        archives = re.search(r"const ARCHIVES[^=]*= \{(.*?)\n\};", source, re.DOTALL)
+        assert archives is not None, (
+            "devStores.ts no longer declares an ARCHIVES record this guard can read — an assertion "
+            "it cannot make is not one it passes"
         )
-        assert match.group(1) == relief_scan.STAGE, (
-            f"devStores.ts serves the relief archive from {match.group(1)!r} while the pipeline "
-            f"writes it to {relief_scan.STAGE!r}"
+        block = archives.group(1)
+        declared = set(re.findall(r"^  (\w+): \{", block, re.MULTILINE))
+        assert declared == set(self.STAGE_OWNERS), (
+            f"devStores.ts serves archives {sorted(declared)} while this guard owns "
+            f"{sorted(self.STAGE_OWNERS)} — a pyramid declared on one side of the language "
+            "boundary alone is exactly the drift this test exists to refuse"
         )
+        for layer, module_name in sorted(self.STAGE_OWNERS.items()):
+            match = re.search(rf'{layer}:\s*\{{[^}}]*?stage:\s*"([^"]+)"', block, re.DOTALL)
+            assert match is not None, (
+                f"devStores.ts no longer spells the {layer} archive's stage as a plain string "
+                "literal — this guard cannot see it, and an assertion it cannot make is not one "
+                "it passes"
+            )
+            owner = importlib.import_module(module_name)
+            assert match.group(1) == owner.STAGE, (
+                f"devStores.ts serves the {layer} archive from {match.group(1)!r} while "
+                f"{module_name} writes it to {owner.STAGE!r}"
+            )
 
 
 class TestTheStoreIsWhereTheStoreIs:
@@ -619,6 +647,13 @@ class TestNoNewPathFreezesTheStoreAtImport:
     the same value ALSO had a module-level name; a fourth written as a bare default would not be.
     Closing it means walking each module's functions for `__defaults__` and `__kwdefaults__` too.
     Until then this class covers one FORM of the rule and the docstring above says which.
+
+    A SECOND BLIND SPOT WAS THE SAME MISTAKE ONE CONTAINER DOWN, AND IT IS NOW CLOSED. The probe
+    tested `isinstance(value, Path)` per attribute, so a dict, list, tuple or set of paths bound at
+    import was invisible to it — `features_geojson.GEOMETRY_OUTPUTS` was exactly that and never
+    appeared on the list below. It walks one level into those containers now. Swept when it landed:
+    that dict was the only occupant in the whole package, so the hole was real and empty of
+    everything else, which is why closing it struck nothing off.
     """
 
     #: `paths.DATA` IS the root rather than a reader of it, so being module-level is its job.
@@ -633,16 +668,17 @@ class TestNoNewPathFreezesTheStoreAtImport:
     #: without being struck off.
     #:
     #: WAS 52. The 33 that named a location under `raw/` are gone, `pipeline.datasets` owning that
-    #: layout now. What is left is the `work/` tree, whose owner is `bodies.work_dir`, and six
+    #: layout now. What is left is the `work/` tree, whose owner is `bodies.work_dir`, and four
     #: `DATA = paths.DATA` aliases that exist only to spell the frozen constants beneath them.
+    #:
+    #: THE REST DO NOT COME OFF ONE AT A TIME. Every remaining entry either IS a path spelled in a
+    #: second place or exists only to spell one, so what is left is four shared-path defects rather
+    #: than twelve moves: `lakedepth.vrt` has a writer and a reader, `work/planet/chunks` is
+    #: hardcoded in `shade` and derived in `fuse_planet`, and both mosaics are spelled in
+    #: `fuse_heightfield.py` and again in `build_mosaics.sh`, which is the script that WRITES them.
     FROZEN_AT_IMPORT: ClassVar[frozenset[str]] = frozenset({
         "pipeline.acquire.extract_globathy.DATA",
-        "pipeline.acquire.extract_globathy.RASTER_DIR",
         "pipeline.acquire.extract_globathy.VRT_PATH",
-        "pipeline.compose.features_geojson.LABELS",
-        "pipeline.compose.features_geojson.LINES",
-        "pipeline.compose.features_geojson.OUT_DIR",
-        "pipeline.compose.features_geojson.POLYGONS",
         "pipeline.fuse.fuse_heightfield.DATA",
         "pipeline.fuse.fuse_heightfield.DEM_VRT",
         "pipeline.fuse.fuse_heightfield.WBM_VRT",
@@ -651,8 +687,6 @@ class TestNoNewPathFreezesTheStoreAtImport:
         "pipeline.fuse.fuse_planet.WBM_VRT",
         "pipeline.look.lake_depth.DATA",
         "pipeline.look.lake_depth.LAKE_VRT",
-        "pipeline.look.seaice.DATA",
-        "pipeline.look.snow.DATA",
         "pipeline.tile.shade.CHUNKS",
         "pipeline.tile.shade.DATA",
     })

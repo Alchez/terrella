@@ -24,11 +24,11 @@ import numpy as np
 import rasterio
 from rasterio.transform import from_bounds
 
-from pipeline import datasets, paths
+from pipeline import datasets
 from pipeline.look import palette
 from pipeline.raster_io import band_window, row_bands
 
-DATA = paths.DATA
+
 def seaice_src(src: Path | None = None) -> Path:
     """The ice-frequency raster, or the override a caller passed.
 

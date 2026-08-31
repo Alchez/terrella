@@ -64,6 +64,12 @@ from pipeline.tile import relief_scan
 
 TILE_SIZE = 512
 
+#: This module's stage directory under a body's work tree, the same role `relief_scan.STAGE` plays
+#: for the colour pyramid. Declared here because this is the module that names the stage's contents,
+#: and read across the language boundary by `devStores.ts`, which resolves the dev server's archive
+#: under its own copy of the string. `tests/test_paths.py` refuses a second spelling on either side.
+STAGE = "planet_terrain"
+
 #: Terrarium's zero point. Elevation `e` at quantisation `step` stores as `(e + 32768) / step`.
 BASE_SHIFT = 32768.0
 
@@ -142,7 +148,7 @@ def out_under_body(body: bodies.Body, out: Path) -> Path:
     for both bodies and guard nothing. `data/work/planet_terrain` and `data/work/mars/planet_terrain`
     contain neither the other.
     """
-    stage = bodies.work_dir(body, "planet_terrain").resolve()
+    stage = bodies.work_dir(body, STAGE).resolve()
     resolved = out.resolve()
     if resolved != stage and stage not in resolved.parents:
         raise SystemExit(f"--out {out} is not under {body.name}'s terrain stage ({stage}) — a cut "

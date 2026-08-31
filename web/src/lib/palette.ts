@@ -69,6 +69,15 @@ export interface RampStop {
  * hand-authored rather than derived and so has no constants here to answer to. That module's
  * `EARTH_RAMP` says why, and its stops are NOT this rule applied to Earth.
  *
+ * RATIFIED AT THE FURTHER OF THE TWO, KNOWINGLY, AND DO NOT "FIX" IT BACK. Measured against the
+ * shipped raster over six windows from -61.6 to +48.9 latitude and 16.2M flat-ground pixels, these
+ * authored stops sit ~11 DN from what the tiles actually draw and the composited ones they replaced
+ * sat ~8. The old key was closer BY ACCIDENT: its chroma chain happened to point the same way as
+ * the raytracer's tone map, and that coincidence dies at the next look change. What a legend states
+ * is the ramp, and under this producer the ramp IS these stops — the ~7% that remains is light,
+ * which no swatch has ever carried. Reverting on the distance alone re-hand-copies the key from a
+ * producer Mars does not use, which is the state that let it rot silently for the whole arc.
+ *
  * `tests/test_palette.py::test_web_mars_ramp_matches_what_mars_actually_ships` recomputes every
  * entry from `MARS_LAND_STOPS` through `MARS.planet_producer`, and fails on drift in the stops,
  * the producer, or a knob the producer in force reads. */
