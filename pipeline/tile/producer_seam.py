@@ -50,13 +50,12 @@ STAMP_NAME = "planet_producer.json"
 
 
 def stamp_path(work: Path) -> Path:
-    """Where the producer declaration for `work`'s planet raster lives.
+    """Where the producer declaration for `work`'s CANONICAL planet raster lives.
 
-    Keyed on the WORK DIRECTORY rather than the mosaic, matching the recipes beside it
-    (`composite_params.json`, `raytrace_params.json`) rather than the markers, which follow the
-    mosaic name. `--mosaic` without `--work` therefore stamps the canonical directory for a raster
-    written elsewhere — the same seam the recipes already sit on the wrong side of, tracked as one
-    item rather than solved differently here.
+    Keyed on the work directory because that is its subject: one raster, which two producers can
+    both write. A run pointed at a second raster declares nothing — `block_render.sidecars_for` and
+    `composite_planet` each guard their own call on that — so no stamp here ever names a producer
+    for bytes written elsewhere.
     """
     return work / STAMP_NAME
 

@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from pipeline import bodies, planet_seam
+from pipeline import bodies, datasets, planet_seam
 from pipeline.look import perennial_ice
 from pipeline.tile import cap_render
 from pipeline.tile.shade import KNOBS
@@ -142,13 +142,28 @@ class TestTheCapRecipeTracksWhoMakesTheTiles:
                     != cap_render.cap_recipe(grid_of(flipped), WHOLE_PLANET)), (
                 f"the {grid_of(bodies.EARTH).name} disc reads fresh across a producer switch")
 
-    def test_every_registered_body_records_its_own_answer(self):
-        """Swept over the registry rather than asserted on Earth, because the two bodies genuinely
-        disagree today — which is what makes a hardcoded value fail here instead of passing on
-        whichever one it was hardcoded to."""
-        answers = {body.planet_producer for body in bodies.BODIES.values()}
-        assert len(answers) > 1, (
-            f"every body names {answers}, so this sweep cannot tell a read from a literal")
+    def test_the_recipe_records_the_producer_it_was_HANDED(self):
+        """DERIVED FROM THE VOCABULARY RATHER THAN FROM THE REGISTRY, and the swap is forced.
+
+        This swept the registry while the two shipped bodies disagreed, which is what let it tell a
+        read from a literal. Both raytrace now, so that sweep would pass against a hardcoded
+        `"raytrace"` — the exact substitution it exists to catch. Building one body per
+        `PLANET_PRODUCERS` entry restores that and widens it: a producer added to the vocabulary is
+        covered without anyone remembering to add a case for it.
+        """
+        assert len(bodies.PLANET_PRODUCERS) > 1, (
+            f"the vocabulary is {bodies.PLANET_PRODUCERS}, which cannot exercise a dispatch")
+        for producer in bodies.PLANET_PRODUCERS:
+            body = dataclasses.replace(bodies.EARTH, planet_producer=producer)
+            recipe = json.loads(cap_render.cap_recipe(cap_render.north_grid(body), WHOLE_PLANET))
+            assert recipe["planet_producer"] == producer, (
+                f"a body naming {producer!r} got a cap recipe recording "
+                f"{recipe.get('planet_producer')!r}")
+
+    def test_every_registered_body_is_consistent_with_that(self):
+        """The registry half, kept rather than folded into the sweep above because it is the one
+        that reads SHIPPING values: the vocabulary sweep proves the field is read, this proves the
+        bodies actually on disk agree with what their discs were built under."""
         for body in bodies.BODIES.values():
             recipe = json.loads(cap_render.cap_recipe(cap_render.north_grid(body), WHOLE_PLANET))
             assert recipe["planet_producer"] == body.planet_producer, (
@@ -180,7 +195,7 @@ class TestCapSources:
         """A present coastline, so the disk question answers yes and the look and body decide."""
         shapefile = tmp_path / "ne_10m_coastline.shp"
         shapefile.write_text("only its existence is read")
-        monkeypatch.setattr(cap_render, "COAST_SHP", shapefile)
+        monkeypatch.setattr(cap_render, "coast_shp", lambda: shapefile)
         return shapefile
 
     def test_north_reads_the_ice_producers_dataset_and_the_coastline(self, coastline):
@@ -196,7 +211,7 @@ class TestCapSources:
     def test_south_forced_ice_needs_no_dataset_and_bakes_no_coastline(self, coastline):
         sources = cap_render.cap_sources(EARTH_SOUTH, WHOLE_PLANET)
         assert perennial_ice.cap_ice(bodies.EARTH, "south").sources() == ()
-        assert not any(str(perennial_ice.snow.SP_NC) in str(source) for source in sources)
+        assert not any(str(datasets.snow_persistence()) in str(source) for source in sources)
         assert coastline not in sources
 
 

@@ -18,7 +18,7 @@ import numpy as np
 import pytest
 from conftest import cap_ground_metres_per_px_from_ground_radius
 
-from pipeline import bodies, layers, mercator
+from pipeline import bodies, datasets, layers, mercator
 from pipeline.look import layer_producers, mars_ice, perennial_ice, snow
 from pipeline.tile import cap_render
 
@@ -74,7 +74,7 @@ class TestAProducerDeclaresItsOwnInputs:
         seam replaced read the constant at its call site, so freezing it would have been a silent
         narrowing introduced by the extraction rather than a property of the seam."""
         moved = tmp_path / "somewhere-else.nc"
-        monkeypatch.setattr(snow, "SP_NC", moved)
+        monkeypatch.setattr(datasets, "snow_persistence", lambda: moved)
         assert perennial_ice.cap_ice(bodies.EARTH, "north").sources() == (moved,)
 
     def test_a_producer_that_reads_nothing_declares_an_empty_tuple(self):

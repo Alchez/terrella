@@ -2,7 +2,7 @@
 
 For every 1x1 degree land tile intersecting --extent (per the bucket's
 tileList.txt index), fetches two files from the public AWS bucket over
-plain HTTPS, WORKERS files at a time, into DATA_DIR:
+plain HTTPS, WORKERS files at a time, into the GLO-30 raw directory:
 
   dem/<tile>_DEM.tif   elevation, 1 arc-second, Float32 COG
   wbm/<tile>_WBM.tif   water-body mask (distinguishes sea/lake/river from land at 0m)
@@ -31,12 +31,10 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-from pipeline import fetch, paths
+from pipeline import datasets, fetch
 from pipeline.fetch import download_one
 
 BUCKET_URL = "https://copernicus-dem-30m.s3.amazonaws.com"
-DATA_DIR = paths.DATA / "raw/glo30"
-TILE_LIST = DATA_DIR / "tileList.txt"
 WORKERS = 6
 # A passing preflight is stamped and reused this long. The check exists to catch
 # bucket *edition swaps* — month-scale events — while the batch runner invokes
@@ -64,7 +62,7 @@ def in_extent(lat: int, lon: int, extent) -> bool:
 
 
 def preflight_stamp_path() -> Path:
-    return DATA_DIR / "preflight_ok.json"
+    return datasets.glo30() / "preflight_ok.json"
 
 
 def preflight_cached_age_hours() -> float | None:
@@ -89,7 +87,7 @@ def bucket_preflight():
         print(f"bucket preflight: cached ok ({age_hours:.1f} h old) — "
               f"rm {preflight_stamp_path()} to re-verify", flush=True)
         return
-    held = sorted((DATA_DIR / "dem").glob("*.tif")) if (DATA_DIR / "dem").exists() else []
+    held = sorted((datasets.glo30() / "dem").glob("*.tif")) if (datasets.glo30() / "dem").exists() else []
     sample = [held[0], held[len(held) // 2], held[-1]] if held else []
     for path in dict.fromkeys(sample):
         name = path.stem
@@ -120,17 +118,17 @@ def tile_files(name: str) -> list[tuple[str, Path]]:
     """(url, local destination) pairs for one tile: the DEM and its water-body mask."""
     wbm = name.replace("_DEM", "_WBM") + ".tif"
     return [
-        (f"{BUCKET_URL}/{name}/{name}.tif", DATA_DIR / "dem" / f"{name}.tif"),
-        (f"{BUCKET_URL}/{name}/AUXFILES/{wbm}", DATA_DIR / "wbm" / wbm),
+        (f"{BUCKET_URL}/{name}/{name}.tif", datasets.glo30() / "dem" / f"{name}.tif"),
+        (f"{BUCKET_URL}/{name}/AUXFILES/{wbm}", datasets.glo30() / "wbm" / wbm),
     ]
 
 
 def fetch_tile_list() -> list[str]:
     """Fetch (or reuse) the bucket's index of all existing land tiles."""
-    status = download_one(f"{BUCKET_URL}/tileList.txt", TILE_LIST)
+    status = download_one(f"{BUCKET_URL}/tileList.txt", datasets.glo30_tile_list())
     if status.startswith("failed"):
         sys.exit(f"could not fetch tile list: {status}")
-    return TILE_LIST.read_text().split()
+    return datasets.glo30_tile_list().read_text().split()
 
 
 def main() -> int:
@@ -148,7 +146,7 @@ def main() -> int:
 
     bucket_preflight()
     for sub in ("dem", "wbm"):
-        (DATA_DIR / sub).mkdir(parents=True, exist_ok=True)
+        (datasets.glo30() / sub).mkdir(parents=True, exist_ok=True)
 
     if args.tiles:
         names = args.tiles.read_text().split()
@@ -174,7 +172,7 @@ def main() -> int:
                       flush=True)
 
     if failures:
-        log = DATA_DIR / "failures.txt"
+        log = datasets.glo30() / "failures.txt"
         log.write_text("\n".join(failures) + "\n")
         print(f"{len(failures)} failures written to {log} — rerun to retry")
         return 1

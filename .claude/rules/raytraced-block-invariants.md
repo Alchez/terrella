@@ -25,17 +25,48 @@ the params recipe plus the planet rasters. So:
   (`context_census`, the context law's *output*) and `rig` (`scene_build.rig_recipe`).
 - **`rig_recipe` is DERIVED, not enumerated**: `dataclasses.asdict(RIG)` plus the texture table plus
   the look. A constant added to `Rig` is in the recipe with nothing to remember.
+  - **And what it costs is the whole planet.** Moving one value into `Rig` changes the recipe's text,
+    so `start_generation` clears every marker and the body re-renders end to end, plus a re-cut, an
+    upload and a Worker deploy. PROCESS.md holds the figure.
+  - **Never assume a re-render is already owed.** Diff the on-disk sidecar against `params()` first.
+    Equal means the next look change buys a whole pass on its own, so batch look changes rather than
+    landing them one at a time.
+  - **What is spelled INLINE in the builder is invisible to all of this**, and is pinned instead by
+    `TestTheBuilderSpellsNoLookValueWhereTheRecipeCannotSeeIt`, which enumerates every such value.
+    Editing one of those is a red test, not a restage: that is a tripwire and not a fix.
   - It used to be a hand-written list policed by a scan for this module's ALL-CAPS names, and that
     scan was blind by construction to a value spelled inline in a function body. Three such values
     shipped. **Do not re-add the scan**: it is the mechanism the derivation replaced.
   - **Field names ARE recipe keys**, so renaming one restages every rendered block.
+- **The stage directory is the RUNNER'S and is threaded, never re-derived.** `run` takes `work`,
+  `render_block` carries it and `prep_block.cut` reads from it; `relief_scan.work_dir` is the one
+  owner of the name, and `tests/test_paths.py` refuses a second spelling of any stage.
+  - The prep used to resolve the body's default itself, so `--work` moved every check a run made
+    and none of the pixels it cut: inputs validated in one store, blocks planned from its relief
+    scan, freshness stamped against it, and the default planet rendered into the mosaic and marked.
+  - **A redirect that reaches only some readers has no symptom**, because both directories hold a
+    complete openable planet. Adding a raster read here means threading `work` to it.
 - **Every image node is built by `make_texture` from a `TextureSpec`**, and that is the only place
   one is configured. An interpolation or extension spelled at a call site is a look decision no
   recipe can see; `test_no_pixel_moving_value_is_spelled_inline_in_the_builder` fails on it.
   - The table is recorded WHOLE rather than per look: the optional textures are declined by a body's
     planet seam, not by its look, so a planet that gained one would otherwise restage nothing.
-  - **Creation order is load-bearing** — the dump-diff against the hand-built .blend sees it — so
-    the mandatory textures are built by one loop and the optional ones at their own sites.
+  - **So WHICH textures a directory loads is free to change and WHAT THE TABLE CONTAINS is not**, and
+    that asymmetry is what let the rig learn to render a body with no inland water for nothing.
+    `textures_for` is a filter over the recorded table, so its rule is invisible to the recipe.
+  - **NO NODE NAME REACHES THE RECIPE, so renaming one is free on every tier.** The table is keyed
+    into the recipe by `filename` and the `name` field is excluded, because a consistent rename
+    renders byte-identically; it used to ride in whole and put a planet re-render behind a change
+    that moved nothing. The exclusion is one NAMED field, so a field added to `TextureSpec` later
+    is still recorded. `TestNoNodeCarriesBlendersAutoName` keeps names off Blender's `.00N`, and
+    `TestRenamingANodeDoesNotRestageThePlanet` holds both directions of the exclusion.
+  - **NOTHING COMPARES THE BUILT GRAPH AGAINST A HAND-BUILT BASELINE ANY MORE**, so creation order
+    and node names answer only to the reader and to the arm probes that reach into the built graph.
+    The hand-built origin scene is out of version control and lives in history alone
+    (`git show 3e35eb6:blender/india_hero_handbuilt_phase0.blend`): it diverges on the view
+    transform, the world colour and the fill sun, and a single file cannot track a graph whose
+    shape depends on what the prep declared. What survives is `scene_dump`'s other use, diffing
+    two dumps across a change, which needs no baseline at all.
 - **The fold's law is a third entry, through `layer_producers.white_law`.** Which of `WHITE_UNION`
   and `WHITE_EXCLUSIONS` a layer sits in decides whether its raster adds white or removes it, and no
   producer's recipe can carry that: `producers_for` walks `layers.warped_for(vocabulary)`, so a

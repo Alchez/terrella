@@ -26,6 +26,7 @@ import time
 from pathlib import Path
 
 from pipeline import bodies
+from pipeline.tile import relief_scan
 
 #: The pyramid's geographic extent: the full Web-Mercator square, since the Antarctica fill. Shared
 #: by every body rather than derived from one, and that is not an oversight — PROJ refuses to
@@ -42,17 +43,17 @@ TILE_SUFFIXES = {".png": "png", ".webp": "webp", ".jpg": "jpg"}
 def default_tiles(body: bodies.Body) -> Path:
     """The cut pyramid this body's pack reads, unless an operator names another.
 
-    Derived at CALL time from `bodies.work_dir`, which is the one home for "where does this body's
-    stage live" — so a relocated `MAPS_DATA` moves the pack along with the cut that filled it. The
-    literal this replaced was joined onto the checkout, which made a relocated store pack from a
-    directory nothing had written: not an error, just an empty tree or a stale one.
+    Derived at CALL time from `relief_scan.work_dir`, which is the one home for "where does this
+    body's tile stage live" — so a relocated `MAPS_DATA` moves the pack along with the cut that
+    filled it. The literal this replaced was joined onto the checkout, which made a relocated store
+    pack from a directory nothing had written: not an error, just an empty tree or a stale one.
     """
-    return bodies.work_dir(body, "planet_tiles") / "tiles"
+    return relief_scan.work_dir(body) / "tiles"
 
 
 def default_out(body: bodies.Body) -> Path:
     """Where this body's MBTiles bridge is written. Beside its own pyramid, never beside another's."""
-    return bodies.work_dir(body, "planet_tiles") / "planet.mbtiles"
+    return relief_scan.work_dir(body) / "planet.mbtiles"
 
 
 def tms_row(zoom: int, xyz_row: int) -> int:

@@ -24,7 +24,7 @@ import rasterio
 from rasterio.enums import Resampling
 from scipy.ndimage import zoom
 
-from pipeline import bodies, mercator, paths
+from pipeline import bodies, datasets, mercator, paths
 from pipeline.acquire import download_rgi
 from pipeline.look import hillshade, lake_depth, palette, relief, snow
 from pipeline.look.sky_view import (
@@ -322,7 +322,7 @@ def main():
             bodies.ground_metres_per_mercator_unit(bodies.EARTH)))
     glacier = snow.rasterize_glaciers(
         (bounds.left, bounds.bottom, bounds.right, bounds.top), grid_w, grid_h,
-        args.out / "rgi_merc.tif", gpkg=download_rgi.GPKG, layer=download_rgi.LAYER)
+        args.out / "rgi_merc.tif", gpkg=datasets.rgi_gpkg(), layer=download_rgi.LAYER)
     if glacier is not None:
         snow_a = np.maximum(snow_a, glacier.astype(float))
         print(f"unioned RGI glaciers: {int((glacier > 0).sum()):,} px", flush=True)
@@ -520,6 +520,41 @@ def paint_end(value) -> np.ndarray:
     return array.reshape(3, 1, 1) if array.ndim == 1 else array
 
 
+def composited_chroma(rgb, kind: str, knobs: Knobs = KNOBS) -> np.ndarray:
+    """A ramp colour as THIS producer ships it: the chroma move `composite` makes before any light.
+
+    THE TWO RAMPS TAKE DIFFERENT TRANSFORMS and a caller that applies one to both is wrong on half
+    its rows. Land resaturates by `saturation` and then takes a warm per-channel tint; sea takes
+    `sea_saturation` and NO tint, so the sea DESATURATES where the land saturates.
+
+    WHY THIS IS A FUNCTION AND NOT THE FOUR LINES IT REPLACES. `palette.py` records that the
+    authored stops "are not what ships" — they were specified as the intended shipped colour and
+    inverted back through exactly this chain. Everything that needs to state a shipped colour
+    therefore needs this arithmetic: the compositor, the About page's legend pin, and the guard on
+    each body's tile colour. It had two spellings before that guard was written and would have had
+    three.
+
+    `rgb` is channel-first, `(3, ...)`, so one `(3,)` stop and a whole `(3, H, W)` planet window
+    take the same path. The output is float32 and unclipped-by-nothing: `np.clip` to 0..255 is
+    part of the transform, since `saturation` above 1 can push a saturated stop past either end.
+
+    NOT WHAT A PIXEL FINALLY IS. `composite` multiplies this by a hillshade, an ambient term and an
+    exposure, all of which vary per pixel — so this is the colour of the RAMP under this producer,
+    which is what a legend states and what a hex table can pin.
+    """
+    channels = np.asarray(rgb, dtype=np.float32)
+    luma = 0.299 * channels[0] + 0.587 * channels[1] + 0.114 * channels[2]
+    if kind == "land":
+        saturation, warmth = knobs["saturation"], knobs["warmth"]
+        tint = np.array([1.0, 1.0 - 0.5 * warmth, 1.0 - warmth], dtype=np.float32)
+    elif kind == "sea":
+        saturation, tint = knobs["sea_saturation"], np.float32(1.0)
+    else:
+        raise ValueError(f"unknown ramp kind {kind!r} (land | sea)")
+    shaped = tint.reshape((3,) + (1,) * (channels.ndim - 1)) if np.ndim(tint) else tint
+    return np.clip((luma + (channels - luma) * saturation) * shaped, 0, 255)
+
+
 def composite(heights, ocean, water, snow_a, hs, occ, occ_shape, grid, depth=None, ice_a=None,
               *, look: palette.Look, snow_paint, ice_paint):
     """Composite one window of the planet/region from ELEVATION, not pre-coloured rasters.
@@ -569,11 +604,7 @@ def composite(heights, ocean, water, snow_a, hs, occ, occ_shape, grid, depth=Non
     hs = np.asarray(hs, dtype=np.float32)
     snow_a = np.asarray(snow_a, dtype=np.float32)
     occ = np.asarray(occ, dtype=np.float32)
-    lum = 0.299 * land[0] + 0.587 * land[1] + 0.114 * land[2]
-    land = np.clip((lum[None] + (land - lum[None]) * KNOBS["saturation"])
-                   * np.array([1.0, 1.0 - 0.5 * KNOBS["warmth"], 1.0 - KNOBS["warmth"]],
-                              dtype=np.float32).reshape(3, 1, 1),
-                   0, 255)
+    land = composited_chroma(land, "land")
     if look.sea is None:
         # A body that draws no sea. The caller's ocean mask comes from the planet seam's
         # DECLARATION, so on such a body it is all-False and `np.where` would select the sea ramp
@@ -590,8 +621,7 @@ def composite(heights, ocean, water, snow_a, hs, occ, occ_shape, grid, depth=Non
     else:
         sea = palette.lut_lookup(palette.relief_lut("sea", look=look), "sea", heights,
                                  look=look).astype(np.float32)
-        sea_lum = 0.299 * sea[0] + 0.587 * sea[1] + 0.114 * sea[2]
-        sea = np.clip(sea_lum[None] + (sea - sea_lum[None]) * KNOBS["sea_saturation"], 0, 255)
+        sea = composited_chroma(sea, "sea")
         color = np.where(ocean[None], sea, land)
     # Inland water: flat WATER_RGB by default. Where a lake carries GLOBathy depth, ramp it
     # instead -- on ABSOLUTE depth, never normalised per lake, since a per-lake normalisation

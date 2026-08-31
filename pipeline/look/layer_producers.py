@@ -39,7 +39,7 @@ from typing import Any
 
 import numpy as np
 
-from pipeline import bodies, layers, progress
+from pipeline import bodies, datasets, layers, progress
 from pipeline.acquire import download_add_rock, download_rgi, download_sim3292
 from pipeline.look import lake_depth, mars_ice, palette, seaice, snow, viking_luma
 
@@ -207,7 +207,7 @@ def _build_glaciers(request: LayerBuild) -> None:
     """
     progress.stage("rasterize RGI glaciers -> 3857 ...")
     snow.rasterize_glaciers_raster(request.bounds, request.width, request.height, request.out,
-                                   gpkg=download_rgi.GPKG, layer=download_rgi.LAYER)
+                                   gpkg=datasets.rgi_gpkg(), layer=download_rgi.LAYER)
 
 
 def _build_sea_ice(request: LayerBuild) -> None:
@@ -229,7 +229,7 @@ def _build_antarctic_rock(request: LayerBuild) -> None:
     """
     progress.stage("rasterize ADD Antarctic rock -> 3857 ...")
     snow.rasterize_antarctic_rock(request.bounds, request.width, request.height, request.out,
-                                  gpkg=download_add_rock.GPKG, layer=download_add_rock.LAYER)
+                                  gpkg=datasets.addrock_gpkg(), layer=download_add_rock.LAYER)
 
 
 def _earth_antarctic_rock(_window: LayerWindow) -> "np.ndarray | None":
@@ -493,19 +493,19 @@ PRODUCER_BY_BODY_LAYER: dict[tuple[str, str], LayerProducer] = {
         contribution_recipe=_no_tunables, paint_recipe=_no_tunables,
         build_recipe=_no_tunables),
     ("earth", layers.PERENNIAL_ICE.name): LayerProducer(
-        sources=lambda: (snow.SP_NC,),
+        sources=lambda: (datasets.snow_persistence(),),
         build=_build_persistence, contribution=_earth_perennial_ice, paint=_earth_paint,
         contribution_recipe=_earth_perennial_ice_recipe, paint_recipe=_earth_paint_recipe,
         build_recipe=_no_tunables),
     ("earth", layers.GLACIERS.name): LayerProducer(
-        sources=lambda: (download_rgi.GPKG,),
+        sources=lambda: (datasets.rgi_gpkg(),),
         # Pure transport: the mask is rasterized and handed through, so there is nothing to grade
         # and the white is the whole of what this producer reads.
         build=_build_glaciers, contribution=_earth_glaciers, paint=_earth_paint,
         contribution_recipe=_no_tunables, paint_recipe=_earth_paint_recipe,
         build_recipe=_no_tunables),
     ("earth", layers.SEA_ICE.name): LayerProducer(
-        sources=lambda: (seaice.SEAICE_SRC,),
+        sources=lambda: (datasets.seaice_frequency(),),
         # `seaice.ice_paint`, not a literal: the cap tier reads that same function directly, so the
         # sentence "sea ice is painted in this pair" has one home across both tiers.
         build=_build_sea_ice, contribution=_earth_sea_ice,
@@ -513,7 +513,7 @@ PRODUCER_BY_BODY_LAYER: dict[tuple[str, str], LayerProducer] = {
         contribution_recipe=_earth_sea_ice_recipe, paint_recipe=_earth_sea_ice_paint_recipe,
         build_recipe=_no_tunables),
     ("earth", layers.ANTARCTIC_ROCK.name): LayerProducer(
-        sources=lambda: (download_add_rock.GPKG,),
+        sources=lambda: (datasets.addrock_gpkg(),),
         # None for both, and neither is a gap. The number this layer builds is consumed by the
         # perennial-ice producer rather than blended, so there is no contribution to paint and no
         # white to name — the two fields existing and being answered "not applicable" is what keeps

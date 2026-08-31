@@ -15,6 +15,7 @@ import zipfile
 
 import pytest
 
+from pipeline import datasets
 from pipeline.acquire import download_nomenclature as gazetteer
 
 
@@ -80,7 +81,7 @@ class TestARefusedArchiveLeavesTheDirectoryAlone:
         })
 
     def test_a_good_archive_extracts_every_member(self, tmp_path, monkeypatch, two_member_pins):
-        monkeypatch.setattr(gazetteer, "DATA_DIR", tmp_path)
+        monkeypatch.setattr(datasets, "mars_nomenclature", lambda: tmp_path)
         archive = self._archive(tmp_path / "a.zip", {"aaa.txt": b"first", "zzz.txt": b"second"})
         gazetteer.extract(archive)
         assert (tmp_path / "aaa.txt").read_bytes() == b"first"
@@ -94,7 +95,7 @@ class TestARefusedArchiveLeavesTheDirectoryAlone:
         only then refuse — leaving a directory holding half of one edition and half of another. That
         is what this asserts against, and it is what the one-pass version actually did.
         """
-        monkeypatch.setattr(gazetteer, "DATA_DIR", tmp_path)
+        monkeypatch.setattr(datasets, "mars_nomenclature", lambda: tmp_path)
         archive = self._archive(tmp_path / "a.zip", {"aaa.txt": b"first", "zzz.txt": b"TAMPERED"})
         with pytest.raises(SystemExit) as refusal:
             gazetteer.extract(archive)
@@ -106,7 +107,7 @@ class TestARefusedArchiveLeavesTheDirectoryAlone:
 
     def test_a_restructured_archive_is_refused_by_its_member_list(
             self, tmp_path, monkeypatch, two_member_pins):
-        monkeypatch.setattr(gazetteer, "DATA_DIR", tmp_path)
+        monkeypatch.setattr(datasets, "mars_nomenclature", lambda: tmp_path)
         archive = self._archive(tmp_path / "a.zip", {"aaa.txt": b"first", "other.txt": b"second"})
         with pytest.raises(SystemExit) as refusal:
             gazetteer.extract(archive)
@@ -114,7 +115,7 @@ class TestARefusedArchiveLeavesTheDirectoryAlone:
 
     def test_the_cpg_is_written_because_the_archive_ships_none(self, tmp_path, monkeypatch):
         """The encoding fix travels WITH the data, which is the whole reason `extract` invents it."""
-        monkeypatch.setattr(gazetteer, "DATA_DIR", tmp_path)
+        monkeypatch.setattr(datasets, "mars_nomenclature", lambda: tmp_path)
         monkeypatch.setattr(gazetteer, "MEMBER_DIGESTS", {"aaa.txt": gazetteer.digest_of(b"x")})
         archive = self._archive(tmp_path / "a.zip", {"aaa.txt": b"x"})
         gazetteer.extract(archive)
@@ -123,7 +124,7 @@ class TestARefusedArchiveLeavesTheDirectoryAlone:
 
     def test_no_part_file_survives_a_completed_extraction(self, tmp_path, monkeypatch,
                                                           two_member_pins):
-        monkeypatch.setattr(gazetteer, "DATA_DIR", tmp_path)
+        monkeypatch.setattr(datasets, "mars_nomenclature", lambda: tmp_path)
         gazetteer.extract(self._archive(tmp_path / "a.zip",
                                         {"aaa.txt": b"first", "zzz.txt": b"second"}))
         assert list(tmp_path.glob("*.part")) == []
@@ -171,13 +172,13 @@ class TestTheLayerContractRejectsNearMisses:
 
 class TestTheLicenceIsReadFromTheProductEveryRun:
     def test_the_pinned_use_constraint_passes(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(gazetteer, "DATA_DIR", tmp_path)
+        monkeypatch.setattr(datasets, "mars_nomenclature", lambda: tmp_path)
         (tmp_path / gazetteer.METADATA_MEMBER).write_text(
             f"<idinfo><useconst>{gazetteer.USE_CONSTRAINT}</useconst></idinfo>", encoding="utf-8")
         gazetteer.assert_licence()
 
     def test_changed_terms_stop_the_pipeline(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(gazetteer, "DATA_DIR", tmp_path)
+        monkeypatch.setattr(datasets, "mars_nomenclature", lambda: tmp_path)
         (tmp_path / gazetteer.METADATA_MEMBER).write_text(
             "<idinfo><useconst>CC BY-NC 4.0</useconst></idinfo>", encoding="utf-8")
         with pytest.raises(SystemExit, match="CC BY-NC"):
@@ -185,7 +186,7 @@ class TestTheLicenceIsReadFromTheProductEveryRun:
 
     def test_an_absent_element_is_undocumented_rather_than_permissive(self, tmp_path, monkeypatch):
         # The distinction `licence-attaches-to-the-product` turns on: no field is not "no terms".
-        monkeypatch.setattr(gazetteer, "DATA_DIR", tmp_path)
+        monkeypatch.setattr(datasets, "mars_nomenclature", lambda: tmp_path)
         (tmp_path / gazetteer.METADATA_MEMBER).write_text("<idinfo></idinfo>", encoding="utf-8")
         with pytest.raises(SystemExit, match="undocumented"):
             gazetteer.assert_licence()
@@ -198,20 +199,20 @@ class TestFreshnessReadsTheFilesNotTheSidecar:
         monkeypatch.setattr(gazetteer, "MEMBER_DIGESTS", {"aaa.txt": gazetteer.digest_of(b"x")})
 
     def test_a_missing_member_is_not_fresh(self, tmp_path, monkeypatch, one_member):
-        monkeypatch.setattr(gazetteer, "DATA_DIR", tmp_path)
+        monkeypatch.setattr(datasets, "mars_nomenclature", lambda: tmp_path)
         gazetteer.recipe_path().write_text("{}", encoding="utf-8")
         assert gazetteer.is_fresh() is False
 
     def test_a_correct_sidecar_cannot_make_a_WRONG_member_fresh(self, tmp_path, monkeypatch,
                                                                 one_member):
-        monkeypatch.setattr(gazetteer, "DATA_DIR", tmp_path)
+        monkeypatch.setattr(datasets, "mars_nomenclature", lambda: tmp_path)
         gazetteer.recipe_path().write_text(gazetteer.build_recipe(), encoding="utf-8")
         (tmp_path / "aaa.txt").write_bytes(b"not x")
         assert gazetteer.is_fresh() is False
 
     def test_a_missing_cpg_is_not_fresh_even_when_every_member_matches(self, tmp_path, monkeypatch):
         """The `.cpg` is ours, not the publisher's, so no member digest can vouch for it."""
-        monkeypatch.setattr(gazetteer, "DATA_DIR", tmp_path)
+        monkeypatch.setattr(datasets, "mars_nomenclature", lambda: tmp_path)
         monkeypatch.setattr(gazetteer, "MEMBER_DIGESTS", {"aaa.txt": gazetteer.digest_of(b"x")})
         gazetteer.recipe_path().write_text(gazetteer.build_recipe(), encoding="utf-8")
         (tmp_path / "aaa.txt").write_bytes(b"x")
@@ -221,7 +222,7 @@ class TestFreshnessReadsTheFilesNotTheSidecar:
 class TestTheEncodingFailsLoudlyRatherThanAsATraceback:
     def test_a_missing_cpg_names_the_file_and_the_consequence(self, tmp_path, monkeypatch):
         """Found by mutation: without this, the layer guards were unreachable behind a stack trace."""
-        monkeypatch.setattr(gazetteer, "DATA_DIR", tmp_path)
+        monkeypatch.setattr(datasets, "mars_nomenclature", lambda: tmp_path)
         gazetteer.layer_path("poly").write_bytes(b"")
         with pytest.raises(SystemExit, match="mojibake"):
             gazetteer.read_attributes("poly")
@@ -248,7 +249,7 @@ class TestNothingReachesTheNetworkByAccident:
 
         monkeypatch.setattr(gazetteer.fetch, "open_url", refuse)
         monkeypatch.setattr(gazetteer.fetch, "download_one", refuse)
-        monkeypatch.setattr(gazetteer, "DATA_DIR", tmp_path)
+        monkeypatch.setattr(datasets, "mars_nomenclature", lambda: tmp_path)
         monkeypatch.setattr("sys.argv", ["download_nomenclature", "--verify"])
         with pytest.raises(SystemExit) as refusal:
             gazetteer.main()  # exits on the absent metadata file, having touched no network

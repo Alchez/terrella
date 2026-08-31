@@ -38,7 +38,7 @@ from typing import Any, cast
 
 from pipeline import bodies, planet_seam, progress
 from pipeline.freshness import is_stale
-from pipeline.tile import block_render, shade_planet
+from pipeline.tile import block_render, relief_scan, shade_planet
 from pipeline.tile.shade import KNOBS
 
 
@@ -58,14 +58,23 @@ def _raytrace(work: Path, body: bodies.Body, rasters: frozenset[str], height: Pa
     return mosaic
 
 
-def _composite_runs_on_any_seam(rasters: frozenset[str]) -> list[str]:
-    """The composite has no seam requirement, and that is a FACT about it rather than a stub.
+def _runs_on_any_seam(rasters: frozenset[str]) -> list[str]:
+    """Neither producer has a seam requirement, and that is a FACT about them rather than a stub.
 
-    It paints from the heightfield and treats every mask and every surface layer as optional --
-    `composite_deps` names them all unconditionally precisely because `newest_mtime` scores a
-    missing path 0.0. So there is no declaration it can be handed that it cannot shade; a thin one
-    costs it pixels rather than the run. Spelled out because the alternative reads as "not
-    implemented yet", and a reader would then be free to add a requirement here that is not real.
+    The composite paints from the heightfield and treats every mask and every surface layer as
+    optional -- `composite_deps` names them all unconditionally precisely because `newest_mtime`
+    scores a missing path 0.0. So there is no declaration it can be handed that it cannot shade; a
+    thin one costs it pixels rather than the run.
+
+    THE RAYTRACE JOINED IT RATHER THAN KEEPING A REFUSAL OF ITS OWN. Its requirement was real while
+    the rig loaded the two inland-water masks for every look, so a body with no watermask was turned
+    away before its first block; since `scene_build.textures_for` reads the render directory's
+    declaration, there is no image a thin seam fails to supply. What survives is a LOOK-versus-
+    declaration check, which `scene_build` makes and this signature could not ask: it is handed the
+    planet seam and never the look.
+
+    Spelled out because the alternative reads as "not implemented yet", and a reader would then be
+    free to add a requirement here that is not real.
     """
     del rasters
     return []
@@ -94,8 +103,8 @@ class Producer:
 #: A REGISTRY RATHER THAN AN `if`, so that `bodies.PLANET_PRODUCERS` gaining a member is a red test
 #: instead of a branch that silently falls through to the other one.
 PRODUCERS: dict[str, Producer] = {
-    "composite": Producer(_composite, _composite_runs_on_any_seam),
-    "raytrace": Producer(_raytrace, block_render.rig_seam_refusals),
+    "composite": Producer(_composite, _runs_on_any_seam),
+    "raytrace": Producer(_raytrace, _runs_on_any_seam),
 }
 
 
@@ -146,7 +155,7 @@ def resolve_body(args: argparse.Namespace) -> bodies.Body:
 
 def resolve_out(args: argparse.Namespace) -> Path:
     """Where this run writes: the explicit `--out`, else the body's own tile-work directory."""
-    return args.out if args.out is not None else bodies.work_dir(resolve_body(args), "planet_tiles")
+    return args.out if args.out is not None else relief_scan.work_dir(resolve_body(args))
 
 
 def producer_for(body: bodies.Body) -> "Producer":

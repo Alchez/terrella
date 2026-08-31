@@ -20,11 +20,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-from pipeline import bodies, naturalearth
-
-#: Vectors are Earth's alone for now, so the body is named rather than threaded — but named through
-#: the registry, so the day Mars gains borders they nest instead of overwriting these.
-OUT_DIR = bodies.work_dir(bodies.EARTH, "borders")
+from pipeline import naturalearth
+from pipeline.compose import countries_pmtiles
 
 # Land classes the hero style renders (compose/overlay_borders.py); the rest is
 # cartographic scaffolding we drop.
@@ -66,9 +63,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--force", action="store_true", help="regenerate even if present")
     args = parser.parse_args()
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    out_dir = countries_pmtiles.borders_dir()
+    out_dir.mkdir(parents=True, exist_ok=True)
     for layer in LAYERS:
-        translate(layer["src"], OUT_DIR / layer["name"], layer["where"], args.force)
+        translate(layer["src"], out_dir / layer["name"], layer["where"], args.force)
 
 
 if __name__ == "__main__":

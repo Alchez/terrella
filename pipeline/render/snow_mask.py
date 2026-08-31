@@ -40,7 +40,7 @@ import numpy as np
 import rasterio
 from rasterio.warp import transform_bounds
 
-from pipeline import paths
+from pipeline import datasets
 from pipeline.fetch import download_one
 from pipeline.look import palette
 from pipeline.render import render_seam
@@ -59,7 +59,6 @@ def declare_snow_paint(render_dir: Path) -> None:
 
 
 BUCKET_URL = "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map"
-DATA_DIR = paths.DATA / "raw/worldcover"
 SNOW_CLASS = 70
 TILE_DEG = 3
 WORKERS = 6
@@ -132,11 +131,11 @@ def main():
     names = tiles_for_bounds(west, south, east, north)
     print(f"{len(names)} candidate WorldCover tiles in the frame", flush=True)
 
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    datasets.worldcover().mkdir(parents=True, exist_ok=True)
     counts = {"ok": 0, "skipped": 0, "absent": 0}
     failures = []
     with cf.ThreadPoolExecutor(WORKERS) as pool:
-        futures = {pool.submit(download_one, f"{BUCKET_URL}/{name}", DATA_DIR / name,
+        futures = {pool.submit(download_one, f"{BUCKET_URL}/{name}", datasets.worldcover() / name,
                                timeout=120, absent_on_404=True): name for name in names}
         for index, fut in enumerate(cf.as_completed(futures), 1):
             status = fut.result()
@@ -157,11 +156,11 @@ def main():
                  "or bucket layout must have changed; stop and check")
 
     # VRT over every held tile (build_mosaics.sh pattern; instant XML index)
-    vrt = DATA_DIR / "worldcover.vrt"
+    vrt = datasets.worldcover() / "worldcover.vrt"
     subprocess.run(["gdalbuildvrt", "-overwrite", str(vrt)]
-                   + [str(path) for path in sorted(DATA_DIR.glob("*.tif"))],
+                   + [str(path) for path in sorted(datasets.worldcover().glob("*.tif"))],
                    check=True, capture_output=True)
-    print(f"rebuilt {vrt.name} over {len(list(DATA_DIR.glob('*.tif')))} tiles",
+    print(f"rebuilt {vrt.name} over {len(list(datasets.worldcover().glob('*.tif')))} tiles",
           flush=True)
 
     # nearest-warp the classification onto the render grid, then threshold:

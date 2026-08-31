@@ -60,6 +60,7 @@ from pipeline.freshness import (
     write_if_changed,
 )
 from pipeline.raster_io import GTIFF_CREATE, band_window, row_bands
+from pipeline.tile import relief_scan
 
 TILE_SIZE = 512
 
@@ -449,7 +450,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = build_parser().parse_args()
     body = bodies.BODIES[args.body]
-    master = args.master or bodies.work_dir(body, "planet_tiles") / "height_3857.tif"
+    master = args.master or relief_scan.master_path(relief_scan.work_dir(body))
     out = out_under_body(body, args.out)
     native = master_zoom_for(body)
     # THE ONE PLACE THE DECLARATION MEETS THE ARTIFACT. Every failure a wrong `native` causes is

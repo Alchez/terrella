@@ -247,8 +247,19 @@ class TestLadderServesTheLayout:
     # times a lookup rooted at `pages/` would have gone on reading a file that still existed.
     PAGES = (
         ("components/Gallery.astro", "SIZES", ("hero", "spotlight")),
-        ("components/Globe.astro", "sizesAttr", ("hero", "border")),
     )
+
+    #: Ladders still produced that NO surface draws, with the reason each is still generated.
+    #: Named here rather than dropped from `ladders()`: an orphan costs render time and storage,
+    #: and dropping it would make this file pass by having nothing left to compare.
+    ORPHANED_LADDERS: ClassVar[dict[str, str]] = {
+        "border": (
+            "The globe's detail card was its last consumer and is now text-only; `.hp-border`, "
+            "which the mobile exemption above still describes, had already stopped existing. "
+            "gen_borders writes 1,010 PNGs nothing draws. Whether to keep writing them is a "
+            "product call, carried in FUTURE."
+        ),
+    }
 
     # The viewports the `vw` arm of `sizes` actually serves, as (CSS px, device pixel ratio).
     # This guard used to read ONLY the fixed-px arm — its regex skips `640px` inside `(max-width:
@@ -314,9 +325,13 @@ class TestLadderServesTheLayout:
     def test_every_ladder_is_actually_checked(self):
         """Stops a ladder being added to the pipeline and quietly escaping this guard."""
         covered = {name for _f, _c, _w, names, _d in self.declarations() for name in names}
-        assert covered == set(self.ladders()), (
-            f"ladders {set(self.ladders()) - covered} are produced but no surface claims them — "
-            f"either wire them into PAGES or they are unreachable and should not be generated")
+        assert covered.isdisjoint(self.ORPHANED_LADDERS), (
+            f"{covered & set(self.ORPHANED_LADDERS)} is drawn by a surface again — delete its "
+            f"ORPHANED_LADDERS entry, since the reason recorded there is now false")
+        assert covered == set(self.ladders()) - set(self.ORPHANED_LADDERS), (
+            f"ladders {set(self.ladders()) - covered - set(self.ORPHANED_LADDERS)} are produced "
+            f"but no surface claims them — either wire them into PAGES, record why they are "
+            f"orphaned, or they are unreachable and should not be generated")
 
     @staticmethod
     def picked_rung(ladder: tuple[int, ...], needed_px: int, aspect: float = 1.0) -> int:

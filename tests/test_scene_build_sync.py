@@ -14,9 +14,11 @@ import dataclasses
 import importlib
 import json
 import math
+import re
 import sys
 import types
 from pathlib import Path
+from typing import ClassVar
 
 import numpy as np
 import pytest
@@ -24,6 +26,16 @@ import pytest
 from pipeline import block_plan, bodies
 from pipeline.look import palette
 from pipeline.render import prep_block, render_prep, render_seam
+
+#: What a filled render directory declares on each body, which is what the rig may load.
+#:
+#: NOT HAND-PICKED PER TEST: these are `prep_block.build`'s own two outcomes. Earth's planet seam
+#: declares an oceanmask and a watermask, so the cut writes all four mandatory images; Mars declares
+#: the heightfield alone, so it writes one and the rig must render without the other three. The
+#: rowscale rides along on both and is optional, so it is not part of what is asserted here.
+EARTH_DECLARED = frozenset({render_seam.HEIGHTFIELD, render_seam.OCEANMASK,
+                            render_seam.INLANDLAKE, render_seam.RIVER})
+MARS_DECLARED = frozenset({render_seam.HEIGHTFIELD})
 
 
 @pytest.fixture(scope="module")
@@ -137,25 +149,134 @@ class TestASeaLessLookDropsTheSeaBranch:
     def test_the_oceanmask_is_not_asked_for(self, scene_build):
         """A sea-less body never names the raster its planet seam declines to declare, so the
         rig cannot fail on a missing file that was never supposed to exist."""
-        earth_images = scene_build.textures_for(palette.EARTH_LOOK)
-        mars_images = scene_build.textures_for(palette.MARS_LOOK)
+        earth_images = scene_build.textures_for(palette.EARTH_LOOK, EARTH_DECLARED)
+        mars_images = scene_build.textures_for(palette.MARS_LOOK, MARS_DECLARED)
         assert scene_build.SEA_IMAGE in earth_images
         assert scene_build.SEA_IMAGE not in mars_images
-        assert set(earth_images) - set(mars_images) == {scene_build.SEA_IMAGE}
-
-    def test_the_lake_and_river_masks_stay_mandatory_for_every_look(self, scene_build):
-        """The oceanmask is the only image a LOOK can answer for, because it selects between this
-        look's two ramps. Inland water is a planet-seam declaration rather than a colour, so keying
-        it off `sea is None` here would answer a question the look was never asked."""
-        for look in (palette.EARTH_LOOK, palette.MARS_LOOK):
-            names = scene_build.textures_for(look)
-            assert "Image Texture.002" in names and "Image Texture.003" in names
 
     def test_earths_image_table_and_its_order_are_untouched(self, scene_build):
-        """The dump-diff against the hand-built .blend sees creation order, so the sea-less arm
-        must not have reordered the arm that renders 203 heroes."""
+        """WHICH textures are mandatory is the claim; the list form is kept because it is strictly
+        stronger than a set and costs nothing. Order itself no longer answers to anything — it was
+        pinned for a dump-diff against a hand-built .blend that is retired, and the dump sorts by
+        node name anyway."""
         mandatory = [name for name, spec in scene_build.TEXTURES.items() if not spec.optional]
-        assert list(scene_build.textures_for(palette.EARTH_LOOK)) == mandatory
+        assert list(scene_build.textures_for(palette.EARTH_LOOK, EARTH_DECLARED)) == mandatory
+
+
+class TestTheMandatoryImagesAreTheDirectorysAnswerAndNotTheLooks:
+    """What the rig loads is what the prep DECLARED it wrote, which is the rule the optional four
+    have always followed and the mandatory four were exempt from.
+
+    THE EXEMPTION IS WHAT BLOCKED MARS. `prep_block.build` writes `inlandlake.png` and `river.png`
+    only when the planet seam declared a watermask, and the rig loaded both for every look, so a
+    body with no inland water was refused before its first block rather than rendered without them.
+    The refusal was correct about the rig and is what this replaces.
+
+    A LOOK STILL ANSWERS FOR THE SEA, and that has not collapsed into the declaration: `Look.sea`
+    decides whether the sea BRANCH exists in the graph, the declaration decides whether the IMAGE
+    can be loaded, and the pair that must never pass silently is a look with a sea over a directory
+    with no oceanmask. That renders a planet of land, which is the failure the declaration rule
+    exists to prevent, so it raises here rather than resolving to the smaller set.
+    """
+
+    def test_a_body_with_no_inland_water_loads_neither_mask(self, scene_build):
+        names = scene_build.textures_for(palette.MARS_LOOK, MARS_DECLARED)
+        assert {spec.filename for spec in names.values()} == {render_seam.HEIGHTFIELD}
+
+    def test_a_body_that_declares_them_still_loads_both(self, scene_build):
+        """The other direction, so the filter is not simply dropping them everywhere."""
+        loaded = {spec.filename
+                  for spec in scene_build.textures_for(palette.EARTH_LOOK, EARTH_DECLARED).values()}
+        assert {render_seam.INLANDLAKE, render_seam.RIVER} <= loaded
+
+    def test_a_look_with_a_sea_over_a_directory_with_no_oceanmask_refuses(self, scene_build):
+        """The one pair that must not resolve quietly. Dropping the image because it was not
+        declared would wire the sea ramp to nothing and render Earth as a planet of land, which is
+        indistinguishable from a correct render of a body that has no sea."""
+        with pytest.raises(ValueError, match="oceanmask"):
+            scene_build.textures_for(palette.EARTH_LOOK, MARS_DECLARED)
+
+    def test_the_recipe_does_not_move_when_the_declaration_does(self, scene_build):
+        """The cost guard, and it is the reason this could land at all. `rig_recipe` records the
+        whole TEXTURES table rather than the subset a directory loads, so making the load
+        declaration-driven moves no recipe key and restages none of Earth's 1,024 blocks."""
+        before = json.dumps(scene_build.rig_recipe(palette.EARTH_LOOK), sort_keys=True)
+        after = json.dumps(scene_build.rig_recipe(palette.EARTH_LOOK), sort_keys=True)
+        assert before == after
+        assert "declared" not in before and render_seam.INLANDLAKE in before
+
+    #: The subscript keys the builder may use with no conditional around them, AS SOURCE TEXT.
+    #:
+    #: Spelled rather than derived because the scan below reads the AST: it sees the expression a
+    #: line uses for a node, never the node it resolves to at run time. Only the heightfield
+    #: belongs here, and the reason is `render_seam.declared`'s own — it is the completion test, so
+    #: a directory that declared anything at all declared that.
+    ALWAYS_DECLARED: ClassVar[frozenset[str]] = frozenset({
+        "texture_for(render_seam.HEIGHTFIELD).name",
+    })
+
+    def test_the_builder_subscripts_only_always_declared_images_unconditionally(self, scene_build):
+        """The wiring half, which no stubbed-bpy test can reach by running it.
+
+        `build_material` links `tex[...]` for every mandatory image, and two of those subscripts
+        were unconditional — so a directory that legitimately declared neither raised `KeyError`
+        deep in the graph rather than skipping the mix. Only the heightfield may be subscripted
+        without a guard, because it is the one image `render_seam.declared` treats as the
+        completion test and therefore the one every filled directory has.
+
+        WHAT THIS CANNOT SEE is whether the enclosing condition is the RIGHT one: any `if` counts,
+        so a subscript nested under a vacuous guard reads as covered here. It catches the shape the
+        defect actually had, which is a subscript at the function's top level.
+        """
+        source = Path(scene_build.__file__).read_text()
+        tree = ast.parse(source)
+        builder = next(node for node in ast.walk(tree)
+                       if isinstance(node, ast.FunctionDef) and node.name == "build_material")
+        guarded, unguarded = self._subscripts(builder)
+        assert unguarded <= self.ALWAYS_DECLARED, (
+            f"build_material subscripts tex{sorted(unguarded - self.ALWAYS_DECLARED)} outside any "
+            "conditional; a body whose prep declared none of those raises KeyError in the graph "
+            f"instead of skipping the mix (guarded, and therefore fine: {sorted(guarded)})")
+
+    def test_that_scan_can_see_an_unguarded_subscript(self, scene_build):
+        """The control. The assertion above is satisfied by a walk that found no subscripts at
+        all, which is what a renamed local or a restructured builder would produce."""
+        builder = next(node for node in ast.walk(ast.parse(Path(scene_build.__file__).read_text()))
+                       if isinstance(node, ast.FunctionDef) and node.name == "build_material")
+        guarded, unguarded = self._subscripts(builder)
+        assert guarded | unguarded, "the scan found no tex[...] subscripts at all"
+
+    @staticmethod
+    def _subscripts(builder: ast.FunctionDef) -> tuple[set[str], set[str]]:
+        """Every `tex[...]` key in the builder, split by whether an `if` encloses it.
+
+        The key is read as a NAME rather than a literal wherever the builder spells one, so
+        `tex[spec.name]` is reported under the node name its spec carries; an unresolvable key is
+        reported as unguarded, which fails toward flagging rather than toward silence.
+        """
+        guarded: set[str] = set()
+        unguarded: set[str] = set()
+
+        def walk(node: ast.AST, inside_if: bool) -> None:
+            for child in ast.iter_child_nodes(node):
+                if isinstance(child, ast.If):
+                    for grandchild in ast.iter_child_nodes(child):
+                        walk(grandchild, True)
+                    continue
+                if (isinstance(child, ast.Subscript) and isinstance(child.value, ast.Name)
+                        and child.value.id == "tex"
+                        # The build loop's `tex[name] = ...` is where the dict is FILLED, so it is
+                        # not a read that can miss and must not be counted as one.
+                        and not isinstance(child.ctx, ast.Store)):
+                    key = (child.slice.value
+                           if isinstance(child.slice, ast.Constant)
+                           and isinstance(child.slice.value, str)
+                           else ast.unparse(child.slice))
+                    (guarded if inside_if else unguarded).add(key)
+                walk(child, inside_if)
+
+        walk(builder, False)
+        return guarded, unguarded
 
 
 class TestTheFlagIsCrossCheckedAgainstTheFrame:
@@ -632,9 +753,14 @@ class TestEveryTextureNodeIsDeclaredRatherThanSpelledInline:
         assert {render_seam.SNOWMASK, render_seam.LAKEDEPTH, render_seam.SEAICE} <= declared
 
     def test_the_texture_table_is_in_the_recipe(self, scene_build):
+        """KEYED BY THE RASTER, NOT THE NODE, and the node's name is the one field left out. It is
+        an identity rather than a look value, so recording it put a whole planet re-render behind a
+        rename that moves no pixel. Everything else in the row rides in untouched."""
         recipe = scene_build.rig_recipe(palette.EARTH_LOOK)
-        for name, spec in scene_build.TEXTURES.items():
-            assert recipe["textures"][name] == dataclasses.asdict(spec)
+        for spec in scene_build.TEXTURES.values():
+            recorded = dataclasses.asdict(spec)
+            del recorded["name"]
+            assert recipe["textures"][spec.filename] == recorded
 
     def test_the_masks_keep_the_interpolations_they_ship_with(self, scene_build):
         """A conversion that quietly re-decided a look value would be a regression wearing a
@@ -645,45 +771,148 @@ class TestEveryTextureNodeIsDeclaredRatherThanSpelledInline:
         assert by_file[render_seam.SEAICE].interpolation == "Linear"
         assert by_file[render_seam.ROWSCALE].extension == "EXTEND"
 
-    #: Attributes whose value changes what a pixel comes out as. A node's own `.name` is NOT here:
-    #: it is an identity, a consistent rename renders byte-identically, and recording one would put
-    #: a 22 h re-render behind a rename that moves nothing. `colorspace_settings.name` is a
-    #: different attribute that happens to share the word, and it is very much pixel-moving.
+
+class TestTheBuilderSpellsNoLookValueWhereTheRecipeCannotSeeIt:
+    """`rig_recipe` records `Rig`, the texture table and the look. Anything else the builder decides
+    is a value the recipe cannot see, so a change to it leaves every rendered block reading fresh.
+
+    THE TEXTURE TABLE ABOVE WAS ONE INSTANCE OF THIS, NOT THE WHOLE OF IT, which is why this is its
+    own class: the scan below rules on the camera, the subdivision, the lights, the node graph and
+    the Cycles settings as well, and a reader asking why `engine = 'CYCLES'` is pinned would never
+    look under a heading about image nodes.
+    """
+
+    #: The one attribute a bare literal may name, because its value cannot reach a pixel: a node's
+    #: identity. A consistent rename renders byte-identically, and recording one would put a whole
+    #: planet re-render behind a change that moves nothing.
     #:
-    #: HAND-LISTED, SO WHAT IT MISSES IT MISSES IN SILENCE. bpy tags nothing as look-bearing, so
-    #: this set cannot be derived; an attribute nobody thought to add is simply unguarded, which is
-    #: how `view_transform` sat inline through the conversion that structured every number near it.
-    PIXEL_MOVING = ("interpolation", "extension", "view_transform")
+    #: `colorspace_settings.name` is a different attribute that happens to share the word, and it is
+    #: very much pixel-moving — it reaches EVERY raster the rig loads.
+    IDENTITY_ATTRIBUTE = "name"
+
+    #: AN ALLOWLIST, AND THE INVERSION IS THE WHOLE POINT. What stood here named the attributes that
+    #: DO move pixels — `interpolation`, `extension`, `view_transform` — so an attribute nobody
+    #: thought of was unguarded and SILENT. bpy tags nothing as look-bearing, so neither direction
+    #: can be derived from it; what differs is which way an omission fails. Listing the movers meant
+    #: a module holding `blend_type`, `displacement_method`, `space`, `levels` and two dozen others
+    #: read as clean. Listing the one inert attribute means a new one is red until someone rules on
+    #: it.
+    #:
+    #: The value filter went with it. Restricting to `str` constants made every number, bool and
+    #: tuple invisible whatever the attribute was called, which hid the subdivision levels, the
+    #: BSDF roughness and the fill sun's `use_shadow`.
+
+    #: Inline literals that provably cannot reach a pixel. A sun lamp in Cycles is a DIRECTION, so
+    #: where the object stands is not a light term; the builder's own comment says so.
+    COSMETIC_INLINE: ClassVar[frozenset[str]] = frozenset({
+        ".location = (4.076245, 1.005454, 5.903862)",
+    })
+
+    #: Inline literals that DO reach a pixel and that `rig_recipe` therefore cannot see. In file
+    #: order, so the sweep can be walked top to bottom.
+    #:
+    #: PINNED RATHER THAN FIXED, AND THE PIN IS WHAT MAKES DEFERRING SAFE. `rig_recipe` is
+    #: `asdict(RIG)`, so moving any one of these into `Rig` changes the recipe's text, and
+    #: `block_render` then clears every marker and re-renders the whole planet — for pixels that did
+    #: not move. Earth's recipe on disk currently matches what `params` would write, so that night
+    #: would buy nothing. Pinning the VALUE instead costs no GPU and converts the silent miss into a
+    #: red test: change one of these and this list has to be edited, which is the moment to decide
+    #: whether the change rides a pass that is already happening.
+    #:
+    #: SO THIS IS A TRIPWIRE AND NOT A FIX. The recipe stays blind to all of them until the sweep.
+    DEFERRED_INLINE: ClassVar[frozenset[str]] = frozenset({
+        ".subdivision_type = 'SIMPLE'",
+        ".levels = 1",
+        ".render_levels = 2",
+        ".use_adaptive_subdivision = True",
+        ".type = 'ORTHO'",
+        ".clip_end = 100.0",
+        ".use_shadow = False",
+        ".use_nodes = True",
+        ".data_type = 'FLOAT'",
+        ".data_type = 'RGBA'",
+        ".clamp = True",
+        ".blend_type = 'MIX'",
+        ".clamp_factor = True",
+        ".displacement_method = 'DISPLACEMENT'",
+        ".space = 'OBJECT'",
+        ".default_value = 0.0",
+        ".operation = 'MULTIPLY'",
+        ".use_clamp = False",
+        ".default_value = 1.0",
+        ".engine = 'CYCLES'",
+        ".file_format = 'PNG'",
+        ".color_mode = 'RGBA'",
+        ".device = 'GPU'",
+        ".use_adaptive_sampling = True",
+        ".use_denoising = True",
+        ".denoiser = 'OPENIMAGEDENOISE'",
+        ".denoising_input_passes = 'RGB_ALBEDO_NORMAL'",
+        ".denoising_prefilter = 'ACCURATE'",
+        ".denoising_quality = 'HIGH'",
+    })
+
+    @staticmethod
+    def _literal(value: ast.expr) -> str | None:
+        """`value` rendered as source if it is a literal, else None.
+
+        Tuples and lists count and are the reason this is not `isinstance(value, ast.Constant)`:
+        the fill sun's position is three floats in a tuple, which is a look value in every sense
+        and matches no scalar test.
+        """
+        if isinstance(value, ast.Constant):
+            return ast.unparse(value)
+        if isinstance(value, ast.Tuple | ast.List) and all(
+                isinstance(item, ast.Constant) for item in value.elts):
+            return ast.unparse(value)
+        return None
 
     def _inline_values(self, source: str) -> list[str]:
         found = []
         for node in ast.walk(ast.parse(source)):
-            if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Constant):
+            if not isinstance(node, ast.Assign):
                 continue
-            if not isinstance(node.value.value, str):
+            literal = self._literal(node.value)
+            if literal is None:
                 continue
             for target in node.targets:
                 if not isinstance(target, ast.Attribute):
                     continue
-                colorspace = (target.attr == "name"
+                colorspace = (target.attr == self.IDENTITY_ATTRIBUTE
                               and isinstance(target.value, ast.Attribute)
                               and target.value.attr == "colorspace_settings")
-                if target.attr in self.PIXEL_MOVING or colorspace:
-                    found.append(f"line {node.lineno}: .{target.attr} = {node.value.value!r}")
+                if target.attr != self.IDENTITY_ATTRIBUTE or colorspace:
+                    found.append(f".{target.attr} = {literal}")
         return found
 
-    def test_no_pixel_moving_value_is_spelled_inline_in_the_builder(self, scene_build):
+    def test_every_inline_literal_in_the_builder_is_one_somebody_ruled_on(self, scene_build):
         """The guard that catches the NEXT inline literal rather than the ones already listed.
 
         Everything above pins values that exist today. This asks the structural question none of
-        them can: does the builder assign a bare string to an attribute that decides a pixel? A
+        them can: does the builder hand a bare literal to an attribute nobody has ruled on? A
         conversion only holds if re-introducing the pattern goes red.
 
         This is what found `load_image`'s `colorspace_settings.name = "Non-Color"`, which reaches
         EVERY raster the rig loads and was on no list of the file's inline values.
+
+        BOTH DIRECTIONS, BECAUSE A PIN LIST ROTS BOTH WAYS. An unruled site is a value that reaches
+        a pixel with nothing watching it. A ruling with no site left is worse in a quieter way: the
+        next reader takes this list for a description of the file, and it has stopped being one.
+
+        AND THE SECOND DIRECTION IS THE SCANNER'S OWN CONTROL, which is why it is not merely tidy.
+        A scanner that matched nothing would satisfy every "no unruled sites" assertion ever
+        written; here it fails instead, naming every ruling whose site it could not find.
         """
-        found = self._inline_values(Path(scene_build.__file__).read_text(encoding="utf-8"))
-        assert not found, "values spelled inline, invisible to the recipe:\n" + "\n".join(found)
+        found = set(self._inline_values(Path(scene_build.__file__).read_text(encoding="utf-8")))
+        ruled = self.COSMETIC_INLINE | self.DEFERRED_INLINE
+        assert not found - ruled, (
+            "inline literals nobody has ruled on, invisible to `rig_recipe`:\n  "
+            + "\n  ".join(sorted(found - ruled))
+            + "\nEither derive the value from `Rig` — which restages the whole planet — or add it "
+              "to DEFERRED_INLINE with the value it ships today.")
+        assert not ruled - found, (
+            "rulings whose site is gone, so this list no longer describes the builder:\n  "
+            + "\n  ".join(sorted(ruled - found)))
 
     def test_the_scan_finds_an_inline_value_when_there_is_one(self):
         """`scene_dump`'s own lesson, applied to this scanner: before trusting a passing comparison,
@@ -705,3 +934,203 @@ class TestEveryTextureNodeIsDeclaredRatherThanSpelledInline:
         assert len(found) == 4, f"expected the four pixel-moving ones, got {found}"
         assert not any("Displacement" in entry for entry in found), (
             "a node's own name is an identity, not a look value, and must not be flagged")
+
+    def test_an_attribute_nobody_listed_is_flagged_rather_than_ignored(self):
+        """The inversion, and the failure a hand-listed set of pixel-moving names cannot avoid.
+
+        Every one of these decides pixels — `MIX` against `MULTIPLY` is a different composite,
+        `DISPLACEMENT` against `BUMP` is real geometry against a shading trick, and a displacement
+        read in `WORLD` space is a different height. None was on the list, so a module holding all
+        three read as clean.
+        """
+        known_bad = (
+            "def build():\n"
+            "    mix.blend_type = 'MULTIPLY'\n"
+            "    mat.displacement_method = 'BUMP'\n"
+            "    disp.space = 'WORLD'\n"
+        )
+        found = self._inline_values(known_bad)
+        assert len(found) == 3, f"expected all three unlisted attributes, got {found}"
+
+    def test_the_scan_is_not_blind_to_a_literal_that_is_not_a_string(self):
+        """The second blind spot, and it is independent of the list: a `str` filter on the value
+        made every number, bool and tuple invisible whatever the attribute was called.
+
+        The first three are in the shipping rig: subdivision levels are geometry, roughness is the
+        whole surface response, and a fill sun that casts no shadow is a light term. The tuple is
+        here because the scanner must SEE one — whether a particular tuple reaches a pixel is the
+        pin list's ruling to make, and the rig's one tuple is exempt for a reason it states.
+        """
+        known_bad = (
+            "def build():\n"
+            "    mod.levels = 1\n"
+            "    bsdf.inputs['Roughness'].default_value = 1.0\n"
+            "    sun.use_shadow = False\n"
+            "    ob.location = (4.076245, 1.005454, 5.903862)\n"
+        )
+        found = self._inline_values(known_bad)
+        assert len(found) == 4, f"expected all four non-string literals, got {found}"
+
+
+class TestNoNodeCarriesBlendersAutoName:
+    """A node's identity is its `name`, and Blender's default for one is the type plus a counter.
+
+    THE COUNTER IS THE DEFECT AND NOT THE UGLINESS. Two nodes handed the same name do not both
+    keep it: bpy appends `.001` to the second silently, so a collision reintroduces the very
+    suffix this removes and leaves the graph addressable only by creation order. That is why
+    uniqueness is asserted rather than assumed.
+
+    NONE OF THESE REACH A PIXEL, which `TestTheBuilderSpellsNoLookValueWhereTheRecipeCannotSeeIt`
+    rules on by naming `name` its one inert attribute. What is guarded here is legibility, and
+    legibility is load-bearing for anything that reaches into the BUILT graph by name — every
+    arm probe does, since bpy hands out a fresh wrapper per access and `is` never matches.
+    """
+
+    #: Blender's own suffix for a name it had to disambiguate.
+    AUTO_SUFFIX = re.compile(r"\.\d{3}$")
+
+    def test_no_node_name_carries_the_auto_suffix(self, scene_build):
+        """The texture half comes from the table at runtime and the rest from the builder's source,
+        because that is where each is spelled: a table entry is a value, a mix name is a literal."""
+        offenders = sorted(name for name in self._every_name(scene_build)
+                           if self.AUTO_SUFFIX.search(name))
+        assert not offenders, (
+            f"nodes still carrying Blender's auto-name counter: {offenders}. The counter is "
+            "assigned by creation order, so it renames itself when a node is added above it.")
+
+    def test_no_two_nodes_share_a_name(self, scene_build):
+        """A collision does not fail — bpy resolves it by appending the suffix to the loser, so
+        the graph silently regains exactly what the test above forbids."""
+        names = self._every_name(scene_build)
+        duplicated = sorted({name for name in names if names.count(name) > 1})
+        assert not duplicated, f"two nodes would be given the same name, bpy renames one: {duplicated}"
+
+    def test_every_node_the_builder_creates_is_given_a_name(self, scene_build):
+        """The arm that catches a node added without one, which Blender then auto-names. Counting
+        rather than matching: a `nodes.new` and its `.name =` are two statements apart."""
+        source = Path(scene_build.__file__).read_text()
+        created, named = self._builder_node_counts(source)
+        assert created == named, (
+            f"build_material creates {created} nodes directly but names {named} of them; an "
+            "unnamed node takes Blender's type name plus a counter")
+
+    def test_the_scan_can_see_an_auto_name(self, scene_build):
+        """The control. Every assertion above is satisfied by an extractor that found nothing, and
+        the builder is exactly the shape — helpers, keywords, conditionals — that produces that."""
+        found = self._names_in_source(
+            "def make_mix(nt, name, label):\n"
+            "    pass\n"
+            "def build_material(ob, render_dir, displacement_scale, look, present):\n"
+            "    lake = make_mix(nt, 'Mix.001', 'Lake')\n"
+            "    disp.name = 'Displacement.002'\n")
+        assert sorted(found) == ["Displacement.002", "Mix.001"], (
+            f"the scan missed one of the two shapes it has to see: {sorted(found)}")
+
+    def _every_name(self, scene_build) -> list[str]:
+        """Both halves as one list, so uniqueness is asked across the whole graph rather than
+        within either half. A texture colliding with a mix is as silent as two mixes colliding."""
+        return (list(scene_build.TEXTURES)
+                + self._names_in_source(Path(scene_build.__file__).read_text()))
+
+    @staticmethod
+    def _names_in_source(source: str) -> list[str]:
+        """Every name `build_material` spells, from `.name = "..."` and from the make_* helpers.
+
+        THE HELPER SET IS DERIVED RATHER THAN LISTED: a module-level function whose first three
+        parameters are `(nt, name, label)` is a node constructor, so one written later is scanned
+        with nothing here to remember. A listed set would go short exactly when the rig grows.
+        """
+        tree = ast.parse(source)
+        constructors = {node.name for node in tree.body
+                        if isinstance(node, ast.FunctionDef)
+                        and [arg.arg for arg in node.args.args[:3]] == ["nt", "name", "label"]}
+        builder = next(node for node in ast.walk(tree)
+                       if isinstance(node, ast.FunctionDef) and node.name == "build_material")
+        names: list[str] = []
+        for node in ast.walk(builder):
+            if (isinstance(node, ast.Assign) and len(node.targets) == 1
+                    and isinstance(node.targets[0], ast.Attribute)
+                    and node.targets[0].attr == "name"
+                    and isinstance(node.value, ast.Constant)
+                    and isinstance(node.value.value, str)):
+                names.append(node.value.value)
+            elif (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                    and node.func.id in constructors and len(node.args) >= 2
+                    and isinstance(node.args[1], ast.Constant)
+                    and isinstance(node.args[1].value, str)):
+                names.append(node.args[1].value)
+        return names
+
+    @staticmethod
+    def _builder_node_counts(source: str) -> tuple[int, int]:
+        """`(nodes created directly, names assigned)` inside `build_material`.
+
+        Direct only: a helper names the node it makes, so counting those would compare a helper's
+        internals against the builder's.
+        """
+        builder = next(node for node in ast.walk(ast.parse(source))
+                       if isinstance(node, ast.FunctionDef) and node.name == "build_material")
+        created = sum(1 for node in ast.walk(builder)
+                      if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                      and node.func.attr == "new" and isinstance(node.func.value, ast.Attribute)
+                      and node.func.value.attr == "nodes")
+        named = sum(1 for node in ast.walk(builder)
+                    if isinstance(node, ast.Assign) and len(node.targets) == 1
+                    and isinstance(node.targets[0], ast.Attribute)
+                    and node.targets[0].attr == "name")
+        return created, named
+
+
+class TestRenamingANodeDoesNotRestageThePlanet:
+    """`rig_recipe` records what can move a rendered pixel, and a node's name provably cannot.
+
+    THE RECIPE USED TO OVER-TRACK BY ITS OWN SIBLING'S REASONING.
+    `TestTheBuilderSpellsNoLookValueWhereTheRecipeCannotSeeIt` names `name` its ONE inert
+    attribute, on the grounds that a consistent rename renders byte-identically; the table was
+    nonetheless recorded whole, so the identity rode in beside the look values and any rename
+    cleared all 1,024 markers plus both cap discs for pixels that did not move.
+
+    OVER- AND UNDER-TRACKING ARE BOTH SILENT, so the exclusion is one NAMED FIELD rather than a
+    chosen subset: a field added to `TextureSpec` later is recorded with nothing here to remember,
+    which is the same reason the table is derived rather than enumerated. The control below is
+    what keeps the exclusion honest, since an exclusion that grew would look exactly like this.
+    """
+
+    def test_renaming_every_node_leaves_the_recipe_byte_identical(self, scene_build, monkeypatch):
+        """A rename touches the table's keys, its specs and `SEA_IMAGE` together, because the key
+        IS the node name. None of that may reach the recipe."""
+        before = json.dumps(scene_build.rig_recipe(palette.EARTH_LOOK), sort_keys=True)
+        monkeypatch.setattr(scene_build, "SEA_IMAGE", f"Renamed {scene_build.SEA_IMAGE}")
+        monkeypatch.setattr(scene_build, "TEXTURES", {
+            f"Renamed {spec.name}": dataclasses.replace(spec, name=f"Renamed {spec.name}")
+            for spec in scene_build.TEXTURES.values()})
+        after = json.dumps(scene_build.rig_recipe(palette.EARTH_LOOK), sort_keys=True)
+        assert before == after, "a node rename still moves the recipe, so it restages the planet"
+
+    def test_a_look_bearing_field_in_the_same_row_still_moves_it(self, scene_build, monkeypatch):
+        """THE CONTROL, and it decides that the exclusion is a field rather than the whole row.
+        `interpolation` sits in the same dataclass and reaches every coastline: an oceanmask read
+        Linear instead of Closest feathers the lot. If this passes green the recipe has stopped
+        watching the table at all, which is indistinguishable from the fix above."""
+        before = json.dumps(scene_build.rig_recipe(palette.EARTH_LOOK), sort_keys=True)
+        monkeypatch.setattr(scene_build, "TEXTURES", {
+            name: dataclasses.replace(spec, interpolation="Cubic")
+            for name, spec in scene_build.TEXTURES.items()})
+        after = json.dumps(scene_build.rig_recipe(palette.EARTH_LOOK), sort_keys=True)
+        assert before != after, "an interpolation change no longer reaches the recipe"
+
+    def test_no_two_textures_read_the_same_raster(self, scene_build):
+        """The recipe is keyed on the filename now, so a duplicate would drop a whole row and take
+        its interpolation and extension out of the recipe with it, silently. `texture_for` already
+        assumed this by returning the first match; here it is asserted."""
+        filenames = [spec.filename for spec in scene_build.TEXTURES.values()]
+        duplicated = sorted({name for name in filenames if filenames.count(name) > 1})
+        assert not duplicated, f"two texture rows read one raster, so the recipe drops one: {duplicated}"
+
+    def test_the_sea_texture_key_names_a_raster_rather_than_a_node(self, scene_build):
+        """The second place a node name used to reach the recipe. It records WHICH texture the sea
+        branch reads, and the raster answers that as well as the node did without moving on a
+        rename."""
+        recipe = scene_build.rig_recipe(palette.EARTH_LOOK)
+        assert recipe["sea_texture"] == render_seam.OCEANMASK
+        assert scene_build.rig_recipe(palette.MARS_LOOK)["sea_texture"] is None

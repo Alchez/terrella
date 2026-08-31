@@ -40,12 +40,11 @@ from rasterio.transform import from_origin
 from rasterio.vrt import WarpedVRT
 from rasterio.windows import Window
 
-from pipeline import paths
+from pipeline import datasets, paths
 
 DATA = paths.DATA
 DEM_VRT = DATA / "work/dem_mosaic.vrt"
 WBM_VRT = DATA / "work/wbm_mosaic.vrt"
-GEBCO = DATA / "raw/gebco/gebco_2026_global.vrt"  # global ice-surface mosaic
 # over the 8 GeoTIFF tiles of GEBCO_2026 (build with gdalbuildvrt); overridable
 # per run with --gebco (e.g. the old regional tile for a byte-for-byte regression)
 
@@ -199,7 +198,7 @@ def main():
                     help="DEM->grid resampling; 'max' preserves thin high land "
                          "(atolls) that 'average' washes to sea level")
     ap.add_argument("--outdir", type=Path, required=True)
-    ap.add_argument("--gebco", type=Path, default=GEBCO,
+    ap.add_argument("--gebco", type=Path, default=datasets.gebco_vrt(),
                     help="bathymetry source (default: the global GEBCO_2026 mosaic)")
     ap.add_argument("--dem-vrt", type=Path, default=DEM_VRT,
                     help="land-elevation mosaic (default: the GLO-30 mosaic); override "

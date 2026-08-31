@@ -39,7 +39,7 @@ Three tiers of one site, one asset store, chosen by a client-side capability pro
 
 - **Tier 1 gallery** — static HTML + responsive hero images; the pessimistic default while the probe runs.
 - **Tier 2 globe** — MapLibre globe projection over pre-shaded raster tiles; needs WebGL2. Pinned to an exact version in `web/package.json`, with one vendored patch (`patches/`, guarded by `vendoredPatches.test.ts`).
-- **Tier 3 full** — Tier 2 + terrain-RGB displacement + the idle spin + the in-globe hero panel, gated on GPU tier and network. The panel loads the srcset rung that fits the card, never the 8K master.
+- **Tier 3 full** — Tier 2 + terrain-RGB displacement + the idle spin, gated on GPU tier and network. The detail card is text only on both bodies: it used to open with the country's hero, which the raytraced tiles turned into a picture of the globe you were already looking at. The full render is a click away on the country's own page.
 
 Default pessimistic and upgrade optimistically; the Lite/Globe/Full toggle persists and beats the
 probe; degrade at runtime if frame rate tanks; honour `Save-Data`, `prefers-reduced-motion`,

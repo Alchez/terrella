@@ -14,12 +14,15 @@ The override tests run in a subprocess because the constants bind at import
 time — reloading modules in-process would leak state between tests.
 """
 
+import ast
+import collections
 import os
 import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import ClassVar
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -94,6 +97,35 @@ def tracked_files() -> list[Path]:
         check=True,
     )
     return [Path(name) for name in listing.stdout.split("\0") if name]
+
+
+# The OTHER half of the category `paths.py` describes, and the half `STORE_PROBE` structurally
+# cannot see. That probe sets MAPS_DATA BEFORE importing, so a module-level constant resolves under
+# the new root and looks perfectly correct; what it detects is a path anchored onto `paths.ROOT`
+# instead of the store, which is a sibling defect and is exactly what its planted control tests. So
+# the pair read as covering the whole rule while covering half of it.
+#
+# This asks the question the docstring actually asks: was the value computed at IMPORT? A
+# module-level attribute that already lies under `paths.DATA` can only have been, since a call-time
+# path is not a module attribute at all. No environment is moved, and none needs to be.
+#
+# NAMES, NEVER RESOLVED PATHS. The resolved value carries the machine's checkout root, which
+# differs on CI — the same trap that once made this file's other probe report all sixteen
+# checkout-resident constants as offenders.
+FREEZE_PROBE = f"""
+import importlib, pkgutil
+from pathlib import Path
+from pipeline import paths
+frozen = []
+for module in pkgutil.walk_packages([str(paths.ROOT / "pipeline")], "pipeline."):
+    if module.name in {BPY_ONLY!r}:
+        continue
+    loaded = importlib.import_module(module.name)
+    for attribute, value in vars(loaded).items():
+        if isinstance(value, Path) and value.is_relative_to(paths.DATA):
+            frozen.append(f"{{module.name}}.{{attribute}}")
+print("\\n".join(sorted(set(frozen))))
+"""
 
 
 def run_probe(code: str, env_overrides: dict[str, str], cwd: Path = REPO_ROOT) -> str:
@@ -224,10 +256,10 @@ class TestSharedDatasetsHaveOneHome:
         return offenders
 
     def test_the_natural_earth_directory_is_spelled_once(self):
-        offenders = self.scan("raw/naturalearth", {Path("pipeline/naturalearth.py")})
+        offenders = self.scan("raw/naturalearth", {Path("pipeline/datasets.py")})
         assert not offenders, (
             f"a second spelling of the Natural Earth directory: {offenders} — "
-            "use pipeline.naturalearth.DIR, or naturalearth.layer(name) for a shapefile"
+            "use datasets.naturalearth(), or naturalearth.layer(name) for a shapefile"
         )
 
     def test_the_layer_name_is_never_doubled_by_hand(self):
@@ -239,15 +271,19 @@ class TestSharedDatasetsHaveOneHome:
             f"a hand-written layer/layer.shp join: {offenders} — use naturalearth.layer(name)"
         )
 
-    def test_the_borders_work_dir_is_spelled_once(self):
-        """Two writers and a reader; a literal here is how one of the three drifts alone."""
+    def test_the_borders_path_is_spelled_once(self):
+        """Two writers and a reader; a literal here is how one of the three drifts alone.
+
+        THE PATH FORM ONLY. `bodies.work_dir(body, "borders")` is a different spelling of the same
+        directory and this needle cannot see it; `TestAStageDirectoryHasOneSpeller` counts those.
+        """
         offenders = self.scan('"work/borders"', set())
         assert not offenders, (
             f"a literal borders work dir: {offenders} — "
             'use bodies.work_dir(bodies.EARTH, "borders")'
         )
 
-    def test_the_planet_tiles_work_dir_is_spelled_once(self):
+    def test_the_planet_tiles_path_is_spelled_once(self):
         """The last literal outside `bodies.work_dir`, and it was the one that could pick a planet.
 
         It sat in the terrain cut's `--master` default, so the bare command read Earth's heightfield
@@ -258,17 +294,152 @@ class TestSharedDatasetsHaveOneHome:
         offenders = self.scan('"work/planet_tiles', set())
         assert not offenders, (
             f"a literal planet-tiles work dir: {offenders} — "
-            'use bodies.work_dir(body, "planet_tiles")'
+            "use relief_scan.work_dir(body)"
         )
 
     def test_the_scans_can_see_a_violation(self):
-        """The control, and it is load-bearing: all three assertions above pass on an empty list,
-        which is equally what a scan reading the wrong file set returns. Dropping the allowlist must
-        surface the one site that legitimately holds the spelling."""
-        unfiltered = self.scan("raw/naturalearth", set())
-        assert any(hit.startswith("pipeline/naturalearth.py") for hit in unfiltered), (
-            "the scan cannot find the directory even in the module that defines it — it is "
-            f"reading nothing, and every assertion in this class is vacuous (saw: {unfiltered})"
+        """The control, and it is load-bearing: every assertion above passes on an empty list,
+        which is equally what a scan reading the wrong file set returns.
+
+        THE NEEDLE IS NOT THE ONE THE ASSERTIONS USE, and it cannot be any more. `datasets.py`
+        joins its entries as `_raw("naturalearth")`, so the literal `raw/naturalearth` is now
+        spelled NOWHERE — which is the point of that module and which leaves this control with no
+        real subject, exactly as an emptied allowlist does. What is proved instead is that the
+        walker reads these files and matches text in them, with a needle that does exist once.
+        """
+        unfiltered = self.scan('_raw("naturalearth")', set())
+        assert any(hit.startswith("pipeline/datasets.py") for hit in unfiltered), (
+            "the scan cannot find a string that is definitely in the registry — it is reading "
+            f"nothing, and every assertion in this class is vacuous (saw: {unfiltered})"
+        )
+
+
+class TestAStageDirectoryHasOneSpeller:
+    """A stage name handed to `bodies.work_dir` is a shared directory, and the second speller of one
+    is invisible: every copy resolves to the identical path, so only counting them can say so.
+
+    THE SET IS DERIVED AND THE EXCEPTIONS ARE WHAT IS LISTED. A guard naming the stages it cares
+    about is silent on the one nobody thought of; grouping every literal the call takes makes a new
+    stage covered the day it is written, and an unlisted second spelling red by default.
+
+    The defect it exists for is `"planet_tiles"`, which reached five spellings beside its owner. One
+    of them was the block prep's, and that is what made `block_render --work` a flag that redirected
+    every check a run made and none of the pixels it cut: the run validated one store, planned from
+    its relief scan, stamped freshness against it, and rendered the default planet into the mosaic.
+    """
+
+    #: Stages knowingly spelled more than once, pinned AT THE COUNT so that a further spelling and a
+    #: fix both go red. EMPTY, AND THE MECHANISM STAYS FOR THE NEXT ONE: `borders` was the last
+    #: entry, its two module-level constants replaced by `countries_pmtiles.borders_dir()`. While
+    #: this is empty `test_the_deferred_stages_have_not_grown` asserts nothing, by construction.
+    DEFERRED: ClassVar[dict[str, int]] = {}
+
+    def _spellings(self) -> dict[str, list[str]]:
+        """Every string literal handed to a `*.work_dir(...)` call, grouped by the stage it names.
+
+        AST rather than a line scan, because the argument is what matters: a needle for the quoted
+        stage would hit the module that owns it, every docstring naming it, and this file.
+        """
+        found: dict[str, list[str]] = collections.defaultdict(list)
+        for source_file in sorted((REPO_ROOT / "pipeline").rglob("*.py")):
+            tree = ast.parse(source_file.read_text())
+            for node in ast.walk(tree):
+                if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                        and node.func.attr == "work_dir"):
+                    continue
+                for argument in node.args:
+                    if isinstance(argument, ast.Constant) and isinstance(argument.value, str):
+                        found[argument.value].append(
+                            f"{source_file.relative_to(REPO_ROOT)}:{node.lineno}")
+        return found
+
+    def test_every_stage_is_spelled_once_but_the_deferred_ones(self):
+        """Set equality in both directions. `over - deferred` is the new duplicate; `deferred -
+        over` is this list describing a file it no longer describes, and is equally the failure a
+        scan that matched nothing would produce, so the reverse assertion is the extractor's own
+        control built into the shipping guard."""
+        over = {stage for stage, sites in self._spellings().items() if len(sites) > 1}
+        assert over == set(self.DEFERRED), (
+            f"stages spelled more than once: {sorted(over - set(self.DEFERRED))} — give each one "
+            "owner, as relief_scan.work_dir is for the tile stage; stages listed as deferred that "
+            f"are now clean: {sorted(set(self.DEFERRED) - over)} — drop them from DEFERRED"
+        )
+
+    def test_the_deferred_stages_have_not_grown(self):
+        """The count is pinned rather than the name alone: a further spelling of a deferred stage
+        would otherwise land inside an entry that already says duplicates are tolerated here."""
+        spellings = self._spellings()
+        assert self._counts_for(spellings, self.DEFERRED) == self.DEFERRED, (
+            "a deferred stage changed its spelling count: "
+            f"{ {stage: spellings[stage] for stage in self.DEFERRED} }"
+        )
+
+    def test_the_deferred_count_check_still_bites_with_nothing_deferred(self):
+        """THE DAY THE LAST REAL ENTRY IS DELETED IS THE DAY THAT ASSERTION GOES QUIET, and it
+        looks exactly like a stage that has nothing deferred. `borders` was the last one, so the
+        comparison above now runs over an empty dict and would pass on a broken `_counts_for`
+        forever. A SYNTHETIC entry is the only arm that separates "nothing is deferred" from
+        "deferred stages stopped being counted", and keeping the mechanism exercisable is the
+        deletion's obligation rather than a later reader's.
+        """
+        spellings = self._spellings()
+        stage = min(spellings)
+        actual = len(spellings[stage])
+        assert self._counts_for(spellings, {stage: actual}) == {stage: actual}
+        assert self._counts_for(spellings, {stage: actual + 1}) != {stage: actual + 1}
+
+    @staticmethod
+    def _counts_for(spellings: dict[str, list[str]], deferred: dict[str, int]) -> dict[str, int]:
+        """The comparison the pin makes, extracted so a synthetic deferral can drive it too."""
+        return {stage: len(spellings[stage]) for stage in deferred}
+
+    def test_the_scan_finds_the_calls_it_is_counting(self):
+        """The control. Both assertions above are satisfied by an extractor that parsed nothing —
+        one reads an empty set and the other an empty dict — so the scan must be shown finding the
+        stages that legitimately exist."""
+        found = self._spellings()
+        assert {"cap", "planet", "borders"} <= set(found), (
+            f"the scan cannot see stages the tree certainly spells (saw: {sorted(found)}); "
+            "both assertions above are vacuous"
+        )
+
+    def test_the_tile_stage_is_no_longer_among_them(self):
+        """The regression this class was written for, asserted by name: `relief_scan` owns the
+        string and no caller re-spells it.
+
+        Imported inside the test rather than at module scope, which the tests above this class
+        depend on: `paths` binds its roots at import, and the override cases here run in
+        subprocesses precisely so that binding is not done for them by a sibling.
+        """
+        from pipeline.tile import relief_scan
+        assert relief_scan.STAGE not in self._spellings(), (
+            f"{relief_scan.STAGE!r} is passed to work_dir at "
+            f"{self._spellings()[relief_scan.STAGE]} — call relief_scan.work_dir(body)"
+        )
+
+    def test_the_dev_server_resolves_the_tile_stage_to_the_same_directory(self):
+        """The one spelling Python cannot own, made executable so drift fails loudly.
+
+        `devStores.ts` resolves the dev middleware's tile archive under its own copy of the stage
+        name, and a language boundary is exactly where "they happen to be equal" stops being
+        checkable by either side. The failure it prevents is quiet in the direction that matters:
+        the pipeline writes to a renamed directory and the dev server keeps serving 404s from the
+        old one, which reads as a cut that did not happen.
+
+        Only the relief archive is pinned, because it is the only one of the three whose Python
+        side has an owner to pin against; `planet_terrain` and `planet_vector` are still literals
+        at their single call sites.
+        """
+        from pipeline.tile import relief_scan
+        source = (REPO_ROOT / "web/src/lib/devStores.ts").read_text()
+        match = re.search(r'relief:\s*\{[^}]*?stage:\s*"([^"]+)"', source, re.DOTALL)
+        assert match is not None, (
+            "devStores.ts no longer spells the relief archive's stage as a plain string literal — "
+            "this guard cannot see it, and an assertion it cannot make is not one it passes"
+        )
+        assert match.group(1) == relief_scan.STAGE, (
+            f"devStores.ts serves the relief archive from {match.group(1)!r} while the pipeline "
+            f"writes it to {relief_scan.STAGE!r}"
         )
 
 
@@ -425,3 +596,95 @@ class TestTheStoreIsWhereTheStoreIs:
         for module in ("pipeline.tile.cap_pass", "pipeline.compose.gen_spotlight",
                        "pipeline.frame.frame_country", "pipeline.acquire.download_gebco"):
             assert module in reached, f"{module} was never imported by the probe"
+
+
+class TestNoNewPathFreezesTheStoreAtImport:
+    """`paths.py` states the rule and nothing quantified over it, so its violations were met one at
+    a time — five of them across three separate units before anyone counted the population.
+
+    THE INSTANCES ARRIVED BY PROXIMITY, WHICH HAS NO COMPLETENESS PROPERTY. Two were found by the
+    stage-name guard, which walks `*.work_dir(...)` call sites and is therefore blind to every
+    other function that returns a path; the rest were found by eye while editing those files for
+    something else. A guard exhaustive over one SHAPE reads as exhaustive over the DEFECT, and its
+    silence about `naturalearth.layer(...)` was not evidence of anything.
+
+    The population is 53, of which one is legitimate. That number was never estimated: this class
+    exists because it was measured, and it turned a queue that grew by one per unit into a list
+    that only shrinks.
+
+    ITS OWN BLIND SPOT, STATED RATHER THAN LEFT TO BE REDISCOVERED: this reads module ATTRIBUTES,
+    so a default argument freezes the store invisibly. `def read(src=paths.DATA / "raw/x")` is
+    evaluated once at import exactly as a constant is, and lives in `read.__defaults__` where
+    `vars(module)` cannot see it. Three such freezes existed and every one was caught only because
+    the same value ALSO had a module-level name; a fourth written as a bare default would not be.
+    Closing it means walking each module's functions for `__defaults__` and `__kwdefaults__` too.
+    Until then this class covers one FORM of the rule and the docstring above says which.
+    """
+
+    #: `paths.DATA` IS the root rather than a reader of it, so being module-level is its job.
+    #: Held apart from the list below so that the list means "still to fix" and nothing else.
+    THE_ROOT_ITSELF: ClassVar[str] = "pipeline.paths.DATA"
+
+    #: Every module-level path computed at import, pinned so a NEW one is red the day it lands.
+    #:
+    #: AN EXCEPTIONS LIST AND NOT A TARGET LIST, which is why it is long rather than clever: a
+    #: guard listing the modules it cares about is silent on the one nobody thought of. Set
+    #: EQUALITY is asserted, so this fails in both directions — a new freeze, and an entry fixed
+    #: without being struck off.
+    #:
+    #: WAS 52. The 33 that named a location under `raw/` are gone, `pipeline.datasets` owning that
+    #: layout now. What is left is the `work/` tree, whose owner is `bodies.work_dir`, and six
+    #: `DATA = paths.DATA` aliases that exist only to spell the frozen constants beneath them.
+    FROZEN_AT_IMPORT: ClassVar[frozenset[str]] = frozenset({
+        "pipeline.acquire.extract_globathy.DATA",
+        "pipeline.acquire.extract_globathy.RASTER_DIR",
+        "pipeline.acquire.extract_globathy.VRT_PATH",
+        "pipeline.compose.features_geojson.LABELS",
+        "pipeline.compose.features_geojson.LINES",
+        "pipeline.compose.features_geojson.OUT_DIR",
+        "pipeline.compose.features_geojson.POLYGONS",
+        "pipeline.fuse.fuse_heightfield.DATA",
+        "pipeline.fuse.fuse_heightfield.DEM_VRT",
+        "pipeline.fuse.fuse_heightfield.WBM_VRT",
+        "pipeline.fuse.fuse_planet.CHUNKS_DIR",
+        "pipeline.fuse.fuse_planet.EARTH_PLANET_DIR",
+        "pipeline.fuse.fuse_planet.WBM_VRT",
+        "pipeline.look.lake_depth.DATA",
+        "pipeline.look.lake_depth.LAKE_VRT",
+        "pipeline.look.seaice.DATA",
+        "pipeline.look.snow.DATA",
+        "pipeline.tile.shade.CHUNKS",
+        "pipeline.tile.shade.DATA",
+    })
+
+    def test_the_frozen_set_is_exactly_the_one_pinned(self):
+        found = {entry for entry in run_probe(FREEZE_PROBE, {}).split("\n") if entry}
+        expected = self.FROZEN_AT_IMPORT | {self.THE_ROOT_ITSELF}
+        assert found == expected, (
+            f"new module-level paths computed at import: {sorted(found - expected)} — join them "
+            "onto paths.DATA inside a function, per pipeline/paths.py; entries pinned here that "
+            f"are now clean: {sorted(expected - found)} — strike them off"
+        )
+
+    def test_the_probe_can_see_a_fresh_freeze(self):
+        """The control. An empty result is this test's PASS condition on the shrinking end, so a
+        probe that imported nothing would read as a finished sweep."""
+        planted = FREEZE_PROBE.replace(
+            "frozen = []",
+            "import pipeline.bodies\n"
+            'pipeline.bodies._PLANTED = paths.DATA / "work/planted"\n'
+            "frozen = []",
+        )
+        assert "pipeline.bodies._PLANTED" in run_probe(planted, {})
+
+    def test_the_older_probe_really_is_blind_to_this(self):
+        """WHY THIS CLASS HAD TO EXIST, asserted rather than explained. `STORE_PROBE` moves the
+        store BEFORE importing, so the same planted constant resolves under the new root and it
+        reports nothing. Were it ever to see one, this class would be redundant and should go."""
+        planted = STORE_PROBE.replace(
+            "offenders = []",
+            "import pipeline.bodies\n"
+            'pipeline.bodies._PLANTED = paths.DATA / "work/planted"\n'
+            "offenders = []",
+        )
+        assert "pipeline.bodies._PLANTED" not in run_probe(planted, {})

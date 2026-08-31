@@ -43,7 +43,7 @@ from pipeline.block_plan import Block
 from pipeline.look import lake_depth, layer_producers, snow
 from pipeline.raster_io import GTIFF_CREATE
 from pipeline.render import render_prep, render_seam
-from pipeline.tile import shade_planet
+from pipeline.tile import relief_scan, shade_planet
 
 #: The recipe this stage bakes into its outputs, beside them, as every writer in the pipeline does.
 RECIPE_NAME = "block_recipe.json"
@@ -53,6 +53,15 @@ RECIPE_NAME = "block_recipe.json"
 #: `block_render.params` can record it, since a depth change moves pixels and blocks are skipped by
 #: marker existence alone.
 MASK_FULL_SCALE = 65535.0
+
+#: What a plane overhanging the grid at a POLE reads there, as a `numpy.pad` mode. Named for the
+#: same reason as the depth above: `block_render.params` records it, and without that a change of
+#: policy moves every edge block's pixels while every marker still says the block is rendered.
+#: "edge" repeats the last real row. The alternative that shipped before it was a zero FILL, which
+#: is not a neutral elevation anywhere — Mars's grid ends at -3,565 m north and Earth's at -2,732 —
+#: so it stood a wall of invented geometry along each pole-side plane. `_read_cyclic` carries the
+#: measurement; the columns take no mode at all, because longitude wraps instead.
+ROW_EDGE_MODE = "edge"
 
 
 def mid_latitude_deg(window: Window, body: bodies.Body) -> float:
@@ -112,9 +121,11 @@ def row_scale(window: Window, body: bodies.Body) -> NDArray[np.float64]:
     Which of the two is preferable is a look judgement made on rendered pixels, not on this algebra.
 
     CLIPPED AT MERCATOR'S LIMIT because `block_plan.row_latitude_deg` clips there, and a plane may
-    extend past the grid on the pole side. Those rows are zero-filled heightfield, so the value is
-    not felt; what matters is that it stays finite and that this uses the same spelling of "the
-    latitude of a row" the partition and the context law use.
+    extend past the grid on the pole side. Those rows now carry the CLAMPED edge elevation rather
+    than a fill, so the value is felt and has to be right: what matters is that it stays finite and
+    that this uses the same spelling of "the latitude of a row" the partition and the context law
+    use. An earlier version of this paragraph said the rows were zero-filled and the value therefore
+    unfelt, which was true of the reader at the time and was the defect.
     """
     rows = np.arange(window.row_off, window.row_off + window.height, dtype=np.float64)
     latitudes = np.array([block_plan.row_latitude_deg(float(row), body) for row in rows])
@@ -122,29 +133,50 @@ def row_scale(window: Window, body: bodies.Body) -> NDArray[np.float64]:
 
 
 def _read_cyclic(dataset: Any, window: Window) -> np.ndarray:
-    """`window` read from an open dataset, with columns taken around the cyclic longitude axis.
+    """`window` read from an open dataset: columns WRAP around longitude, rows CLAMP at the poles.
 
-    THE TWO AXES ARE NOT SYMMETRIC and only columns are handled here, which is the same split
-    `Block.plane_window` and `cast_shadow.shadow_mask` make: a Mercator planet joins itself at the
-    antimeridian and does not join itself at the poles, so rows keep the zero fill.
+    THE TWO AXES ARE NOT SYMMETRIC, which is the same split `Block.plane_window` and
+    `cast_shadow.shadow_mask` make: a Mercator planet joins itself at the antimeridian and does not
+    join itself at the poles. Both halves are here because a plane may overhang either edge and
+    neither overhang may invent geometry.
 
-    A zero fill on the COLUMNS is a wrong planet rather than a missing feature. The context is
-    exactly the terrain that shadows a block, so filling it puts a sea-level plateau where the far
-    side of the antimeridian belongs and reads as LAND on the ocean mask, and the NW sun then casts
-    that wall east across block column 0's delivered pixels.
+    NEITHER AXIS MAY BE FILLED, AND THE DATUM IS NOT A NEUTRAL VALUE. On the columns a fill puts a
+    sea-level plateau where the far side of the antimeridian belongs, reads as LAND on the ocean
+    mask, and the NW sun casts that wall east across block column 0. On the rows it does the same
+    thing standing up: Mars's grid ends at -2,967 m, so filling with 0 raises a wall 2,967 m of real
+    elevation proud of the ground it replaces, which at that body's exaggeration models as 59 km of
+    cliff along the north edge of every row-0 plane. Clamping repeats the edge row, the one choice
+    that adds nothing — and it is what `plane_window` has always documented.
+
+    The rows are padded rather than read boundless because `boundless` has no edge mode: it fills,
+    and the fill is the defect.
     """
+    # `ROW_EDGE_MODE` rather than a literal here: `block_render.params` records it, so flipping the
+    # policy restages every block instead of leaving a rendered planet reading fresh under it.
+    height = dataset.height
+    row_off, rows = int(window.row_off), int(window.height)
+    above = max(0, -row_off)
+    below = max(0, row_off + rows - height)
+    inner_rows = rows - above - below
+    if inner_rows <= 0:
+        raise ValueError(f"a plane spanning rows {row_off} to {row_off + rows} lies entirely off a "
+                         f"grid {height} rows tall, so there is no edge row to clamp to")
+    inner = Window(window.col_off, row_off + above, window.width, inner_rows)  # pyright: ignore[reportCallIssue]
+
     width = dataset.width
-    col_off, remaining = int(window.col_off), int(window.width)
+    col_off, remaining = int(inner.col_off), int(inner.width)
     pieces = []
     while remaining > 0:
         start = col_off % width
         take = min(remaining, width - start)
-        pieces.append(dataset.read(1, boundless=True, fill_value=0,
-                                   window=Window(start, window.row_off,  # pyright: ignore[reportCallIssue]
-                                                 take, window.height)))
+        pieces.append(dataset.read(1, window=Window(start, inner.row_off,  # pyright: ignore[reportCallIssue]
+                                                    take, inner.height)))
         col_off += take
         remaining -= take
-    return pieces[0] if len(pieces) == 1 else np.hstack(pieces)
+    read = pieces[0] if len(pieces) == 1 else np.hstack(pieces)
+    if not above and not below:
+        return read
+    return np.pad(read, ((above, below), (0, 0)), mode=ROW_EDGE_MODE)
 
 
 def _read(path: Path, window: Window) -> np.ndarray:
@@ -252,7 +284,7 @@ def merged_paint(paints: dict[str, tuple[Any, Any]], members: "tuple[layers.Laye
     return resolved[0]
 
 
-def build(body: bodies.Body, window: Window, outdir: Path) -> list[str]:
+def build(body: bodies.Body, window: Window, outdir: Path, *, work: Path) -> list[str]:
     """Cut every image this body can produce for `window`, and return what was written.
 
     THE PAINTS ARE DECLARED HERE AND USED TO BE DISCARDED ON ONE LINE. `gather` already resolves
@@ -261,8 +293,13 @@ def build(body: bodies.Body, window: Window, outdir: Path) -> list[str]:
     because the rig held its own module-level white. That white is Earth's, so every body rendered
     in it and Earth was indistinguishable from correct. The registry answer now travels with the
     mask it belongs to; `render_seam.PAINTED_IMAGES` holds why it has to travel as data.
+
+    `work` IS THE CALLER'S AND IS NEVER RE-DERIVED HERE, which is what makes `block_render --work` a
+    seam rather than half of one: this used to resolve the body's default stage directory itself, so
+    a run pointed at a second store checked that store's inputs and cut its pixels from the first.
+    Keyword-only because it and `outdir` are both directories, and a swapped pair would read the
+    render directory as a planet and write the block into the store.
     """
-    work = bodies.work_dir(body, "planet_tiles")
     rasters = planet_seam.declared(body)
     outdir.mkdir(parents=True, exist_ok=True)
     written = [render_seam.HEIGHTFIELD]
@@ -404,7 +441,7 @@ def write_recipe(body: bodies.Body, window: Window, outdir: Path, written: list[
     }, indent=2, sort_keys=True) + "\n")
 
 
-def cut(body: bodies.Body, block: Block, outdir: Path) -> dict[str, Any]:
+def cut(body: bodies.Body, block: Block, outdir: Path, *, work: Path) -> dict[str, Any]:
     """Fill `outdir` with everything the rig needs for one block, and return its frame numbers.
 
     THE FOUR CALLS ARE ONE STAGE AND THEIR ORDER IS THE CONTRACT: images, then the frame the rig
@@ -417,7 +454,7 @@ def cut(body: bodies.Body, block: Block, outdir: Path) -> dict[str, Any]:
     well as on `Block`, in two copies that nothing tied together: changing one moved no test.
     """
     window = block.plane_window
-    written = build(body, window, outdir)
+    written = build(body, window, outdir, work=work)
     frame = write_frame(body, block, outdir)
     write_recipe(body, window, outdir, written)
     render_seam.declare(outdir, render_seam.BLOCK, written)
@@ -440,11 +477,16 @@ def main() -> None:
                              "every shadow crossing the boundary and does it silently, on both "
                              "sides, with no edge to notice")
     parser.add_argument("--outdir", type=Path, required=True, help="the render directory to fill")
+    parser.add_argument("--work", type=Path, default=None,
+                        help="override the stage directory cut from; the same seam "
+                             "block_render's own --work is, so an A/B cuts from the store it "
+                             "names rather than from this body's default")
     args = parser.parse_args()
 
     body = bodies.BODIES[args.body]
     block = Block(col0=args.col, row0=args.row, size_px=args.size, context_px=args.context)
-    frame = cut(body, block, args.outdir)
+    work = args.work if args.work is not None else relief_scan.work_dir(body)
+    frame = cut(body, block, args.outdir, work=work)
     written = sorted(render_seam.declared(args.outdir))
     print(f"declared {render_seam.declaration_path(args.outdir)}", flush=True)
     print(f"{body.name} block col={args.col} row={args.row} {args.size}px delivered, "

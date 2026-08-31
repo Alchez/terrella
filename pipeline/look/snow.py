@@ -17,11 +17,17 @@ import rasterio
 from rasterio.transform import from_bounds
 from scipy import ndimage
 
-from pipeline import mercator, paths, vector_raster
+from pipeline import datasets, mercator, paths, vector_raster
 from pipeline.raster_io import band_window, row_bands
 
 DATA = paths.DATA
-SP_NC = DATA / "raw/snow/NSIDC-0791_SP_0.01Deg_WY2001-2023_V01.0.nc"
+def persistence_nc(sp_nc: Path | None = None) -> Path:
+    """The NSIDC-0791 persistence NetCDF, or the override a caller passed.
+
+    RESOLVED HERE RATHER THAN IN A DEFAULT ARGUMENT, which is evaluated at import and froze the
+    store exactly as the module-level constant it replaced did.
+    """
+    return datasets.snow_persistence() if sp_nc is None else sp_nc
 SP_VAR = "snow_persistence_climatology"  # continuous (9999 levels); the day-quantized sibling is snow_persistence
 SP_SCALE = 1e-4     # unpacked persistence = 0.0001 x packed (valid 0..10000 -> 0..1 fraction)
 SP_FILL = 65535     # packed fill (ocean / no valid MODIS observation)
@@ -38,14 +44,14 @@ def _run(cmd):
     subprocess.run([str(part) for part in cmd], check=True, capture_output=True)
 
 
-def _warp_persistence_direct(bounds, width, height, out_path, sp_nc=SP_NC):
+def _warp_persistence_direct(bounds, width, height, out_path, sp_nc=None):
     """One gdalwarp of SP onto a Web-Mercator grid, storing the RAW PACKED Float32.
 
     bounds = (left, bottom, right, top) in EPSG:3857. -srcnodata excludes the 65535 fill from the
     bilinear kernel so it cannot bleed a white fringe onto coastlines where fill borders land.
     """
     left, bottom, right, top = bounds
-    sub = f'NETCDF:"{sp_nc}":{SP_VAR}'
+    sub = f'NETCDF:"{persistence_nc(sp_nc)}":{SP_VAR}'
     _run(["gdalwarp", "-overwrite", "-q", "-s_srs", "EPSG:4326", "-t_srs", "EPSG:3857",
           "-srcnodata", str(SP_FILL), "-dstnodata", str(SP_FILL),
           "-te", repr(left), repr(bottom), repr(right), repr(top),
@@ -55,7 +61,7 @@ def _warp_persistence_direct(bounds, width, height, out_path, sp_nc=SP_NC):
     return out_path
 
 
-def warp_persistence_raster(bounds, width, height, out_path, sp_nc=SP_NC, band_rows=None):
+def warp_persistence_raster(bounds, width, height, out_path, sp_nc=None, band_rows=None):
     """Warp SP onto a Web-Mercator grid in latitude BANDS, storing the RAW PACKED Float32.
 
     Stores the packed value (0..10000, fill 65535), NOT the 0..1 fraction, on purpose: the composite
@@ -110,7 +116,7 @@ def unpack_persistence(packed):
     return np.clip(np.where(valid, packed, 0.0) * SP_SCALE, 0.0, 1.0)
 
 
-def warp_persistence(bounds, width, height, out_path, sp_nc=SP_NC):
+def warp_persistence(bounds, width, height, out_path, sp_nc=None):
     """Warp SP and return persistence as a float64 array in 0..1 (raster + unpack) -- thin wrapper.
 
     The region path (shade.py) calls this; kept byte-for-byte by delegating to the two halves it

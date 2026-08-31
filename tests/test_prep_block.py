@@ -7,16 +7,19 @@ paired: Earth's answer, and the same answer on a body where the term is not the 
 
 import json
 import math
+from pathlib import Path
 
 import numpy as np
 import pytest
 import rasterio
+from conftest import declare_planet_rasters
 from rasterio.windows import Window
 
-from pipeline import block_plan, bodies, layers, mercator
+from pipeline import block_plan, bodies, layers, mercator, paths
 from pipeline.block_plan import Block
 from pipeline.look import layer_producers, seaice, snow
 from pipeline.render import prep_block
+from pipeline.tile import relief_scan
 
 
 def plane_window(col, row, size, context):
@@ -565,11 +568,43 @@ class TestTheContextWrapsAroundTheAntimeridian:
     antimeridian belongs, and on the ocean mask it reads as LAND. Under the NW sun that wall casts
     east across block column 0's delivered pixels, which is a seam the composite never had.
 
-    The axes stay asymmetric on purpose, so the third guard is the negative control: the north pole
-    does not shadow the south, and a reader that wrapped rows too would pass the first two.
+    The axes stay asymmetric on purpose, so the row guards below are the negative control: the north
+    pole does not shadow the south, and a reader that wrapped rows too would pass the first two.
+
+    ROWS CLAMP RATHER THAN FILL, which is what `plane_window` has always promised and is a
+    correctness fix rather than a preference. A fill puts the DATUM where terrain belongs, and the
+    datum is not a neutral value: Mars's grid ends at -2,967 m, so zero there stands 2,967 m proud of
+    the ground it replaces and models, at this body's exaggeration of 20, as a 59 km wall running
+    along the north edge of every row-0 plane. Clamping repeats the edge row, which is the one
+    choice that adds no geometry at all.
     """
 
     WIDTH, HEIGHT = 64, 8
+    #: Offset on the row-indexed fixture's values so none of them is 0.0, which is the fill. See
+    #: `_row_indexed_grid`; without it the north guard passes against the defect it names.
+    ROW_BASE = 10
+
+    def _row_indexed_grid(self, tmp_path):
+        """A raster whose every value IS its own ROW index, so a clamped read names the row it
+        copied and a wrapped one names a different one.
+
+        THE COLUMN-INDEXED GRID BELOW CANNOT TELL THOSE APART on the row axis: every row of it is
+        identical, so clamping and wrapping return the same bytes and only the fill is
+        distinguishable. That is why the old negative control could pin the fill and never notice
+        it was pinning the wrong answer.
+
+        `ROW_BASE` IS WHY NO VALUE HERE IS ZERO, and it was earned: numbering the rows from 0 made
+        the north guard pass against the fill it was written to catch, because the value clamping
+        would copy and the value filling would invent were both 0.0. An oracle whose correct answer
+        collides with the defect's answer is not an oracle on that side.
+        """
+        path = tmp_path / "rows.tif"
+        data = np.tile((np.arange(self.HEIGHT, dtype=np.float32) + self.ROW_BASE).reshape(-1, 1),
+                       (1, self.WIDTH))
+        with rasterio.open(path, "w", driver="GTiff", width=self.WIDTH, height=self.HEIGHT,
+                           count=1, dtype="float32") as out:  # pyright: ignore[reportCallIssue]
+            out.write(data, 1)
+        return path
 
     def _cyclic_grid(self, tmp_path):
         """A raster whose every value IS its own column index, so a wrapped read names itself."""
@@ -590,9 +625,96 @@ class TestTheContextWrapsAroundTheAntimeridian:
                                Window(self.WIDTH - 4, 0, 8, self.HEIGHT))  # pyright: ignore[reportCallIssue]
         assert got[0].tolist() == [60.0, 61.0, 62.0, 63.0, 0.0, 1.0, 2.0, 3.0]
 
+    def test_a_window_overhanging_the_north_edge_repeats_the_first_row(self, tmp_path):
+        got = prep_block._read(self._row_indexed_grid(tmp_path),
+                               Window(0, -3, 4, 6))  # pyright: ignore[reportCallIssue]
+        assert got[:, 0].tolist() == [10.0, 10.0, 10.0, 10.0, 11.0, 12.0], (
+            "rows above the grid must repeat row 0, not drop to the datum: a fill invents a cliff "
+            "the height of whatever the edge sits below sea level")
+
+    def test_a_window_overhanging_the_south_edge_repeats_the_last_row(self, tmp_path):
+        got = prep_block._read(self._row_indexed_grid(tmp_path),
+                               Window(0, self.HEIGHT - 3, 4, 6))  # pyright: ignore[reportCallIssue]
+        assert got[:, 0].tolist() == [15.0, 16.0, 17.0, 17.0, 17.0, 17.0], (
+            "the south edge takes the same rule as the north; it is quieter only because a NW sun "
+            "casts a south-edge wall's shadow off the grid rather than into it")
+
     def test_rows_past_the_grid_still_do_not_wrap(self, tmp_path):
-        """The negative control: wrapping BOTH axes would satisfy the two guards above."""
-        got = prep_block._read(self._cyclic_grid(tmp_path),
+        """The negative control, and it needs the ROW-indexed grid to be one at all.
+
+        Wrapping BOTH axes would satisfy the two column guards above, and against a grid whose rows
+        are identical it would also satisfy the two clamp guards. Only a raster that numbers its
+        rows can tell "repeated the near edge" from "reached the far one".
+        """
+        got = prep_block._read(self._row_indexed_grid(tmp_path),
                                Window(0, -2, 4, 4))  # pyright: ignore[reportCallIssue]
-        assert got[0].tolist() == [0.0, 0.0, 0.0, 0.0], "row -2 must not read the grid's last row"
-        assert got[2].tolist() == [0.0, 1.0, 2.0, 3.0], "row 0 must still be the grid's first row"
+        assert got[0, 0] == float(self.ROW_BASE), "row -2 must repeat the grid's FIRST row"
+        assert got[0, 0] != float(self.ROW_BASE + self.HEIGHT - 1), (
+            "row -2 must not wrap to the grid's LAST row")
+        assert got[2, 0] == float(self.ROW_BASE), "row 0 must still be the grid's first row"
+
+
+class TestTheCutReadsTheWorkDirectoryItWasGiven:
+    """The stage directory is the caller's answer, and this stage used to re-derive it.
+
+    `block_render.run` validates its inputs, plans its blocks and tracks its freshness under the
+    directory it was handed; this stage then resolved the default and cut every block's pixels from
+    there instead. Both halves succeed, so a run pointed at a second store checks one planet and
+    renders another into a mosaic that records it as done.
+
+    THE TWO STORES DIFFER IN THEIR GROUND, not in whether they exist, because a redirect that
+    reaches only some readers is invisible whenever the default happens to hold something openable.
+    """
+
+    STORE_PX = 32
+    BLOCK = Block(col0=8, row0=8, size_px=8, context_px=4)
+
+    def _store(self, root, elevation):
+        """A minimal stage directory: the three warped rasters this cut reads, at one elevation so
+        a block cut from it is identifiable by value alone."""
+        root.mkdir(parents=True, exist_ok=True)
+        for name, dtype, value in ((prep_block.shade_planet.HEIGHT_3857, "float32", elevation),
+                                   (prep_block.shade_planet.OCEAN_3857, "uint8", 0),
+                                   (prep_block.shade_planet.WATER_3857, "uint8", 0)):
+            with rasterio.open(root / name, "w", driver="GTiff",  # pyright: ignore[reportCallIssue]
+                               width=self.STORE_PX, height=self.STORE_PX, count=1,
+                               dtype=dtype) as out:
+                out.write(np.full((self.STORE_PX, self.STORE_PX), value, dtype=dtype), 1)
+        return root
+
+    def _both_stores(self, monkeypatch, tmp_path):
+        """The override at one elevation and the default at another, with the default reachable:
+        `paths.DATA` is moved so nothing here can touch the real store."""
+        monkeypatch.setattr(paths, "DATA", tmp_path / "store")
+        declare_planet_rasters(monkeypatch)
+        override = self._store(tmp_path / "elsewhere", 111.0)
+        default = self._store(relief_scan.work_dir(bodies.EARTH), 222.0)
+        return override, default
+
+    def test_the_heightfield_is_cut_from_the_given_directory(self, monkeypatch, tmp_path):
+        """The oracle. Reading the default instead yields a complete, correctly shaped block of the
+        wrong planet's ground, which no shape or existence check downstream can tell from right."""
+        override, _ = self._both_stores(monkeypatch, tmp_path)
+        outdir = tmp_path / "render"
+        prep_block.cut(bodies.EARTH, self.BLOCK, outdir, work=override)
+        with rasterio.open(outdir / prep_block.render_seam.HEIGHTFIELD) as cut:  # pyright: ignore[reportCallIssue]
+            assert np.unique(cut.read(1)).tolist() == [111.0]
+
+    def test_the_default_is_a_reachable_directory_with_different_ground(
+            self, monkeypatch, tmp_path):
+        """The control, and it is what makes the oracle discriminating: if the default resolved
+        somewhere unopenable, the assertion above would pass on a stage that had ignored its
+        argument and crashed, and it would pass for a body whose store simply is not there."""
+        _, default = self._both_stores(monkeypatch, tmp_path)
+        assert default == relief_scan.work_dir(bodies.EARTH)
+        with rasterio.open(default / prep_block.shade_planet.HEIGHT_3857) as height:  # pyright: ignore[reportCallIssue]
+            assert np.unique(height.read(1)).tolist() == [222.0]
+
+    def test_the_stage_derives_no_work_directory_of_its_own(self):
+        """The seam stated as a property rather than through one call: this module names the stage
+        nowhere, so there is no second route to a directory the caller did not choose."""
+        source = Path(prep_block.__file__).read_text()
+        assert relief_scan.STAGE not in source, (
+            f"{Path(prep_block.__file__).name} spells the stage directory {relief_scan.STAGE!r} — "
+            "the cut reads what its caller passes, and a local derivation is the defect this "
+            "class exists for")

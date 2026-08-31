@@ -14,22 +14,9 @@
 // nullable for the same reason one size further: Earth's card now has nothing to say under the
 // name, and Mars's etymology is the whole content of its own.
 
-import { HERO_BASE } from "./assetBase";
 import type { SearchEntry } from "./catalogueSearch";
 import type { NamedFeature } from "./featureIndex";
 import type { Country } from "./manifest";
-
-/** The hero render at the top of the card, or absent on a body that has none. */
-export interface PanelFigure {
-  /** width / height, used to reserve the box before the image decodes. */
-  aspect: number;
-  src: string;
-  srcset: string;
-  alt: string;
-  /** The white border overlay, when this place has one rendered. `body.borders-on` decides whether
-   *  it is SHOWN; this decides whether it exists at all. */
-  border: { src: string; srcset: string } | null;
-}
 
 /** Everything the card renders, with no field that names a body. */
 export interface PanelContent {
@@ -39,8 +26,6 @@ export interface PanelContent {
   /** The sentence under the name, or absent when the card has nothing to add to it. Describes
    *  whatever the card is actually showing, which is why a card showing only a name has none. */
   note: string | null;
-  /** Absent on a body with no renders, which is what hides the figure. */
-  figure: PanelFigure | null;
   /** Where the card sends a reader next, or absent when there is nowhere to go. */
   link: PanelLink | null;
 }
@@ -81,8 +66,9 @@ export const HERO_LINK_LABEL = "Open full-size render →";
  * screen" — and written as two literals a change to the card's width would silently correct one
  * framing and leave the other pushing its subject under the panel.
  *
- * The card itself is `min(420px, 100vw - 2.4rem)` in the stylesheet, which this deliberately does
- * not recompute: what the camera needs is clearance with a margin, not the element's exact box.
+ * NOT A RESTATEMENT OF THE CARD'S WIDTH. What the camera needs is clearance with a margin, not the
+ * element's box, so this survives a resize. Two earlier comments here did restate the stylesheet's
+ * formula and drifted from it; read the width off `.detail-panel` rather than copying it back.
  */
 export const PANEL_CLEARANCE_PX = 400;
 
@@ -92,35 +78,13 @@ export const FRAME_EDGE_PX = 60;
 /**
  * Below this viewport width the card stops being something to frame AROUND.
  *
- * It goes full-bleed there (`100vw - 2.4rem`), so there is no clear area left to aim at and a
- * camera still shifting its subject leftward would push it off the screen to make room for a panel
- * covering the screen anyway. Both bodies centre normally below this and accept the overlap.
+ * The card's own `min()` collapses to the viewport term there, so there is no clear area left to
+ * aim at and a camera still shifting its subject leftward would push it off the screen to make
+ * room for a panel covering the screen anyway. Both bodies centre normally below this and accept
+ * the overlap. Stated as the BEHAVIOUR rather than as the formula, which is the drift the note on
+ * `PANEL_CLEARANCE_PX` above describes.
  */
 export const PANEL_BESIDE_MIN_WIDTH_PX = 640;
-
-/** The real pixel WIDTH of a variant, which is what an `srcset` w-descriptor means.
- *
- *  NOT THE LONG EDGE. A portrait variant is narrower than the number naming it, so descriptors
- *  taken from the key alone overstate every portrait hero and the browser picks a rung too small.
- *  Mirrors the gallery detail page, which is where the convention was set. */
-export function variantWidth(longEdge: number, aspect: number): number {
-  return Math.round(longEdge * Math.min(1, aspect));
-}
-
-/** Build one hero's `srcset` across its rendered rungs. */
-export function heroSrcset(
-  slug: string,
-  sizes: readonly number[],
-  aspect: number,
-  border = false,
-): string {
-  return sizes
-    .map((size) => {
-      const suffix = border ? `-border-${size}.png` : `-${size}.webp`;
-      return `${HERO_BASE}${slug}${suffix} ${variantWidth(size, aspect)}w`;
-    })
-    .join(", ");
-}
 
 /**
  * The IAU descriptor as one word: `"Crater, craters"` becomes `"Crater"`.
@@ -201,9 +165,10 @@ export function featureSearchEntry(feature: NamedFeature): SearchEntry {
  * One builder over one source is what keeps the card a visitor searched to and the card they tapped
  * from being two slightly different cards.
  *
- * `figure` IS ALWAYS NULL, because this body has no heroes — the resolution floor rules them out
- * for every feature small enough to be a destination. That is the panel's own absent case rather
- * than anything special here.
+ * THE CARD SHOWS NO PICTURE ON EITHER BODY, so nothing here has to say why Mars has none. It used
+ * to: the panel carried a hero figure, and this builder's null was the case that proved the field
+ * was genuinely optional rather than Earth-shaped. The field is gone, and the sentence that
+ * explained it went with it.
  *
  * THE LINK LEAVES THE SITE, WHICH EARTH'S NEVER DOES, and that is the whole reason `PanelLink`
  * carries a label and a flag instead of an href. There is no per-feature page here to open, so the
@@ -218,7 +183,6 @@ export function featurePanelContent(feature: NamedFeature): PanelContent {
     // Iosifovich; Russian cosmophysicist (1918–1993)." It is the whole content of the card, which
     // is why `features_geojson` carries it into the tiles too rather than making it a second fetch.
     note: feature.origin,
-    figure: null,
     link: { href: feature.gazetteer, label: GAZETTEER_LINK_LABEL, external: true },
   };
 }
@@ -274,7 +238,6 @@ export function countryPanelContent(country: Country): PanelContent {
     eyebrow: countrySummary(country),
     name,
     note: null,
-    figure: null,
     link: { href: `/${slug}/`, label: HERO_LINK_LABEL, external: false },
   };
 }

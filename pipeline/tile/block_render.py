@@ -37,6 +37,7 @@ import shutil
 import sys
 import time
 import types
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -58,7 +59,7 @@ from pipeline import (
 from pipeline.block_plan import Block
 from pipeline.look import layer_producers, palette
 from pipeline.raster_io import GTIFF_CREATE
-from pipeline.render import blender_proc, prep_block, render_seam
+from pipeline.render import blender_proc, prep_block
 from pipeline.tile import producer_seam, relief_scan, shade_planet
 
 #: Consecutive block failures that stop the run. A single block can fail for its own reasons — a
@@ -93,12 +94,9 @@ def mosaic_in(work: Path) -> Path:
 
 
 def markers_in(mosaic: Path) -> Path:
-    """Where per-block completion is recorded, named after the mosaic it describes.
-
-    Derived from the mosaic rather than from the work directory so that a run pointed at a second
-    raster — an A/B, or a first pass that must not overwrite the shipping one — keeps its own
-    markers. Sharing them would let one run resume over the other's blocks.
-    """
+    """Where per-block completion is recorded, named after the mosaic it describes: one shared
+    directory would let one run resume over another's blocks. `sidecars_for` holds the general
+    rule this is one case of."""
     return mosaic.with_name(f"{mosaic.stem}_blocks")
 
 
@@ -107,9 +105,47 @@ def generation_stamp(markers: Path) -> Path:
     return markers / GENERATION_NAME
 
 
-def status_in(work: Path) -> Path:
-    """Where the run reports its own progress."""
-    return work / STATUS_NAME
+@dataclass(frozen=True)
+class Sidecars:
+    """Every path one run of this producer writes, and whether that run fills the canonical
+    raster — which decides what it may declare as well as what it may name."""
+
+    mosaic: Path
+    markers: Path
+    scratch: Path
+    recipe: Path
+    status: Path
+    canonical: bool
+
+
+def sidecars_for(work: Path, mosaic: Path) -> Sidecars:
+    """Everything a run writes, derived from the raster it fills rather than from `work`.
+
+    ONE RULE AND ONE OWNER: what a run writes sits beside its raster and is named after it.
+    `--mosaic` exists so an A/B cannot disturb a shipping planet, and a half-kept seam disturbs it
+    in the direction nothing looks at. The recipe is in `raytrace_deps`, so an A/B writing the
+    shipping recipe moves it, the next production pass moves it back, `generation_is_current` reads
+    False and `start_generation` clears a finished planet's entire marker set — a night of Cycles
+    to emit the pixels already on disk, logged as a line that reads like ordinary operation.
+
+    THE CANONICAL RASTER'S SIDECARS KEEP THEIR BARE NAMES, the same elision `composite_planet`
+    makes for its default variant. Prefixing every mosaic's alike is the tidier rule and renames two
+    files a finished pass left on disk, which moves an mtime: the same night, paid on the way in.
+
+    RESOLVED FIRST, so a canonical raster spelled through a symlink or a `..` is still canonical —
+    which the arm worktrees can produce, since they run against a symlinked work directory. Read as
+    a second raster it would take a recipe of its own while sharing the markers and the bytes,
+    leaving the shipping planet fresh under a recipe that describes nothing.
+    """
+    mosaic = mosaic.resolve()
+    canonical = mosaic == mosaic_in(work).resolve()
+    prefix = "" if canonical else f"{mosaic.stem}_"
+    return Sidecars(mosaic=mosaic,
+                    markers=markers_in(mosaic),
+                    scratch=mosaic.with_name(f"{mosaic.stem}_scratch"),
+                    recipe=mosaic.with_name(f"{prefix}{PARAMS_NAME}"),
+                    status=mosaic.with_name(f"{prefix}{STATUS_NAME}"),
+                    canonical=canonical)
 
 
 def block_name(block: Block) -> str:
@@ -192,6 +228,10 @@ def params(body: bodies.Body, rasters: frozenset[str], look: palette.Look,
         # rather than the per-block prep directory. Left out, a depth change would reach only the
         # blocks that were going to render anyway and leave every finished one terraced.
         "mask_full_scale": prep_block.MASK_FULL_SCALE,
+        # The same argument one line up, for the policy at the POLES rather than the mask depth: it
+        # moves only the two edge block rows, and those are exactly the blocks a marker already
+        # calls done. Left out, the fix that replaced the zero fill would reach nothing on disk.
+        "row_edge_mode": prep_block.ROW_EDGE_MODE,
         # What the prep grades its masks with, and the general case of the line above it: none of
         # it moves a warped raster, so `raytrace_deps` is blind to all of it.
         #
@@ -283,40 +323,6 @@ def start_generation(markers: Path, mosaic: Path) -> None:
     generation_stamp(markers).touch()
 
 
-def unsuppliable_rig_images(rasters: frozenset[str]) -> list[str]:
-    """The rig's mandatory images no block on this planet seam can carry.
-
-    A DECLARATION QUESTION AND NOT A DISK ONE, asked before any block is prepped: `prep_block.build`
-    writes `inlandlake.png` and `river.png` only when the seam declared a `watermask`, and the rig
-    loads both for every look. So on a body with no watermask the images are not missing from one
-    block, they are unproduceable for all of them.
-
-    THE OCEANMASK IS DELIBERATELY NOT CHECKED, and that is the one asymmetry. It is the single
-    mandatory image a look can answer for — `scene_build.images_for` drops it when `Look.sea is
-    None` — and that rule lives in a module this interpreter cannot import, since `scene_build`
-    imports `bpy`. Lake and river carry no such escape: whether a planet has inland water is its
-    planet seam's answer rather than a colour, which is what makes them decidable from here.
-    """
-    return [] if "watermask" in rasters else [render_seam.INLANDLAKE, render_seam.RIVER]
-
-
-def rig_seam_refusals(rasters: frozenset[str]) -> list[str]:
-    """The same gap as a reason a caller can print, or `[]`.
-
-    TWO CALLERS AND ONE WORDING. The pass asks this before the shared warp so a wrongly-declared
-    body does not pay 6:49 to hear no; `check_inputs` asks it again below because `main` is a second
-    door into this producer that never passes through the pass. Neither can be dropped, and the
-    explanation is written once so the two answers cannot drift into disagreeing about why.
-    """
-    unsuppliable = unsuppliable_rig_images(rasters)
-    if not unsuppliable:
-        return []
-    return [(f"its planet stage declared no watermask, so no block carries "
-             f"{' or '.join(unsuppliable)}, which the rig loads for every look. This is a body-seam "
-             f"gap rather than a missing file — either its planet producer must emit one, or the "
-             f"rig must learn to render without it")]
-
-
 def check_inputs(work: Path, body: bodies.Body, rasters: frozenset[str]) -> None:
     """Refuse to start when this body cannot feed the rig, or its warped rasters are not on disk.
 
@@ -325,10 +331,13 @@ def check_inputs(work: Path, body: bodies.Body, rasters: frozenset[str]) -> None
     the consecutive-failure counter — whose message says the GPU is gone, about a stage that never
     ran. On an unattended night that reads as a hardware fault until someone opens the log.
 
-    THE SEAM CHECK IS THE SAME FAILURE ONE TIER UP, and it is the one a body switched to this
-    producer hits. A planet declaring no watermask passes every raster check below — it is not asked
-    for a file it never had — and then fails inside Blender on an image the rig loads
-    unconditionally, eight times, under the message about the GPU.
+    THERE IS NO LONGER A SEAM CHECK ABOVE THIS, and its removal is the point rather than an
+    omission. A planet declaring no watermask used to be refused here, because the rig loaded
+    `inlandlake.png` and `river.png` for every look while `prep_block` wrote them only where the
+    seam declared one; `scene_build.textures_for` now reads the render directory's own declaration,
+    so a thin seam is rendered rather than turned away. What replaced it is a narrower question in
+    the only place that can ask it: a LOOK with a sea over a directory with no oceanmask refuses in
+    `scene_build`, which this interpreter cannot import because it imports `bpy`.
 
     WHICH RASTERS ARE REQUIRED COMES FROM THE DECLARATION AND NEVER FROM THE DISK, because those are
     different questions: a body that emits no inland water must not be asked for a watermask, and a
@@ -336,10 +345,6 @@ def check_inputs(work: Path, body: bodies.Body, rasters: frozenset[str]) -> None
 
     The warp itself is still the pass's, which is the seam this names rather than papers over.
     """
-    refusals = rig_seam_refusals(rasters)
-    if refusals:
-        raise SystemExit(f"{body.name} cannot be rendered by this producer: "
-                         + "; ".join(refusals))
     required = [work / shade_planet.HEIGHT_3857]
     if "oceanmask" in rasters:
         required.append(work / shade_planet.OCEAN_3857)
@@ -484,11 +489,15 @@ def cropped(png: Path, block: Block) -> np.ndarray:
 
 
 def render_block(body: bodies.Body, block: Block, mosaic: Path, scratch: Path,
-                 markers: Path) -> None:
+                 markers: Path, work: Path) -> None:
     """One block, end to end: prep, render, crop, write into the mosaic, mark.
 
     THE MARKER IS LAST AND THE MOSAIC IS CLOSED BEFORE IT. Only a flushed write is a block that
     exists, and this is the ordering the resume depends on being right.
+
+    `work` IS CARRIED RATHER THAN RE-DERIVED so that every raster this run reads comes from the one
+    directory `run` validated. The prep used to resolve the body's default itself, which made
+    `--work` a flag that moved the checks and left the pixels behind.
     """
     name = block_name(block)
     render_dir = scratch / name
@@ -498,7 +507,7 @@ def render_block(body: bodies.Body, block: Block, mosaic: Path, scratch: Path,
     shutil.rmtree(render_dir, ignore_errors=True)
     png.unlink(missing_ok=True)
 
-    prep_block.cut(body, block, render_dir)
+    prep_block.cut(body, block, render_dir, work=work)
     result = blender_proc.run(
         blender_command(body, render_dir, scratch / f"{name}.blend", png))
     if result.returncode != 0 or not png.exists():
@@ -632,15 +641,25 @@ def run(body: bodies.Body, work: Path, mosaic: Path, *, limit: int | None = None
     # body the registry still calls `"composite"`. Recording the body's answer here would leave the
     # stamp agreeing with a registry the pixels disagree with, and the composite would then find
     # nothing moved and republish them under its own recipe.
+    # ONLY FOR THE CANONICAL RASTER, which is `composite_planet`'s guard for the same reason: the
+    # declaration's subject is the raster the tile cut reads, so a run pointed elsewhere claiming it
+    # would name a producer for bytes it never wrote. A second mosaic needs no declaration at all —
+    # the stamp exists because two producers share ONE output, and that one has a single producer.
     rasters = planet_seam.declared(body)
     look = palette.look_for(body.name)
     check_inputs(work, body, rasters)
-    producer_seam.declare(work, "raytrace")
+    sidecars = sidecars_for(work, mosaic)
+    # ONE SPELLING FROM HERE DOWN. Everything beside the raster is derived from the resolved path,
+    # so addressing the raster itself by the caller's would leave one run holding two names for one
+    # file — which is what the progress document then reports and a reader compares against.
+    mosaic = sidecars.mosaic
+    if sidecars.canonical:
+        producer_seam.declare(work, "raytrace")
     blocks = plan_blocks(body, work)
-    recipe = freshness.write_if_changed(work / PARAMS_NAME,
+    recipe = freshness.write_if_changed(sidecars.recipe,
                                         params(body, rasters, look, rig_recipe(body), blocks))
     deps = raytrace_deps(work, recipe)
-    markers = markers_in(mosaic)
+    markers = sidecars.markers
 
     if not freshness.is_stale(mosaic, *deps):
         log(f"{mosaic.name} fresh -> skip render", stage=True)
@@ -652,7 +671,7 @@ def run(body: bodies.Body, work: Path, mosaic: Path, *, limit: int | None = None
     freshness.done_marker(mosaic).unlink(missing_ok=True)
 
     ensure_mosaic(mosaic, body)
-    scratch = work / f"{mosaic.stem}_scratch"
+    scratch = sidecars.scratch
     scratch.mkdir(parents=True, exist_ok=True)
 
     selected = [block for block in blocks if only is None or block_name(block) in only]
@@ -663,7 +682,7 @@ def run(body: bodies.Body, work: Path, mosaic: Path, *, limit: int | None = None
     todo = [block for block in selected if not (markers / block_name(block)).exists()]
     already = sum(1 for block in blocks if (markers / block_name(block)).exists())
 
-    status = Status(body, mosaic, status_in(work), len(blocks), already)
+    status = Status(body, mosaic, sidecars.status, len(blocks), already)
     status.state = "rendering"
     status.write()
     log(f"{body.name}: {already}/{len(blocks)} blocks already done, {len(todo)} to render"
@@ -689,7 +708,7 @@ def run(body: bodies.Body, work: Path, mosaic: Path, *, limit: int | None = None
         name = block_name(block)
         started = time.monotonic()
         try:
-            render_block(body, block, mosaic, scratch, markers)
+            render_block(body, block, mosaic, scratch, markers, work)
         except Exception as failure:            # noqa: BLE001 — one block must not end the night
             consecutive += 1
             status.failures.append(name)
@@ -742,12 +761,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--body", required=True, choices=sorted(bodies.BODIES),
                         help="which planet's grid, look and margin law to render")
     parser.add_argument("--work", type=Path, default=None,
-                        help="override the stage directory holding the warped inputs")
+                        help="override the stage directory holding the warped inputs: every "
+                             "raster the run checks, plans from and cuts its blocks out of comes "
+                             "from here, so a second store is rendered rather than merely "
+                             "validated")
     parser.add_argument("--mosaic", type=Path, default=None,
                         help="override the raster written, the seam `--out` gives the planet pass: "
                              "an A/B, or a first pass that must not overwrite a shipping planet. "
-                             "Its markers and scratch follow the name, so two runs never resume "
-                             "over each other")
+                             "Everything the run writes follows the name and it declares no "
+                             "producer, so it cannot restage the raster it was told to keep off")
     # `default=None` and tested against None, never for truthiness: `--limit 0` has to mean render
     # nothing at all, and a falsy test would read it as no limit and start the whole planet.
     parser.add_argument("--limit", type=int, default=None,
@@ -761,7 +783,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
     body = bodies.BODIES[args.body]
-    work = args.work if args.work is not None else bodies.work_dir(body, relief_scan.STAGE)
+    work = args.work if args.work is not None else relief_scan.work_dir(body)
     mosaic = args.mosaic if args.mosaic is not None else mosaic_in(work)
     only = frozenset(name.strip() for name in args.only.split(",")) if args.only else None
     run(body, work, mosaic, limit=args.limit, only=only)

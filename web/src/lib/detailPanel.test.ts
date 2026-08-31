@@ -12,8 +12,6 @@ import {
   featureSearchEntry,
   featureTypeLabel,
   formatFeatureDiameter,
-  heroSrcset,
-  variantWidth,
   type PanelContent,
 } from "./detailPanel";
 import { featureIndex, type NamedFeature } from "./featureIndex";
@@ -46,30 +44,6 @@ function country(overrides: Partial<Country> = {}): Country {
   };
 }
 
-describe("srcset descriptors are widths, not long edges", () => {
-  it("leaves a landscape variant at its key", () => {
-    expect(variantWidth(1920, 1.5)).toBe(1920);
-  });
-
-  it("narrows a portrait variant to its real width", () => {
-    // The trap this exists for: a portrait hero's key names its HEIGHT, so a descriptor taken from
-    // the key alone overstates the width and the browser settles for a rung too small.
-    expect(variantWidth(1920, 0.5)).toBe(960);
-    expect(variantWidth(3840, 0.75)).toBe(2880);
-  });
-
-  it("names the webp variants for a hero and the png ones for a border", () => {
-    const hero = heroSrcset("chile", [640, 1920], 0.5);
-    expect(hero).toContain("chile-640.webp 320w");
-    expect(hero).toContain("chile-1920.webp 960w");
-    expect(hero).not.toContain("-border-");
-
-    const border = heroSrcset("chile", [640], 0.5, true);
-    expect(border).toContain("chile-border-640.png 320w");
-    expect(border).not.toContain(".webp");
-  });
-});
-
 describe("a country becomes card content", () => {
   it("puts the continent in the eyebrow and sends the reader to the country's own page", () => {
     const content = countryPanelContent(country());
@@ -91,15 +65,18 @@ describe("a country becomes card content", () => {
     // rig: the picture had become the globe's picture at a different exaggeration, and the note
     // existed only to excuse a difference that was going away. The link still reaches the render.
     //
-    // THE TWO POSITIVE ASSERTIONS RIDE WITH THE TWO NULLS ON PURPOSE. `toBeNull` cannot tell a
-    // field deliberately dropped from a builder that returned nothing at all, so both nulls
-    // survive a `countryPanelContent` gutted to `{}` — the name and the link are what refuse it.
+    // `toHaveProperty` AND NOT `toBeNull`: a null assertion passes against a builder that re-adds
+    // the key and sets it to null, which is how the picture comes back by accident.
+    //
+    // THE TWO POSITIVE ASSERTIONS RIDE WITH IT ON PURPOSE. Neither absence can tell a field
+    // deliberately dropped from a builder that returned nothing at all, so both survive a
+    // `countryPanelContent` gutted to `{}` — the name and the link are what refuse it.
     //
     // BOTH SAMPLES, because `sizes` is the field the figure used to be built from: a builder that
     // starts consulting it again passes on the unrendered one alone.
     for (const sample of [country(), country({ sizes: [], native: null, rendered: false })]) {
       const content = countryPanelContent(sample);
-      expect(content.figure).toBeNull();
+      expect(content).not.toHaveProperty("figure");
       expect(content.note).toBeNull();
       expect(content.name).toBe("Chile");
       expect(content.link).not.toBeNull();
@@ -113,36 +90,16 @@ describe("a country becomes card content", () => {
   });
 });
 
-describe("the card's box is capped where there is no room for a country's own shape", () => {
-  /** The card's narrow block, sliced so a rule from some other breakpoint cannot satisfy this. */
-  function narrowCardRules(): string {
-    const start = GLOBE.indexOf("  @media (max-width: 40rem) {\n    .dp-figure {");
-    expect(start, "the card has no narrow block — a tall hero is unbounded on a phone").toBeGreaterThan(-1);
-    return GLOBE.slice(start, GLOBE.indexOf("\n  }", GLOBE.indexOf("\n    }", start)));
-  }
-
-  it("caps the figure by HEIGHT, which is the only lever an inline aspect yields to", () => {
-    // `openPanel` writes `aspect-ratio` inline from the manifest, so a stylesheet cannot restate the
-    // ratio without `!important`. Capping the height lets the inline ratio yield on its own — and a
-    // rule that reached for `aspect-ratio` here would lose silently and look like a cascade bug.
-    expect(narrowCardRules()).toMatch(/max-height:\s*40vh;/);
-    expect(narrowCardRules(), "an aspect here loses to the inline one and does nothing").not.toContain(
-      "aspect-ratio",
-    );
-  });
-
-  it("overrides the fit through the SAME selector the base rule uses, or it silently loses", () => {
-    // THIS IS THE VERSION THAT WORKS, AND THE FIRST ONE DID NOT. Written as `.dp-hero, .dp-border`
-    // the rule is specificity (0,1,0) against the base `.dp-figure img`'s (0,1,1), so the cap
-    // applied and the images went on cropping — a card that is bounded and still cuts the country
-    // in half. Every property this test named was present in the source the whole time; only a
-    // computed style on a real page could tell, and that is what caught it.
-    //
-    // So the assertion is about the SELECTOR, not the property: matching the base rule exactly is
-    // what puts source order in charge, and source order is something a reader can check.
-    expect(narrowCardRules()).toMatch(/\.dp-figure img \{\s*\n\s*object-fit: contain;/);
-    expect(narrowCardRules(), "a bare class here is outranked by `.dp-figure img` and does nothing")
-      .not.toMatch(/^\s*\.dp-(hero|border)[ ,{]/m);
+describe("the card's narrow breakpoint is one fact written in two languages", () => {
+  it("keeps no figure rule anywhere, now that the card carries no picture", () => {
+    // The structural half of the builder's `not.toHaveProperty("figure")`: CSS for an element
+    // nothing renders is invisible to every other guard in this file.
+    // The BARE class name, never `\.dp-figure`: a selector needs the dot and `class="dp-figure"`
+    // does not, so the dotted form checks the stylesheet while leaving the markup free to re-grow
+    // the element. Caught by `sabotage.py`, which added exactly that markup and was not noticed.
+    for (const gone of ["dp-figure", "dp-hero", "dp-border"]) {
+      expect(GLOBE, `${gone} survived the card going text-only`).not.toContain(gone);
+    }
   });
 
   it("caps it only where the card has stopped being something to frame around", () => {
@@ -281,7 +238,7 @@ describe("the content contract stays body-neutral", () => {
     // `borderSizes` creeping back in would re-couple it to Earth's manifest without anything
     // failing, because Earth's builder would go on supplying them.
     const content: PanelContent = countryPanelContent(country());
-    expect(Object.keys(content).toSorted()).toEqual(["eyebrow", "figure", "link", "name", "note"]);
+    expect(Object.keys(content).toSorted()).toEqual(["eyebrow", "link", "name", "note"]);
   });
 
   it("is filled the same way by both bodies, or the card has two shapes", () => {
@@ -368,8 +325,8 @@ describe("a gazetteer row becomes a card", () => {
     expect(featurePanelContent(feature({ diameterKm: null })).eyebrow).toBe("Crater");
   });
 
-  it("carries no picture, because this body renders no heroes", () => {
-    expect(featurePanelContent(feature()).figure).toBeNull();
+  it("carries no picture, because the card shows none on either body", () => {
+    expect(featurePanelContent(feature())).not.toHaveProperty("figure");
   });
 
   it("sends a reader to the IAU entry the note is quoting, in a new tab", () => {

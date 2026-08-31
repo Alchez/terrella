@@ -48,7 +48,7 @@ import pyproj
 import rasterio
 import shapefile
 
-from pipeline import naturalearth
+from pipeline import datasets, naturalearth
 
 PLANE_WIDTH_UNITS = 2.0
 
@@ -289,7 +289,7 @@ def main():
     ap.add_argument("--render", type=Path, required=True)
     ap.add_argument("--heightfield", type=Path, required=True)
     ap.add_argument("--mask", type=Path)
-    ap.add_argument("--ne-dir", type=Path, default=naturalearth.DIR,
+    ap.add_argument("--ne-dir", type=Path, default=datasets.naturalearth(),
                     help="a different Natural Earth release; defaults to the store's own")
     ap.add_argument("--outdir", type=Path, required=True)
     args = ap.parse_args()

@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 from scipy import ndimage
 
-from pipeline import mercator, vector_raster
+from pipeline import datasets, mercator, vector_raster
 from pipeline.acquire import download_sim3292
 from pipeline.look import mars_ice
 from pipeline.raster_io import row_bands
@@ -317,7 +317,7 @@ class TestAUnitIsResolvedAtCallTime:
         seen: list = []
         monkeypatch.setattr(vector_raster, "burn_onto_grid",
                             lambda source, *args, **kwargs: seen.append(source) or source)
-        monkeypatch.setattr(download_sim3292, "DATA_DIR", tmp_path / "elsewhere")
+        monkeypatch.setattr(datasets, "mars_sim3292", lambda: tmp_path / "elsewhere")
         mars_ice.burn_unit("lApc", "EPSG:3857", (0.0, 0.0, 1.0, 1.0), 2, 2,
                            projected=tmp_path / "p.json", out=tmp_path / "o.tif")
         assert seen == [tmp_path / "elsewhere" / "lapc_sim3292.json"]

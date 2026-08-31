@@ -51,11 +51,9 @@ import rasterio
 from rasterio.fill import fillnodata
 from scipy.ndimage import gaussian_filter
 
-from pipeline import paths
+from pipeline import datasets
 from pipeline.fetch import download_one
 
-DATA_DIR = paths.DATA / "raw/seaice"
-MONTHLY_DIR = DATA_DIR / "monthly"
 THREDDS = ("https://thredds.met.no/thredds/fileServer/osisaf/met.no/reprocessed"
            "/ice/conc_450a_files/monthly")
 
@@ -79,7 +77,6 @@ PACK_FILL = 65535
 
 FREQ_NODATA = -9999.0         # float sentinel carried through the EASE2 -> 4326 warp
 OUTPUT_RES_DEG = 0.1          # 4326 grid step (~11 km) -- finer than the 25 km source, tiny on disk
-FINAL = DATA_DIR / "seaice_frequency_1991-2020_4326.tif"
 
 
 def _run(cmd):
@@ -99,7 +96,7 @@ def file_url(hemisphere: str, year: int, month: int) -> str:
 def all_files() -> list[tuple[str, Path]]:
     """(url, local destination) for every hemisphere/year/month in the normal period."""
     return [(file_url(hemisphere, year, month),
-             MONTHLY_DIR / file_name(hemisphere, year, month))
+             datasets.seaice_monthly() / file_name(hemisphere, year, month))
             for hemisphere in HEMISPHERES
             for year in YEARS
             for month in MONTHS]
@@ -122,7 +119,7 @@ def assert_edition(nc_path: Path) -> None:
 
 def download_all() -> int:
     """Fetch every monthly file SERIALLY (OSI SAF forbids parallel downloads). Resumable."""
-    MONTHLY_DIR.mkdir(parents=True, exist_ok=True)
+    datasets.seaice_monthly().mkdir(parents=True, exist_ok=True)
     jobs = all_files()
     counts = {"ok": 0, "skipped": 0}
     failures: list[str] = []
@@ -141,7 +138,7 @@ def download_all() -> int:
                   f"skipped={counts['skipped']} failed={len(failures)}", flush=True)
 
     if failures:
-        log = DATA_DIR / "failures.txt"
+        log = datasets.seaice() / "failures.txt"
         log.write_text("\n".join(failures) + "\n")
         print(f"{len(failures)} failures written to {log} -- rerun to retry", flush=True)
         return 1
@@ -156,9 +153,9 @@ def hemisphere_frequency(hemisphere: str) -> Path:
     validly observed stays undefined (FREQ_NODATA) rather than reading as permanent open water.
     Ocean pixels are observed every month, so their denominator is the full record.
     """
-    paths = [MONTHLY_DIR / file_name(hemisphere, year, month)
+    paths = [datasets.seaice_monthly() / file_name(hemisphere, year, month)
              for year in YEARS for month in MONTHS
-             if (MONTHLY_DIR / file_name(hemisphere, year, month)).exists()]
+             if (datasets.seaice_monthly() / file_name(hemisphere, year, month)).exists()]
     if not paths:
         sys.exit(f"no {hemisphere} monthly files on disk -- run the download first")
 
@@ -188,7 +185,7 @@ def hemisphere_frequency(hemisphere: str) -> Path:
     # mask=0 is filled), so a coarse-land coastal cell inherits the adjacent real ice.
     filled = fillnodata(freq_raw, mask=valid_mask.astype("uint8"))
     frequency = gaussian_filter(filled, SMOOTH_SIGMA_PX).astype(np.float32)
-    out_path = DATA_DIR / f"freq_{hemisphere}_ease2.tif"
+    out_path = datasets.seaice() / f"freq_{hemisphere}_ease2.tif"
     profile: dict[str, Any] = dict(driver="GTiff", width=shape[1], height=shape[0],
                                    count=1, dtype="float32", crs=crs, transform=transform,
                                    nodata=FREQ_NODATA, tiled=True, compress="deflate")
@@ -201,7 +198,7 @@ def build_climatology() -> None:
     """Both hemispheres -> a global EPSG:4326 packed-UInt16 frequency raster (the render source)."""
     hemisphere_tifs = [hemisphere_frequency(hemisphere) for hemisphere in HEMISPHERES]
 
-    merged_4326 = DATA_DIR / "freq_1991-2020_4326_f32.tif"
+    merged_4326 = datasets.seaice() / "freq_1991-2020_4326_f32.tif"
     _run(["gdalwarp", "-overwrite", "-q", "-t_srs", "EPSG:4326",
           "-te", "-180", "-90", "180", "90",
           "-tr", str(OUTPUT_RES_DEG), str(OUTPUT_RES_DEG), "-r", "bilinear",
@@ -219,10 +216,10 @@ def build_climatology() -> None:
                                    height=packed.shape[0], count=1, dtype="uint16",
                                    crs=crs, transform=transform, nodata=PACK_FILL,
                                    tiled=True, compress="deflate")
-    with rasterio.open(FINAL, "w", **profile) as dst:
+    with rasterio.open(datasets.seaice_frequency(), "w", **profile) as dst:
         dst.write(packed, 1)
     merged_4326.unlink(missing_ok=True)
-    print(f"built {FINAL} ({packed.shape[1]}x{packed.shape[0]}, packed UInt16)", flush=True)
+    print(f"built {datasets.seaice_frequency()} ({packed.shape[1]}x{packed.shape[0]}, packed UInt16)", flush=True)
 
 
 def main() -> int:
@@ -239,11 +236,11 @@ def main() -> int:
     if not args.build_only and download_all() != 0:
         return 1
     if not args.download_only:
-        if FINAL.exists() and not args.force:
-            print(f"{FINAL} exists -- pass --force to rebuild", flush=True)
+        if datasets.seaice_frequency().exists() and not args.force:
+            print(f"{datasets.seaice_frequency()} exists -- pass --force to rebuild", flush=True)
         else:
             build_climatology()
-    print(f"complete -> {DATA_DIR}", flush=True)
+    print(f"complete -> {datasets.seaice()}", flush=True)
     return 0
 
 

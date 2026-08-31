@@ -72,9 +72,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from pipeline import fetch, freshness, paths
-
-DATA_DIR = paths.DATA / "raw/mars/sim3292"
+from pipeline import datasets, fetch, freshness
 
 #: The pygeoapi instance. RECORDED HERE BECAUSE THE DATA CANNOT RECORD IT: every `links[].href` in
 #: a response comes back RELATIVE, so a file re-fetched from this host still does not name it. That
@@ -124,12 +122,12 @@ def unit_path(unit: str) -> Path:
 
     A function rather than a constant, per `paths`.
     """
-    return DATA_DIR / f"{unit.lower()}_sim3292.json"
+    return datasets.mars_sim3292() / f"{unit.lower()}_sim3292.json"
 
 
 def recipe_path() -> Path:
     """The recipe sidecar, beside the outputs it describes."""
-    return DATA_DIR / "sim3292_params.json"
+    return datasets.mars_sim3292() / "sim3292_params.json"
 
 
 def unit_url(unit: str) -> str:
@@ -283,7 +281,7 @@ def main() -> int:
             print(f"verified {unit_path(unit)} ({FEATURE_COUNTS[unit]} features)", flush=True)
         return 0
 
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    datasets.mars_sim3292().mkdir(parents=True, exist_ok=True)
     for unit in UNITS:
         if not args.check and is_fresh(unit):
             print(f"{unit} fresh -> skip", flush=True)

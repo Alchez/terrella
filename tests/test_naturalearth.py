@@ -14,7 +14,7 @@ import sys
 
 import pytest
 
-from pipeline import naturalearth, paths
+from pipeline import datasets, naturalearth, paths
 
 ACQUIRER = paths.ROOT / "pipeline/acquire/download_naturalearth.sh"
 
@@ -89,9 +89,11 @@ class TestTheAcquirerWritesWhereThisModuleReads:
         # below fails as a mismatch between two paths instead of saying the script did not run.
         assert result.returncode == 0, result.stderr
         written = result.stdout.strip().rsplit("\n", 1)[-1].removeprefix("done: ").split(" (")[0]
-        # A subprocess because the constant binds at import; reloading in-process would be a lie.
+        # A subprocess because the SHELL acquirer is the other half being compared: it reads
+        # MAPS_DATA from the environment, so the Python side has to be asked in that environment
+        # too rather than through an in-process monkeypatch.
         reader = subprocess.run(
-            [sys.executable, "-c", "from pipeline import naturalearth; print(naturalearth.DIR)"],
+            [sys.executable, "-c", "from pipeline import datasets; print(datasets.naturalearth())"],
             capture_output=True, text=True, check=True, cwd=paths.ROOT,
             env={**os.environ, "MAPS_DATA": str(store)})
         assert written == reader.stdout.strip()
@@ -100,13 +102,18 @@ class TestTheAcquirerWritesWhereThisModuleReads:
 class TestTheLayerRule:
     def test_the_name_appears_as_both_directory_and_stem(self):
         assert naturalearth.layer("ne_10m_coastline") == \
-               naturalearth.DIR / "ne_10m_coastline/ne_10m_coastline.shp"
+               datasets.naturalearth() / "ne_10m_coastline/ne_10m_coastline.shp"
 
     def test_it_reads_the_store_at_call_time(self, monkeypatch, tmp_path):
         """So a relocated `MAPS_DATA` moves the layers with it, rather than freezing whichever
-        store happened to be set when the module was first imported."""
-        monkeypatch.setattr(naturalearth, "DIR", tmp_path / "vectors")
-        assert naturalearth.layer("ne_10m_lakes").is_relative_to(tmp_path / "vectors")
+        store happened to be set when the module was first imported.
+
+        THE STORE ITSELF IS MOVED, not this module's own copy of where it is. Redirecting a
+        module-level `DIR` was what stood here, and it could only ever prove that `layer` read
+        that constant — the freeze it claims to rule out lived in the constant.
+        """
+        monkeypatch.setattr(paths, "DATA", tmp_path / "elsewhere")
+        assert naturalearth.layer("ne_10m_lakes").is_relative_to(tmp_path / "elsewhere")
 
     def test_an_explicit_directory_wins(self):
         """`--ne-dir` on the two entry points that expose it — the rule travels, the root does not."""

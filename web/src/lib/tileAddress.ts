@@ -229,14 +229,16 @@ export const PUBLISHED: Record<BodySlug, PublishedArchives> = {
   // NAMING A KEY HERE COMMITS TO AN UPLOAD. The deploy preflight refuses on any published object the
   // bucket does not hold, so this entry and the R2 upload land together or not at all.
   mars: {
-    // `-v3` BECAUSE THE BYTES CHANGED, NEVER AN OVERWRITE OF `-v2`. A warm Worker isolate caches
+    // `-v4` BECAUSE THE BYTES CHANGED, NEVER AN OVERWRITE OF `-v3`. A warm Worker isolate caches
     // directory byte OFFSETS, and offsets from one cut against another's bytes serve a corrupt tile
     // with a 200 — so a re-cut takes a new key, as Earth's `planet-v2` did. It also makes the deploy
     // preflight the thing that catches an un-uploaded archive: it checks EXISTENCE, so reusing the
     // key would let a deploy answer z7 requests out of the z6 object and report itself clean.
-    // `-v2` was the z6→z7 re-cut; `-v3` is the antimeridian seam fill, which moved 443 tiles.
+    // `-v2` was the z6→z7 re-cut; `-v3` the antimeridian seam fill, which moved 443 tiles; `-v4` is
+    // the raytraced producer, where every block is a Cycles render rather than a composite — the
+    // same switch `planet-v3` was for Earth, and `MARS.planet_producer` is what carries it.
     relief: {
-      objectKey: "mars/relief-v3.pmtiles",
+      objectKey: "mars/relief-v4.pmtiles",
       token: TOKENS.mars.relief.token,
       indexLeaves: TOKENS.mars.relief.indexLeaves,
       // The one entry that names no browser module, which is the whole reason this field is per

@@ -288,11 +288,19 @@ EARTH_LOOK = Look(
 #:     summit the same colour, which is exactly the defect inherited from Earth's shoreline hinge.
 #:     Rising monotonically with elevation is what makes height readable at all.
 #:
-#: THE AUTHORED VALUES ARE NOT WHAT SHIPS. `shade.composite` resaturates by `saturation` 1.18, warms
-#: by `warmth` 0.06 and multiplies by a light term at ~1.025 on flat ground, so a stop picked to hit
-#: a hue target overshoots it. These were specified as the intended SHIPPED colour and inverted
-#: through that chain — a first pass authored directly by eye landed at B/R 0.35 against a 0.55
-#: intent. Anything re-tuning them should invert the same way rather than nudging the hex.
+#: THESE VALUES WERE INVERTED THROUGH A CHAIN THAT NO LONGER RUNS ON THIS BODY, and that sentence is
+#: the whole caveat. They were specified as the intended SHIPPED colour and inverted back through
+#: `shade.composite`, which resaturates by `saturation` 1.18, warms by `warmth` 0.06 and multiplies
+#: by a light term near 1.025 on flat ground — a first pass authored directly by eye landed at
+#: B/R 0.35 against a 0.55 intent. Mars is `planet_producer="raytrace"` now and the rig applies
+#: NEITHER term, so what ships is the pre-inverted value itself: less saturated and cooler than the
+#: colour this list was written to hit.
+#:
+#: THAT IS RATIFIED RATHER THAN TOLERATED — the raytraced result was judged against the composited
+#: one on a rendered block and kept. So the values stand, and the derivation above is a record of
+#: where they came from rather than an instruction. DO NOT re-tune them by inverting through
+#: `shade.composite` again; that chain reaches no pixel on this body. Judge a re-tune on a rendered
+#: block, which is the only place this look now exists.
 MARS_LAND_STOPS: list[Stop] = [
     (0.000, (0.187821, 0.078187, 0.045186)),  # -6000 m  deepest basin floor, ships #804d35
     (0.150, (0.274677, 0.114435, 0.066626)),  # -4185 m  lowland plains
@@ -311,11 +319,17 @@ MARS_LAND_STOPS: list[Stop] = [
 #:
 #: THE DOMAIN IS MARS'S OWN AND IT IS DERIVED, NOT PREFERRED. Measured over the shipped heightfield,
 #: area-weighted on the sphere (cos(lat)-corrected, ~1.05M samples): p1 -5,990 m, p50 -260 m,
-#: p99 +6,098 m, true range -7,882 .. +21,014 m. The two below are p1 and p99 rounded, so the ramp
-#: does real work across 98% of the surface. The extremes were rejected on the same measurement:
-#: only 1.1% of Mars sits above +6,000 m, so keying the ceiling to Olympus Mons would spend most of
-#: the ramp on almost nothing — and Olympus still reads, because it reads through the HILLSHADE,
-#: which no ramp touches.
+#: p99 +6,098 m. The two below are p1 and p99 rounded, so the ramp does real work across 98% of the
+#: surface. The extremes were rejected on the same measurement: only 1.1% of Mars sits above
+#: +6,000 m, so keying the ceiling to Olympus Mons would spend most of the ramp on almost nothing —
+#: and Olympus still reads, because it reads through the RELIEF, which no ramp touches.
+#:
+#: THE FULL RANGE IS A DIFFERENT POPULATION FROM THOSE PERCENTILES AND USED TO BE LABELLED AS IF IT
+#: WERE THE SAME ONE. The sample's own extremes were -7,882 .. +21,014 m and were quoted here as the
+#: true range; a percentile pass over a million points cannot see the pixel holding the minimum. The
+#: census of every pixel of the shipped z7 grid is -8,526 .. +21,202 m, which is where
+#: `tile/relief_scan.py`'s own "Mars reaches 21,202 m" comes from. Re-measure it from the relief
+#: cache rather than from a sample, and re-measure it again if the grid's zoom ceiling moves.
 #:
 #: THE DOMAIN NUMBERS SIT IN THE CONSTRUCTOR, not in named module constants, and the asymmetry with
 #: `MARS_LAND_STOPS` above is the naming rule working rather than an inconsistency in it. That list
@@ -453,7 +467,7 @@ def lut_index(kind: str, elevation, *, look: Look, step: float = LUT_STEP_M) -> 
     """Elevation -> clamped LUT index. The whole optimisation: a divide, not a search.
 
     Clamping is load-bearing, not defensive: Earth's height raster spans -10,728 m to +7,281 m
-    (measured) and Mars's -7,882 m to +21,014 m, i.e. both run past BOTH of their ramp's ends, and
+    (measured) and Mars's -8,526 m to +21,202 m, i.e. both run past BOTH of their ramp's ends, and
     `gdaldem` clamps to its first/last row. Earth's land-classed pixels can also be negative (Dead
     Sea, -430 m) -- the ocean MASK picks the ramp, never the sign -- so Earth's land ramp must clamp
     those to its 0 m colour. On a body whose ramp starts below the datum there is nothing special

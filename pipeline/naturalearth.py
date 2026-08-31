@@ -29,7 +29,7 @@ rather than like a name that was never going to exist.
 
 from pathlib import Path
 
-from pipeline import paths
+from pipeline import datasets
 
 #: Every layer the acquirer fetches, by its own name — which is also its directory name and the
 #: stem of every component file inside it. Pinned against `download_naturalearth.sh` by a test.
@@ -43,9 +43,6 @@ LAYERS = frozenset({
     "ne_10m_rivers_lake_centerlines",
 })
 
-#: The unpacked vectors, in the data store. `MAPS_DATA` relocates them, and the acquirer honours the
-#: same variable — writer and readers move together or the store is only half real.
-DIR = paths.DATA / "raw/naturalearth"
 
 
 def layer(name: str, directory: Path | None = None) -> Path:
@@ -62,4 +59,5 @@ def layer(name: str, directory: Path | None = None) -> Path:
     if name not in LAYERS:
         known = ", ".join(sorted(LAYERS))
         raise ValueError(f"unknown Natural Earth layer {name!r}; the acquirer fetches: {known}")
-    return (DIR if directory is None else directory) / name / f"{name}.shp"
+    root = datasets.naturalearth() if directory is None else directory
+    return root / name / f"{name}.shp"

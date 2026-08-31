@@ -43,12 +43,22 @@ from pipeline import block_plan, bodies, freshness, mercator, planet_seam, raste
 #: cell; one cell's worth is 268 MB of float32 on Earth, which is what sizes this rather than speed.
 BAND_ROWS = block_plan.CELL_PX
 
-#: The stage directory this cache shares with the master it is derived from.
+#: The tile stage's directory name, and this module is its one owner.
+#:
+#: It is declared in the relief cache rather than somewhere neutral because this is the module that
+#: names the stage's own contents; the alternative was a module existing only to hold a string.
+#: `tests/test_paths.py` refuses a second spelling, so a stage that moves moves here.
 STAGE = "planet_tiles"
 
 
 def work_dir(body: bodies.Body) -> Path:
-    """Where this body's planet-tier intermediates live, the same directory as its master."""
+    """Where this body's planet-tier intermediates live, the same directory as its master.
+
+    THE ONE ANSWER TO "WHERE DOES THIS BODY'S TILE STAGE LIVE", and its readers are the whole tier
+    rather than this cache: the block prep's CLI default, the pack, the terrain cut, the planet
+    pass and the block runner. Five of them spelled the stage themselves, which is how the runner
+    came to validate one directory and cut its pixels from another.
+    """
     return bodies.work_dir(body, STAGE)
 
 

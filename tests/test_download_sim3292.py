@@ -19,6 +19,7 @@ from typing import Any
 
 import pytest
 
+from pipeline import datasets
 from pipeline.acquire import download_sim3292 as sim3292
 
 
@@ -121,7 +122,7 @@ class TestTheTimestampTrap:
                                                         pinned_to_one_feature):
         """The end-to-end consequence: re-fetching unchanged data must not re-acquire. This is the
         assertion that would have caught a bytes-keyed freshness rule."""
-        monkeypatch.setattr(sim3292, "DATA_DIR", tmp_path)
+        monkeypatch.setattr(datasets, "mars_sim3292", lambda: tmp_path)
         sim3292.write_unit("lApc", pinned_to_one_feature)
         sim3292.recipe_path().write_text(sim3292.build_recipe())
         assert sim3292.is_fresh("lApc")
@@ -173,7 +174,7 @@ class TestTheDocumentContractRejectsNearMisses:
 
 class TestFreshnessReadsTheFileNotTheSidecar:
     def test_a_missing_file_is_not_fresh(self, tmp_path, monkeypatch, pinned_to_one_feature):
-        monkeypatch.setattr(sim3292, "DATA_DIR", tmp_path)
+        monkeypatch.setattr(datasets, "mars_sim3292", lambda: tmp_path)
         assert not sim3292.is_fresh("lApc")
 
     def test_a_corrupt_file_is_not_fresh_rather_than_an_exception(self, tmp_path, monkeypatch,
@@ -185,7 +186,7 @@ class TestFreshnessReadsTheFileNotTheSidecar:
         truncated mid-token, so it raises `JSONDecodeError` and the guard caught it. A document that
         PARSES and is the wrong shape took a different exit for two years — see the next test.
         """
-        monkeypatch.setattr(sim3292, "DATA_DIR", tmp_path)
+        monkeypatch.setattr(datasets, "mars_sim3292", lambda: tmp_path)
         sim3292.recipe_path().write_text(sim3292.build_recipe())
         sim3292.unit_path("lApc").write_text('{"type": "FeatureColl')
         assert not sim3292.is_fresh("lApc")
@@ -198,7 +199,7 @@ class TestFreshnessReadsTheFileNotTheSidecar:
         it died here instead, because `is_fresh` guarded the parse and `geometry_digest` indexes
         `document["features"]` directly. `{}` is valid JSON, so the case above cannot reach it.
         """
-        monkeypatch.setattr(sim3292, "DATA_DIR", tmp_path)
+        monkeypatch.setattr(datasets, "mars_sim3292", lambda: tmp_path)
         sim3292.recipe_path().write_text(sim3292.build_recipe())
         sim3292.unit_path("lApc").write_text("{}")
         assert not sim3292.is_fresh("lApc")
@@ -208,7 +209,7 @@ class TestFreshnessReadsTheFileNotTheSidecar:
                                                            pinned_to_one_feature):
         """`{}` is not the only parseable non-document. A list reaches the same index and raises
         `TypeError` instead of `KeyError`, which is the same defect wearing a different name."""
-        monkeypatch.setattr(sim3292, "DATA_DIR", tmp_path)
+        monkeypatch.setattr(datasets, "mars_sim3292", lambda: tmp_path)
         sim3292.recipe_path().write_text(sim3292.build_recipe())
         sim3292.unit_path("lApc").write_text(stub)
         assert not sim3292.is_fresh("lApc")
@@ -217,7 +218,7 @@ class TestFreshnessReadsTheFileNotTheSidecar:
                                                               pinned_to_one_feature):
         """The sidecar records what the producer MEANT to emit; the file is what a consumer reads.
         A recipe agreeing with the module must never vouch for bytes that do not."""
-        monkeypatch.setattr(sim3292, "DATA_DIR", tmp_path)
+        monkeypatch.setattr(datasets, "mars_sim3292", lambda: tmp_path)
         sim3292.recipe_path().write_text(sim3292.build_recipe())
         wrong = _feature(area=100.0)
         wrong["geometry"]["coordinates"][0][0][0] = [0.5, 80.0]
@@ -230,7 +231,7 @@ class TestTheWrittenFileIsStable:
                                                                         pinned_to_one_feature):
         """Keeping the stamp would push the same trap one layer down, onto anything diffing the
         store or hashing it into a downstream recipe."""
-        monkeypatch.setattr(sim3292, "DATA_DIR", tmp_path)
+        monkeypatch.setattr(datasets, "mars_sim3292", lambda: tmp_path)
         first = sim3292.write_unit("lApc", pinned_to_one_feature).read_bytes()
         second = sim3292.write_unit(
             "lApc", dict(pinned_to_one_feature, timeStamp="2099-01-01T00:00:00.000000Z")
@@ -241,7 +242,7 @@ class TestTheWrittenFileIsStable:
     def test_no_part_file_survives_a_completed_write(self, tmp_path, monkeypatch,
                                                      pinned_to_one_feature):
         """A file under its final name is always complete, so a consumer never reads a partial."""
-        monkeypatch.setattr(sim3292, "DATA_DIR", tmp_path)
+        monkeypatch.setattr(datasets, "mars_sim3292", lambda: tmp_path)
         sim3292.write_unit("lApc", pinned_to_one_feature)
         assert list(tmp_path.glob("*.part")) == []
 
@@ -267,7 +268,7 @@ class TestTheRecipeDownloadsNothingByAccident:
                                                      pinned_to_one_feature):
         """`--verify` is the on-disk oracle for the one pin no test can re-derive, so it must be
         runnable with the network down."""
-        monkeypatch.setattr(sim3292, "DATA_DIR", tmp_path)
+        monkeypatch.setattr(datasets, "mars_sim3292", lambda: tmp_path)
         monkeypatch.setattr(sim3292, "fetch_unit",
                             lambda unit: pytest.fail(f"--verify reached the network for {unit}"))
         sim3292.write_unit("lApc", pinned_to_one_feature)
@@ -276,7 +277,7 @@ class TestTheRecipeDownloadsNothingByAccident:
 
     def test_check_writes_nothing(self, tmp_path, monkeypatch, pinned_to_one_feature):
         """`--check` reaches the host on purpose; the assertion is that the store stays empty."""
-        monkeypatch.setattr(sim3292, "DATA_DIR", tmp_path)
+        monkeypatch.setattr(datasets, "mars_sim3292", lambda: tmp_path)
         monkeypatch.setattr(sim3292, "fetch_unit", lambda unit: pinned_to_one_feature)
         monkeypatch.setattr("sys.argv", ["download_sim3292", "--check"])
         assert sim3292.main() == 0
