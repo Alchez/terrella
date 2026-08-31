@@ -908,6 +908,35 @@ class TestTheDenoiseDeviceIsTheCallersAndIsRecorded:
             {"SAMPLES": 4096}, [Block(col0=0, row0=0, size_px=2048, context_px=128)]))
         assert recipe["mask_full_scale"] == prep_block.MASK_FULL_SCALE
 
+    def test_the_recipe_records_the_pole_side_edge_policy(self):
+        """What a plane overhanging the grid at a pole reads there, which only this recipe carries.
+
+        THE SAME ARGUMENT AS THE DEPTH ABOVE, aimed at the two block rows a marker is most likely to
+        have already called done. It is here because the policy that shipped before it was a zero
+        FILL, and the datum is not a neutral elevation: Mars's grid ends at -3,565 m and Earth's at
+        -2,732, so the fill stood a wall of invented geometry along each pole-side plane. Without
+        this key the replacement would restage nothing and every finished edge block would keep it.
+        """
+        recipe = json.loads(block_render.params(
+            bodies.EARTH, frozenset(planet_seam.KNOWN_RASTERS), palette.EARTH_LOOK,
+            {"SAMPLES": 4096}, [Block(col0=0, row0=0, size_px=2048, context_px=128)]))
+        assert recipe["row_edge_mode"] == prep_block.ROW_EDGE_MODE
+
+    def test_moving_the_edge_policy_moves_the_recipe(self, monkeypatch):
+        """The freshness arm, and the reason the constant is named rather than spelled inline.
+
+        A literal in `_read_cyclic` would render differently and record identically, which is the
+        exact shape of "a fix behind a freshness gate never reaches what is already on disk".
+        """
+        blocks = [Block(col0=0, row0=0, size_px=2048, context_px=128)]
+        args = (bodies.EARTH, frozenset(planet_seam.KNOWN_RASTERS), palette.EARTH_LOOK,
+                {"SAMPLES": 4096}, blocks)
+        before = block_render.params(*args)
+        monkeypatch.setattr(prep_block, "ROW_EDGE_MODE", "constant")
+        assert block_render.params(*args) != before, (
+            "the recipe must move with the policy, or the planet on disk goes on claiming to be "
+            "current under a rule it was not rendered with")
+
     def test_the_recipe_records_it(self):
         recipe = json.loads(block_render.params(
             bodies.EARTH, frozenset(planet_seam.KNOWN_RASTERS), palette.EARTH_LOOK,

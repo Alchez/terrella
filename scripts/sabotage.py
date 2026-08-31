@@ -2942,6 +2942,46 @@ SABOTAGES: list[Sabotage] = [
         replacement='PlanetProducer = str\n',
         guard='test_every_body_names_a_producer_the_vocabulary_knows',
     ),
+    # --- The colour guard: which producer's answer the tiles are actually carrying ---------------
+    # THE CASE THE ARC WAS SCOPED AROUND, and it stayed green for the whole of it. Flipping the
+    # producer moves every land pixel by up to 16 DN, because `shade.composite` resaturates by 1.18
+    # and warms by 0.06 where `scene_build` applies neither. Before the pin below, Earth's ramp was
+    # held only by the HERO hex and the composited hexes were nowhere in the tree, so this mutation
+    # changed the whole site's land colour with every gate passing.
+    Sabotage(
+        suite='python',
+        label='a body goes back to the composite, moving every land pixel 16 DN with no ramp edited',
+        path='pipeline/bodies.py',
+        # Anchored on the comment for the same reason the typo case above is: the value line alone
+        # matches twice now that Mars is raytraced too, and a needle matching twice is refused.
+        needle='    # rewritten in place by whichever producer runs, and the two do not agree on colour.\n'
+               '    planet_producer="raytrace",\n',
+        replacement='    # rewritten in place by whichever producer runs, and the two do not agree on colour.\n'
+                    '    planet_producer="composite",\n',
+        guard='test_a_registered_body_paints_the_transcribed_colour',
+    ),
+    # The simplification that reads as tidying: one saturation knob for both ramps. It is wrong in
+    # the direction nobody looks — the sea DESATURATES at 0.90 where land saturates at 1.18, so
+    # collapsing them saturates the sea instead, and no sea stop is pinned anywhere else.
+    Sabotage(
+        suite='python',
+        label='the sea takes the land saturation, so the ramp that desaturates starts saturating',
+        path='pipeline/tile/shade.py',
+        needle='        saturation, tint = knobs["sea_saturation"], np.float32(1.0)\n',
+        replacement='        saturation, tint = knobs["saturation"], np.float32(1.0)\n',
+        guard='test_the_composite_arm_answers_on_a_synthetic_body',
+    ),
+    # The legend reverting to what it carried for the whole of the raytraced arc. This is not a
+    # hypothetical: it WAS this value while Mars raytraced, and the guard over it was keyed on the
+    # composite, so correcting the legend is what would have gone red.
+    Sabotage(
+        suite='python',
+        label='the Mars legend goes back to the composited stops it held while Mars raytraced',
+        path='web/src/lib/palette.ts',
+        needle='  { at: 0.0, hex: "#784F3C" },',
+        replacement='  { at: 0.0, hex: "#7E4B33" },',
+        guard='test_web_mars_ramp_matches_what_mars_actually_ships',
+    ),
     # --- Polar caps as a per-body decision ----------------------------------------------------------
     # The dangerous property of all three: a body publishing no caps would RENDER them perfectly well.
     # Declaring no surface layers leaves the cap needing only the heightfield, so there is no missing
@@ -5025,6 +5065,26 @@ SABOTAGES: list[Sabotage] = [
         needle='        "mask_full_scale": prep_block.MASK_FULL_SCALE,\n',
         replacement='',
         guard='test_the_recipe_records_the_mask_depth',
+    ),
+    # The pole-side pair, and the two cases are not redundant: the first puts a wall of invented
+    # geometry back along every edge plane, the second leaves the policy correct and makes it
+    # unrecordable, so a planet rendered under the old rule goes on reading fresh. Only the second
+    # is about freshness, and only the first moves a pixel in a run that was going to happen anyway.
+    Sabotage(
+        suite='python',
+        label='the pole-side overhang goes back to a zero fill, standing a wall at the grid edge',
+        path='pipeline/render/prep_block.py',
+        needle="ROW_EDGE_MODE = \"edge\"",
+        replacement="ROW_EDGE_MODE = \"constant\"",
+        guard='test_a_window_overhanging_the_north_edge_repeats_the_first_row',
+    ),
+    Sabotage(
+        suite='python',
+        label='the recipe stops recording the pole-side policy, so no edge block restages for it',
+        path='pipeline/tile/block_render.py',
+        needle='        "row_edge_mode": prep_block.ROW_EDGE_MODE,\n',
+        replacement='',
+        guard='test_the_recipe_records_the_pole_side_edge_policy',
     ),
     Sabotage(
         suite='python',

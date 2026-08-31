@@ -92,7 +92,16 @@ export interface BodyAbout {
  *  is no single stop list in `palette.py` to recompute them from — and this legend is ratified
  *  visible output, so deriving it now would risk changing what ships in order to tidy how it is
  *  stored. Moving it here buys the one thing worth having today: both bodies' legends come from one
- *  place, so the component that draws them has a single reader. */
+ *  place, so the component that draws them has a single reader.
+ *
+ *  IT DID NOT GO STALE WHEN EARTH'S TILES CHANGED PRODUCER, AND THAT WAS WORTH MEASURING BEFORE
+ *  ANYONE "FIXED" IT. `MARS_RAMP` did, by up to 16 DN, because it WAS a derivation of the
+ *  composite's output. These stops never were: measured against every colour on either producer's
+ *  land and sea ramps, the nearest match to each of the nine sits 1.5 to 60 DN away, and that is a
+ *  LOWER bound because it ignores where along the ramp each stop claims to be. So the producer
+ *  switch is not this legend's largest error and re-deriving it would be a look change wearing a
+ *  correctness fix's clothes. It is also drawn on every country page through `Masthead`, not only
+ *  on About, so changing it is a site-wide call rather than a page's. */
 const EARTH_RAMP: readonly RampStop[] = [
   { at: 0.0, hex: "#2F5B68" },
   { at: 0.14, hex: "#4D8886" },

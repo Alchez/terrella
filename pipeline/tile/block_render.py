@@ -228,6 +228,10 @@ def params(body: bodies.Body, rasters: frozenset[str], look: palette.Look,
         # rather than the per-block prep directory. Left out, a depth change would reach only the
         # blocks that were going to render anyway and leave every finished one terraced.
         "mask_full_scale": prep_block.MASK_FULL_SCALE,
+        # The same argument one line up, for the policy at the POLES rather than the mask depth: it
+        # moves only the two edge block rows, and those are exactly the blocks a marker already
+        # calls done. Left out, the fix that replaced the zero fill would reach nothing on disk.
+        "row_edge_mode": prep_block.ROW_EDGE_MODE,
         # What the prep grades its masks with, and the general case of the line above it: none of
         # it moves a warped raster, so `raytrace_deps` is blind to all of it.
         #

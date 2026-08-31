@@ -32,9 +32,12 @@ export const TRENCH_FLOOR = "#3A6E7D";
  *  The named stop rather than the ramp at the measured median: a stop pins with one `_srgb8` line
  *  where a median drifts with the data.
  *
- *  AUTHORED, LIKE EVERY OTHER CONSTANT ABOVE, WHICH IS WHY IT DIFFERS FROM `MARS_RAMP`'s 0.550
- *  ENTRY (`#C6824F`). Both are correct for their own job: this one is a flat backdrop that no
- *  compositor ever touches, while the ramp below has to match pixels that went through one. */
+ *  AUTHORED, LIKE EVERY OTHER CONSTANT ABOVE, AND IT NOW AGREES WITH `MARS_RAMP`'s 0.550 ENTRY
+ *  RATHER THAN DIFFERING FROM IT. The two were `#BE885E` here against `#C6824F` there for as long
+ *  as Mars composited, because a flat backdrop no compositor touches and a ramp matching pixels
+ *  that went through one are different jobs. Mars raytraces now, so the ramp stopped going through
+ *  one and the two jobs happen to have the same answer — a coincidence of producer, not a
+ *  duplication to collapse. */
 export const MARS_MODAL_GROUND = "#BE885E";
 
 /** One hypsometric ramp stop, as the legend draws it: where it sits on the ramp, and its colour. */
@@ -47,32 +50,35 @@ export interface RampStop {
 
 /** Mars's elevation ramp, for the legend that claims a colour means a height.
  *
- * THESE ARE COMPOSITED COLOURS AND THE CONSTANTS ABOVE ARE NOT, which is the whole reason this is
- * a separate export rather than six more `_srgb8` lines. `shade.composite` resaturates land by
- * `KNOBS["saturation"]` 1.18 and warms it by `KNOBS["warmth"]` 0.06 on the way to a tile, so the
- * authored stop `#784F3C` is never a colour anything paints. A legend built from authored stops
- * would state a correspondence the map does not keep — which is the one thing a legend exists to
- * get right.
+ * THE RULE IS "WHATEVER MARS'S PRODUCER PAINTS", AND THE ANSWER MOVED ONCE ALREADY. A legend
+ * states that a colour means a height, so it has to carry the colour the TILES carry — not the
+ * colour the stops are authored as, and not whichever of the two was right when it was written.
+ * These were the COMPOSITED stops while `MARS.planet_producer` was `"composite"`, because
+ * `shade.composite` resaturates land by `KNOBS["saturation"]` 1.18 and warms it by
+ * `KNOBS["warmth"]` 0.06 on the way to a tile. Mars raytraces now and the rig applies neither, so
+ * the authored stop IS what ships and these are the authored stops. They were left composited
+ * across that switch and drew up to 16 DN of blue away from the map for as long as that lasted.
  *
- * WHAT IS DELIBERATELY *NOT* IN THEM IS LIGHT. `composite` also multiplies by a hillshade, an
- * ambient term and an exposure, and those vary per pixel with the terrain — so no single swatch
- * can carry them and the honest legend shows the ramp with the light left off. `palette.py`
- * annotates its first stop as shipping `#804D35`, about 2% brighter than the `#7E4B33` here,
- * because that annotation samples FLAT LIT GROUND: it is a reading off the map, not the ramp.
+ * WHAT IS DELIBERATELY *NOT* IN THEM IS LIGHT. A tile is also multiplied by terms that vary per
+ * pixel — a hillshade, an ambient, an exposure under the composite; a whole Cycles solve under the
+ * raytrace — so no single swatch can carry them and the honest legend shows the ramp with the
+ * light left off. `palette.py` annotates its first stop as shipping `#804D35`, which samples FLAT
+ * LIT GROUND: a reading off the map, not the ramp.
  *
  * Earth's ramp is declared beside the legend that draws it, in `aboutContent.ts`, because it is
  * hand-authored rather than derived and so has no constants here to answer to. That module's
- * `EARTH_RAMP` says why.
+ * `EARTH_RAMP` says why, and its stops are NOT this rule applied to Earth.
  *
- * `tests/test_palette.py::test_web_mars_ramp_matches_the_composited_stops` recomputes every entry
- * from `MARS_LAND_STOPS` through `shade.KNOBS` and fails on drift in either. */
+ * `tests/test_palette.py::test_web_mars_ramp_matches_what_mars_actually_ships` recomputes every
+ * entry from `MARS_LAND_STOPS` through `MARS.planet_producer`, and fails on drift in the stops,
+ * the producer, or a knob the producer in force reads. */
 export const MARS_RAMP: readonly RampStop[] = [
-  { at: 0.0, hex: "#7E4B33" }, // ~-6,000 m, the deepest basin floors
-  { at: 0.15, hex: "#965A3F" }, // ~-4,185 m, lowland plains
-  { at: 0.35, hex: "#B46D44" }, // ~-1,765 m, the northern lowlands
-  { at: 0.55, hex: "#C6824F" }, // ~  +655 m, just above the areoid — the modal elevation
-  { at: 0.78, hex: "#D19D68" }, // ~+3,438 m, southern highlands
-  { at: 1.0, hex: "#D7B98D" }, // ~+6,100 m, Tharsis and the volcanic summits
+  { at: 0.0, hex: "#784F3C" }, // ~-6,000 m, the deepest basin floors
+  { at: 0.15, hex: "#8F5F49" }, // ~-4,185 m, lowland plains
+  { at: 0.35, hex: "#AC7351" }, // ~-1,765 m, the northern lowlands
+  { at: 0.55, hex: "#BE885E" }, // ~  +655 m, just above the areoid — the modal elevation
+  { at: 0.78, hex: "#CBA378" }, // ~+3,438 m, southern highlands
+  { at: 1.0, hex: "#D4BF9D" }, // ~+6,100 m, Tharsis and the volcanic summits
 ];
 
 /** A ramp as a `linear-gradient(...)` value. One writer, so a second legend cannot spell it

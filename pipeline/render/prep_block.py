@@ -54,6 +54,15 @@ RECIPE_NAME = "block_recipe.json"
 #: marker existence alone.
 MASK_FULL_SCALE = 65535.0
 
+#: What a plane overhanging the grid at a POLE reads there, as a `numpy.pad` mode. Named for the
+#: same reason as the depth above: `block_render.params` records it, and without that a change of
+#: policy moves every edge block's pixels while every marker still says the block is rendered.
+#: "edge" repeats the last real row. The alternative that shipped before it was a zero FILL, which
+#: is not a neutral elevation anywhere — Mars's grid ends at -3,565 m north and Earth's at -2,732 —
+#: so it stood a wall of invented geometry along each pole-side plane. `_read_cyclic` carries the
+#: measurement; the columns take no mode at all, because longitude wraps instead.
+ROW_EDGE_MODE = "edge"
+
 
 def mid_latitude_deg(window: Window, body: bodies.Body) -> float:
     """The one latitude a plane's single ground width is true at: its centre row.
@@ -112,9 +121,11 @@ def row_scale(window: Window, body: bodies.Body) -> NDArray[np.float64]:
     Which of the two is preferable is a look judgement made on rendered pixels, not on this algebra.
 
     CLIPPED AT MERCATOR'S LIMIT because `block_plan.row_latitude_deg` clips there, and a plane may
-    extend past the grid on the pole side. Those rows are zero-filled heightfield, so the value is
-    not felt; what matters is that it stays finite and that this uses the same spelling of "the
-    latitude of a row" the partition and the context law use.
+    extend past the grid on the pole side. Those rows now carry the CLAMPED edge elevation rather
+    than a fill, so the value is felt and has to be right: what matters is that it stays finite and
+    that this uses the same spelling of "the latitude of a row" the partition and the context law
+    use. An earlier version of this paragraph said the rows were zero-filled and the value therefore
+    unfelt, which was true of the reader at the time and was the defect.
     """
     rows = np.arange(window.row_off, window.row_off + window.height, dtype=np.float64)
     latitudes = np.array([block_plan.row_latitude_deg(float(row), body) for row in rows])
@@ -122,29 +133,50 @@ def row_scale(window: Window, body: bodies.Body) -> NDArray[np.float64]:
 
 
 def _read_cyclic(dataset: Any, window: Window) -> np.ndarray:
-    """`window` read from an open dataset, with columns taken around the cyclic longitude axis.
+    """`window` read from an open dataset: columns WRAP around longitude, rows CLAMP at the poles.
 
-    THE TWO AXES ARE NOT SYMMETRIC and only columns are handled here, which is the same split
-    `Block.plane_window` and `cast_shadow.shadow_mask` make: a Mercator planet joins itself at the
-    antimeridian and does not join itself at the poles, so rows keep the zero fill.
+    THE TWO AXES ARE NOT SYMMETRIC, which is the same split `Block.plane_window` and
+    `cast_shadow.shadow_mask` make: a Mercator planet joins itself at the antimeridian and does not
+    join itself at the poles. Both halves are here because a plane may overhang either edge and
+    neither overhang may invent geometry.
 
-    A zero fill on the COLUMNS is a wrong planet rather than a missing feature. The context is
-    exactly the terrain that shadows a block, so filling it puts a sea-level plateau where the far
-    side of the antimeridian belongs and reads as LAND on the ocean mask, and the NW sun then casts
-    that wall east across block column 0's delivered pixels.
+    NEITHER AXIS MAY BE FILLED, AND THE DATUM IS NOT A NEUTRAL VALUE. On the columns a fill puts a
+    sea-level plateau where the far side of the antimeridian belongs, reads as LAND on the ocean
+    mask, and the NW sun casts that wall east across block column 0. On the rows it does the same
+    thing standing up: Mars's grid ends at -2,967 m, so filling with 0 raises a wall 2,967 m of real
+    elevation proud of the ground it replaces, which at that body's exaggeration models as 59 km of
+    cliff along the north edge of every row-0 plane. Clamping repeats the edge row, the one choice
+    that adds nothing — and it is what `plane_window` has always documented.
+
+    The rows are padded rather than read boundless because `boundless` has no edge mode: it fills,
+    and the fill is the defect.
     """
+    # `ROW_EDGE_MODE` rather than a literal here: `block_render.params` records it, so flipping the
+    # policy restages every block instead of leaving a rendered planet reading fresh under it.
+    height = dataset.height
+    row_off, rows = int(window.row_off), int(window.height)
+    above = max(0, -row_off)
+    below = max(0, row_off + rows - height)
+    inner_rows = rows - above - below
+    if inner_rows <= 0:
+        raise ValueError(f"a plane spanning rows {row_off} to {row_off + rows} lies entirely off a "
+                         f"grid {height} rows tall, so there is no edge row to clamp to")
+    inner = Window(window.col_off, row_off + above, window.width, inner_rows)  # pyright: ignore[reportCallIssue]
+
     width = dataset.width
-    col_off, remaining = int(window.col_off), int(window.width)
+    col_off, remaining = int(inner.col_off), int(inner.width)
     pieces = []
     while remaining > 0:
         start = col_off % width
         take = min(remaining, width - start)
-        pieces.append(dataset.read(1, boundless=True, fill_value=0,
-                                   window=Window(start, window.row_off,  # pyright: ignore[reportCallIssue]
-                                                 take, window.height)))
+        pieces.append(dataset.read(1, window=Window(start, inner.row_off,  # pyright: ignore[reportCallIssue]
+                                                    take, inner.height)))
         col_off += take
         remaining -= take
-    return pieces[0] if len(pieces) == 1 else np.hstack(pieces)
+    read = pieces[0] if len(pieces) == 1 else np.hstack(pieces)
+    if not above and not below:
+        return read
+    return np.pad(read, ((above, below), (0, 0)), mode=ROW_EDGE_MODE)
 
 
 def _read(path: Path, window: Window) -> np.ndarray:
