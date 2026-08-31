@@ -17,13 +17,11 @@ companion proving it FAILS on a known-bad input.
 """
 
 import itertools
-from typing import Any, cast
 
 import numpy as np
 import pytest
-from conftest import hillshade_for_light
 
-from pipeline.look import lake_depth, palette, seaice
+from pipeline.look import lake_depth, palette
 from pipeline.tile import shade
 
 CURVES = ["log1p", "sqrt", "linear"]
@@ -159,75 +157,7 @@ class TestInlandWater:
         assert lake_depth.inland_water(codes).tolist() != codes.astype(bool).tolist()
 
 
-class TestCompositeUsesDepth:
-    """The wiring itself: depth must reach the pixels, and only the right ones."""
-
-    @pytest.fixture(autouse=True)
-    def _restore_knobs(self):
-        """KNOBS is a module-level dict these tests write to. Without this the last curve set
-        here leaks into every later test -- including composite_params(), which records KNOBS
-        verbatim into the freshness sidecar. Benign today only because of definition order.
-        """
-        # Save/restore is wholesale and key-agnostic, so it takes the same untyped view of the
-        # Knobs TypedDict that shade.py's --knob override and the variant loop do.
-        knobs = cast(dict[str, Any], shade.KNOBS)
-        original = dict(knobs)
-        yield
-        knobs.clear()
-        knobs.update(original)
-
-    def _composite(self, watercode, depth, curve="log1p"):
-        """Composite one tiny window with the hillshade neutralised.
-
-        Inland water is NOT painted flat WATER_RGB verbatim -- it keeps taking the hillshade,
-        clamped to [0.85, hi], which is what stops lakes reading as stickers. So pin light at
-        exactly 1.0 via `hillshade_for_light`; otherwise these assertions are off-by-a-shade
-        for reasons that have nothing to do with depth. That used to be `255*sin(alt)` outright
-        and stopped being so when the ambient floor became a softplus -- see the helper.
-        """
-        shape = watercode.shape
-        # composite() derives land/sea colour from ELEVATION (palette.relief_lut
-        # replaced gdaldem color-relief). 1500 m is ordinary land; the ocean mask, not the sign,
-        # picks the sea ramp, so one height serves both branches.
-        heights = np.full(shape, 1500.0, dtype="float32")
-        ocean = watercode == 1
-        water = (watercode == 2) | (watercode == 3)
-        hs = np.full(shape, hillshade_for_light(1.0), dtype="float32")
-        occ = np.zeros((1, 1), dtype="float32")
-        snow_a = np.zeros(shape, dtype="float32")
-        shade.KNOBS["lake_curve"] = curve
-        return shade.composite(heights, ocean, water, snow_a, hs, occ, (1, 1), shape,
-                               depth=depth, look=palette.EARTH_LOOK,
-                               snow_paint=(palette.SNOW_RGB, palette.SNOW_SHADOW_RGB), ice_paint=seaice.ice_paint())
-
-    def test_deep_lake_renders_darker_than_a_shallow_one(self):
-        """Absolute depth, not per-lake normalisation: a pond must NOT look like Baikal.
-        Per-lake normalisation is the artificial gradient the prototype was rejected for."""
-        watercode = np.full((1, 2), 2, dtype="uint8")
-        depth = np.array([[11.2, 1642.0]], dtype="float32")
-        rgb = self._composite(watercode, depth)
-        shallow = rgb[:, 0, 0].astype(int).sum()
-        deep = rgb[:, 0, 1].astype(int).sum()
-        assert deep < shallow
-
-    def test_depth_none_gives_todays_flat_water(self):
-        watercode = np.full((1, 1), 2, dtype="uint8")
-        rgb = self._composite(watercode, None)
-        assert tuple(rgb[:, 0, 0]) == palette.WATER_RGB
-
-    def test_curve_off_is_the_ab_control(self):
-        """`--knob lake_curve=off` must reproduce today's flat fill exactly, or the A/B
-        renders it produced were not comparing what they claimed to."""
-        watercode = np.full((1, 1), 2, dtype="uint8")
-        depth = np.array([[1642.0]], dtype="float32")
-        rgb = self._composite(watercode, depth, curve="off")
-        assert tuple(rgb[:, 0, 0]) == palette.WATER_RGB
-
-    def test_zero_depth_pixels_stay_flat(self):
-        """The HydroLAKES-vs-WBM rim: ~69% of Tibet's uncovered lake px are inside graded
-        lakes. They must land on exactly WATER_RGB, which is what makes the mismatch
-        invisible rather than a halo."""
-        watercode = np.full((1, 1), 2, dtype="uint8")
-        depth = np.zeros((1, 1), dtype="float32")
-        rgb = self._composite(watercode, depth)
-        assert tuple(rgb[:, 0, 0]) == palette.WATER_RGB
+#: THE FOUR WIRING CASES HERE WENT WITH `shade.composite`. They asserted that a deep lake renders
+#: darker than a shallow one, that no depth reproduces the flat fill, and that a zero-depth rim
+#: lands on exactly `WATER_RGB` — all of it through the numpy compositor, which no body runs. The
+#: CURVE itself survives above, and `render/lake_mask.py` is the hero path that still reads it.

@@ -32,8 +32,10 @@ from conftest import cap_ground_metres_per_px_from_ground_radius
 from rasterio.transform import from_bounds
 
 from pipeline import bodies, datasets, layers, paths, planet_seam
-from pipeline.look import layer_producers, palette, perennial_ice
-from pipeline.tile import cap_render, terrain_rgb
+from pipeline.look import hillshade, layer_producers, palette, perennial_ice
+from pipeline.tile import cap_raytrace, cap_render, terrain_rgb
+
+BASE_AZIMUTH = cap_render.BASE_AZIMUTH
 
 #: A planet whose seam emitted all three rasters — what Earth declares, and the only
 #: shape these tests care about unless they say otherwise.
@@ -142,48 +144,24 @@ class TestLonlatGrid:
         assert longitude[0, 4] == pytest.approx(180.0, abs=0.1)  # top-centre (+y) -> the date line
 
 
-class TestShade:
-    def test_flat_ground_shades_uniformly_whatever_the_azimuth(self):
-        """Zero slope makes the per-pixel rotated azimuth irrelevant — flat terrain must
-        come out one constant DN across the whole disc (and deterministically so)."""
-        grid_8px = cap_render.CapGrid(lat_0=90.0, edge_lat=78.0, px=8, name="tiny", az_sign=-1.0,
-                                   body=bodies.EARTH)
-        heights = np.zeros((8, 8), dtype=np.float32)
-        longitude = np.linspace(-180.0, 180.0, 64, dtype=np.float32).reshape(8, 8)
-        shaded = cap_render._shade(grid_8px, heights, longitude)
-        assert shaded.shape == (8, 8)
-        assert np.allclose(shaded, shaded[0, 0])
-        again = cap_render._shade(grid_8px, heights, longitude)
-        assert np.array_equal(shaded, again)
-
-
 class TestTheLongitudeRotationHasOneOwner:
-    """The cap's light turns with the meridian, and TWO producers have to turn it the same way.
+    """The cap's light turns with the meridian, and `azimuth_delta` is the law that turns it.
 
-    The composite turns it per pixel inside `_shade`. The raytraced arm cannot: Cycles takes one
-    sun direction for a whole frame, so it renders a ring of rigidly rotated passes and blends the
-    two a pixel falls between. Both are the same law — `azimuth_delta` — and the blend lives in a
-    module this process never imports, which is why these pin the law's MEANING and not just that
-    `_shade` reads it.
+    Cycles takes one sun direction for a whole frame, so the disc is rendered at a ring of rigidly
+    rotated bearings and every pixel is blended between the two it falls between. The blend lives
+    in a module this process never imports, which is why these pin the law's MEANING rather than
+    one reader's use of it — they used to drive it through the composite's `_shade`, which was the
+    other reader until it was deleted.
     """
 
     #: Big enough that a central difference near the middle of the disc is not curvature-dominated,
-    #: small enough to shade in milliseconds.
+    #: small enough to evaluate in milliseconds.
     PX = 128
 
-    def _azimuths(self, monkeypatch, grid, longitude):
-        """The (main, fill) azimuth fields `_shade` actually drives the two lights with."""
-        seen: list[np.ndarray] = []
-        real = cap_render.hillshade.hillshade_array
-
-        def spy(heights, cell, zfactor, altitude, azimuth):
-            seen.append(np.asarray(azimuth, dtype=np.float64))
-            return real(heights, cell, zfactor, altitude, azimuth)
-
-        monkeypatch.setattr(cap_render.hillshade, "hillshade_array", spy)
-        cap_render._shade(grid, np.zeros((grid.px, grid.px), dtype=np.float32), longitude)
-        assert len(seen) == 2, f"two lights means two azimuth fields, got {len(seen)}"
-        return seen
+    def _azimuths(self, grid, longitude):
+        """The (main, fill) azimuth fields the law puts a pixel's light at."""
+        delta = np.asarray(cap_render.azimuth_delta(grid, longitude), dtype=np.float64)
+        return BASE_AZIMUTH + delta, hillshade.FILL_AZIMUTH + delta
 
     def _local_north_bearing(self, grid):
         """Image-frame bearing of LOCAL north at each pixel, read off the grid's own latitudes.
@@ -208,8 +186,7 @@ class TestTheLongitudeRotationHasOneOwner:
         return ring
 
     @pytest.mark.parametrize("shipped", (EARTH_NORTH, EARTH_SOUTH), ids=("north", "south"))
-    def test_the_light_arrives_north_west_of_LOCAL_north_at_every_longitude(self, monkeypatch,
-                                                                            shipped):
+    def test_the_light_arrives_north_west_of_LOCAL_north_at_every_longitude(self, shipped):
         """The claim the rotation exists to make, measured against the projection's own geometry.
 
         BOTH POLES, because `az_sign` is the one field where they disagree and a north-only
@@ -218,39 +195,23 @@ class TestTheLongitudeRotationHasOneOwner:
         """
         grid = dataclasses.replace(shipped, px=self.PX)
         longitude, _latitude = cap_render._lonlat_grid(grid)
-        main, _fill = self._azimuths(monkeypatch, grid, longitude)
+        main, _fill = self._azimuths(grid, longitude)
         offset = (main - self._local_north_bearing(grid)) % 360.0
         ring = self._ring(grid)
-        assert np.allclose(offset[ring], cap_render.AZ, atol=0.5)
+        assert np.allclose(offset[ring], BASE_AZIMUTH, atol=0.5)
 
-    def test_both_lights_turn_together_so_a_rigid_rotation_reproduces_them(self, monkeypatch):
-        """WHY THE RAYTRACED ARM MAY ROTATE THE WHOLE RIG AT ONCE. Turning only the key light would
-        make a rendered pass a different intervention from the per-pixel one it must match, and the
-        two would agree everywhere the fill happens not to reach."""
+    def test_both_lights_turn_together_so_a_rigid_rotation_reproduces_them(self):
+        """WHY THE RIG MAY BE ROTATED WHOLE. Turning only the key light would make a rendered pass a
+        different intervention from the law it must reproduce, and the two would agree everywhere
+        the fill happens not to reach."""
         grid = dataclasses.replace(EARTH_NORTH, px=self.PX)
         longitude, _latitude = cap_render._lonlat_grid(grid)
-        main, fill = self._azimuths(monkeypatch, grid, longitude)
+        main, fill = self._azimuths(grid, longitude)
         # Anti-vacuity: two CONSTANT fields would satisfy the separation below trivially, which is
         # exactly what a deleted rotation leaves behind.
         assert np.ptp(main) > 300.0, "the main azimuth barely moves, so nothing is rotating"
-        separation = (cap_render.AZ - cap_render.hillshade.FILL_AZIMUTH) % 360.0
+        separation = (BASE_AZIMUTH - hillshade.FILL_AZIMUTH) % 360.0
         assert np.allclose((main - fill) % 360.0, separation)
-
-    def test_the_shade_pass_reads_the_shared_delta_rather_than_spelling_it(self, monkeypatch):
-        """THE OTHER READER IS NOT IN THIS PROCESS, so ownership is the only thing that binds it.
-
-        `cap_raytrace` imports this expression to decide which rendered pass a pixel wants. Spelled
-        inline here it would be a second copy free to drift, and the drift is invisible: both
-        producers render a plausible disc, lit a few degrees apart, and only the feather into the
-        tiles shows it.
-        """
-        monkeypatch.setattr(cap_render, "azimuth_delta",
-                            lambda grid, longitude: np.full_like(longitude, 7.0, dtype=np.float64))
-        grid = dataclasses.replace(EARTH_NORTH, px=16)
-        longitude, _latitude = cap_render._lonlat_grid(grid)
-        main, fill = self._azimuths(monkeypatch, grid, longitude)
-        assert np.allclose(main, cap_render.AZ + 7.0)
-        assert np.allclose(fill, cap_render.hillshade.FILL_AZIMUTH + 7.0)
 
 
 #: Both poles as they shipped, field for field — the golden this module's grids are held to.
@@ -350,7 +311,7 @@ class TestTheGridsAreBuiltPerBody:
     def test_earths_grids_are_field_for_field_what_they_shipped(self, subtests):
         for name, grid in (("north", EARTH_NORTH), ("south", EARTH_SOUTH)):
             with subtests.test(name):
-                assert json.loads(cap_render.cap_recipe(grid, WHOLE_PLANET))["grid"] == SHIPPED_GRIDS[name]
+                assert json.loads(cap_raytrace.params(grid, WHOLE_PLANET))["grid"] == SHIPPED_GRIDS[name]
 
     def test_a_factory_carries_the_body_it_was_given_all_the_way_through(self, subtests):
         """A factory that pinned Earth would be invisible everywhere it mattered: the cap would
@@ -367,7 +328,7 @@ class TestTheGridsAreBuiltPerBody:
                 assert f"+a={OTHER_BODY.aeqd_radius_m}" in grid.aeqd
                 assert (cap_render.cap_asset(grid, 8192).parent
                         == paths.ROOT / "web/public/caps/other")
-                assert (json.loads(cap_render.cap_recipe(grid, WHOLE_PLANET))["grid"]["aeqd_radius_m"]
+                assert (json.loads(cap_raytrace.params(grid, WHOLE_PLANET))["grid"]["aeqd_radius_m"]
                         == OTHER_BODY.aeqd_radius_m)
 
     def test_the_served_url_matches_where_the_texture_is_actually_written(self, subtests):
@@ -393,27 +354,6 @@ class TestTheGridsAreBuiltPerBody:
                                 == cap_render.cap_asset(grid, rung["px"]))
                     assert (bodies.public_root() / manifest[name]["elev_url"].lstrip("/")
                             == cap_render.cap_elev_asset(grid))
-
-
-class TestTheCompositeArmIsOnePoleDeep:
-    """`render_cap` is what `cap_pass` dispatches to, and its whole job is picking a pole.
-
-    A cap is the one output where the wrong hemisphere is entirely invisible: it projects, blends
-    and downsamples to every rung, and simply shows somewhere else. The CLI that used to live here
-    moved to `cap_pass` with the registry; `tests/test_cap_pass.py` holds its contract.
-    """
-
-    def test_each_pole_reaches_its_own_renderer(self, monkeypatch, subtests):
-        seen: list[str] = []
-        monkeypatch.setattr(cap_render, "render_cap_north",
-                            lambda grid, rasters: seen.append("north"))
-        monkeypatch.setattr(cap_render, "render_cap_south",
-                            lambda grid, rasters: seen.append("south"))
-        for grid in (EARTH_NORTH, EARTH_SOUTH):
-            with subtests.test(pole=grid.name):
-                seen.clear()
-                cap_render.render_cap(grid, WHOLE_PLANET)
-                assert seen == [grid.name]
 
 
 class TestCapPathsFollowTheBody:
@@ -502,17 +442,17 @@ class TestRecipeCoversTheAsset:
     def test_webp_quality_rides_in_the_recipe(self, monkeypatch):
         """The encoder setting changes the shipped pixels, so it must restage the cap —
         the same freshness rule that caught the stale caps."""
-        before = cap_render.cap_recipe(EARTH_NORTH, WHOLE_PLANET)
+        before = cap_raytrace.params(EARTH_NORTH, WHOLE_PLANET)
         assert '"webp"' in before
         monkeypatch.setattr(cap_render, "CAP_WEBP_QUALITY", 101)
-        assert cap_render.cap_recipe(EARTH_NORTH, WHOLE_PLANET) != before
+        assert cap_raytrace.params(EARTH_NORTH, WHOLE_PLANET) != before
 
     def test_rung_set_rides_in_the_recipe(self, monkeypatch):
         """Adding a rung changes the shipped ASSET SET, so it must restage — otherwise the new
         rung's file would never be written and the manifest would advertise a 404."""
-        before = cap_render.cap_recipe(EARTH_NORTH, WHOLE_PLANET)
+        before = cap_raytrace.params(EARTH_NORTH, WHOLE_PLANET)
         monkeypatch.setattr(cap_render, "CAP_RUNGS", (2048, cap_render.CAP_PX))
-        assert cap_render.cap_recipe(EARTH_NORTH, WHOLE_PLANET) != before
+        assert cap_raytrace.params(EARTH_NORTH, WHOLE_PLANET) != before
 
 
 # --- The elevation texture ----------------------------------------------------------------
@@ -881,20 +821,25 @@ def _drive_cap(monkeypatch, tmp_path, body, pole, missing=(), rasters=None, ocea
         burnt.append(name)
         return np.zeros((grid.px, grid.px), dtype=bool)
 
-    painted: dict[str, Any] = {}
-
-    def fake_write(grid, heights, ocean, water, snow_a, ice_a, hillshade_dn, snow_paint):
-        painted.update(snow_a=snow_a, ice_a=ice_a, snow_paint=snow_paint)
-        return tmp_path / f"cap_{grid.name}.webp"
-
     monkeypatch.setattr(cap_render, "_warp", fake_warp)
     monkeypatch.setattr(cap_render, "_burn", fake_burn)
-    monkeypatch.setattr(cap_render, "_write_cap", fake_write)
 
-    factory, render = ((cap_render.north_grid, cap_render.render_cap_north) if pole == "north"
-                       else (cap_render.south_grid, cap_render.render_cap_south))
-    render(dataclasses.replace(factory(body), px=8),
-           WHOLE_PLANET if rasters is None else rasters)
+    factory = cap_render.north_grid if pole == "north" else cap_render.south_grid
+    grid = dataclasses.replace(factory(body), px=8)
+    declared = WHOLE_PLANET if rasters is None else rasters
+
+    # THE PREP'S OWN SEQUENCE, not a renderer's. It used to drive `render_cap_north`/`_south` and
+    # capture `_write_cap`; those went with the composite arm, and every gate this class is about
+    # lives in the three helpers below — which is what `prep_cap` calls and therefore what ships.
+    heights = cap_render.cap_heights(grid, cap_render._warp(
+        grid, planet_seam.vrt_path(grid.body, "heightfield"),
+        cap_render.cap_height_warp(grid), "bilinear", "Float32"))
+    ocean_mask, water = cap_render._cap_masks(grid, declared, heights.shape)
+    _longitude, latitude = cap_render._lonlat_grid(grid)
+    snow_a, snow_paint = cap_render._cap_perennial_ice(
+        grid, ocean_mask, water, latitude, "this cap paints no ice")
+    ice_a = cap_render._cap_sea_ice(grid, ocean_mask, "this cap paints no pack ice")
+    painted: dict[str, Any] = {"snow_a": snow_a, "ice_a": ice_a, "snow_paint": snow_paint}
     return sorted(warped), painted, sorted(burnt)
 
 
@@ -1009,7 +954,7 @@ class TestTheCoastlineIsABodyFact:
         """Deriving `coast_opacity` from the body would record the same fact twice — as a 0.0 in the
         grid block and as an entry in `layers_off` — which is the copy-drift the registry removes."""
         assert cap_render.north_grid(LAYERLESS_BODY).coast_opacity == 0.55
-        recipe = json.loads(cap_render.cap_recipe(cap_render.north_grid(LAYERLESS_BODY), WHOLE_PLANET))
+        recipe = json.loads(cap_raytrace.params(cap_render.north_grid(LAYERLESS_BODY), WHOLE_PLANET))
         assert recipe["grid"]["coast_opacity"] == 0.55
         assert "coastline" in recipe["layers_off"]
 
@@ -1055,57 +1000,21 @@ class TestCapSourcesFollowTheLayers:
 
 class TestTheCapIsShadedInGroundMetres:
     """The cap's map units are metres on `aeqd_radius_m`, its heights are ground metres on the body.
-    Divide one by the other without converting and the slope is a number in neither unit."""
+    Divide one by the other without converting and the slope is a number in neither unit.
 
-    def _zfactors(self, monkeypatch, body):
-        seen: list[float] = []
-        real = cap_render.hillshade.hillshade_array
+    THE PIXEL SIDE OF THIS MOVED RATHER THAN GOING AWAY. It used to spy on the composite's two
+    `hillshade_array` calls; Cycles lights the disc now, so the conversion reaches a pixel through
+    the extent `prep_cap.write_frame` hands `scene_numbers`, and `test_prep_cap.py` owns it. What is
+    left here is the RECIPE half, which no render can be gated on without.
+    """
 
-        def spy(heights, cell, zfactor, altitude, azimuth):
-            seen.append(zfactor)
-            return real(heights, cell, zfactor, altitude, azimuth)
-
-        monkeypatch.setattr(cap_render.hillshade, "hillshade_array", spy)
-        grid = cap_render.CapGrid(lat_0=90.0, edge_lat=78.0, px=8, name="tiny", az_sign=-1.0,
-                                  body=body)
-        cap_render._shade(grid, np.zeros((8, 8), dtype=np.float32),
-                          np.zeros((8, 8), dtype=np.float32))
-        return seen
-
-    def test_both_lights_are_driven_at_the_ground_scaled_z_factor(self, monkeypatch):
-        """Main and fill, not just the main one: they are two calls, and a correction applied to one
-        of them tilts the fill against the light it is meant to soften."""
-        expected = bodies.EARTH.exaggeration / bodies.ground_metres_per_aeqd_unit(bodies.EARTH)
-        assert self._zfactors(monkeypatch, bodies.EARTH) == [expected, expected]
-        assert expected != bodies.EARTH.exaggeration  # Earth's cap ratio is 1.0011202, not 1.0
-
-    def test_a_body_whose_spheres_coincide_is_driven_at_its_bare_exaggeration(self, monkeypatch):
-        """The discriminator that a wrong-way division cannot pass: with ground and AEQD radius
-        equal the ratio is exactly 1, so the z-factor must be the exaggeration itself — inverting
-        the quotient leaves this case identical and every other case wrong."""
-        identity = dataclasses.replace(bodies.EARTH, name="identity",
-                                       ground_radius_m=bodies.EARTH.aeqd_radius_m)
-        assert self._zfactors(monkeypatch, identity) == [15.0, 15.0]
-
-    def test_a_smaller_body_is_shaded_more_steeply_for_the_same_exaggeration(self, monkeypatch):
-        """A body half Earth's size fits the same angle into half the ground distance, so the same
-        physical exaggeration needs roughly twice the z-factor. Direction AND magnitude, because a
-        correction applied backwards is still monotonic in the body's radius."""
+    def test_the_ground_scale_rides_in_the_recipe_that_gates_the_render(self):
+        """Untracked, a body change would leave a cap falsely fresh at another planet's relief."""
+        recipe = json.loads(cap_raytrace.params(EARTH_NORTH, WHOLE_PLANET))
+        assert recipe["ground_scale"] == bodies.ground_metres_per_aeqd_unit(bodies.EARTH)
         smaller = dataclasses.replace(bodies.EARTH, name="smaller", ground_radius_m=3396190.0)
-        got = self._zfactors(monkeypatch, smaller)
-        assert got[0] == pytest.approx(15.0 / (3396190.0 / 6371000.0))
-        assert got[0] == pytest.approx(28.14, abs=0.01)
-        assert got[0] > self._zfactors(monkeypatch, bodies.EARTH)[0]
-
-    def test_the_ground_scale_rides_in_the_recipe_that_gates_the_render(self, monkeypatch):
-        """Unconditionally, unlike the Mercator one: no body's cap ratio is the identity, so a
-        conditional would never fire and would only read as though it might. Untracked, a body
-        change would leave a cap falsely fresh at another planet's relief."""
-        recipe = json.loads(cap_render.cap_recipe(EARTH_NORTH, WHOLE_PLANET))
-        assert recipe["light"]["ground_scale"] == bodies.ground_metres_per_aeqd_unit(bodies.EARTH)
-        smaller = dataclasses.replace(bodies.EARTH, name="smaller", ground_radius_m=3396190.0)
-        other = cap_render.cap_recipe(dataclasses.replace(EARTH_NORTH, body=smaller), WHOLE_PLANET)
-        assert json.loads(other)["light"]["ground_scale"] != recipe["light"]["ground_scale"]
+        other = cap_raytrace.params(dataclasses.replace(EARTH_NORTH, body=smaller), WHOLE_PLANET)
+        assert json.loads(other)["ground_scale"] != recipe["ground_scale"]
 
     def test_the_elevation_texture_is_not_dragged_through_the_ground_scale(self):
         """It encodes true metres and contains no slope at all, so a ground scale in the shared grid
@@ -1209,13 +1118,13 @@ class TestTheCapDiscCanSayWhichGridItIsOn:
 
 class TestTheCapRecipeRecordsWhatIsOff:
     def test_earth_records_no_layers_off_so_its_caps_keep_their_recipe_shape(self):
-        assert "layers_off" not in json.loads(cap_render.cap_recipe(EARTH_NORTH, WHOLE_PLANET))
-        assert "layers_off" not in json.loads(cap_render.cap_recipe(EARTH_SOUTH, WHOLE_PLANET))
+        assert "layers_off" not in json.loads(cap_raytrace.params(EARTH_NORTH, WHOLE_PLANET))
+        assert "layers_off" not in json.loads(cap_raytrace.params(EARTH_SOUTH, WHOLE_PLANET))
 
     def test_a_bare_body_records_exactly_the_cap_layers_it_lacks(self):
         """The cap vocabulary, not the whole one: `lake_depth` and `glaciers` never reach a cap, so
         recording them would restage a 14 GB render on a decision it cannot contain."""
-        recipe = json.loads(cap_render.cap_recipe(cap_render.north_grid(LAYERLESS_BODY), WHOLE_PLANET))
+        recipe = json.loads(cap_raytrace.params(cap_render.north_grid(LAYERLESS_BODY), WHOLE_PLANET))
         assert recipe["layers_off"] == ["antarctic_rock", "coastline", "perennial_ice", "sea_ice"]
 
     def test_turning_a_layer_off_restages_although_its_source_stops_being_a_dependency(self):
@@ -1234,9 +1143,9 @@ class TestTheCapRecipeRecordsWhatIsOff:
                                 surface_layers=bodies.EARTH.surface_layers - {"sea_ice"}))
         assert datasets.seaice_frequency() in cap_render.cap_sources(with_ice, WHOLE_PLANET)
         assert datasets.seaice_frequency() not in cap_render.cap_sources(without, WHOLE_PLANET)
-        assert "layers_off" not in json.loads(cap_render.cap_recipe(with_ice, WHOLE_PLANET))
+        assert "layers_off" not in json.loads(cap_raytrace.params(with_ice, WHOLE_PLANET))
         assert json.loads(
-            cap_render.cap_recipe(without, WHOLE_PLANET))["layers_off"] == ["sea_ice"]
+            cap_raytrace.params(without, WHOLE_PLANET))["layers_off"] == ["sea_ice"]
 
 
 class TestTheRockNeverGatesTheForcedWhite:
@@ -1407,17 +1316,20 @@ class TestTheCapPassAsksTheSeamBeforeTheDisk:
                             for raster in cap_render.planet_seam.PLANET_RASTERS])
 
     def test_the_cap_recipe_records_the_rasters_that_are_off(self, subtests):
-        with subtests.test("earth records nothing"):
-            assert "rasters_off" not in json.loads(
-                cap_render.cap_recipe(EARTH_NORTH, WHOLE_PLANET))["composite"]
+        """UNCONDITIONALLY, and at the top level. The composite recipe nested this under its own
+        block and omitted it on a whole planet; the raytraced one always states the answer, so an
+        empty list is a claim rather than a silence."""
+        with subtests.test("earth records an empty list"):
+            assert json.loads(
+                cap_raytrace.params(EARTH_NORTH, WHOLE_PLANET))["rasters_off"] == []
         with subtests.test("a maskless planet records both"):
-            recipe = json.loads(cap_render.cap_recipe(
+            recipe = json.loads(cap_raytrace.params(
                 cap_render.north_grid(LAYERLESS_BODY), self.HEIGHTFIELD_ONLY))
-            assert recipe["composite"]["rasters_off"] == ["oceanmask", "watermask"]
+            assert recipe["rasters_off"] == ["oceanmask", "watermask"]
         with subtests.test("so switching one off restages the cap"):
             grid = cap_render.north_grid(LAYERLESS_BODY)
-            assert (cap_render.cap_recipe(grid, WHOLE_PLANET)
-                    != cap_render.cap_recipe(grid, self.HEIGHTFIELD_ONLY))
+            assert (cap_raytrace.params(grid, WHOLE_PLANET)
+                    != cap_raytrace.params(grid, self.HEIGHTFIELD_ONLY))
 
 
 class TestThePoleIsSmoothedWhereTheAltimeterNeverReached:

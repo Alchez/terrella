@@ -1,28 +1,13 @@
 """Run one body's planet pass: warp the inputs, produce the colour raster, cut tiles, render caps.
 
-WHY THIS IS NOT `shade_planet.main`. The pass is five stages and only ONE of them has two
-implementations: the colour raster is either composited out of numpy or rendered out of Cycles, and
-`bodies.Body.planet_producer` says which. Leaving the sequence inside the composite's own module
-would make one producer the host of the other, and would leave the harness selecting a producer by
-naming a module path in a shell script — which is what `run_pass.sh` did.
+WHY THIS IS NOT `block_render.main`. The pass is four stages and the raster is only one of them, so
+the sequence lives outside whichever module fills it; hosting it inside one stage is what left
+`run_pass.sh` naming a module path to pick behaviour.
 
-WHAT IS SHARED IS MOST OF IT, and that is why the fork is this small:
-
-  1. `warp_inputs`   both — `prep_block` cuts from exactly the rasters the composite reads
-  2. the hillshade   composite only — Cycles computes its own light
-  3. the raster      THE FORK — `composite_planet` or `block_render.run`, same file, same directory
-  4. the tile cut    both — the cut cannot tell which producer ran, which is the design
-  5. the polar caps  both — `cap_render` composites its own discs whatever made the tiles
-
-THE PRODUCER IS A DEPENDENCY AND NOT ONLY A CHOICE, and `tile/producer_seam.py` owns that: each
-producer declares itself, because this module is not on every path into one. It holds the argument
-in full.
-
-AND THE CHOICE CAN BE IMPOSSIBLE, which is what `cannot_run` asks. `planet_producer` is written by
-hand while raytraceability is DERIVED from what a body's planet seam declared, so the registry can
-hold a pair that cannot run. The question is asked here, before the warp both producers share,
-because the answer does not depend on that warp and asking afterwards charged a wrongly-declared
-body a full Earth height warp on every run to hear the same no.
+  1. `warp_inputs`   `prep_block` cuts from exactly these rasters
+  2. the raster      `block_render.run`
+  3. the tile cut    cannot tell what filled the raster, which is the design
+  4. the polar caps  raytraced off the same rig
 
     python -m pipeline.tile.planet_pass --body earth            # produce only
     python -m pipeline.tile.planet_pass --body earth --tiles    # + cut tiles
@@ -31,23 +16,11 @@ body a full Earth height warp on every run to hear the same no.
 import argparse
 import subprocess
 import sys
-from collections.abc import Callable
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
 
 from pipeline import bodies, planet_seam, progress
 from pipeline.freshness import is_stale
 from pipeline.tile import block_render, relief_scan, shade_planet
-from pipeline.tile.shade import KNOBS
-
-
-def _composite(work: Path, body: bodies.Body, rasters: frozenset[str], height: Path) -> Path:
-    """Shade the planet window by window out of numpy."""
-    hillshade = shade_planet.build_hillshade(work, height, body)
-    return shade_planet.composite_planet(
-        work, hillshade, lambda: shade_planet.global_occlusion(height, body), body, rasters,
-        window_rows=shade_planet.COMPOSITE_ROWS, max_workers=shade_planet.N_WORKERS)[None]
 
 
 def _raytrace(work: Path, body: bodies.Body, rasters: frozenset[str], height: Path) -> Path:
@@ -56,70 +29,6 @@ def _raytrace(work: Path, body: bodies.Body, rasters: frozenset[str], height: Pa
     mosaic = block_render.mosaic_in(work)
     block_render.run(body, work, mosaic)
     return mosaic
-
-
-def _runs_on_any_seam(rasters: frozenset[str]) -> list[str]:
-    """Neither producer has a seam requirement, and that is a FACT about them rather than a stub.
-
-    The composite paints from the heightfield and treats every mask and every surface layer as
-    optional -- `composite_deps` names them all unconditionally precisely because `newest_mtime`
-    scores a missing path 0.0. So there is no declaration it can be handed that it cannot shade; a
-    thin one costs it pixels rather than the run.
-
-    THE RAYTRACE JOINED IT RATHER THAN KEEPING A REFUSAL OF ITS OWN. Its requirement was real while
-    the rig loaded the two inland-water masks for every look, so a body with no watermask was turned
-    away before its first block; since `scene_build.textures_for` reads the render directory's
-    declaration, there is no image a thin seam fails to supply. What survives is a LOOK-versus-
-    declaration check, which `scene_build` makes and this signature could not ask: it is handed the
-    planet seam and never the look.
-
-    Spelled out because the alternative reads as "not implemented yet", and a reader would then be
-    free to add a requirement here that is not real.
-    """
-    del rasters
-    return []
-
-
-@dataclass(frozen=True)
-class Producer:
-    """One way to fill a body's planet raster, together with which bodies may choose it.
-
-    THE TWO ANSWERS SHARE A RECORD BECAUSE THEY ARE ASKED OF ONE CHOICE. A second registry keyed on
-    the same producer names would be free to gain a member the first one lacks, and the gap is
-    silent in the direction that matters: a producer nothing can refuse. This way a new producer
-    cannot be dispatchable without also saying who is allowed to dispatch it.
-    """
-
-    #: Fill the raster and return its path.
-    produce: Callable[[Path, bodies.Body, frozenset[str], Path], Path]
-    #: Why a body declaring these rasters cannot use this producer, as reasons, or `[]` if it can.
-    #: Takes the DECLARATION rather than the body, because that is what the answer turns on and it
-    #: keeps the question answerable without a planet on disk.
-    refusals_for: Callable[[frozenset[str]], list[str]]
-
-
-#: The producers, keyed by the value a body answers with.
-#:
-#: A REGISTRY RATHER THAN AN `if`, so that `bodies.PLANET_PRODUCERS` gaining a member is a red test
-#: instead of a branch that silently falls through to the other one.
-PRODUCERS: dict[str, Producer] = {
-    "composite": Producer(_composite, _runs_on_any_seam),
-    "raytrace": Producer(_raytrace, _runs_on_any_seam),
-}
-
-
-def cannot_run(body: bodies.Body, rasters: frozenset[str]) -> list[str]:
-    """Why this body's declared producer cannot run on what its planet seam declared, or `[]`.
-
-    THE FIELD IS A CHOICE AND THE ANSWER IS DERIVED, which is the whole reason this exists.
-    `Body.planet_producer` is written down by hand; whether that choice is possible depends on a
-    different module's declaration, and until this was asked the registry could hold a pair that
-    cannot run -- `MARS.planet_producer = "raytrace"` type-checks and passes every gate.
-
-    Asked of the DECLARATION, so a test can sweep every registered body without a store, and so the
-    pass can ask it before the shared warp rather than after.
-    """
-    return producer_for(body).refusals_for(rasters)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -137,14 +46,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--tiles", action="store_true",
                     help="also cut tiles from the raster, z0 to the body's own ceiling")
-    ap.add_argument("--knob", action="append", default=[], metavar="KEY=VALUE",
-                    help="override a locked KNOBS entry (repeatable), as tile/shade.py does. "
-                         "Look changes used to be made by EDITING the constant, which meant an "
-                         "experiment and production shared one source of truth. Overrides are "
-                         "safe for freshness by construction: composite_params/hs_params "
-                         "serialise KNOBS, so an override restages exactly what it changes and "
-                         "the recorded params always describe the pyramid that exists. Composite "
-                         "bodies only — the raytraced producer reads none of them.")
+    # No `--knob`: every entry it tuned was a composite constant, so it can no longer reach a planet
+    # pixel. `shade.KNOBS` itself survives, read by the hero lake mask.
     return ap
 
 
@@ -156,43 +59,6 @@ def resolve_body(args: argparse.Namespace) -> bodies.Body:
 def resolve_out(args: argparse.Namespace) -> Path:
     """Where this run writes: the explicit `--out`, else the body's own tile-work directory."""
     return args.out if args.out is not None else relief_scan.work_dir(resolve_body(args))
-
-
-def producer_for(body: bodies.Body) -> "Producer":
-    """The producer this body answers with, or raise naming the ones that exist.
-
-    NO FALLBACK, on the rule `bodies.get` and `palette.look_for` already state: a body quietly
-    borrowing another's producer spends a night making the wrong kind of planet.
-    """
-    try:
-        return PRODUCERS[body.planet_producer]
-    except KeyError:
-        known = ", ".join(sorted(PRODUCERS))
-        raise SystemExit(f"{body.name} names planet producer {body.planet_producer!r}, which this "
-                         f"pass cannot run; known producers are: {known}") from None
-
-
-def apply_knob_overrides(body: bodies.Body, overrides: list[str]) -> None:
-    """Apply `--knob KEY=VALUE` to the locked KNOBS, refusing them on a body that reads none.
-
-    THE REFUSAL IS THE POINT, not the applying. Every KNOBS entry is a composite constant, and the
-    cap pass is a separate process with its own defaults, so on a raytraced body an override reaches
-    no pixel anywhere. Silently accepted it would read as a look experiment that simply had no
-    visible effect, which is indistinguishable from the look actually being insensitive to it.
-    """
-    if overrides and body.planet_producer != "composite":
-        raise SystemExit(f"--knob tunes composite constants and {body.name} is produced by "
-                         f"{body.planet_producer!r}, which reads none of them; the override would "
-                         f"reach no pixel")
-    # A key off argv is dynamic by construction, so a TypedDict cannot check it -- this view is
-    # the honest escape hatch, and the membership test below is what actually validates the key.
-    knobs = cast(dict[str, Any], KNOBS)
-    for override in overrides:
-        key, _, value = override.partition("=")
-        if key not in knobs:
-            raise SystemExit(f"unknown knob {key!r}; valid: {', '.join(sorted(knobs))}")
-        knobs[key] = value if isinstance(knobs[key], str) else float(value)
-        print(f"knob override: {key} = {knobs[key]}", flush=True)
 
 
 def raster_is_complete(planet_tif: Path) -> bool:
@@ -236,27 +102,14 @@ def main() -> None:
     body = resolve_body(args)
     work = resolve_out(args)
     work.mkdir(parents=True, exist_ok=True)
-    producer = producer_for(body)
-    apply_knob_overrides(body, args.knob)
 
     # Read ONCE, at the top, and threaded down. The planet stage declares what it emitted and this
     # raises if it never finished, so a half-built planet stops here rather than being shaded into a
-    # plausible-looking pyramid. Threading it (rather than each stage reading the file) keeps
-    # `_compute_shared` a pure function of its arguments, which is what lets it run on workers.
+    # plausible-looking pyramid.
     rasters = planet_seam.declared(body)
 
-    # BEFORE THE WARP, because the warp is the expensive stage BOTH producers share and the answer
-    # does not depend on it. `planet_producer` is a choice written by hand and whether it is
-    # possible is derived from the declaration just read, so this is the first moment the question
-    # can be asked at all -- and asking it one line later charged a wrongly-declared body a full
-    # Earth height warp, on every run, to hear the same no.
-    refusals = cannot_run(body, rasters)
-    if refusals:
-        raise SystemExit(f"{body.name} declares planet producer {body.planet_producer!r}, which "
-                         f"cannot run on this body: " + "; ".join(refusals))
-
     height = shade_planet.warp_inputs(work, planet_seam.planet_dir(body), body, rasters)
-    planet_tif = producer.produce(work, body, rasters, height)
+    planet_tif = _raytrace(work, body, rasters, height)
 
     if args.tiles and not raster_is_complete(planet_tif):
         progress.stage(f"{planet_tif.name} is incomplete -> tiles NOT cut "

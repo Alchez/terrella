@@ -24,8 +24,6 @@ from pipeline.raster_io import GTIFF_CREATE
 from pipeline.render import prep_block
 from pipeline.tile import (
     block_render,
-    planet_pass,
-    producer_seam,
     relief_scan,
     shade_planet,
 )
@@ -201,24 +199,6 @@ class TestASecondMosaicOwnsEverySidecarThatDescribesIt:
         before = recipe.read_text(), recipe.stat().st_mtime
         _drive_planet(tmp_path, monkeypatch, mosaic=self._ab(tmp_path), blocks=4)
         assert (recipe.read_text(), recipe.stat().st_mtime) == before
-
-    def test_an_ab_does_not_claim_the_raster_it_did_not_write(self, tmp_path, monkeypatch):
-        """The declaration's subject is the work directory's CANONICAL raster, and an A/B does not
-        produce it. `composite_planet` already guards its own on exactly this question, writing one
-        only when `planet_rgb.tif` is among its outputs.
-
-        THE BODY THAT WILL BE IN THIS STATE IS MARS, whose canonical raster is composited and
-        shipping while the raytrace is being judged against it. Earth stands in because Mars's seam
-        is refused before any block until the rig reads `render_seam.declared`; the assertion is
-        about the declaration, which is the same on either body.
-
-        NOTHING DECLARES THE A/B'S OWN RASTER AND NOTHING SHOULD. The stamp exists because two
-        producers share one output; a second mosaic has one producer, and its own recipe beside it
-        names which.
-        """
-        producer_seam.declare(tmp_path, "composite")
-        _drive_planet(tmp_path, monkeypatch, mosaic=self._ab(tmp_path), blocks=3)
-        assert producer_seam.declared(tmp_path) == "composite"
 
     def test_each_run_reports_its_own_progress(self, tmp_path, monkeypatch):
         """`raytrace_status.json` is the point of contact for a night's watcher, and two runs
@@ -626,12 +606,7 @@ class TestTheRunnerStopsWhenTheMosaicIsAlreadyCurrent:
 
     def test_a_fresh_mosaic_renders_nothing(self, tmp_path, monkeypatch):
         """The recipe is already on disk holding exactly what this run would write, which is the
-        second-run state: `write_if_changed` moves no mtime, so the stamp stays the newest thing.
-
-        THE PRODUCER DECLARATION IS PART OF THAT STATE and has to be staged with the rest of it.
-        `run` declares the raytrace before asking its freshness question, so a work directory that
-        has never been declared is a FIRST run however fresh everything else looks — the declaration
-        lands newer than the marker and every block correctly re-renders."""
+        second-run state: `write_if_changed` moves no mtime, so the stamp stays the newest thing."""
         declare_planet_rasters(monkeypatch)
         planned = [_block(0, column) for column in range(3)]
         monkeypatch.setattr(block_render, "plan_blocks", lambda body, work: planned)
@@ -639,28 +614,10 @@ class TestTheRunnerStopsWhenTheMosaicIsAlreadyCurrent:
         (tmp_path / block_render.PARAMS_NAME).write_text(block_render.params(
             bodies.EARTH, planet_seam.declared(bodies.EARTH), palette.look_for("earth"),
             block_render.rig_recipe(bodies.EARTH), planned))
-        producer_seam.declare(tmp_path, "raytrace")
         mosaic = tmp_path / "planet_rgb.tif"
         mosaic.write_bytes(b"")
         freshness.mark_done(mosaic)
         assert block_render.run(bodies.EARTH, tmp_path, mosaic) == 0
-
-    def test_a_mosaic_the_other_producer_made_is_not_fresh(self, tmp_path, monkeypatch):
-        """The switch, from this side, and the reason the declaration is a dependency at all.
-
-        Everything is identical to the test above except who last claimed the raster. A composited
-        planet is newer than every warp source and newer than this producer's recipe, so without the
-        stamp this run would report it fresh and publish composited pixels under a raytrace recipe.
-        """
-        declare_planet_rasters(monkeypatch)
-        monkeypatch.setattr(block_render, "plan_blocks", _stop_here)
-        _stage_warped_inputs(tmp_path)
-        producer_seam.declare(tmp_path, "composite")
-        mosaic = tmp_path / "planet_rgb.tif"
-        mosaic.write_bytes(b"")
-        freshness.mark_done(mosaic)
-        with pytest.raises(SystemExit, match="reached the plan"):
-            block_render.run(bodies.EARTH, tmp_path, mosaic)
 
     def test_a_moved_input_is_not_fresh(self, tmp_path, monkeypatch):
         """The other direction, so the test above cannot pass by the predicate always saying yes."""
@@ -782,12 +739,6 @@ class TestATHinSeamNoLongerStopsTheProducer:
         the same defect wearing the other hat, since its seam declares no watermask."""
         (tmp_path / shade_planet.HEIGHT_3857).write_bytes(b"")
         block_render.check_inputs(tmp_path, bodies.MARS, frozenset({"heightfield"}))
-
-    def test_the_registry_sweep_lives_where_the_registry_does(self):
-        """A pointer rather than a second copy: `test_planet_pass` owns the claim that no producer
-        refuses a seam, because `PRODUCERS` is that module's. Asserting it here too would be two
-        guards to update the day a third producer arrives."""
-        assert "refusals_for" in planet_pass.Producer.__dataclass_fields__
 
 
 def _stage_warped_inputs(tmp_path):

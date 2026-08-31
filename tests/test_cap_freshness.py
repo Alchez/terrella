@@ -1,10 +1,8 @@
-"""cap_render's freshness guard: caps are shade-stage outputs, and unguarded outputs rot — both
-caps once sat a full day stale against the tiles they feather into, the north cap −6.7 DN
-adrift. The guard is a recipe sidecar built on
-shade_planet.composite_params (one recipe home) plus source-mtime comparison.
+"""The cap's freshness guard: caps are pass outputs, and unguarded outputs rot — both caps once sat
+a full day stale against the tiles they feather into, the north cap −6.7 DN adrift. The guard is
+`cap_raytrace.params` in a sidecar plus source-mtime comparison.
 """
 
-import dataclasses
 import json
 import os
 from pathlib import Path
@@ -13,8 +11,7 @@ import pytest
 
 from pipeline import bodies, datasets, planet_seam
 from pipeline.look import perennial_ice
-from pipeline.tile import cap_render
-from pipeline.tile.shade import KNOBS
+from pipeline.tile import cap_raytrace, cap_render
 
 #: A planet whose seam emitted all three rasters — what Earth declares, and the only
 #: shape these tests care about unless they say otherwise.
@@ -95,88 +92,36 @@ class TestCapIsFresh:
 
 
 class TestCapRecipe:
-    def test_a_composite_knob_change_restages_the_caps(self):
-        """THE regression this guard exists for: ambient_knee shipped and no cap noticed."""
-        before = cap_render.cap_recipe(EARTH_NORTH, WHOLE_PLANET)
-        saved = KNOBS["ambient_knee"]
-        KNOBS["ambient_knee"] = saved + 0.05
-        try:
-            assert cap_render.cap_recipe(EARTH_NORTH, WHOLE_PLANET) != before
-        finally:
-            KNOBS["ambient_knee"] = saved
-
-    def test_fill_strength_rides_in_the_recipe(self):
-        """composite_params filters fill_strength as hillshade-stage (hs_params tracks it for the
-        tiles), but the caps consume it directly in _shade — the one knob that would slip through
-        the shared recipe if not listed explicitly."""
-        before = cap_render.cap_recipe(EARTH_SOUTH, WHOLE_PLANET)
-        saved = KNOBS["fill_strength"]
-        KNOBS["fill_strength"] = saved + 0.05
-        try:
-            assert cap_render.cap_recipe(EARTH_SOUTH, WHOLE_PLANET) != before
-        finally:
-            KNOBS["fill_strength"] = saved
+    """NO COMPOSITE-KNOB CASES LEFT, and their absence is the composite's deletion reaching here.
+    Two tests asked that `ambient_knee` and `fill_strength` restage the caps; the disc is raytraced
+    now and reads neither, so keeping them would pin a coupling no pixel has."""
 
     def test_the_two_caps_have_distinct_recipes(self):
         """Grid geometry (edge_lat, taper, ice overrides) rides in the recipe, so the poles never
         share a sidecar."""
-        assert cap_render.cap_recipe(EARTH_NORTH, WHOLE_PLANET) != cap_render.cap_recipe(EARTH_SOUTH, WHOLE_PLANET)
+        assert (cap_raytrace.params(EARTH_NORTH, WHOLE_PLANET)
+                != cap_raytrace.params(EARTH_SOUTH, WHOLE_PLANET))
 
 
-class TestTheCapRecipeTracksWhoMakesTheTiles:
-    """A disc is built to match the tiles it feathers into, so which producer fills `planet_rgb` is
-    a cap dependency — and it is one nothing else in this recipe can stand in for.
-
-    THE SWITCH IS SILENT IN BOTH DIRECTIONS WITHOUT IT, the same hazard `producer_seam` closes one
-    tier up: `composite_params` serialises look constants that are identical under either producer,
-    and `planet_rgb` is not a cap source, so both discs read fresh across a flip that repaints every
-    tile beneath them.
+class TestTheDisplacementTextureDoesNotFollowTheLook:
+    """`cap_elev_recipe` encodes metres with no light in them, so a colour change must not drag both
+    displacement textures through a re-encode. `grid_recipe_fields` is shared between the disc and
+    the texture, which is what makes a look key landing there the trap rather than a tidy.
     """
 
-    def test_flipping_the_producer_restages_both_discs(self):
-        flipped = dataclasses.replace(bodies.EARTH, planet_producer="composite")
-        assert bodies.EARTH.planet_producer != flipped.planet_producer, (
-            "the fixture no longer flips the field, so both arms below are the same body")
-        for grid_of in (cap_render.north_grid, cap_render.south_grid):
-            assert (cap_render.cap_recipe(grid_of(bodies.EARTH), WHOLE_PLANET)
-                    != cap_render.cap_recipe(grid_of(flipped), WHOLE_PLANET)), (
-                f"the {grid_of(bodies.EARTH).name} disc reads fresh across a producer switch")
+    def test_a_look_change_moves_the_disc_recipe(self, monkeypatch):
+        """The positive control. Without it the test below passes against a constant no recipe
+        reads, which is indistinguishable from the separation actually holding."""
+        grid = cap_render.north_grid(bodies.EARTH)
+        before = cap_raytrace.params(grid, WHOLE_PLANET)
+        monkeypatch.setattr(cap_render, "COAST_RGB", (1, 2, 3))
+        assert cap_raytrace.params(grid, WHOLE_PLANET) != before
 
-    def test_the_recipe_records_the_producer_it_was_HANDED(self):
-        """DERIVED FROM THE VOCABULARY RATHER THAN FROM THE REGISTRY, and the swap is forced.
-
-        This swept the registry while the two shipped bodies disagreed, which is what let it tell a
-        read from a literal. Both raytrace now, so that sweep would pass against a hardcoded
-        `"raytrace"` — the exact substitution it exists to catch. Building one body per
-        `PLANET_PRODUCERS` entry restores that and widens it: a producer added to the vocabulary is
-        covered without anyone remembering to add a case for it.
-        """
-        assert len(bodies.PLANET_PRODUCERS) > 1, (
-            f"the vocabulary is {bodies.PLANET_PRODUCERS}, which cannot exercise a dispatch")
-        for producer in bodies.PLANET_PRODUCERS:
-            body = dataclasses.replace(bodies.EARTH, planet_producer=producer)
-            recipe = json.loads(cap_render.cap_recipe(cap_render.north_grid(body), WHOLE_PLANET))
-            assert recipe["planet_producer"] == producer, (
-                f"a body naming {producer!r} got a cap recipe recording "
-                f"{recipe.get('planet_producer')!r}")
-
-    def test_every_registered_body_is_consistent_with_that(self):
-        """The registry half, kept rather than folded into the sweep above because it is the one
-        that reads SHIPPING values: the vocabulary sweep proves the field is read, this proves the
-        bodies actually on disk agree with what their discs were built under."""
-        for body in bodies.BODIES.values():
-            recipe = json.loads(cap_render.cap_recipe(cap_render.north_grid(body), WHOLE_PLANET))
-            assert recipe["planet_producer"] == body.planet_producer, (
-                f"{body.name}'s cap recipe records {recipe.get('planet_producer')!r} "
-                f"where the body names {body.planet_producer!r}")
-
-    def test_the_displacement_texture_does_not_follow_it(self):
-        """The control, and the over-tracking half of the same trap. `cap_elev_recipe` encodes
-        metres with no light in them, so a producer flip must not drag both textures through a
-        re-encode — the reason `grid_recipe_fields` is where this key does NOT go."""
-        flipped = dataclasses.replace(bodies.EARTH, planet_producer="composite")
-        assert (cap_render.cap_elev_recipe(cap_render.north_grid(bodies.EARTH))
-                == cap_render.cap_elev_recipe(cap_render.north_grid(flipped)))
+    def test_the_displacement_texture_does_not_follow_it(self, monkeypatch):
+        grid = cap_render.north_grid(bodies.EARTH)
+        before = cap_render.cap_elev_recipe(grid)
+        monkeypatch.setattr(cap_render, "COAST_RGB", (1, 2, 3))
+        assert cap_render.cap_elev_recipe(grid) == before
 
 
 class TestCapSources:
@@ -226,11 +171,11 @@ class TestTheRecipeTracksTheBodyNarrowly:
     """
 
     def test_the_projection_radius_is_recorded(self):
-        recipe = json.loads(cap_render.cap_recipe(EARTH_NORTH, WHOLE_PLANET))
+        recipe = json.loads(cap_raytrace.params(EARTH_NORTH, WHOLE_PLANET))
         assert recipe["grid"]["aeqd_radius_m"] == bodies.EARTH.aeqd_radius_m
 
     def test_the_whole_body_is_not_inlined(self):
-        recipe = json.loads(cap_render.cap_recipe(EARTH_NORTH, WHOLE_PLANET))
+        recipe = json.loads(cap_raytrace.params(EARTH_NORTH, WHOLE_PLANET))
         assert "body" not in recipe["grid"], (
             "the Body object is inlined in the cap recipe — a change to any of its fields, including "
             "ones that cannot move a cap pixel, would restage both caps"
@@ -243,5 +188,5 @@ class TestTheRecipeTracksTheBodyNarrowly:
     def test_both_recipes_agree_on_how_a_grid_is_serialised(self):
         """They were briefly patched separately, which is how a fix lands in one and not the other."""
         elev = json.loads(cap_render.cap_elev_recipe(EARTH_NORTH))
-        full = json.loads(cap_render.cap_recipe(EARTH_NORTH, WHOLE_PLANET))
+        full = json.loads(cap_raytrace.params(EARTH_NORTH, WHOLE_PLANET))
         assert elev["grid"] == full["grid"]

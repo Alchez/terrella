@@ -270,10 +270,6 @@ class TestTheRaytraceRecipeIsNotTheCompositesWearingAnotherName:
     def _recipe(self):
         return json.loads(cap_raytrace.params(cap_render.north_grid(EARTH), WHOLE_PLANET))
 
-    def test_the_two_producers_of_one_disc_write_different_recipes(self):
-        grid = cap_render.north_grid(EARTH)
-        assert cap_raytrace.params(grid, WHOLE_PLANET) != cap_render.cap_recipe(grid, WHOLE_PLANET)
-
     def test_it_names_the_producer_that_wrote_it(self):
         assert self._recipe()["producer"] == "raytrace"
 

@@ -62,11 +62,15 @@ class TestGtiffCreate:
 
 
 class TestAdoption:
-    """Source-scan drift guards: the three tile writers carry the shared core,
-    and fusion's writers never gain the threading flag."""
+    """Source-scan drift guards: every tile writer carries the shared core, and fusion's writers
+    never gain the threading flag.
 
-    @pytest.mark.parametrize("relative", ["look/hillshade.py", "tile/shade.py",
-                                          "tile/shade_planet.py"])
+    `tile/shade_planet.py` and `tile/shade.py` both left this list when the composite did. Neither
+    writes a raster now — one warps and cuts through GDAL subprocesses, the other is a constants
+    module — so requiring the core of either would pin a string no call site can carry.
+    """
+
+    @pytest.mark.parametrize("relative", ["look/hillshade.py"])
     def test_tile_writers_use_the_shared_core(self, relative):
         assert "**GTIFF_CREATE" in (PIPELINE / relative).read_text()
 

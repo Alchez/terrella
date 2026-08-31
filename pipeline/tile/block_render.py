@@ -60,7 +60,7 @@ from pipeline.block_plan import Block
 from pipeline.look import layer_producers, palette
 from pipeline.raster_io import GTIFF_CREATE
 from pipeline.render import blender_proc, prep_block
-from pipeline.tile import producer_seam, relief_scan, shade_planet
+from pipeline.tile import relief_scan, shade_planet
 
 #: Consecutive block failures that stop the run. A single block can fail for its own reasons — a
 #: transient OptiX fault, a bad frame — and throwing away the hours still queued behind it would be
@@ -284,15 +284,14 @@ def raytrace_deps(work: Path, recipe: Path) -> tuple[Path, ...]:
     Over-inclusive in the same way and for the same reason: `is_stale` takes the newest mtime, so
     naming a raster this body does not have costs nothing, while missing one is silent.
 
-    THE PRODUCER STAMP IS SHARED WITH `composite_deps` AND IS THE ONLY ENTRY THAT IS. It is what
-    makes a producer switch visible from this side: the mosaic left by the composite is newer than
-    every warp and newer than this recipe, so without the stamp this producer would report it fresh
-    and skip the render, publishing composited pixels under a raytrace recipe.
+    NO PRODUCER STAMP, and its absence is the deletion of the second producer rather than an
+    oversight. `producer_seam` existed because two producers wrote one raster and shared one `.done`
+    marker, so each read the other's work as its own; one producer cannot be confused about who
+    filled the mosaic. A second one arriving needs that seam back before it writes a pixel.
     """
     return (work / shade_planet.HEIGHT_3857, work / shade_planet.OCEAN_3857,
             work / shade_planet.WATER_3857,
-            *(layer.warped_in(work) for layer in layers.warped_for(layers.BLOCK_LAYERS)), recipe,
-            producer_seam.stamp_path(work))
+            *(layer.warped_in(work) for layer in layers.warped_for(layers.BLOCK_LAYERS)), recipe)
 
 
 def generation_is_current(markers: Path, deps: tuple[Path, ...]) -> bool:
@@ -653,8 +652,6 @@ def run(body: bodies.Body, work: Path, mosaic: Path, *, limit: int | None = None
     # so addressing the raster itself by the caller's would leave one run holding two names for one
     # file — which is what the progress document then reports and a reader compares against.
     mosaic = sidecars.mosaic
-    if sidecars.canonical:
-        producer_seam.declare(work, "raytrace")
     blocks = plan_blocks(body, work)
     recipe = freshness.write_if_changed(sidecars.recipe,
                                         params(body, rasters, look, rig_recipe(body), blocks))

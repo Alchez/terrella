@@ -65,6 +65,20 @@ def _window(raw, *, land=None, ocean=None, watercode=None, top=SOUTHERN_TOP,
         top=top, bottom=bottom)
 
 
+def _fold(raw, *, top=SOUTHERN_TOP, bottom=SOUTHERN_BOTTOM, body=bodies.EARTH) -> np.ndarray:
+    """Gather every layer over one synthetic window and fold their whites into one alpha.
+
+    The pair `prep_block` runs. This reached through the composite's own window struct until that
+    producer was deleted; the claims were always about `layer_producers`, so they now call it.
+    """
+    contributions, _paints, exclusions = layer_producers.gather(
+        body, raw, _window(None, ocean=np.zeros((ROWS, COLS), dtype=bool), top=top, bottom=bottom),
+        layers.COMPOSITE_LAYERS)
+    alpha, _carried = layer_producers.fold_white(contributions, (ROWS, COLS),
+                                                 exclusions=exclusions)
+    return alpha
+
+
 class TestTheRegistryAndTheLayerDeclarationsAgree:
     """Both directions, because each is silent on its own. A body declaring a layer with no producer
     raises at warp time — loud, but only for whoever runs the pass. A producer registered for a body
@@ -204,20 +218,10 @@ class TestTheSnowUnionIsUnchangedByTheMove:
     contribution is non-negative, and this is that argument executed rather than asserted."""
 
     def _shared(self, persistence, glacier, top=SOUTHERN_TOP, bottom=SOUTHERN_BOTTOM):
-        from rasterio.windows import Window
-
         raw: dict[str, np.ndarray | None] = {layer.name: None for layer in layers.warped_for(layers.COMPOSITE_LAYERS)}
         raw[layers.PERENNIAL_ICE.name] = persistence
         raw[layers.GLACIERS.name] = glacier
-        return shade_planet._compute_shared(shade_planet._WindowInputs(
-            win=Window(0, 0, COLS, ROWS),  # pyright: ignore[reportCallIssue]
-            win_h=ROWS, win_top=top, win_bottom=bottom,
-            height_win=np.zeros((ROWS, COLS), dtype=np.float32),
-            ocean_raw=np.zeros((ROWS, COLS), dtype=np.uint8),
-            watercode=np.zeros((ROWS, COLS), dtype=np.uint8),
-            hs_raw=np.full((ROWS, COLS), 128, dtype=np.uint8),
-            layer_raw=raw, occ_win=np.zeros((ROWS, COLS), dtype=np.float32),
-            body=bodies.EARTH))
+        return _fold(raw, top=top, bottom=bottom)
 
     def test_the_three_contributions_max_to_the_old_chained_expression(self):
         persistence = np.linspace(0, 10_000, ROWS * COLS, dtype="float32").reshape(ROWS, COLS)
@@ -233,7 +237,7 @@ class TestTheSnowUnionIsUnchangedByTheMove:
             _ground_metres_per_px(SOUTHERN_TOP, SOUTHERN_BOTTOM))
         inline = np.maximum(inline, glacier.astype(float))
         inline = np.maximum(inline, snow.antarctic_snow_mask(land, latitude))
-        assert self._shared(persistence, glacier).snow_a.tobytes() == inline.tobytes()
+        assert self._shared(persistence, glacier).tobytes() == inline.tobytes()
 
     def test_the_oracle_can_fail(self):
         """A comparison that cannot report a difference proves nothing. One glacier pixel moved,
@@ -243,8 +247,8 @@ class TestTheSnowUnionIsUnchangedByTheMove:
         moved = glacier.copy()
         moved[0, 0] = 1
         northern = dict(top=8_000_000.0, bottom=7_000_000.0)
-        assert (self._shared(persistence, glacier, **northern).snow_a.tobytes()
-                != self._shared(persistence, moved, **northern).snow_a.tobytes())
+        assert (self._shared(persistence, glacier, **northern).tobytes()
+                != self._shared(persistence, moved, **northern).tobytes())
 
 
 def _age(path, seconds):
@@ -791,21 +795,11 @@ class TestTheOutcropLosesItsWhiteWhateverElseClaimsThePixel:
         return mask
 
     def _snow_alpha(self, *, rock=None, persistence=None, glacier=None, body=bodies.EARTH):
-        from rasterio.windows import Window
-
         raw: dict[str, np.ndarray | None] = {layer.name: None for layer in layers.warped_for(layers.COMPOSITE_LAYERS)}
         raw[layers.PERENNIAL_ICE.name] = persistence
         raw[layers.GLACIERS.name] = glacier
         raw[layers.ANTARCTIC_ROCK.name] = rock
-        return shade_planet._compute_shared(shade_planet._WindowInputs(
-            win=Window(0, 0, COLS, ROWS),  # pyright: ignore[reportCallIssue]
-            win_h=ROWS, win_top=SOUTHERN_TOP, win_bottom=SOUTHERN_BOTTOM,
-            height_win=np.zeros((ROWS, COLS), dtype=np.float32),
-            ocean_raw=np.zeros((ROWS, COLS), dtype=np.uint8),
-            watercode=np.zeros((ROWS, COLS), dtype=np.uint8),
-            hs_raw=np.full((ROWS, COLS), 128, dtype=np.uint8),
-            layer_raw=raw, occ_win=np.zeros((ROWS, COLS), dtype=np.float32),
-            body=body)).snow_a
+        return _fold(raw, body=body)
 
     def test_the_fixture_really_does_saturate_the_other_term(self):
         """The positive control, and it runs FIRST because every claim below is void without it.

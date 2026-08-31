@@ -1,8 +1,7 @@
-"""Tests for the pass that picks a producer and runs the stages either side of it.
+"""Tests for the pass that runs the stages either side of the planet raster.
 
-The load-bearing cases are the two that no single producer can hold: that the dispatch registry
-answers for every producer the body vocabulary allows, and that the producer stamp is a dependency
-of BOTH producers — without which each one reads the other's raster as its own completed output.
+The load-bearing cases are the ones a single stage cannot hold: that `--body` crosses the process
+boundary into the cap pass intact, and that a part-rendered raster is not cut into tiles.
 """
 
 import dataclasses
@@ -15,110 +14,11 @@ from pathlib import Path
 from unittest import mock
 
 import pytest
-from conftest import DECLARED_RASTERS
 
-from pipeline import bodies, freshness, planet_seam
-from pipeline.tile import cap_pass, planet_pass, shade_planet
+from pipeline import bodies, freshness
+from pipeline.tile import cap_pass, planet_pass
 
 REPO = Path(__file__).resolve().parents[1]
-
-
-class TestABodyCannotDeclareAProducerItCannotRun:
-    """`planet_producer` is a CHOICE a body writes down; whether that choice is possible is DERIVED
-    from what its planet seam declared. Nothing tied the two, so the registry could hold a pair that
-    cannot run, and the unit's own goal is that the registry is the add-a-body checklist verified by
-    test rather than by prose.
-
-    The cost of not tying them is not an exception, it is an exception charged at the wrong time.
-    Both producers share the warp, and the pass runs it before the producer is asked anything — so a
-    body declaring the wrong one paid a full Earth height warp (6:49) before hearing no, and every
-    resume paid it again.
-    """
-
-    def test_every_registered_body_can_run_the_producer_it_names(self, subtests):
-        """The sweep, and it exercises both producers now that Earth raytraces a whole seam while
-        Mars composites a heightfield alone. The synthetic arms below still earn their place: they
-        are what keeps this claim falsifiable on the day the registry holds one kind again.
-
-        THE SEAM IS ANSWERED FROM `conftest.DECLARED_RASTERS`, NOT FROM THIS MACHINE'S STORE, which
-        is the whole point of `cannot_run` taking the rasters as an argument. Calling `declared`
-        here made a registry sweep depend on a 1.1 TB store: it passed on the maintainer's box and
-        went red in CI, where a body that has never been fused raises rather than answering. Read
-        from the table it runs everywhere, so a body flipped to a producer its seam cannot feed
-        fails on a fresh clone instead of only where the planet already exists.
-        """
-        assert bodies.BODIES, "no bodies are registered, so this sweep proves nothing"
-        for name in sorted(bodies.BODIES):
-            with subtests.test(name):
-                body = bodies.get(name)
-                assert planet_pass.cannot_run(body, DECLARED_RASTERS[name]) == [], (
-                    f"{name} names producer {body.planet_producer!r}, which cannot run on what its "
-                    f"planet seam declares"
-                )
-
-    def test_no_registered_producer_refuses_any_seam_today(self):
-        """CURRENT TRUTH, and it used to be false. The raytrace refused a seam with no watermask,
-        because the rig loaded the two inland-water masks for every look; since
-        `scene_build.textures_for` reads the render directory's declaration there is no image a
-        thin seam fails to supply, so both producers now answer alike.
-
-        Swept over the registry rather than asserted of one entry, so a third producer arriving
-        with a real requirement is a red test here rather than a silent exemption. This lives in
-        the module that OWNS `PRODUCERS`, not in one that doctors it.
-        """
-        for name, producer in planet_pass.PRODUCERS.items():
-            for rasters in (frozenset({"heightfield"}), frozenset(planet_seam.KNOWN_RASTERS)):
-                assert producer.refusals_for(rasters) == [], (
-                    f"{name} refuses {sorted(rasters)}; if that is real it needs its own guard, "
-                    "and if it is not, the registry entry is stale")
-
-    def test_the_refusal_MECHANISM_is_still_live(self, monkeypatch):
-        """The anti-vacuity arm, and it is the whole reason the assertion above is safe to make.
-
-        With every producer answering `[]`, `cannot_run` cannot be shown working by any real body,
-        and a `cannot_run` that had been broken into always returning `[]` would read exactly the
-        same. So a synthetic producer WITH a requirement is registered and the refusal is shown
-        coming back out, which is the control that removes my own arm.
-        """
-        refusing = planet_pass.Producer(
-            lambda *args: Path("unused"), lambda rasters: ["it wants a mask nobody declares"])
-        monkeypatch.setitem(planet_pass.PRODUCERS, "synthetic", refusing)
-        body = dataclasses.replace(bodies.MARS, planet_producer="synthetic")
-        assert planet_pass.cannot_run(body, frozenset({"heightfield"})) == [
-            "it wants a mask nobody declares"]
-
-    def test_a_whole_planet_seam_does_not_refuse_the_raytrace(self):
-        """And the control in the other direction, so the refusal is not simply always-on."""
-        earth_raytraced = dataclasses.replace(bodies.EARTH, planet_producer="raytrace")
-        assert planet_pass.cannot_run(earth_raytraced, planet_seam.KNOWN_RASTERS) == []
-
-    def test_the_refusal_comes_before_the_warp(self, monkeypatch, tmp_path):
-        """THE ORDERING, asserted through the real entry point, because only running `main` proves
-        it. A tripwire on the warp is what makes this a claim about WHEN rather than whether: the
-        refusal already existed inside the producer, and the whole defect was that it fired after
-        the expensive shared stage the pass runs first.
-
-        THE PRODUCER IS SYNTHETIC BECAUSE NO REAL ONE REFUSES ANY MORE, and the ordering is still
-        the claim. Sourcing the refusal from the registry would have made this test disappear the
-        day the rig learned to render a thin seam, taking the ordering guarantee with it.
-        """
-        refusing = planet_pass.Producer(
-            lambda *args: Path("unused"), lambda rasters: ["it wants a mask nobody declares"])
-        monkeypatch.setitem(planet_pass.PRODUCERS, "synthetic", refusing)
-        unrunnable = dataclasses.replace(bodies.MARS, name="unrunnable", path_prefix="unrunnable",
-                                         planet_producer="synthetic")
-        monkeypatch.setitem(bodies.BODIES, unrunnable.name, unrunnable)
-        monkeypatch.setattr(planet_seam, "declared", lambda body: frozenset({"heightfield"}))
-
-        def _tripwire(*args, **kwargs):
-            raise AssertionError("the warp ran before the producer was refused")
-
-        monkeypatch.setattr(shade_planet, "warp_inputs", _tripwire)
-        with mock.patch.object(sys, "argv",
-                               ["planet_pass", "--body", unrunnable.name, "--out", str(tmp_path)]), \
-                pytest.raises(SystemExit) as refusal:
-            planet_pass.main()
-        assert "it wants a mask nobody declares" in str(refusal.value), refusal.value
 
 
 class TestTheBodyIsRequired:
@@ -263,47 +163,6 @@ class TestTheBodyIsRequired:
             assert planet_pass.runs_cap_pass(body) is body.renders_polar_caps
 
 
-class TestEveryProducerTheVocabularyAllowsCanBeDispatched:
-    """The registry answers for the whole vocabulary, or a body names something nothing runs.
-
-    A dispatcher written as an `if` would fall through to the other producer instead, which is a
-    night of GPU spent making the wrong kind of planet with no error anywhere.
-    """
-
-    def test_the_registry_and_the_vocabulary_are_the_same_set(self):
-        assert set(planet_pass.PRODUCERS) == set(bodies.PLANET_PRODUCERS)
-
-    def test_neither_side_is_empty(self):
-        """The anti-vacuity half: two empty sets are equal and prove nothing."""
-        assert planet_pass.PRODUCERS
-
-    def test_every_registered_body_dispatches(self, subtests):
-        """BOTH HALVES OF THE RECORD, because a producer that can be dispatched but cannot say who
-        may dispatch it is the gap the record exists to close. Asserting only `produce` would pass
-        against a member that answered the second question with None."""
-        for name in sorted(bodies.BODIES):
-            with subtests.test(name):
-                producer = planet_pass.producer_for(bodies.get(name))
-                assert callable(producer.produce)
-                assert callable(producer.refusals_for)
-
-    def test_every_producer_in_the_registry_answers_both_questions(self, subtests):
-        """The same claim over the REGISTRY rather than over the bodies, so a producer no body names
-        yet cannot ship half-built and be found by the first planet that chooses it."""
-        for producer_name, producer in sorted(planet_pass.PRODUCERS.items()):
-            with subtests.test(producer_name):
-                assert callable(producer.produce)
-                assert producer.refusals_for(planet_seam.KNOWN_RASTERS) == [], (
-                    "a whole planet seam must satisfy every producer, or this one can never run"
-                )
-
-    def test_a_producer_nothing_runs_is_refused_by_name(self):
-        """No fallback, on the rule `bodies.get` and `palette.look_for` already state."""
-        stranger = dataclasses.replace(bodies.EARTH, planet_producer="etch-a-sketch")
-        with pytest.raises(SystemExit, match="etch-a-sketch"):
-            planet_pass.producer_for(stranger)
-
-
 class TestAPartlyRenderedPlanetIsNotCut:
     """A raytraced pass stopped part-way is the NORMAL state, not a crash, and it must not ship.
 
@@ -335,33 +194,7 @@ class TestAPartlyRenderedPlanetIsNotCut:
         assert planet_pass.raster_is_complete(raster) is False
 
 
-class TestAKnobOverrideMustReachAPixel:
-    """Every KNOBS entry is a composite constant, and the cap pass is a separate process with its
-    own defaults — so on a raytraced body an override reaches nothing at all.
-
-    Accepted silently it reads as a look experiment that simply had no visible effect, which is
-    indistinguishable from the look being insensitive to the knob.
-    """
-
-    #: Both arms are BUILT rather than borrowed from the registry, so neither goes vacuous the day
-    #: the last body of one kind switches. Earth alone used to stand for the composite here, and
-    #: flipping it to raytrace turned this class's two composite arms into raytraced ones — which
-    #: read as failures of the code rather than of the fixture.
-    COMPOSITE = dataclasses.replace(bodies.EARTH, planet_producer="composite")
-    RAYTRACED = dataclasses.replace(bodies.EARTH, planet_producer="raytrace")
-
-    def test_a_composite_body_accepts_one(self):
-        planet_pass.apply_knob_overrides(self.COMPOSITE, [])
-
-    def test_a_raytraced_body_refuses_one(self):
-        with pytest.raises(SystemExit, match="reach no pixel"):
-            planet_pass.apply_knob_overrides(self.RAYTRACED, ["ambient=0.5"])
-
-    def test_a_raytraced_body_with_no_override_is_not_refused(self):
-        """The refusal is about the override, not about the producer: an ordinary raytraced pass
-        must not be stopped by a check on a flag nobody passed."""
-        planet_pass.apply_knob_overrides(self.RAYTRACED, [])
-
-    def test_an_unknown_knob_is_still_refused_on_a_composite_body(self):
-        with pytest.raises(SystemExit, match="unknown knob"):
-            planet_pass.apply_knob_overrides(self.COMPOSITE, ["nosuchknob=1"])
+def test_the_cli_offers_no_knob_flag() -> None:
+    """`--knob` tuned composite constants, so it can no longer reach a planet pixel."""
+    with pytest.raises(SystemExit):
+        planet_pass.build_parser().parse_args(["--body", "earth", "--knob", "ambient=0.5"])

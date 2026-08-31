@@ -302,7 +302,7 @@ EARTH_LOOK = Look(
 #: `shade.composite` again; that chain reaches no pixel on this body. Judge a re-tune on a rendered
 #: block, which is the only place this look now exists.
 MARS_LAND_STOPS: list[Stop] = [
-    (0.000, (0.187821, 0.078187, 0.045186)),  # -6000 m  deepest basin floor, ships #804d35
+    (0.000, (0.187821, 0.078187, 0.045186)),  # -6000 m  p1, NOT the floor (-8526), ships #804d35
     (0.150, (0.274677, 0.114435, 0.066626)),  # -4185 m  lowland plains
     (0.350, (0.412543, 0.171441, 0.082283)),  # -1765 m  the northern lowlands' own tone
     (0.550, (0.514918, 0.246201, 0.111932)),  #  +655 m  just above the areoid, the modal elevation
