@@ -64,7 +64,7 @@ WATER_RGB: RGB8 = (142, 198, 196)  # 8EC6C4 — flat inland lake/river teal: the
 # read a touch calmer/lighter (the lake convention). Re-synced to the sea
 # rework, which had deepened the sea surface and left this stranded ~15% brighter.
 # EARTH'S ice white, and it is Earth's rather than the project's — a second body measured a
-# different one. `shade.composite` no longer reads these directly; the producer that computed the
+# different one. Nothing reads these as a global any more; the producer that computed the
 # alpha declares which white paints it, so a body's ice cannot inherit another body's colour by
 # omission. The hero rig still reads them, and the rig is Earth's by decision.
 #
@@ -97,7 +97,7 @@ MARS_ICE_WHITE: dict[str, tuple[RGB8, RGB8]] = {   # pole -> (sunlit, shadowed)
 # Sea ice: the same light-keyed white family but a subtle notch COOLER and dimmer than land snow,
 # so the poles read floating-thin-ice vs thick-ice-sheet without a hard colour split (the coastline
 # and relief carry the rest). Physically honest: thin sea ice over dark ocean reads less bright than
-# thick snow. Blended over the sea by seaice.ice_alpha, gated on `ocean`, in shade.composite.
+# thick snow. Blended over the sea by seaice.ice_alpha, gated on `ocean`, by the painter.
 ICE_RGB: RGB8 = (212, 228, 240)          # D4E4F0 — sunlit sea ice (cool white, dimmer than snow)
 ICE_SHADOW_RGB: RGB8 = (156, 184, 210)   # 9CB8D2 — shaded sea ice (deeper cool blue)
 
@@ -107,13 +107,19 @@ LAKE_MAX_M = 1642.0  # Baikal — the deepest lake GLOBathy carries; the lake ra
 SUN_ALT_DEG = 45.0   # the shared sun altitude: tile KNOBS["alt"] and the hero SUN_ROTATION
 # X-tilt (90 - alt) both derive from this (the sea-sync — the cure for the 46/45
 # split). Azimuth stays per-side: both are NW by their own conventions (tile 315, hero -45).
+FILL_ALTITUDE = 60.0   # the fill sun's geometry, mirrored from the main sun's
+FILL_AZIMUTH = 135.0
+# GEOMETRY, NOT AN ART DIAL: the main sun's NW azimuth is a locked cartographic convention
+# (ART.md § Sun altitude & azimuth) and the fill is its mirror, which is why these two are here
+# rather than among the tunables. They lived in `look/hillshade.py` until that module was deleted
+# as the composite's last leaf; the cap's azimuth law is still stated against them.
 SUN_ANGULAR_DIAMETER_DEG = 12.0  # how wide the sun's disc is, which is why shadow edges are soft
 # rather than hard. THE ALTITUDE'S SIBLING AND IT DRIFTED THE SAME WAY: `cast_shadow` carried its
 # own 12.0 and the rig's `sun_angle` a second, each with a comment naming the other. Three readers
 # now, and the third is why the drift stopped being cosmetic — `block_plan` sizes every block's
 # context from the half-diameter, so two copies disagreeing silently mis-size the whole planet.
-EXAGGERATION = 15.0  # EARTH's vertical exaggeration, and the region preview is the last path that
-# reads it directly. Everything that draws more than one body reads Body.exaggeration — relief is a
+EXAGGERATION = 15.0  # EARTH's vertical exaggeration, and nothing reads it directly since the
+# region preview was deleted. Everything that draws more than one body reads Body.exaggeration — relief is a
 # different fraction of the radius on every planet, so it cannot be one number — and
 # tests/test_bodies.py holds Earth's field equal to this. The render seam was the most recent to
 # move: scene_numbers is the block prep's as well as the hero's, so importing this gave a Mars block
@@ -290,17 +296,17 @@ EARTH_LOOK = Look(
 #:
 #: THESE VALUES WERE INVERTED THROUGH A CHAIN THAT NO LONGER RUNS ON THIS BODY, and that sentence is
 #: the whole caveat. They were specified as the intended SHIPPED colour and inverted back through
-#: `shade.composite`, which resaturates by `saturation` 1.18, warms by `warmth` 0.06 and multiplies
-#: by a light term near 1.025 on flat ground — a first pass authored directly by eye landed at
-#: B/R 0.35 against a 0.55 intent. Mars is `planet_producer="raytrace"` now and the rig applies
+#: the composite's numpy shader, which resaturated by `saturation` 1.18, warmed by `warmth` 0.06 and
+#: multiplied by a light term near 1.025 on flat ground — a first pass authored directly by eye
+#: landed at B/R 0.35 against a 0.55 intent. Mars raytraces now and the rig applies
 #: NEITHER term, so what ships is the pre-inverted value itself: less saturated and cooler than the
 #: colour this list was written to hit.
 #:
 #: THAT IS RATIFIED RATHER THAN TOLERATED — the raytraced result was judged against the composited
 #: one on a rendered block and kept. So the values stand, and the derivation above is a record of
-#: where they came from rather than an instruction. DO NOT re-tune them by inverting through
-#: `shade.composite` again; that chain reaches no pixel on this body. Judge a re-tune on a rendered
-#: block, which is the only place this look now exists.
+#: where they came from rather than an instruction. DO NOT re-tune them by inverting through that
+#: shader again; it is deleted and reached no pixel on this body before it went. Judge a re-tune on
+#: a rendered block, which is the only place this look now exists.
 MARS_LAND_STOPS: list[Stop] = [
     (0.000, (0.187821, 0.078187, 0.045186)),  # -6000 m  p1, NOT the floor (-8526), ships #804d35
     (0.150, (0.274677, 0.114435, 0.066626)),  # -4185 m  lowland plains
@@ -367,7 +373,7 @@ def look_for(body: str) -> Look:
     parameters and never looked up — because a raster set is a RUNTIME declaration that varies per
     run and cannot be derived from the body. A look can be, and there is exactly one right answer.
     So a `look` parameter sitting next to a `body` parameter would add nothing but a way for the
-    two to disagree: `composite_params(body=MARS, look=EARTH_LOOK)` is a sentence the type checker
+    two to disagree: `cap_raytrace.params(body=MARS, look=EARTH_LOOK)` is a sentence the type checker
     accepts and no reviewer would notice. The cost is that a synthetic body in a test needs a look
     registered, exactly as it needs a radius, and `tests/test_cap_render.py` pays it in a fixture.
     """

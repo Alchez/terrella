@@ -155,7 +155,7 @@ class TestCoherenceWithTheBodysOwnLayers:
             planet_seam.declare(body, ["heightfield"])
 
     def test_sea_ice_without_an_ocean_mask_is_refused(self, store) -> None:
-        """`shade.composite` gates ice on `ocean`, so it would cost a warp and reach no pixel."""
+        """Ice is gated on `ocean`, so it would cost a warp and reach no pixel."""
         body = _body("icy", frozenset({"sea_ice"}))
         _emit(body, "heightfield")
         with pytest.raises(ValueError, match="sea_ice"):

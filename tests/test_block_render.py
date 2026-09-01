@@ -241,7 +241,7 @@ class TestASecondMosaicOwnsEverySidecarThatDescribesIt:
         Naming every mosaic's sidecar after its stem is the tidier rule and renames the two files
         the finished Earth pass left on disk, which moves an mtime — the same night this class
         exists to prevent, paid once on the way in. So the canonical raster's name elides, as
-        `composite_planet`'s default variant and `capsManifestUrl`'s empty prefix both already do.
+        the compositor's default variant and `capsManifestUrl`'s empty prefix both already did.
         """
         _drive_planet(tmp_path, monkeypatch, blocks=2)
         assert (tmp_path / block_render.PARAMS_NAME).exists()
@@ -275,19 +275,20 @@ class TestTheWorkDirectoryReachesTheBlocksAndNotJustTheChecks:
         assert captured["work"] == relief_scan.work_dir(bodies.EARTH)
 
 
-class TestTheDependencySetIsTheRaytracesAndNotTheComposites:
-    """The switch replaces one raster's producer, so the two producers' dependency lists must
-    differ in exactly the terms the switch removes. Sharing `composite_deps` would leave a body
-    moved between producers with its old pixels looking fresh against inputs it no longer reads."""
+class TestTheDependencySetIsExactlyWhatTheRaytraceReads:
+    """The list must name what Cycles actually consumes and nothing it merely inherited.
+
+    A SIBLING TEST WAS DELETED HERE AND ITS ABSENCE IS THE POINT. It asserted that
+    `composite_params.json` was not a dependency, which no longer distinguishes anything: the
+    compositor is gone, so nothing can put that name in the list and the assertion passes for a
+    reason that has nothing to do with the claim. The hillshade test below survives it because a
+    mutation case still plants `hs_3857` back into this set and this is what catches it.
+    """
 
     def test_the_hillshade_is_not_a_raytrace_dependency(self, tmp_path):
         """Cycles computes its own light; `hs_3857` reaches no raytraced pixel."""
         deps = block_render.raytrace_deps(tmp_path, tmp_path / block_render.PARAMS_NAME)
         assert not any("hs" == path.stem or path.name.startswith("hs_") for path in deps)
-
-    def test_the_composites_recipe_is_not_a_raytrace_dependency(self, tmp_path):
-        deps = block_render.raytrace_deps(tmp_path, tmp_path / block_render.PARAMS_NAME)
-        assert not any(path.name == "composite_params.json" for path in deps)
 
     def test_the_warped_inputs_the_prep_cuts_from_are_all_tracked(self, tmp_path):
         """The block prep reads exactly these, so a re-warp — a re-fuse, a new NSIDC or RGI —

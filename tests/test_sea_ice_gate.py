@@ -103,14 +103,14 @@ class TestTheConsumersNoLongerGate:
     def test_the_composite_does_not_regate_what_it_is_handed(self):
         source = re.sub(r"#.*", "", (paths.ROOT / "pipeline/tile/shade.py").read_text())
         assert "np.where(ocean, np.asarray(ice_a" not in source, (
-            "shade.composite is gating the alpha again; the producers own that now")
+            "a consumer is gating the alpha again; the producers own that now")
 
 
 @pytest.mark.parametrize("empty", [np.zeros((ROWS, COLS)), np.zeros((ROWS, COLS), dtype=bool)])
 def test_an_alpha_with_no_ocean_under_it_comes_back_as_none(empty):
     """None and not zeros, because that is what decides whether a mask is written and painted.
 
-    `shade.composite` skips the blend entirely on None where a zero array would run it and multiply
+    the painter skips the blend entirely on None where a zero array would run it and multiply
     the disc by nothing, and `prep_block` uses it to decide whether the layer exists at all here.
     """
     assert seaice.gated_alpha(np.ones((ROWS, COLS)), np.asarray(empty, dtype=bool)) is None

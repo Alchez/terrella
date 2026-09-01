@@ -6,7 +6,7 @@ far side of the seam; GDAL has no notion that the two edges are neighbours, so i
 
 THE REASON THAT IS NOT A COSMETIC EDGE CASE is that downstream nothing can tell "missing" from "very
 low ground" — they are the same float. Measured on Mars: the elevation ramp painted the column at
-the bottom of its scale, `look/hillshade` read it as the lip of a 30 km cliff and shadowed the
+the bottom of its scale, the since-deleted `look/hillshade` read it as a 30 km cliff and shadowed the
 column BESIDE it, and `tile/terrain_rgb.encode_array` packed it as a real height. One warp artifact,
 two adjacent dark columns, a straight line from pole to pole, shipped.
 

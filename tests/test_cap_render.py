@@ -32,7 +32,7 @@ from conftest import cap_ground_metres_per_px_from_ground_radius
 from rasterio.transform import from_bounds
 
 from pipeline import bodies, datasets, layers, paths, planet_seam
-from pipeline.look import hillshade, layer_producers, palette, perennial_ice
+from pipeline.look import layer_producers, palette, perennial_ice
 from pipeline.tile import cap_raytrace, cap_render, terrain_rgb
 
 BASE_AZIMUTH = cap_render.BASE_AZIMUTH
@@ -161,7 +161,7 @@ class TestTheLongitudeRotationHasOneOwner:
     def _azimuths(self, grid, longitude):
         """The (main, fill) azimuth fields the law puts a pixel's light at."""
         delta = np.asarray(cap_render.azimuth_delta(grid, longitude), dtype=np.float64)
-        return BASE_AZIMUTH + delta, hillshade.FILL_AZIMUTH + delta
+        return BASE_AZIMUTH + delta, palette.FILL_AZIMUTH + delta
 
     def _local_north_bearing(self, grid):
         """Image-frame bearing of LOCAL north at each pixel, read off the grid's own latitudes.
@@ -210,7 +210,7 @@ class TestTheLongitudeRotationHasOneOwner:
         # Anti-vacuity: two CONSTANT fields would satisfy the separation below trivially, which is
         # exactly what a deleted rotation leaves behind.
         assert np.ptp(main) > 300.0, "the main azimuth barely moves, so nothing is rotating"
-        separation = (BASE_AZIMUTH - hillshade.FILL_AZIMUTH) % 360.0
+        separation = (BASE_AZIMUTH - palette.FILL_AZIMUTH) % 360.0
         assert np.allclose((main - fill) % 360.0, separation)
 
 
@@ -249,13 +249,13 @@ SYNTHETIC_BODY_NAMES = ("other", "layerless", "identity", "smaller", "noice", "s
 def _the_synthetic_bodies_have_looks(monkeypatch):
     """A synthetic body needs a look, for the same reason it needs a name and a radius.
 
-    Every cap recipe embeds `composite_params`, which resolves the body's ramp — and `look_for`
-    refuses an unregistered body rather than falling back to Earth's, so without this the file
-    raises. That refusal is the guard working rather than an inconvenience: a planet inheriting
-    Earth's ramp by omission renders a complete, plausible pyramid in another planet's colours.
+    Every cap recipe resolves the body's ramp — and `look_for` refuses an unregistered body rather
+    than falling back to Earth's, so without this the file raises. That refusal is the guard working
+    rather than an inconvenience: a planet inheriting Earth's ramp by omission renders a complete,
+    plausible pyramid in another planet's colours.
 
-    The lookup deliberately lives inside `composite_params` rather than being threaded in beside
-    the body; `palette.look_for` carries the reasoning, since that is where a reader meets it.
+    The lookup deliberately lives inside the recipe rather than being threaded in beside the body;
+    `palette.look_for` carries the reasoning, since that is where a reader meets it.
 
     Scoped to this module's tests rather than registered at import, so the real registry stays
     exactly the two planets `test_palette.py` holds it to.
@@ -287,10 +287,10 @@ def _the_synthetic_bodies_have_ice_producers(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _the_synthetic_bodies_have_composite_producers(monkeypatch):
+def _the_synthetic_bodies_have_layer_producers(monkeypatch):
     """The third registry that refuses an unregistered body, and it reaches here through the recipe.
 
-    Every cap recipe embeds `composite_params`, which now asks each DECLARED composite layer's own
+    Every cap recipe now asks each DECLARED planet-tier layer's own
     producer what constants it reads — so a synthetic body cloned from Earth declares Earth's four
     layers under a name no producer answers to, and `producer_for` raises exactly as `look_for` and
     `cap_ice` do above. Registering here rather than loosening that lookup keeps the refusal, which
@@ -302,7 +302,7 @@ def _the_synthetic_bodies_have_composite_producers(monkeypatch):
     """
     for name in (*SYNTHETIC_BODY_NAMES, "mars"):
         for layer in layers.LAYERS:
-            if layer.in_composite:
+            if layer.in_planet:
                 monkeypatch.setitem(layer_producers.PRODUCER_BY_BODY_LAYER, (name, layer.name),
                                     layer_producers.PRODUCER_BY_BODY_LAYER[("earth", layer.name)])
 
@@ -658,9 +658,9 @@ class TestCapElevationTexture:
 class TestTheRungLadderHasASecondCaller:
     """The ladder is no longer the compositing branch's private tail.
 
-    A raytraced disc arrives as a rendered TIF and never passes through `shade.composite`, so a
+    A raytraced disc arrives as a rendered TIF and passes through no numpy shader at all, so a
     caller holding only that file has to be able to ship every rung. Written against the SECOND
-    caller because the first passes by construction: the loop was correct while it was welded in.
+    caller because the first passed by construction: the loop was correct while it was welded in.
     """
 
     @pytest.mark.skipif(not HAS_WEBP_WRITE, reason="GDAL here cannot write WEBP")

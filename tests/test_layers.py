@@ -18,7 +18,7 @@ from pipeline import layers
 
 def _layer(name: str, **overrides) -> layers.Layer:
     """A row with a warped raster behind it, since a row without one is never in a warped set."""
-    base = layers.Layer(name, in_composite=False, in_cap=False, in_block=False,
+    base = layers.Layer(name, in_planet=False, in_cap=False, in_block=False,
                         requires_raster=None, warped_basename=f"{name}_3857.tif")
     return dataclasses.replace(base, **overrides) if overrides else base
 
@@ -28,13 +28,13 @@ class TestEachStageIsShownTheWarpedLayersItsOwnVocabularyNames:
         """THE LIVE PROOF THAT THE DISTINCTION IS NOT HYPOTHETICAL, and the reason a single shared
         tuple was wrong even while every consumer agreed with it. The cap composites no lake
         bathymetry and no glaciers, so two of the composite's five rows are not its to warp."""
-        composite = [layer.name for layer in layers.warped_for(layers.COMPOSITE_LAYERS)]
+        composite = [layer.name for layer in layers.warped_for(layers.PLANET_LAYERS)]
         cap = [layer.name for layer in layers.warped_for(layers.CAP_LAYERS)]
         assert set(cap) < set(composite)
         assert set(composite) - set(cap) == {"lake_depth", "glaciers"}
 
     def test_a_warped_layer_outside_the_composite_still_reaches_its_own_stage(self, monkeypatch):
-        """THE DEFECT, and no live row exhibits it: the set was filtered on `in_composite`, so a
+        """THE DEFECT, and no live row exhibits it: the set was filtered on `in_planet`, so a
         layer belonging to the block tier and not to the composite was dropped from the only list
         the block prep reads. It would be declared, cost a warp, and reach no pixel, with the file
         on disk unable to help because a path nobody names is not a dependency.
@@ -44,7 +44,7 @@ class TestEachStageIsShownTheWarpedLayersItsOwnVocabularyNames:
         block's set, or switching it restages a 46 GB render that cannot contain it.
         """
         block_only = _layer("block_only", in_block=True)
-        composite_only = _layer("composite_only", in_composite=True)
+        composite_only = _layer("composite_only", in_planet=True)
         monkeypatch.setattr(layers, "LAYERS", (*layers.LAYERS, block_only, composite_only))
         block = {layer.name for layer in layers.warped_for(frozenset({"block_only"}))}
         assert block == {"block_only"}
@@ -61,10 +61,10 @@ class TestEachStageIsShownTheWarpedLayersItsOwnVocabularyNames:
         assert "bare" not in {layer.name for layer in layers.warped_for(frozenset({"bare"}))}
 
     def test_the_tables_order_survives_the_filter(self):
-        """ORDER IS PART OF THE CONTRACT rather than tidiness: `composite_deps` returns a tuple a
+        """ORDER IS PART OF THE CONTRACT rather than tidiness: the planet tier's deps are a tuple a
         test pins, and `LAYERS` is written in the order that tuple has always had. A filter that
         preserves membership and loses order breaks the dependency list without changing its set."""
-        for vocabulary in (layers.COMPOSITE_LAYERS, layers.CAP_LAYERS, layers.BLOCK_LAYERS):
+        for vocabulary in (layers.PLANET_LAYERS, layers.CAP_LAYERS, layers.BLOCK_LAYERS):
             selected = [layer.name for layer in layers.warped_for(vocabulary)]
             assert selected == [layer.name for layer in layers.LAYERS
                                 if layer.name in selected]

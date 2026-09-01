@@ -124,7 +124,7 @@ class CapIce:
     #: a relocated store moves; a zero-argument callable keeps the read where it was.
     sources: Callable[[], tuple[Path, ...]]
     alpha: Callable[[CapIceInputs], np.ndarray]
-    #: The `(sunlit, shadowed)` white `shade.composite` paints this cap's alpha with.
+    #: The `(sunlit, shadowed)` white the cap painter paints this cap's alpha with.
     #:
     #: PER POLE FOR FREE HERE, because the pole is already half of this registry's key — where the
     #: composite tier keys on the layer and has to vary its paint within a window. That asymmetry is

@@ -413,9 +413,9 @@ def build(out: Path, max_zoom: int, step: float, sea_clamp: bool,
 def build_parser() -> argparse.ArgumentParser:
     """The CLI, separable from `main` so its defaults are assertable without running a cut.
 
-    `cap_ladder` and `pack_pmtiles` split theirs for the same reason: the interesting properties
-    here are what happens when a flag is OMITTED, and that is unreachable through a function whose
-    next statement reads a 46 GB raster.
+    `pack_pmtiles` splits its own for the same reason: the interesting properties here are what
+    happens when a flag is OMITTED, and that is unreachable through a function whose next statement
+    reads a 46 GB raster.
     """
     ap = argparse.ArgumentParser(description=__doc__)
     # REQUIRED, WITH NO DEFAULT, exactly as shade_planet's is and for the same reason: a pass that

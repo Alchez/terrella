@@ -73,7 +73,7 @@ def _fold(raw, *, top=SOUTHERN_TOP, bottom=SOUTHERN_BOTTOM, body=bodies.EARTH) -
     """
     contributions, _paints, exclusions = layer_producers.gather(
         body, raw, _window(None, ocean=np.zeros((ROWS, COLS), dtype=bool), top=top, bottom=bottom),
-        layers.COMPOSITE_LAYERS)
+        layers.PLANET_LAYERS)
     alpha, _carried = layer_producers.fold_white(contributions, (ROWS, COLS),
                                                  exclusions=exclusions)
     return alpha
@@ -87,7 +87,7 @@ class TestTheRegistryAndTheLayerDeclarationsAgree:
 
     def test_every_body_declaring_a_built_layer_has_a_producer(self, subtests):
         declared = [(body, layer) for body in bodies.BODIES.values()
-                    for layer in layers.warped_for(layers.COMPOSITE_LAYERS) if layer.name in body.surface_layers]
+                    for layer in layers.warped_for(layers.PLANET_LAYERS) if layer.name in body.surface_layers]
         assert declared, "no body declares a built layer — this sweep would pass vacuously"
         for body, layer in declared:
             with subtests.test(f"{body.name} {layer.name}"):
@@ -95,7 +95,7 @@ class TestTheRegistryAndTheLayerDeclarationsAgree:
 
     def test_no_producer_is_registered_for_a_body_that_declares_no_such_layer(self, subtests):
         for body in bodies.BODIES.values():
-            for layer in layers.warped_for(layers.COMPOSITE_LAYERS):
+            for layer in layers.warped_for(layers.PLANET_LAYERS):
                 if layer.name in body.surface_layers:
                     continue
                 with subtests.test(f"{body.name} {layer.name}"):
@@ -130,7 +130,7 @@ class TestWhatAProducerDeclaresItReads:
         """Unlike the cap tier, where Earth's south genuinely reads nothing. Every layer here is
         built from a file, so an empty tuple would mean a warp with no dependency — a raster that
         can never go stale because nothing it reads is tracked."""
-        for layer in layers.warped_for(layers.COMPOSITE_LAYERS):
+        for layer in layers.warped_for(layers.PLANET_LAYERS):
             with subtests.test(layer.name):
                 assert layer_producers.producer_for(bodies.EARTH, layer).sources()
 
@@ -138,7 +138,7 @@ class TestWhatAProducerDeclaresItReads:
         """A layer added to the table and forgotten here would raise on the next pass of any body,
         which is the intent — pinned so the set is checked without waiting for a pass."""
         assert set(shade_planet.WARP_CONSEQUENCE) == {
-            layer.name for layer in layers.warped_for(layers.COMPOSITE_LAYERS)}
+            layer.name for layer in layers.warped_for(layers.PLANET_LAYERS)}
 
 
 class TestEarthsProducersComputeWhatTheyComputedInline:
@@ -218,7 +218,7 @@ class TestTheSnowUnionIsUnchangedByTheMove:
     contribution is non-negative, and this is that argument executed rather than asserted."""
 
     def _shared(self, persistence, glacier, top=SOUTHERN_TOP, bottom=SOUTHERN_BOTTOM):
-        raw: dict[str, np.ndarray | None] = {layer.name: None for layer in layers.warped_for(layers.COMPOSITE_LAYERS)}
+        raw: dict[str, np.ndarray | None] = {layer.name: None for layer in layers.warped_for(layers.PLANET_LAYERS)}
         raw[layers.PERENNIAL_ICE.name] = persistence
         raw[layers.GLACIERS.name] = glacier
         return _fold(raw, top=top, bottom=bottom)
@@ -289,7 +289,7 @@ class TestTheWarpGateAsksTheBodyFirst:
         _age(planet / "chunks", 500)
         height = _height_raster(work / "height_3857.tif")
         freshness.mark_done(height)
-        for layer in layers.warped_for(layers.COMPOSITE_LAYERS):
+        for layer in layers.warped_for(layers.PLANET_LAYERS):
             source = tmp_path / f"{layer.name}.source"
             source.write_text("downloaded")
             monkeypatch.setitem(
@@ -306,7 +306,7 @@ class TestTheWarpGateAsksTheBodyFirst:
         """The companion that shows the two below can fail: with the gate working, the body that
         declares everything gets everything."""
         assert self._drive(monkeypatch, tmp_path, bodies.EARTH) == [
-            layer.name for layer in layers.warped_for(layers.COMPOSITE_LAYERS)]
+            layer.name for layer in layers.warped_for(layers.PLANET_LAYERS)]
 
     def test_a_body_with_no_layers_opens_none_of_earths_files(self, monkeypatch, tmp_path):
         """A SYNTHETIC body, because Mars now declares one and would drive its REAL producer here.
@@ -344,7 +344,7 @@ class TestTheWarpGateAsksTheBodyFirst:
         _age(planet / "planet_heightfield.vrt", 500)
         _age(planet / "chunks", 500)
         freshness.mark_done(_height_raster(work / "height_3857.tif"))
-        for layer in layers.warped_for(layers.COMPOSITE_LAYERS):
+        for layer in layers.warped_for(layers.PLANET_LAYERS):
             source = tmp_path / f"{layer.name}.source"
             if layer is not layers.PERENNIAL_ICE:  # this one was never downloaded
                 source.write_text("downloaded")
@@ -361,13 +361,13 @@ class TestTheWarpGateAsksTheBodyFirst:
 
 
 class TestABuildTimeConstantReachesTheFreshnessGate:
-    """The hole a `composite_deps` trace opened, closed and given a control.
+    """The hole a dependency trace opened, closed and given a control.
 
     `warp_needs_rebuild` is closed over PATHS, so no Python value can reach it. That never mattered
     while every build was pure transport — Earth stores raw packed values and grades per window, and
-    a per-window constant restages through `composite_params` because the rerun re-reads it. Mars's
-    build grades BEFORE it writes, so its constants are frozen into the file, and recorded in
-    `composite_params` alone a re-tune would restage the whole composite and then repaint from the
+    a per-window constant restages through the painting stage's recipe because the rerun re-reads
+    it. Mars's build grades BEFORE it writes, so its constants are frozen into the file, and
+    recorded in that recipe alone a re-tune would restage the stage and then repaint from the
     unchanged raster: the same wrong pixels behind a restage that looks like it worked.
     """
 
@@ -381,7 +381,7 @@ class TestABuildTimeConstantReachesTheFreshnessGate:
         _age(planet / "planet_heightfield.vrt", 500)
         _age(planet / "chunks", 500)
         freshness.mark_done(_height_raster(work / "height_3857.tif"))
-        for layer in layers.warped_for(layers.COMPOSITE_LAYERS):
+        for layer in layers.warped_for(layers.PLANET_LAYERS):
             registered = (
                 # A REAL raster on the reference grid, not a stub: the gate also asks
                 # `grid_matches`, which opens the target — a text file makes the second pass raise
@@ -542,7 +542,7 @@ class TestTheFoldsLawIsRecordedAndNotOnlyRun:
 
 
 class TestAProducerDeclaresTheWhiteItIsPaintedIn:
-    """The white moved out of `shade.composite` and into the producer that computed the alpha.
+    """The white moved out of the shared shader and into the producer that computed the alpha.
 
     Both directions matter and each is silent alone: a producer that paints and declares nothing
     leaves a re-tune untracked, and one that declares a white it never paints with restages a body
@@ -645,10 +645,10 @@ class TestARockLayerBuildsARasterAndContributesNothing:
         Asserted with the raster PRESENT and non-empty: a rock mask of zeros would satisfy this
         against a producer that folded its input, which is the arm that has to fail.
         """
-        raw: dict[str, np.ndarray | None] = {layer.name: None for layer in layers.warped_for(layers.COMPOSITE_LAYERS)}
+        raw: dict[str, np.ndarray | None] = {layer.name: None for layer in layers.warped_for(layers.PLANET_LAYERS)}
         raw[layers.ANTARCTIC_ROCK.name] = self._rock()
         contributions, paints, _ = layer_producers.gather(
-            bodies.EARTH, raw, _window(None), layers.COMPOSITE_LAYERS)
+            bodies.EARTH, raw, _window(None), layers.PLANET_LAYERS)
         assert layers.ANTARCTIC_ROCK.name not in contributions
         assert layers.ANTARCTIC_ROCK.name not in paints
 
@@ -670,11 +670,11 @@ class TestARockLayerBuildsARasterAndContributesNothing:
         assert producer.contribution(_window(self._rock())) is None
 
     def _gathered(self, body=bodies.EARTH, vocabulary=None, rock=True):
-        raw: dict[str, np.ndarray | None] = {layer.name: None for layer in layers.warped_for(layers.COMPOSITE_LAYERS)}
+        raw: dict[str, np.ndarray | None] = {layer.name: None for layer in layers.warped_for(layers.PLANET_LAYERS)}
         raw[layers.ANTARCTIC_ROCK.name] = self._rock() if rock else None
         return layer_producers.gather(
             body, raw, _window(None),
-            layers.COMPOSITE_LAYERS if vocabulary is None else vocabulary)
+            layers.PLANET_LAYERS if vocabulary is None else vocabulary)
 
     def test_gather_returns_the_rock_as_an_exclusion_and_no_producer_sees_it(self):
         """Both halves, and the second is the one the placement before this got wrong.
@@ -780,7 +780,7 @@ class TestTheOutcropLosesItsWhiteWhateverElseClaimsThePixel:
     the broken placement and on the fixed one alike, which is the shape that let this ship.
 
     Taken through `shade_planet._compute_shared` rather than through `fold_white` directly, because
-    the claim is about the alpha `shade.composite` paints and not about one function's return.
+    the claim is about the alpha the painter takes and not about one function's return.
     """
 
     #: Packed persistence that `unpack_persistence` clips to 1.0, so `snow_alpha` saturates on every
@@ -795,7 +795,7 @@ class TestTheOutcropLosesItsWhiteWhateverElseClaimsThePixel:
         return mask
 
     def _snow_alpha(self, *, rock=None, persistence=None, glacier=None, body=bodies.EARTH):
-        raw: dict[str, np.ndarray | None] = {layer.name: None for layer in layers.warped_for(layers.COMPOSITE_LAYERS)}
+        raw: dict[str, np.ndarray | None] = {layer.name: None for layer in layers.warped_for(layers.PLANET_LAYERS)}
         raw[layers.PERENNIAL_ICE.name] = persistence
         raw[layers.GLACIERS.name] = glacier
         raw[layers.ANTARCTIC_ROCK.name] = rock

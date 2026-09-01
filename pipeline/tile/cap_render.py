@@ -3,7 +3,7 @@
 Web-Mercator tiles die at ~85N (1/cos-phi sends the pole to infinity), so each pole is a
 source-shaded polar raster drawn over the globe by a MapLibre custom layer (polarCaps.ts),
 feathered into the tiles at the seam. Azimuthal-equidistant, centred on the pole, inscribed
-circle at `grid.edge_lat`. Runs the one shared `shade.composite` and writes
+circle at `grid.edge_lat`. Prepares the disc for `cap_raytrace`, which renders it, and writes
 `cap_{north,south}_{px}.webp` un-flipped to web/public/caps/ — one file per CAP_RUNGS size —
 beside `caps.json`, the contract the web layer fetches (edge_lat, feather ceiling, the rung
 list), so no cap constant is hand-copied into TypeScript (see caps_manifest).
@@ -347,8 +347,8 @@ def cap_height_warp(grid: CapGrid) -> Path:
 def cap_elev_recipe(grid: CapGrid) -> str:
     """The elevation texture's own recipe sidecar — every writer records its own beside its output.
 
-    Deliberately small: this product depends on the grid, the encoding, and nothing else. It does
-    NOT carry composite_params, because a look change repaints the cap's colour without moving a
+    Deliberately small: this product depends on the grid, the encoding, and nothing else. It carries
+    no look constants at all, because a look change repaints the cap's colour without moving a
     single vertex."""
     return json.dumps({"grid": grid_recipe_fields(grid),
                        "elev": {"px": CAP_ELEV_PX,
@@ -617,8 +617,8 @@ def caps_manifest(body: bodies.Body) -> str:
 
 
 def cap_sources(grid: CapGrid, rasters: frozenset[str]) -> list[Path]:
-    """The source files whose change must re-render this cap — composite_deps' sibling. Constants
-    ride in cap_recipe; these are the mtime dependencies.
+    """The source files whose change must re-render this cap. Constants ride in the raytrace
+    recipe; these are the mtime dependencies.
 
     ONLY THE FILES THIS BODY'S CAP ACTUALLY OPENS. A source listed for a layer the body does not have
     is not merely noise: `cap_is_fresh` requires every source to EXIST and to be older than the
@@ -822,12 +822,12 @@ def write_cap_rungs(grid: CapGrid, tif: Path) -> Path:
 
 
 def finish_disc(grid: CapGrid, rgb: np.ndarray) -> Path:
-    """Everything between a disc's finished pixels and its served rungs, for either producer.
+    """Everything between a disc's finished pixels and its served rungs.
 
-    PUBLIC AND SHARED FOR `write_cap_rungs`' REASON, one step earlier. The composite arrives here
-    from `shade.composite` and the raytraced arm from a blended ring, and neither may own the
-    coastline bake, the intermediate's filename or its profile — a second copy would put the served
-    disc's last three acts in two places no test compares.
+    PUBLIC AND SHARED FOR `write_cap_rungs`' REASON, one step earlier. It stayed separate from its
+    caller when two arms arrived here, so that neither could own the coastline bake, the
+    intermediate's filename or its profile. One arm reaches it now, from a blended ring; the split
+    survives because the served disc's last three acts still belong in one place.
     """
     # The land/sea line, so the ice sheet reads distinct from sea ice at the pole.
     _bake_coastline(grid, rgb)
@@ -849,8 +849,8 @@ def _cap_sea_ice(grid: CapGrid, ocean: np.ndarray, consequence: str) -> "np.ndar
     GATED HERE, BECAUSE THIS IS WHERE THE ALPHA IS MADE. The disc's own ocean mask is the only one
     on this grid, and a consumer-side gate is what let a second prep ship an ungated alpha that
     painted land white and flattened it. `tests/test_sea_ice_gate.py` holds the law for both
-    producers. None rather than a zero array on the way out: `shade.composite` takes `ice_a=None`
-    and skips the blend entirely, where zeros would run it and multiply the whole disc by nothing.
+    producers. None rather than a zero array on the way out: the painter takes `ice_a=None` and
+    skips the blend entirely, where zeros would run it and multiply the whole disc by nothing.
     """
     if not layers.layer_is_buildable(grid.body, layers.SEA_ICE, Path(datasets.seaice_frequency()),
                                      consequence):
@@ -919,9 +919,9 @@ def _cap_perennial_ice(grid: CapGrid, ocean: np.ndarray, water: np.ndarray, lati
     it onto its own pole. `all(...)` over an empty tuple is True, which is what lets Earth's south —
     latitude and land, no file — pass on the body's declaration alone, with no special case.
 
-    Zeros rather than None on the way out, unlike the sea-ice twin: `shade.composite` takes
-    `snow_a` as a required array and blends it, so an all-zero alpha is the arithmetic saying no
-    pixel is ice, where None would be a different function signature."""
+    Zeros rather than None on the way out, unlike the sea-ice twin: the painter takes `snow_a` as a
+    required array and blends it, so an all-zero alpha is the arithmetic saying no pixel is ice,
+    where None would be a different function signature."""
     if not (layers.body_declares_layer(grid.body, layers.PERENNIAL_ICE, consequence)
             and all(layers.layer_is_buildable(grid.body, layers.PERENNIAL_ICE, source, consequence)
                     for source in perennial_ice.cap_ice(grid.body, grid.name).sources())):
@@ -974,8 +974,8 @@ def _cap_masks(grid: CapGrid, rasters: frozenset[str],
     Gated per raster, not as a pair: Phase 2's chosen shoreline contour gives Mars an ocean mask
     while it still has no inland water, and that combination must not need a code change.
 
-    `shade.composite` takes both as plain boolean selectors, so all-False means every pixel takes
-    the land ramp — which is the answer, not a degraded stand-in for one.
+    Both are plain boolean selectors, so all-False means every pixel takes the land ramp — which is
+    the answer, not a degraded stand-in for one.
     """
     if "oceanmask" in rasters:
         ocean = _warp(grid, planet_seam.vrt_path(grid.body, "oceanmask"),

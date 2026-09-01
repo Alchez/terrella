@@ -5,16 +5,16 @@ composited pixel went through — and a `--cells` region preview that ran it ove
 chunks. Both went with the composite planet producer: every planet is raytraced, so the shader had
 no caller and the preview produced a look no body ships, which is worse than no preview.
 
-What survives has readers elsewhere:
+WHAT STILL HAS A RUNTIME READER IS ONE KEY AND ONE FUNCTION. `render/lake_mask.py` reads
+`KNOBS["lake_curve"]` and passes it to `lake_position`, both on the HERO path, which is a different
+lane from the tiles entirely. `Z8_MERC_RES` is read by a resolution test.
 
-  * `KNOBS` — `shade_planet.composite_params` still serialises it, and `render/lake_mask.py` reads
-    `lake_curve` on the HERO path, which is a different lane from the tiles entirely.
-  * `lake_position` — the hero lake mask's own curve, through that same reader.
-  * `SHADOW_TINT` — read by `composite_params`.
+NOTHING ELSE HERE REACHES A PIXEL. The record that serialised KNOBS wholesale was `composite_params`
+and `SHADOW_TINT`'s only reader was that same record, so both went with it.
 
-Most of `Knobs`' fields therefore reach no pixel today. They are not pruned here because the record
-that serialises them is itself pending deletion, and pruning a dict whose only reader is about to go
-would be two edits to the same question.
+THE PRUNE IS NOW DUE AND IS NOT A COMMENT FIX. The reason these fields were kept was that their
+serialiser was pending deletion; it is deleted. What is left is a deletion job with its own
+consumers to walk — sabotage cases keyed to these names, and the ART.md rows that price them.
 """
 
 import math
@@ -38,11 +38,10 @@ class Knobs(TypedDict):
     of the arithmetic type-checked. Declaring it here types each key exactly, and turns a mistyped
     key into an error rather than a KeyError.
 
-    It stays ONE dict rather than splitting `lake_curve` out into its own constant, because
-    `shade_planet.composite_params()` serialises KNOBS wholesale -- a curve that rode outside would
-    have to be remembered into that record by hand, which is exactly the untracked-constant bug the
-    guard exists to catch. TypedDict is a pure annotation: at runtime this is still a plain dict, so
-    the params JSON is unchanged.
+    It stayed ONE dict because `composite_params` serialised KNOBS wholesale, so a `lake_curve` that
+    rode outside would have had to be remembered into that record by hand. That record is gone and
+    the argument with it; the dict's shape is now a question for the prune, not a settled contract.
+    TypedDict is a pure annotation: at runtime this is still a plain dict.
     """
 
     alt: float
@@ -70,8 +69,8 @@ class Knobs(TypedDict):
 
 
 # `fill_strength` is the hero's fill sun as a fraction of the main sun (its FILL_STRENGTH 0.45 /
-# SUN_STRENGTH 3.0 = 0.15). `shade_planet.build_hillshade` records it in hs_params.json, so a change
-# to it correctly restages the hillshade.
+# SUN_STRENGTH 3.0 = 0.15). Nothing records it any more: `build_hillshade` and its `hs_params.json`
+# went with the composite, and no raytraced recipe carries it.
 #
 # **0.15, chosen by eye** off a five-strength sweep on real tiles under production's own
 # global SVF. It is the hero's own ratio, and any value >= 0.10 already drives pure black to 0.00%

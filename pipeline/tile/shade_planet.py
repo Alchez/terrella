@@ -4,9 +4,12 @@ Every shading input is computed GLOBALLY and STREAMING, so nothing is normalised
 edge-extrapolated per block:
 
   1. warp the 4326 planet heightfield + masks once to a WebMercatorQuad-aligned 3857 grid;
-  2. custom per-row-z hillshade (pipeline/look/hillshade.py) -> seamless + correct exaggeration;
-  3. cut 512px tiles from z0 to THIS BODY's ceiling, the body saying so rather than this module
+  2. cut 512px tiles from z0 to THIS BODY's ceiling, the body saying so rather than this module
      (no overview step: `gdal raster tile` never reads them; see build_tiles).
+
+A middle stage stood between those two and is gone: a custom per-row-z hillshade that bought
+seamlessness and correct exaggeration for a numpy shader. Cycles computes its own light, so the
+hillshade module went with the compositor rather than being ported.
 
 THIS MODULE IS NOT AN ENTRY POINT and no longer fills the raster between those stages: the windowed
 numpy composite that used to live here was deleted with the producer choice, and `block_render`
@@ -106,10 +109,10 @@ WATER_3857 = "water_3857.tif"
 
 #: The shaded colour raster the tile cut reads, whatever produced it.
 #:
-#: NAMED HERE BECAUSE IT NOW HAS TWO PRODUCERS. `composite_planet` builds it window by window and
-#: `tile.block_render` renders it block by block, and the tile cut, the freshness marker and the
-#: publish all key on this one basename — so it is exactly the kind of spelling the second writer
-#: would otherwise copy. The variant suffix stays a local f-string: only the composite emits those.
+#: NAMED HERE BECAUSE THE WRITER AND THE READERS ARE DIFFERENT MODULES. `tile.block_render` renders
+#: it block by block, while the tile cut, the freshness marker and the publish all key on this one
+#: basename — so it is exactly the kind of spelling a writer would otherwise copy. It was named here
+#: when the raster had two producers, and one owner is still right with one.
 PLANET_RGB = "planet_rgb.tif"
 
 #: `cap_render` says something different about the same layers because it paints a different
@@ -197,7 +200,7 @@ def warp_inputs(work: Path, planet: Path, body: bodies.Body, rasters: frozenset[
     # fixed-path temps -- the shared paths that blocked threading the composite. Deliberately NOT in
     # the mask loop above: those are class codes wanting `near`/Byte, and every one of these is a
     # continuous or vector source with its own resampling.
-    for layer in layers.warped_for(layers.COMPOSITE_LAYERS):
+    for layer in layers.warped_for(layers.PLANET_LAYERS):
         consequence = WARP_CONSEQUENCE[layer.name]
         out = layer.warped_in(work)
         # THE BODY IS ASKED FIRST AND THE PRODUCER SECOND, and the order is what makes the disk
@@ -212,8 +215,8 @@ def warp_inputs(work: Path, planet: Path, body: bodies.Body, rasters: frozenset[
             continue
         # A BUILD-TIME CONSTANT IS MATERIALISED INTO A SOURCE, because `warp_needs_rebuild` is closed
         # over PATHS and no Python value can reach it. A producer that grades before it writes has
-        # its tunables frozen into the file; recorded only in `composite_params`, changing one would
-        # restage the whole composite and then repaint from the unchanged raster — the same wrong
+        # its tunables frozen into the file; recorded only in the painting stage's recipe, changing
+        # one would restage that stage and then repaint from the unchanged raster — the same wrong
         # pixels behind a restage that looks like it worked. `write_if_changed` moves an mtime if and
         # only if a value moved, and is written BEFORE the question is asked, per its own docstring.
         #
@@ -276,7 +279,7 @@ def tile_cut(body: bodies.Body) -> TileCut:
 
 
 def tile_params(body: bodies.Body) -> str:
-    """The tile cut's own settings, recorded as the live pyramid's dependency — hs_params' sibling.
+    """The tile cut's own settings, recorded as the live pyramid's dependency.
 
     This stage used to key freshness off `planet_rgb` ALONE, which meant the cut was the
     one stage that could not see its own recipe: changing the output format left `tiles_are_fresh`

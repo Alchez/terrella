@@ -2709,9 +2709,9 @@ SABOTAGES: list[Sabotage] = [
     # grid here is EPSG:3857 for every planet, so reading it from a body was the misleading half.
     # --- A pointer into a doc still lands where it says --------------------------------------------
     # ALL THREE OF THESE ALREADY SHIPPED, which is why the guard exists rather than the reverse.
-    # `tile/shade.py` cited ART.md:56 and ART.md:90, both of which had become blank lines, and
-    # `look/hillshade.py` cited ART.md:63 for the sun's locked azimuth while that line had become a
-    # table row about the sea colour ramp. The mutations are planted in `gen_borders.py` because it
+    # `tile/shade.py` cited ART.md:56 and ART.md:90, both of which had become blank lines, and the
+    # since-deleted `look/hillshade.py` cited ART.md:63 for the sun's locked azimuth while that line
+    # had become a table row about the sea ramp. The mutations are planted in `gen_borders.py` because it
     # is the pointer under a MUTABLE_ROOT; the defect has no preferred site.
     Sabotage(
         suite='python',
@@ -2790,8 +2790,8 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label="the block column drops sea ice again, starving the rig's ice arm",
         path='pipeline/layers.py',
-        needle='SEA_ICE = Layer("sea_ice", in_composite=True, in_cap=True, in_block=True,',
-        replacement='SEA_ICE = Layer("sea_ice", in_composite=True, in_cap=True, in_block=False,',
+        needle='SEA_ICE = Layer("sea_ice", in_planet=True, in_cap=True, in_block=True,',
+        replacement='SEA_ICE = Layer("sea_ice", in_planet=True, in_cap=True, in_block=False,',
         guard='test_the_block_gathers_sea_ice_like_the_composite',
     ),
     # THE DEFECT THAT ALREADY HAPPENED, four times, in the render probe. Every copy of the margin
@@ -3245,14 +3245,12 @@ SABOTAGES: list[Sabotage] = [
     # Byte-identical output TODAY, which is the whole hazard: the region path is where every look
     # A/B is judged, so a private copy only diverges once someone re-tunes the shared constant — and
     # then the previews that ratified the change were rendered at the value it replaced.
-    Sabotage(
-        suite='python',
-        label='the ground scale is multiplied into the z-factor instead of divided out',
-        path='pipeline/look/hillshade.py',
-        needle='                zfactor = (exaggeration\n                           / (ground_scale * np.cos(np.radians(latitude)))).reshape(-1, 1)',
-        replacement='                zfactor = (exaggeration * ground_scale\n                           / np.cos(np.radians(latitude))).reshape(-1, 1)',
-        guard='test_the_scale_divides_exactly_as_an_equal_exaggeration_change_would',
-    ),
+    # A case stood here and went with `look/hillshade.py`. It planted a multiplied ground scale in
+    # the per-row z-factor, and its guard lived in that module's own test file. The module was the
+    # composite's last leaf: nothing in production imported it once the compositor went, so the case
+    # was mutating code no shipped pixel could reach. The z-factor law it protected still binds on
+    # the raytraced side, where `cap_raytrace` divides by the AEQD ground scale and
+    # `.claude/rules/raytraced-cap-invariants.md` states it.
     # The sky-view half, and it fails silently in the flattest possible way: a body whose map units
     # overstate distance searches a horizon 1.878x too long, so its valleys read as open ground and
     # the global renormalisation spreads the error over the whole planet rather than localising it.
@@ -3618,21 +3616,20 @@ SABOTAGES: list[Sabotage] = [
     ),
     Sabotage(
         suite='python',
-        label='a layer stops naming its built raster, so it silently leaves the composite entirely',
+        label='a layer stops naming its built raster, so it silently leaves the planet tier entirely',
         path='pipeline/layers.py',
         needle='                      requires_raster=None, warped_basename="snow_persistence_3857.tif")',
         replacement='                      requires_raster=None, warped_basename=None)',
-        guard='test_every_built_layer_names_the_raster_the_composite_reads',
+        guard='test_every_built_layer_names_the_raster_the_planet_tier_reads',
     ),
     # The quietest of the set: dropping the basename takes the layer out of the warp, out of the
-    # window reads AND out of `composite_deps` at once, so Earth stops painting its ice and the
-    # composite reads fresh forever — the raster it lost is no longer a dependency to be newer than.
-    # Caught only end-to-end: the guard lives in a closure inside `composite_planet`, and the
-    # synthetic planet fixture WRITES a persistence raster, so every other test in the suite
-    # exercises the present-file branch and passes with this reverted.
+    # window reads AND out of the planet tier's dependency list at once, so Earth stops painting its
+    # ice and the raster reads fresh forever — what it lost is no longer a dependency to be newer
+    # than. Caught only end-to-end, and the synthetic planet fixture WRITES a persistence raster, so
+    # every other test in the suite exercises the present-file branch and passes with this reverted.
     Sabotage(
         suite='python',
-        label='Earth quietly loses a surface layer it has always composited',
+        label='Earth quietly loses a surface layer it has always painted',
         path='pipeline/bodies.py',
         needle='''    surface_layers=frozenset({"lake_depth", "perennial_ice", "glaciers", "sea_ice", "coastline",
                               "antarctic_rock"}),''',
@@ -4432,13 +4429,13 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='a layer is read by no stage at all, so declaring it builds nothing',
         path='pipeline/layers.py',
-        needle='COASTLINE = Layer("coastline", in_composite=False, in_cap=True, in_block=False,',
-        replacement='COASTLINE = Layer("coastline", in_composite=False, in_cap=False, in_block=False,',
+        needle='COASTLINE = Layer("coastline", in_planet=False, in_cap=True, in_block=False,',
+        replacement='COASTLINE = Layer("coastline", in_planet=False, in_cap=False, in_block=False,',
         guard='test_the_stage_vocabularies_together_cover_the_whole_one_and_nothing_else',
     ),
     # The block column once carried two cases here, both retired the day the rig gained its ice
     # input: mutating `sea_ice` to `in_block=True` became today's real source, and deriving
-    # BLOCK_LAYERS off `in_composite` now yields an IDENTICAL frozenset no test could distinguish.
+    # BLOCK_LAYERS off `in_planet` now yields an IDENTICAL frozenset no test could distinguish.
     # The column's live guard is the flip-back case beside the ground-ratio one, whose test
     # starves the rig's ice arm behaviourally rather than comparing two equal sets.
     # --- the render directory's seam, and the gather both tiers now share ------------------------
@@ -4452,7 +4449,7 @@ SABOTAGES: list[Sabotage] = [
         label="the gather ignores its caller's vocabulary, handing every stage the composite's",
         path='pipeline/look/layer_producers.py',
         needle='for layer in layers.warped_for(vocabulary)',
-        replacement='for layer in layers.warped_for(layers.COMPOSITE_LAYERS)',
+        replacement='for layer in layers.warped_for(layers.PLANET_LAYERS)',
         guard='test_the_vocabulary_is_an_actual_filter',
     ),
     Sabotage(
@@ -5537,7 +5534,7 @@ SABOTAGES: list[Sabotage] = [
     ),
     # --- Where a body's intermediates live -----------------------------------------------------------
     # The body is carried by the PATH, deliberately not by the freshness recipes: adding a body key to
-    # composite_params.json would restage a 21:37 composite and a 4:19 cut to emit identical pixels.
+    # raytrace_params.json would restage a whole planet render and a 4:19 cut for identical pixels.
     # That makes the path resolver load-bearing, and both mutations below are silent — Earth keeps
     # running, and only a second planet discovers it has been writing into Earth's directories.
     Sabotage(

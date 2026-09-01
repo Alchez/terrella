@@ -307,7 +307,7 @@ class TestTheBlockStageAsksForItsOwnLayersAndNotTheComposites:
         return set(contributions)
 
     def test_the_block_gathers_sea_ice_like_the_composite(self):
-        assert layers.SEA_ICE.name in self._gathered(layers.COMPOSITE_LAYERS)
+        assert layers.SEA_ICE.name in self._gathered(layers.PLANET_LAYERS)
         assert layers.SEA_ICE.name in self._gathered(layers.BLOCK_LAYERS)
 
     def test_both_still_gather_the_white_the_rig_can_paint(self):
@@ -343,7 +343,7 @@ class TestSeaIceIsGatedToTheOcean:
 
 class TestTheWhiteUnionIsFoldedByItsOwner:
     def test_sea_ice_is_not_in_the_union_even_when_it_was_gathered(self):
-        """`shade.composite` gates ice on the ocean selector where the union paints land, so an ice
+        """Ice is gated on the ocean selector where the union paints land, so an ice
         contribution folded in here would paint pack ice onto the shore it borders."""
         assert layers.SEA_ICE not in layer_producers.WHITE_UNION
         contributions = {layers.SEA_ICE.name: np.ones((ROWS, COLS))}

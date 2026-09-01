@@ -300,7 +300,7 @@ def test_another_body_nests_under_its_own_name() -> None:
     """Two bodies must never be able to write to one directory.
 
     This is also what keeps the body OUT of the freshness recipes: a second body writes its own
-    `composite_params.json` at its own path, so the params file is already body-specific and adding
+    `raytrace_params.json` at its own path, so the params file is already body-specific and adding
     a body key inside it would only invalidate Earth's correct output.
     """
     assert bodies.work_dir(bodies.MARS, "planet_tiles") == paths.DATA / "work/mars/planet_tiles"
@@ -989,7 +989,7 @@ def _southern_white(body: bodies.Body, persistence: "np.ndarray | None"):
     top, bottom = -11_000_000.0, -12_000_000.0   # ~ -68 deg, south of the patch's -60
     latitude = snow.latitude_per_row(top, bottom, rows)
     raw = {layer.name: persistence if layer is layers.PERENNIAL_ICE else None
-           for layer in layers.warped_for(layers.COMPOSITE_LAYERS)}
+           for layer in layers.warped_for(layers.PLANET_LAYERS)}
     contributions, _paints, exclusions = layer_producers.gather(
         body, raw,
         layer_producers.LayerWindow(
@@ -1000,7 +1000,7 @@ def _southern_white(body: bodies.Body, persistence: "np.ndarray | None"):
                 latitude, body.map_units_per_pixel,
                 bodies.ground_metres_per_mercator_unit(body)),
             top=top, bottom=bottom),
-        layers.COMPOSITE_LAYERS)
+        layers.PLANET_LAYERS)
     white, _carried = layer_producers.fold_white(contributions, (rows, cols),
                                                  exclusions=exclusions)
     return white, contributions.get(layers.SEA_ICE.name)
@@ -1052,14 +1052,15 @@ def test_earths_antarctic_patch_survives_a_missing_persistence_raster() -> None:
     )
 
 
-def test_every_built_layer_names_the_raster_the_composite_reads(subtests) -> None:
+def test_every_built_layer_names_the_raster_the_planet_tier_reads(subtests) -> None:
     """Pinned against literals, because every consumer of these names now derives from this column.
 
     A dropped `warped_basename` takes its layer out of the warp, out of the window reads and out of
-    `composite_deps` in one edit — so the layer stops being painted AND stops being a dependency the
-    composite must be newer than, which is a stale pyramid that reports itself fresh forever.
+    the planet tier's dependency list in one edit — so the layer stops being painted AND stops being
+    a dependency the raster must be newer than, which is a stale pyramid that reports itself fresh
+    forever.
     """
-    assert {layer.name: layer.warped_basename for layer in layers.warped_for(layers.COMPOSITE_LAYERS)} == {
+    assert {layer.name: layer.warped_basename for layer in layers.warped_for(layers.PLANET_LAYERS)} == {
         "lake_depth": "lakedepth_3857.tif",
         "perennial_ice": "snow_persistence_3857.tif",
         "glaciers": "glacier_3857.tif",
@@ -1067,7 +1068,7 @@ def test_every_built_layer_names_the_raster_the_composite_reads(subtests) -> Non
         "antarctic_rock": "addrock_3857.tif",
     }
     with subtests.test("every composite layer builds a raster today"):
-        assert {layer.name for layer in layers.warped_for(layers.COMPOSITE_LAYERS)} == layers.COMPOSITE_LAYERS, (
+        assert {layer.name for layer in layers.warped_for(layers.PLANET_LAYERS)} == layers.PLANET_LAYERS, (
             "the two agree today but are set independently — a composite layer answered by pure "
             "arithmetic would carry no basename, so neither column may be derived from the other"
         )
@@ -1086,12 +1087,12 @@ def test_the_stage_vocabularies_together_cover_the_whole_one_and_nothing_else(su
     """
     for layer in layers.LAYERS:
         with subtests.test(layer.name):
-            assert layer.in_composite or layer.in_cap or layer.in_block, (
+            assert layer.in_planet or layer.in_cap or layer.in_block, (
                 f"{layer.name} is read by no stage — a body could declare it and nothing would "
                 f"ever build it, and `layers_off` would never mention it either"
             )
     with subtests.test("no stage is empty"):
-        assert layers.COMPOSITE_LAYERS and layers.CAP_LAYERS and layers.BLOCK_LAYERS
+        assert layers.PLANET_LAYERS and layers.CAP_LAYERS and layers.BLOCK_LAYERS
 
 
 def test_every_required_raster_is_one_the_planet_seam_can_emit(subtests) -> None:
@@ -1123,24 +1124,24 @@ def test_the_stages_disagree_about_which_layers_they_read(subtests) -> None:
     decision would restage a 46 GB planet. Over- and under-tracking are both silent.
 
     DERIVING THE VIEWS FROM ONE TABLE DID NOT MAKE THIS REDUNDANT — it is what keeps the table
-    honest. A wrong `in_composite` / `in_cap` / `in_block` column is exactly as silent as three
+    honest. A wrong `in_planet` / `in_cap` / `in_block` column is exactly as silent as three
     frozensets drifting apart was, so these literals are the hand-written expectation the derivation
     is checked against.
 
     THE BLOCK COLUMN NOW EQUALS THE COMPOSITE'S, AND THE PIN CHANGES JOBS RATHER THAN RETIRING.
     While the rig lacked an ice input the literals held `sea_ice` open as a stated gap; since it
     gained one, the equality is the hand-written expectation — and a NEW layer that copies
-    `in_composite` unexamined still fails here until its row is answered on purpose.
+    `in_planet` unexamined still fails here until its row is answered on purpose.
     """
     with subtests.test("cap only"):
-        assert layers.CAP_LAYERS - layers.COMPOSITE_LAYERS == {"coastline"}
+        assert layers.CAP_LAYERS - layers.PLANET_LAYERS == {"coastline"}
     with subtests.test("composite only"):
-        assert layers.COMPOSITE_LAYERS - layers.CAP_LAYERS == {"lake_depth", "glaciers"}
+        assert layers.PLANET_LAYERS - layers.CAP_LAYERS == {"lake_depth", "glaciers"}
     with subtests.test("block matches the composite exactly, and on purpose"):
         # The rig grew its ice input, so a raytraced Arctic paints pack instead of open teal
         # ocean; what remains block-versus-composite is agreement, pinned from both directions.
-        assert layers.COMPOSITE_LAYERS - layers.BLOCK_LAYERS == set()
-        assert layers.BLOCK_LAYERS - layers.COMPOSITE_LAYERS == set()
+        assert layers.PLANET_LAYERS - layers.BLOCK_LAYERS == set()
+        assert layers.BLOCK_LAYERS - layers.PLANET_LAYERS == set()
     with subtests.test("block against the caps"):
         assert layers.CAP_LAYERS - layers.BLOCK_LAYERS == {"coastline"}
         assert layers.BLOCK_LAYERS - layers.CAP_LAYERS == {"lake_depth", "glaciers"}
@@ -1160,7 +1161,7 @@ def test_the_rock_row_is_read_by_every_stage_that_forces_antarctic_white(subtest
     wrong, the differences would have moved and that test would have failed instead of this one.
     """
     with subtests.test("every stage"):
-        assert layers.ANTARCTIC_ROCK.in_composite
+        assert layers.ANTARCTIC_ROCK.in_planet
         assert layers.ANTARCTIC_ROCK.in_cap
         assert layers.ANTARCTIC_ROCK.in_block
     with subtests.test("no planet raster behind it"):
@@ -1176,7 +1177,7 @@ def test_layers_off_names_what_is_missing_and_stays_silent_when_nothing_is(subte
     """Off, never on. Earth answers with an empty list at every stage, which is what lets the
     callers' conditional record write nothing and leave a live 46 GB composite and a 14 GB cap
     render byte-identical."""
-    for name, vocabulary in (("composite", layers.COMPOSITE_LAYERS), ("cap", layers.CAP_LAYERS),
+    for name, vocabulary in (("composite", layers.PLANET_LAYERS), ("cap", layers.CAP_LAYERS),
                              ("block", layers.BLOCK_LAYERS)):
         with subtests.test(f"earth {name}"):
             assert layers.layers_off(bodies.EARTH, vocabulary) == []

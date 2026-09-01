@@ -117,8 +117,11 @@ class LayerProducer:
     #: This layer's number for one window, or None when it has nothing to add. Returning None rather
     #: than zeros keeps a layer that contributes nothing out of the union entirely.
     contribution: Callable[[LayerWindow], "np.ndarray | None"]
-    #: The `(sunlit, shadowed)` white `shade.composite` paints this producer's alpha with, or None
+    #: The `(sunlit, shadowed)` white the cap painter paints this producer's alpha with, or None
     #: where the layer's number is not painted as a white at all (lake depth, which takes a ramp).
+    #:
+    #: `cap_render` is the ONLY consumer of this now. On the planet the alpha is folded by
+    #: `prep_block` and coloured by Blender, so no white passes through Python there at all.
     #:
     #: Each end may be a bare RGB triple or an array shaped per row, so a producer whose material
     #: changes across the window says so itself. Mars's does: its two poles measure as different
@@ -142,8 +145,8 @@ class LayerProducer:
     #: that READS a constant is the code that declares it.
     #:
     #: Still not here: `palette.LAKE_*`. Lake depth really is one ramp on every body that has lakes,
-    #: it is not a white, and no second instance has contradicted it — so it stays in
-    #: `composite_params` until one does.
+    #: it is not a white, and no second instance has contradicted it — so it stays in the rig's own
+    #: constants until one does.
     contribution_recipe: Callable[[], dict[str, Any]]
     #: The constants `paint` reads, for the freshness recipe of every stage that paints.
     #:
@@ -157,9 +160,9 @@ class LayerProducer:
     #: The constants `build` bakes INTO the raster, which is a different set from `recipe` above and
     #: cannot share its machinery.
     #:
-    #: WHY THE SPLIT IS NOT TIDINESS. `recipe` reaches `composite_params`, so changing one of its
-    #: values restages the composite — which is exactly right for a constant read per window, because
-    #: the rerun re-reads it. A constant consumed at BUILD time is already frozen into the file on
+    #: WHY THE SPLIT IS NOT TIDINESS. `recipe` reaches the painting stage's own recipe, so changing
+    #: one of its values restages that stage — which is exactly right for a constant read per
+    #: window, because the rerun re-reads it. A constant consumed at BUILD time is frozen into the
     #: disk, and `warp_needs_rebuild` is closed over PATHS: no Python value can reach it. Recording a
     #: build-time constant in `recipe` alone therefore produces the worst available outcome — a full
     #: composite restage that repaints from the unchanged raster and lands the same wrong pixels,
@@ -269,7 +272,7 @@ def _earth_perennial_ice(window: LayerWindow) -> "np.ndarray | None":
     is None.
 
     float64 in both branches. `snow_alpha` returns float64 and `antarctic_snow_mask` float32, so the
-    zeros base is what keeps the two paths feeding `shade.composite` the same dtype.
+    zeros base is what keeps the two paths feeding the union the same dtype.
 
     NO ROCK REACHES THIS PRODUCER, and that is a correctness boundary rather than a tidy. The
     outcrop used to be subtracted from the patch here, inside ONE TERM of the maximum below, where
@@ -418,8 +421,8 @@ def _mars_perennial_ice(window: LayerWindow) -> "np.ndarray | None":
     feather has to run rather than from taste. None when the raster was never built, per the
     contract: no file, no ice, and no zeros pushed into the union to be blended against.
 
-    float64 because `shade.composite` blends whichever body's answer it is handed alongside Earth's,
-    and a narrower dtype from one of them shifts the other's blend sub-DN.
+    float64 because the fold blends whichever body's answer it is handed alongside Earth's, and a
+    narrower dtype from one of them shifts the other's blend sub-DN.
     """
     if window.raw is None:
         return None
@@ -589,8 +592,8 @@ def constants_for(body: bodies.Body, vocabulary: frozenset[str], *,
 
 #: The layers whose contributions merge into ONE white, in the order they fold.
 #:
-#: SEA ICE IS ABSENT AND THAT IS THE POINT. `shade.composite` gates it on the ocean selector where
-#: this union paints land, so folding it in here would paint pack ice onto the shore it borders.
+#: SEA ICE IS ABSENT AND THAT IS THE POINT. It is gated on the ocean selector where this union
+#: paints land, so folding it in here would paint pack ice onto the shore it borders.
 #: Lake depth is absent for a different reason: it is a ramp position and not a white at all.
 WHITE_UNION: tuple[layers.Layer, ...] = (layers.PERENNIAL_ICE, layers.GLACIERS)
 
@@ -648,7 +651,7 @@ def gather(body: bodies.Body, layer_raw: dict[str, "np.ndarray | None"], window:
     of the body rather than of the rasters on disk.
 
     `vocabulary` IS THE CALLER'S STAGE VIEW, on `layers.layers_off`'s rule: the composite reads
-    `COMPOSITE_LAYERS` and the block render `BLOCK_LAYERS`, and the two genuinely disagree.
+    `PLANET_LAYERS` and the block render `BLOCK_LAYERS`, and the two genuinely disagree.
 
     A paint is asked ONLY of a layer that contributed, so a producer that paints nothing this window
     never has to answer what colour it would have used.
@@ -683,11 +686,11 @@ def fold_white(contributions: dict[str, np.ndarray], shape: tuple[int, ...], *,
                exclusions: dict[str, np.ndarray],
                merge: "Callable[[Any, np.ndarray, str, np.ndarray], Any] | None" = None
                ) -> tuple[np.ndarray, Any]:
-    """Fold `WHITE_UNION`'s contributions into the one alpha `shade.composite` paints as snow,
-    then take `WHITE_EXCLUSIONS` back out of the result.
+    """Fold `WHITE_UNION`'s contributions into the one alpha the painter takes as snow, then take
+    `WHITE_EXCLUSIONS` back out of the result.
 
     float64 base because that is what `snow_alpha` returns and what the maxima promote to; a float32
-    base would narrow every pixel the compositor blends. `np.maximum` reorders freely and every
+    base would narrow every pixel the blend touches. `np.maximum` reorders freely and every
     contribution is non-negative, so which layer lands first cannot move a bit — the fixed order is
     for the caller that folds something ALONGSIDE the alpha and is not commutative.
 
@@ -706,8 +709,8 @@ def fold_white(contributions: dict[str, np.ndarray], shape: tuple[int, ...], *,
     end. Pass an empty dict to mean "this window excludes nothing" and say so deliberately.
 
     `merge` still sees pre-exclusion alphas, and that is correct rather than tolerated: it decides
-    which layer's COLOUR wins a pixel, and `shade.composite` multiplies that colour by the alpha
-    returned here — which is zero on every excluded pixel, so the colour there reaches nothing.
+    which layer's COLOUR wins a pixel, and the painter multiplies that colour by the alpha returned
+    here — which is zero on every excluded pixel, so the colour there reaches nothing.
     """
     alpha = np.zeros(shape, dtype=float)
     carried = None

@@ -5,9 +5,9 @@
 #   pipeline/profile/run_pass.sh --body earth           # the planet raster only
 #   pipeline/profile/run_pass.sh --body earth --tiles   # the raster (skipped when fresh) + the cut
 #
-# "the planet raster" rather than "shade", because which producer fills it is the BODY's answer
-# (Body.planet_producer) and this wrapper never learns it; and the cut runs to that body's own
-# ceiling, z8 on Earth and z7 on Mars, rather than to a number spelled here.
+# "the planet raster" rather than "shade", because this wrapper names the PRODUCT and never the
+# stage that fills it; and the cut runs to that body's own ceiling, z8 on Earth and z7 on Mars,
+# rather than to a number spelled here.
 #
 # `--body` is REQUIRED and this wrapper deliberately does not supply one: injecting a default here
 # would reintroduce, one layer up, exactly the silent Earth assumption planet_pass refuses to make.

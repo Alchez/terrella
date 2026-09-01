@@ -2,9 +2,9 @@
 
 The sea-side mirror of pipeline/look/snow.py. Where snow drapes persistent white over LAND by a
 persistence-driven alpha, sea ice drapes translucent white over the SEA (the bathymetry showing
-through at the thinning edge) by a frequency-driven alpha. The two share the composite's blend; the
-only structural difference downstream is the mask -- ice alpha is gated on `ocean`, snow on
-`~(ocean|water)` -- applied in shade.composite, not here.
+through at the thinning edge) by a frequency-driven alpha. The two share one blend; the only
+structural difference downstream is the mask -- ice alpha is gated on `ocean`, snow on
+`~(ocean|water)` -- applied by whichever producer builds the alpha, not here.
 
 Source: `data/raw/seaice/seaice_frequency_1991-2020_4326.tif`, the annual frequency-of-occurrence
 climatology built by pipeline/acquire/download_seaice.py (OSI SAF OSI-450-a, 1991-2020), packed
@@ -43,7 +43,7 @@ ICE_FILL = 65535    # packed fill (land / no valid observation); matches snow.SP
 # for a small fraction of the record shows a faint ice edge; the perennial core saturates at
 # ICE_MAX_ALPHA -- kept <1 so even the year-round pack stays a touch translucent and the deep
 # bathymetry glows through (the "ocean floor under ice" reading). Art knobs --
-# recorded in composite_params so a re-tune restages the composite.
+# recorded in the painting stage's recipe so a re-tune restages it.
 ICE_LO = 0.55
 ICE_BAND = 0.40
 ICE_MAX_ALPHA = 0.85
@@ -52,17 +52,17 @@ ICE_MAX_ALPHA = 0.85
 # is a continent RINGED by a mostly-seasonal ice belt, not an ice-filled basin, so at full strength the
 # climatology reads as a bright halo around the coast. The SH pack is rendered fainter and pulled in: a
 # higher lo trims the seasonal fringe, a lower max_alpha lets the bathymetry glow through. Applied south
-# of the equator by BOTH the tile composite and the south cap, so the cap<->tile seam matches by
+# of the equator by BOTH the planet tier and the south cap, so the cap<->tile seam matches by
 # construction; the Arctic pack keeps the globals above (it IS the subject there). Recorded in
-# composite_params, like the globals -- a re-tune must restage the composite.
+# the painting stage's recipe, like the globals -- a re-tune must restage it.
 SH_ICE_LO = 0.62
 SH_ICE_MAX_ALPHA = 0.55
 
 
 def ice_paint() -> "tuple[Any, Any]":
-    """The `(sunlit, shadowed)` pair `shade.composite` paints this layer's alpha with.
+    """The `(sunlit, shadowed)` pair the painter paints this layer's alpha with.
 
-    ONE DECLARATION, TWO TIERS. The composite tier reaches it through its producer's `paint`; the
+    ONE DECLARATION, TWO TIERS. The planet tier reaches it through its producer's `paint`; the
     cap tier reads it here directly, the same way it already reads `ICE_LO` and `ICE_MAX_ALPHA`
     rather than routing them through a registry. What matters is that the sentence "sea ice is
     painted in this pair" has one home — not that both tiers take the same road to it.
@@ -175,7 +175,7 @@ def gated_alpha(contribution, ocean):
     land ice-white and cut its relief to 0.46x, with nothing red anywhere. Both producers of this
     alpha now gate before returning, so no consumer has to know and no future consumer can forget.
 
-    None rather than zeros on the way out: `shade.composite` takes `ice_a=None` and skips the blend
+    None rather than zeros on the way out: the painter takes `ice_a=None` and skips the blend
     entirely, where zeros would run it and multiply the whole window by nothing, and `prep_block`
     reads it to decide whether the layer exists in this window at all.
     """

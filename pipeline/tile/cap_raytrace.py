@@ -240,16 +240,15 @@ def blend_disc(grid: cap_render.CapGrid) -> np.ndarray:
 def params(grid: cap_render.CapGrid, rasters: frozenset[str]) -> str:
     """Everything that can move a raytraced cap pixel and is not a file with an mtime.
 
-    `block_render.params`' SPLIT RATHER THAN A NEW IDEA, and deliberately not `cap_recipe`'s.
-    `composite_params` describes a numpy shading pass that does not run here; recorded, it would
-    put a 41-minute render behind knobs no raytraced pixel reads. What replaces it is the three
-    tiers a rendered frame actually passes through: this module's geometry, the rig's constants
-    through `rig_recipe`, and the producers' through `constants_for` and `white_law`.
+    `block_render.params`' SPLIT RATHER THAN A NEW IDEA. The composite cap's recipe described a
+    numpy shading pass that never ran here; recorded, it would have put a 41-minute render behind
+    knobs no raytraced pixel reads. What this carries instead is the three tiers a rendered frame
+    actually passes through: this module's geometry, the rig's constants through `rig_recipe`, and
+    the producers' through `constants_for` and `white_law`.
 
-    NO `planet_producer` KEY, unlike the composite's. That key exists there to make a producer
-    switch visible from a recipe that would otherwise be identical across it; here the switch
-    changes which function writes the recipe at all, so the sidecar differs wholesale in both
-    directions and `"producer"` says which side it is on.
+    `"producer"` IS A LITERAL HERE AND NOT READ FROM A REGISTRY. No body chooses a cap producer any
+    more, so the key does not exist to make a switch visible; it exists so a sidecar written by this
+    module can never be mistaken for one written by anything else.
 
     `mask_full_scale` IS `prep_block`'s AND NOT THIS MODULE'S, and nothing else can carry it: the
     render directory is not an mtime dependency of the disc, so a re-cut mask would otherwise reach

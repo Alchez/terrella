@@ -138,8 +138,8 @@ class Body:
     #: Which of `layers.SURFACE_LAYERS` this body actually has, by name. Empty is a real answer.
     #:
     #: NAMES AND NOT `Layer` OBJECTS, because this set is serialised: `layers.layers_off` turns it
-    #: into the `layers_off` list inside `composite_params.json`, and anything whose JSON differs
-    #: restages a 33-minute Earth composite for identical pixels.
+    #: into the `layers_off` list inside the planet tier's recipe sidecar, and anything whose JSON
+    #: differs restages a whole Earth planet raster for identical pixels.
     #:
     #: Spelled out per body rather than defaulting to "all of them", so adding a sixth layer is a
     #: decision for every planet including Earth. `tests/test_bodies.py` refuses a name outside the
@@ -162,7 +162,7 @@ class Body:
     #:
     #: SO `False` COSTS A VISIBLE HOLE, and that is the trade rather than a free saving. It is the
     #: right answer only while a body's ramps are unratified, because a cap is shaded by the same
-    #: `shade.composite` as the tiles: rendering one publishes a look decision. Measured on Mars,
+    #: look the tiles are: rendering one publishes a look decision. Measured on Mars,
     #: the cap pass runs happily today off the heightfield alone — one source, nothing missing, no
     #: refusal — so without this field a first tile run quietly spends ~14 GB per pole to ship two
     #: discs in a palette nobody has agreed to.
@@ -368,8 +368,8 @@ def work_dir(body: Body, stage: str) -> Path:
     """Where one body's `stage` intermediates live, under `data/work/`.
 
     THE BODY GOES IN THE PATH, NOT IN THE FRESHNESS RECIPE, and that is the load-bearing decision
-    here. Every stage of the tile pipeline is gated on a recipe sidecar — `composite_params.json`,
-    `hs_params.json`, `tile_params.json` — whose *contents* are its dependency: change a byte and the
+    here. Every stage of the tile pipeline is gated on a recipe sidecar — `raytrace_params.json`,
+    `tile_params.json`, each cap's own — whose *contents* are its dependency: change a byte and the
     stage restages. Adding a body field to those recipes would therefore invalidate Earth's entire
     correct output the moment a second body existed, for no pixel change at all. Giving each body its
     own directory makes every one of those sidecars body-specific for free, because they are

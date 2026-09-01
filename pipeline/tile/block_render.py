@@ -1,12 +1,12 @@
 """Render a body's whole Mercator grid as Cycles blocks, into the one raster the tile cut reads.
 
-`composite_planet`'s SIBLING AND ITS ALTERNATIVE. That one shades `planet_rgb.tif` window by
-window out of numpy; this one renders it block by block out of Blender, and everything downstream —
-the pyramid, the freshness marker, the publish — cannot tell which produced it. Only the recipe
-beside it can, which is why this writes its own rather than borrowing the composite's: a raytraced
-planet reads none of the composite's knobs and none of its hillshade, and gains the rig, the look
-and the margin law instead. A body switched between producers against one shared dependency list
-would leave the old pixels looking perfectly fresh.
+THE ONLY PRODUCER OF `planet_rgb.tif`, and it renders it block by block out of Blender. It replaced
+a numpy compositor that shaded the same raster window by window, and it kept that arrangement's one
+load-bearing property: everything downstream — the pyramid, the freshness marker, the publish —
+cannot tell what produced the raster, and only the recipe beside it can. So this writes its own
+recipe rather than inheriting one, carrying the rig, the look and the margin law and no hillshade
+at all. That mattered most while a body could be switched between producers against one shared
+dependency list, which would have left the old pixels looking perfectly fresh.
 
 It sits in `tile/` beside the producer it replaces rather than in `render/` beside the rig it
 drives, because what it emits is a planet raster the pyramid is cut from — `render/` is one scene
@@ -128,8 +128,8 @@ def sidecars_for(work: Path, mosaic: Path) -> Sidecars:
     False and `start_generation` clears a finished planet's entire marker set — a night of Cycles
     to emit the pixels already on disk, logged as a line that reads like ordinary operation.
 
-    THE CANONICAL RASTER'S SIDECARS KEEP THEIR BARE NAMES, the same elision `composite_planet`
-    makes for its default variant. Prefixing every mosaic's alike is the tidier rule and renames two
+    THE CANONICAL RASTER'S SIDECARS KEEP THEIR BARE NAMES, the same elision the compositor made for
+    its default variant. Prefixing every mosaic's alike is the tidier rule and renames two
     files a finished pass left on disk, which moves an mtime: the same night, paid on the way in.
 
     RESOLVED FIRST, so a canonical raster spelled through a symlink or a `..` is still canonical —
@@ -185,9 +185,9 @@ def params(body: bodies.Body, rasters: frozenset[str], look: palette.Look,
            rig: dict[str, Any], blocks: list[Block]) -> str:
     """Everything that can move a raytraced pixel and is not a file with an mtime.
 
-    THE SPLIT IS `composite_params`', for the same reason stated there: a warped source moves an
-    mtime and `raytrace_deps` tracks it; a constant moves nothing at all and only a recipe can see
-    it. A look constant that reaches neither leaves a stale planet reading fresh forever.
+    THE SPLIT IS RECIPE AGAINST DEPS: a warped source moves an mtime and `raytrace_deps` tracks it;
+    a constant moves nothing at all and only a recipe can see it. A look constant that reaches
+    neither leaves a stale planet reading fresh forever.
 
     `layers_off` and `rasters_off` follow the conditional-record idiom: they are what tracks a layer
     going OFF, which the dependency mtimes structurally cannot — a path that is not there scores
@@ -196,6 +196,12 @@ def params(body: bodies.Body, rasters: frozenset[str], look: palette.Look,
 
     THREE TIERS REACH A BLOCK, each declared by the code that reads it: this module's own, the
     rig's through `rig_recipe`, and the producers' through `layer_producers.constants_for`.
+
+    EVERY BLOCK-TIER CONSTANT HAS BEEN PERTURBED and the ones that move no recipe are accounted for
+    rather than open: `TRACED_CEILING_PX` is a refusal bound, and `CONTEXT_RATIO`,
+    `CONTEXT_QUANTUM_PX`, `CONTEXT_CEILING_PX` and `MERCATOR_LATITUDE_LIMIT_DEG` all reach this
+    recipe through `contexts`. A probe holding `blocks` fixed reads all four as silent, which is the
+    probe's artifact and not a gap.
 
     The rig arrives as an argument because `scene_build` owns its own constants; see `rig_recipe`.
     """
@@ -276,10 +282,10 @@ def rig_recipe(body: bodies.Body) -> dict[str, Any]:
 def raytrace_deps(work: Path, recipe: Path) -> tuple[Path, ...]:
     """Everything the raytraced mosaic must be newer than.
 
-    DELIBERATELY NOT `composite_deps`, and the difference is exactly the switch: no hillshade, since
-    Cycles computes its own light, and no composite recipe. What stays is the warped input set the
-    block prep actually cuts from — the heightfield, the two masks, and every optional surface layer
-    — plus this producer's own recipe.
+    NO HILLSHADE AND NO SHADING RECIPE, which is exactly what the switch away from the compositor
+    removed: Cycles computes its own light. What stays is the warped input set the block prep
+    actually cuts from — the heightfield, the two masks, and every optional surface layer — plus
+    this producer's own recipe.
 
     Over-inclusive in the same way and for the same reason: `is_stale` takes the newest mtime, so
     naming a raster this body does not have costs nothing, while missing one is silent.
@@ -634,13 +640,13 @@ def run(body: bodies.Body, work: Path, mosaic: Path, *, limit: int | None = None
     # recipe's content. Inputs are checked first of all, so a missing warp fails in a second
     # rather than after a whole-grid plan.
     # THIS PRODUCER NAMES ITSELF, before the freshness question below that depends on it and before
-    # any block is prepped. It names the RAYTRACE rather than `body.planet_producer`, and the
-    # difference is the whole point: this module is a shipped entry point of its own (`--only` is
-    # how one block is re-rendered for judging), so it can put raytraced bytes into the raster of a
-    # body the registry still calls `"composite"`. Recording the body's answer here would leave the
-    # stamp agreeing with a registry the pixels disagree with, and the composite would then find
-    # nothing moved and republish them under its own recipe.
-    # ONLY FOR THE CANONICAL RASTER, which is `composite_planet`'s guard for the same reason: the
+    # any block is prepped. It names the RAYTRACE as a LITERAL and reads it from no registry, which
+    # is what kept the stamp honest while a body could still ask for the other producer: this module
+    # is a shipped entry point of its own (`--only` is how one block is re-rendered for judging), so
+    # it could put raytraced bytes into the raster of a body whose registry entry disagreed. No such
+    # entry exists now, and the literal stays, because a stamp that describes what ran is the only
+    # kind that survives a second producer arriving.
+    # ONLY FOR THE CANONICAL RASTER, the guard the compositor made for the same reason: the
     # declaration's subject is the raster the tile cut reads, so a run pointed elsewhere claiming it
     # would name a producer for bytes it never wrote. A second mosaic needs no declaration at all —
     # the stamp exists because two producers share ONE output, and that one has a single producer.

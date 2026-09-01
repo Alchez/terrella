@@ -271,6 +271,7 @@ RIG = Rig(
     water_rgba=(*palette.srgb8_to_linear(palette.WATER_RGB), 1.0),
     lake_stops=_rgba(palette.LAKE_STOPS),
     ramp_interpolation="EASE",
+    # A Cycles SAMPLE COUNT, not a pixel edge. Never search-and-replace it alongside resolutions.
     samples=4096,
     adaptive_threshold=0.01,
     dicing_rate=1.0,

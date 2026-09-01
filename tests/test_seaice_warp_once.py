@@ -31,7 +31,7 @@ def _merc(lat, lon):
 
 def _ice_edge_grid(width=400, rows=512):
     """A small 3857 target over the Fram Strait ice edge, snapped to the z8 pixel lattice so
-    per-window bounds derived from its transform land on exact pixel edges (as composite_planet does)."""
+    per-window bounds derived from its transform land on exact pixel edges (as the planet warp does)."""
     left, top = _merc(80.0, 0.0)
     left = math.floor(left / Z8_RES) * Z8_RES
     top = math.ceil(top / Z8_RES) * Z8_RES
@@ -41,7 +41,7 @@ def _ice_edge_grid(width=400, rows=512):
 
 
 def _window_bounds(transform, width, row0, row1):
-    """Exactly composite_planet's per-window bounds derivation (shade_planet.py)."""
+    """Exactly the planet warp's per-window bounds derivation (shade_planet.py)."""
     win_top = transform.f + row0 * transform.e
     win_bottom = transform.f + row1 * transform.e
     return (transform.c, win_bottom, transform.c + width * transform.a, win_top)
