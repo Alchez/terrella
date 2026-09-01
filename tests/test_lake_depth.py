@@ -94,7 +94,7 @@ class TestLakePosition:
         assert shade.lake_position(median_lake, "sqrt")[0] < 0.1
 
     def test_unknown_curve_raises(self):
-        with pytest.raises(ValueError, match="unknown lake_curve"):
+        with pytest.raises(ValueError, match="unknown LAKE_CURVE"):
             shade.lake_position(np.array([1.0], "float32"), "cubic")
 
 

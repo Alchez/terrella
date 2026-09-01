@@ -341,8 +341,10 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='leave a code fence unclosed',
         path='PROCESS.md',
-        needle='```mermaid',
-        replacement='```mermaid\n```extra',
+        # Anchored past the fence itself: PROCESS carries TWO mermaid blocks now, the superseded
+        # composited cost model and the live one, so a bare '```mermaid' matches both.
+        needle='```mermaid\nflowchart LR\n  HK([',
+        replacement='```mermaid\n```extra\nflowchart LR\n  HK([',
         guard='test_code_fences_are_balanced',
     ),
     Sabotage(
@@ -3292,11 +3294,29 @@ SABOTAGES: list[Sabotage] = [
                      '        seen = dataclasses.replace(window, raw=layer_raw[layer.name])'),
         guard='test_earths_antarctic_patch_survives_a_missing_persistence_raster',
     ),
-    # GAP, STATED RATHER THAN PAPERED OVER. Two cases lived here and mutated the composite's window
-    # reads: the built-layer `.exists()` gate, and the mask read gated on the SEAM'S DECLARATION
-    # rather than on the file. Both behaviours survive at `prep_block.py:321` and `:342`, and no
-    # existing guard catches a mutation of either, so the cases were deleted with their subject
-    # rather than repointed at a test that would report CAUGHT without running.
+    # THE GAP STATED HERE IS CLOSED, and both cases are repointed at the raytraced prep rather than
+    # at the composite's window reads they were written against. Each needed a guard built first:
+    # the two gates are INDISTINGUISHABLE whenever they agree, which is every ordinary run, so both
+    # tests put them in deliberate disagreement.
+    Sabotage(
+        suite='python',
+        label='the block prep gates its mask on the file instead of the seam, so a switched-off '
+              'producer keeps painting',
+        path='pipeline/render/prep_block.py',
+        needle='    if "oceanmask" in rasters:',
+        replacement='    if (work / shade_planet.OCEAN_3857).exists():',
+        guard='test_the_mask_is_gated_on_the_SEAMS_DECLARATION_and_not_on_the_file',
+    ),
+    Sabotage(
+        suite='python',
+        label='the block prep stops asking whether a built layer exists, so a partially built '
+              'store fails at the first block',
+        path='pipeline/render/prep_block.py',
+        needle='                             if layer.name in body.surface_layers\n'
+               '                             and layer.warped_in(work).exists() else None)',
+        replacement='                             if layer.name in body.surface_layers else None)',
+        guard='test_a_declared_layer_whose_raster_is_absent_is_read_as_ABSENT_not_as_an_error',
+    ),
     # One expression now, where it used to be four fields and only three of them guarded. The
     # mutation can no longer single snow out — which is the point, and why the case reads as a
     # whole-set check rather than as the specific regression it descends from.
@@ -3857,8 +3877,10 @@ SABOTAGES: list[Sabotage] = [
     # invisible: one body's look re-tune restages another's composite for pixels that cannot move.
     # The other direction, and the trap every conditional record has to answer: a gate that is
     # always shut reads as "correctly scoped" and tracks nothing at all.
-    # SHADOW_TINT multiplies shaded land on every body. Dropping it leaves a recipe that still
-    # looks thorough — it carries the warmth KNOB — while the vector itself moves nothing.
+    # SHADOW_TINT multiplied shaded land on every body, and dropping it left a recipe that still
+    # looked thorough (it carried the warmth KNOB) while the vector itself moved nothing. Both the
+    # constant and the warmth knob are pruned now: their only recorder was the composite recipe, so
+    # once that went they reached no pixel and could not be mutated into a defect at all.
     # --- The SIM 3292 acquisition recipe -------------------------------------------------------
     # pygeoapi stamps every response with the request time, fixed-width ISO — so two fetches of
     # identical data have the SAME length and a DIFFERENT hash. Hashing the whole document instead
@@ -4882,14 +4904,11 @@ SABOTAGES: list[Sabotage] = [
         replacement='                                      altitude_deg=45.0), body)',
         guard='test_it_sizes_from_the_shared_sun_altitude',
     ),
-    Sabotage(
-        suite='python',
-        label='the penumbra grades on a local copy of the disc, so the rig and the tiles drift',
-        path='pipeline/look/cast_shadow.py',
-        needle='    disc = palette.SUN_ANGULAR_DIAMETER_DEG',
-        replacement='    disc = 12.0',
-        guard='test_the_ramp_follows_the_shared_width_rather_than_a_local_copy',
-    ),
+    # A case stood here and went with `cast_shadow.shadow_mask`. It planted a local `12.0` where the
+    # penumbra reads `palette.SUN_ANGULAR_DIAMETER_DEG`, which is the 46-vs-45 altitude split's
+    # exact shape. THE LAW IS NOT WEAKER FOR IT: this was one of two arms, and the rig's, directly
+    # below, plants the same defect at the other reader. What is lost is the raster arm of a shading
+    # term nothing renders any more, not the rule that the disc has one owner.
     Sabotage(
         suite='python',
         label="the rig re-inlines the sun's disc, which is how the altitude split happened",

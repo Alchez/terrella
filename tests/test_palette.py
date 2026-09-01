@@ -143,12 +143,15 @@ class TestSharedConstants:
         assert palette.LAKE_STOPS[0][1] == palette.srgb8_to_linear(palette.WATER_RGB)
 
     def test_sun_altitude_is_shared(self):
-        """Tile KNOBS["alt"] sources palette.SUN_ALT_DEG; the hero derives its
-        SUN_ROTATION X-tilt from the same constant (test_scene_build_sync)."""
-        from pipeline.tile import shade
+        """The authored altitude, which every consumer now reads from here directly.
 
+        A second leg asserted `shade.KNOBS["alt"] == palette.SUN_ALT_DEG` and went with the knobs.
+        It pinned a MIRROR rather than a reader: the tile side no longer keeps a copy, so the live
+        claim is `block_render` passing this constant into the block plan, guarded in
+        `test_block_render` by moving it and watching the plan follow, and the hero's SUN_ROTATION
+        X-tilt deriving from it in `test_scene_build_sync`.
+        """
         assert palette.SUN_ALT_DEG == 45.0
-        assert shade.KNOBS["alt"] == palette.SUN_ALT_DEG
 
     def test_the_authored_exaggeration_is_pinned(self):
         """THREE legs have left this test and the last one took the comparison with it.

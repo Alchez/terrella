@@ -710,6 +710,78 @@ class TestTheCutReadsTheWorkDirectoryItWasGiven:
         with rasterio.open(default / prep_block.shade_planet.HEIGHT_3857) as height:  # pyright: ignore[reportCallIssue]
             assert np.unique(height.read(1)).tolist() == [222.0]
 
+    def test_the_mask_is_gated_on_the_SEAMS_DECLARATION_and_not_on_the_file(
+            self, monkeypatch, tmp_path):
+        """A file on disk that the seam does not declare must not become a rendered mask.
+
+        THE TWO GATES ARE INDISTINGUISHABLE WHENEVER THEY AGREE, which is every ordinary run, so
+        this puts them in deliberate disagreement: `oceanmask.tif` is written into the store and
+        then withheld from the declaration. Gating on the file writes an OCEANMASK here; gating on
+        the declaration writes none, which is the shipped behaviour and the one that survives a
+        producer being switched off. `planet_seam` exists because an absent path scores nothing in
+        an mtime comparison, so a body that stopped emitting a raster would otherwise keep painting
+        with whatever the last run left behind.
+        """
+        monkeypatch.setattr(paths, "DATA", tmp_path / "store")
+        declared = declare_planet_rasters(monkeypatch)
+        monkeypatch.setitem(declared, bodies.EARTH.name,
+                            declared[bodies.EARTH.name] - {"oceanmask"})
+        store = self._store(tmp_path / "store-with-ocean", 111.0)
+        outdir = tmp_path / "render"
+
+        prep_block.cut(bodies.EARTH, self.BLOCK, outdir, work=store)
+
+        assert (store / prep_block.shade_planet.OCEAN_3857).exists(), (
+            "the fixture stopped writing the ocean raster, so this proves nothing: the whole "
+            "question is what happens when the FILE is present and the DECLARATION is not")
+        assert not (outdir / prep_block.render_seam.OCEANMASK).exists(), (
+            "an undeclared oceanmask reached the render directory, so the gate is reading the "
+            "filesystem instead of the seam")
+
+    def test_a_declared_mask_IS_written_when_the_seam_names_it(self, monkeypatch, tmp_path):
+        """The control that makes the case above discriminating.
+
+        Without it, a `cut` that wrote no masks at all under any condition would satisfy the
+        negative assertion completely.
+        """
+        monkeypatch.setattr(paths, "DATA", tmp_path / "store")
+        declared = declare_planet_rasters(monkeypatch)
+        assert "oceanmask" in declared[bodies.EARTH.name]
+        store = self._store(tmp_path / "store-with-ocean", 111.0)
+        outdir = tmp_path / "render"
+
+        prep_block.cut(bodies.EARTH, self.BLOCK, outdir, work=store)
+
+        assert (outdir / prep_block.render_seam.OCEANMASK).exists()
+
+    def test_a_declared_layer_whose_raster_is_absent_is_read_as_ABSENT_not_as_an_error(
+            self, monkeypatch, tmp_path):
+        """The `.exists()` gate on a built layer, which is a different question from the one above.
+
+        A body DECLARES its surface layers, and the warped rasters for them are built by a separate
+        stage that may not have run. Reading such a layer as None is what lets a block prep run
+        against a partially built store, which is the state every incremental pass is in. Dropping
+        the gate turns that into a raster open on a missing path, so the whole planet fails at the
+        first block instead of rendering without the layer.
+
+        THE FIXTURE STORE HAS NONE OF THEM, so this is the branch every assertion here takes.
+        """
+        monkeypatch.setattr(paths, "DATA", tmp_path / "store")
+        declare_planet_rasters(monkeypatch)
+        store = self._store(tmp_path / "bare", 111.0)
+        outdir = tmp_path / "render"
+
+        prep_block.cut(bodies.EARTH, self.BLOCK, outdir, work=store)
+
+        assert (outdir / prep_block.render_seam.HEIGHTFIELD).exists(), (
+            "the cut did not complete against a store holding only the three planet rasters, so "
+            "an absent built layer is no longer being read as absent")
+        for name in (prep_block.render_seam.SNOWMASK, prep_block.render_seam.LAKEDEPTH,
+                     prep_block.render_seam.SEAICE):
+            assert not (outdir / name).exists(), (
+                f"{name} was written from a raster that is not in the store, so the layer read is "
+                f"no longer gated on the file existing")
+
     def test_the_stage_derives_no_work_directory_of_its_own(self):
         """The seam stated as a property rather than through one call: this module names the stage
         nowhere, so there is no second route to a directory the caller did not choose."""

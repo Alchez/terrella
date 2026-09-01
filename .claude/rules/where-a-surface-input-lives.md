@@ -58,14 +58,14 @@ across a change that repaints the Antarctic outcrop.
 
 Do not conflate implementations with stages when scoping one of these.
 
-- `layer_producers._earth_perennial_ice` (Mercator) serves **both** the composite and the block
-  render — `gather` runs it with a different `vocabulary` per stage. One implementation, two stages.
+- `layer_producers._earth_perennial_ice` (Mercator) serves **both** the planet warp and the block
+  render: `gather` runs it with a different `vocabulary` per stage. One implementation, two stages.
 - `perennial_ice._earth_south` (AEQD cap) is the second implementation.
 
 So a shared rule in `look/snow.py` lands in both with one edit, while a **raster feeding a producer**
-must be plumbed per window, because each stage builds its own: the composite, `prep_block`, and the
-cap. An **exclusion** raster is the cheaper shape and that is a reason to prefer it: `gather` reads
-it once and serves both Mercator stages from there, leaving only the cap to supply its own.
+must be plumbed per window, because each stage builds its own: the planet warp, `prep_block`, and
+the cap. An **exclusion** raster is the cheaper shape and that is a reason to prefer it: `gather`
+reads it once and serves both Mercator stages from there, leaving only the cap to supply its own.
 
 ## The cap goes to source; the tiles read a warp
 

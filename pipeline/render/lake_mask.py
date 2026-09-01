@@ -40,15 +40,14 @@ def depth_to_position(depth: np.ndarray, watercode: np.ndarray) -> np.ndarray:
     """Depth metres + watermask codes -> lake ramp position 0..1 (the pure, testable core).
 
     `lakes_only` zeroes depth off watermask class 2 (rivers flat, ocean/Caspian keep
-    their own bathymetry); `lake_position` applies the tile's own depth->position curve
-    read from `shade.KNOBS["lake_curve"]` — hero and tile cannot disagree on it. "off"
-    (the tile's flat-water A/B control) carries over as an all-zero field.
+    their own bathymetry); `lake_position` applies the shared depth->position curve
+    read from `shade.LAKE_CURVE` — hero and tile cannot disagree on it. "off"
+    (the flat-water A/B control) carries over as an all-zero field.
     """
     lakes = lake_depth.lakes_only(depth, watercode)
-    if shade.KNOBS["lake_curve"] == "off":
+    if shade.LAKE_CURVE == "off":
         return np.zeros_like(lakes, dtype=np.float32)
-    return np.asarray(shade.lake_position(lakes, shade.KNOBS["lake_curve"]),
-                      dtype=np.float32)
+    return np.asarray(shade.lake_position(lakes, shade.LAKE_CURVE), dtype=np.float32)
 
 
 def main():

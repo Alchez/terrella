@@ -20,8 +20,8 @@
   three archives and the hero store go to R2; the caps alone ride inside the site build. Everything
   left of that line is local and rebuildable, and a raw source is the sole thing that cannot be
   re-derived, only re-downloaded.
-- **Two rasters fuse and no others.** Every other layer is warped onto the render grid at composite
-  time, which is why a finer re-fuse would not have to redo any of them.
+- **Two rasters fuse and no others.** Every other layer is warped onto the render grid by the planet
+  warp stage, which is why a finer re-fuse would not have to redo any of them.
 
 ```mermaid
 flowchart LR
@@ -51,7 +51,7 @@ flowchart LR
   GEB --> FUSE
   FUSE --> W
   LAY --> W
-  W -->|"Body.planet_producer<br/>composite or raytrace"| RGB
+  W -->|"block_render<br/>Cycles, every body"| RGB
   RGB --> PYR
   PYR --> PM
   W --> TER
@@ -67,18 +67,16 @@ flowchart LR
   CAP -.-> SITE[("web/dist · the site Worker's static assets")]
 ```
 
-- **`Body.planet_producer` is the one fork in the chain**, and it is a per-body field rather than a
-  flag, and BOTH bodies answer `raytrace` today. Only `planet_producer.json` beside the
-  master records which one actually filled it, because the bytes cannot say.
+- **THE CHAIN HAS NO FORK.** Every body's colour raster is rendered by `block_render` in Cycles.
+  There was a per-body field choosing between that and a numpy compositor; the field, the compositor
+  and the `planet_producer.json` that recorded which one ran are deleted rather than parked. Each
+  recipe still names its own producer as a literal, so a second one arriving cannot inherit the
+  first's freshness.
 - **The caps branch at the FUSION and never touch the render grid.** `cap_sources` warps AEQD from
   the planet VRTs, so the caps share no warped intermediate and no pyramid with the tiles they
-  feather into. What couples them is the recipe rather than a file: their sidecar carries
-  `composite_params`, so a look change restages both, and nothing else would keep them from drifting
-  apart at the seam.
-  - **The fork above is the one look change `composite_params` cannot see**, so the cap sidecar
-    carries `planet_producer` beside it. Those constants are identical under either producer and the
-    master is not a cap source, so without that key a switch repaints every tile and leaves both
-    discs reading fresh, in either direction.
+  feather into. What couples them is the recipe rather than a file: both sides record the same look
+  constants, so a look change restages both, and nothing else would keep them from drifting apart at
+  the seam.
 
 ## Raw sources: `data/raw/` (~689 GB)
 
@@ -113,7 +111,7 @@ flowchart LR
 | `mars/cap/` | 1.3 GB | **Live.** The cap stage's intermediates for both poles: the AEQD height warps and the full-size colour renders, beside the `*_params.json` sidecars that decide whether a re-run restages them. `MARS.renders_polar_caps` is `True`, so the planet pass refreshes these on every run | Keep: deleting them costs a ~1:15 re-render, and the sidecars are what make it a skip |
 | `_profile_tiles/` | 6 MB | The latest `run_pass.sh --tiles` run: `pass.log` (stage timings) + `samples.jsonl`. `samples.jsonl` is rewritten every run, so it is only ever the most recent pass; `pass.log` is ROTATED to `pass-<timestamp>.log` instead, because a producer that resumes across nights would otherwise keep only the last night's record of which blocks failed | Keep: the source of PROCESS.md's numbers |
 | `_profile_mars_tiles/` | 540 KB | The same two files for the FIRST Mars pass, under its own name because that one predates the harness knowing about bodies and was run by hand. Mars runs through `run_pass.sh` now and lands in `_profile_tiles/` beside Earth: the 16 G cap that forced the detour is derived from `renders_polar_caps` and answers 12 G for a capless body | Keep: the source of PROCESS.md's first Mars row, which no later run reproduces |
-| `_profile_pass/` | 17 MB | The same two files for the most recent `run_pass.sh` with NO `--tiles`, kept separate from `_profile_tiles/` so a composite-only look iteration does not overwrite the timings of the last full cut. Same split as above: `samples.jsonl` rewritten, `pass.log` rotated, so this directory grows by one log per run | Keep: the source of PROCESS.md's warm-loop row |
+| `_profile_pass/` | 17 MB | The same two files for the most recent `run_pass.sh` with NO `--tiles`, kept separate from `_profile_tiles/` so a raster-only look iteration does not overwrite the timings of the last full cut. Same split as above: `samples.jsonl` rewritten, `pass.log` rotated, so this directory grows by one log per run | Keep: the source of PROCESS.md's warm-loop row |
 | `_*/` experiment scratch | 0 now | A/B and investigation output, by convention leading-underscore (`_ab_shadow`, `_pinecone_exp`, …) | **Reclaim as soon as the decision lands in HISTORY**: the finding is the product, the pixels are not |
 
 ### `planet_tiles/` breakdown
@@ -137,17 +135,18 @@ flowchart LR
 
 | File | Size | What it is | Reclaim? |
 |---|---|---|---|
-| `height_3857.tif` + `.done` | 46 GB | planet heightfield on the WMQ 3857 grid (131072², Float32, full Mercator extent incl. Antarctica) | Keep: the composite's direct colour input (ramps apply from elevation) |
-| `seaice_3857.tif` + `.done` | 18 GB | OSI SAF ice-frequency climatology warped ONCE to the 3857 grid, raw packed Float32, in latitude bands (a coarse 25 km source decimates under a single whole-grid warp); composite reads window slices, ocean-gated | Keep: fresh; dep is `seaice_frequency_1991-2020_4326.tif`. Regenerable |
+| `height_3857.tif` + `.done` | 46 GB | planet heightfield on the WMQ 3857 grid (131072², Float32, full Mercator extent incl. Antarctica) | Keep: every block is cut from it, and it is the terrain-RGB lane's source too |
+| `seaice_3857.tif` + `.done` | 18 GB | OSI SAF ice-frequency climatology warped ONCE to the 3857 grid, raw packed Float32, in latitude bands (a coarse 25 km source decimates under a single whole-grid warp); read in window slices, ocean-gated | Keep: fresh; dep is `seaice_frequency_1991-2020_4326.tif`. Regenerable |
 | `tiles/` | **3.1 GB** | **LIVE and APPROVED**: the ratified look (z0–8, 512 px WebP q95, rows to y=255) | Keep (live) |
 | `planet.pmtiles` | **2.50 GB** | the serving archive (`pmtiles convert`, capped, `--tmpdir` on ext4): spec v3, clustered, z0–8, 87,366 distinct contents of 87,381; verified via `pmtiles verify` + 5-tile byte-compare. **0.80× the composite archive it replaced**, so a raytraced pyramid is smaller on disk despite a master 2.7× larger | Keep: the deployment artifact; ~10 s + ~7 s to rebuild from `tiles/` |
-| `planet_rgb.tif` + `.done` | **30 GB** | the approved look at the full 131072² grid, which the tiles are cut from. Written by whichever producer this body names, and `planet_producer.json` beside it is the only thing on disk that says which. **The raytraced master is 2.7× the composite's 11 GB at identical dimensions**: the pixel count is the grid either way and the difference is entirely how well deflate compresses raytraced detail | Keep: `--tiles` reads it |
-| `snow_persistence_3857.tif` + `.done` | 10 GB | NSIDC-0791 persistence warped ONCE to the 3857 grid, raw packed Float32, in 256-row latitude bands (whole-grid warp decimates the ~1.1 km source; banding == the per-window warp, byte-identical); composite reads window slices | Keep: fresh; dep is `snow/*.nc`. Regenerable |
+| `planet_rgb.tif` + `.done` | **30 GB** | the approved look at the full 131072² grid, which the tiles are cut from. Written by `block_render`, the only producer, and `raytrace_params.json` beside it is what says so. **The raytraced master is 2.7× the composite's 11 GB at identical dimensions**: the pixel count is the grid either way and the difference is entirely how well deflate compresses raytraced detail | Keep: `--tiles` reads it |
+| `snow_persistence_3857.tif` + `.done` | 10 GB | NSIDC-0791 persistence warped ONCE to the 3857 grid, raw packed Float32, in 256-row latitude bands (whole-grid warp decimates the ~1.1 km source; banding == the per-window warp, byte-identical); read in window slices | Keep: fresh; dep is `snow/*.nc`. Regenerable |
 | `hs_3857.tif` + `.done` | 10 GB | per-row-z hillshade **+ the fill sun, baked**: *combined light*, not a bare hillshade, still on the `flat = 255·sin(alt)` contract; max DN 226 | Keep: fresh |
 | `glacier_3857.tif` + `.done` | 30 MB | RGI 7.0 glacier mask (Byte 0/1) rasterized ONCE to the 3857 grid; exact vector burn, so no banding needed | Keep: fresh; dep is `rgi7_g_3857.gpkg`. Regenerable |
 | `lakedepth_3857.tif` + `.done` | 318 MB | GLOBathy lake depth on the 3857 grid (~98% zero, deflates small). Its `.done` is what stops a pass paying that ~1 h warp again; only dep is `lakedepth.vrt` | Keep |
 | `water_3857.tif` / `ocean_3857.tif` + `.done` | 81 MB | 3857 masks; `water_3857` reads class 1 at the Caspian | Keep: fresh |
-| `hs_params.json`, `composite_params.json` | ~2 KB | materialised palette/knob params: **the freshness guard's dependency records** | Keep (regenerated; **mtime is load-bearing**) |
+| `raytrace_params.json`, `tile_params.json`, `relief_params.json` | ~7 KB | materialised palette/knob params: **the freshness guards' dependency records** | Keep (regenerated; **mtime is load-bearing**) |
+| `hs_params.json`, `composite_params.json`, `planet_producer.json` | ~3 KB | **ORPHANS, present on both bodies.** Nothing writes or reads them: the compositor, its hillshade and the producer field are all deleted. They are the last thing on disk that still names the second producer | Reclaimable: deleting them changes no freshness answer, since no guard names them |
 | `index.html` | 2.6 KB | **tile SMOKE TEST, not the product globe**: proves the raw pyramid renders with only `python -m http.server`, so broken tiles and a broken frontend can be told apart (labelled in-page after being mistaken for the product once) | Keep: a *different tool*, and gitignored means deleting is permanent |
 | `tmp/` | ~0 | `pmtiles convert --tmpdir` home (ext4, not tmpfs): self-cleans on normal exit | Keep the dir |
 

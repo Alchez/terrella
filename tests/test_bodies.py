@@ -102,6 +102,43 @@ class TestTheCompositePlanetProducerIsDeletedAndCannotReturn:
                     f"completeness from, so it returning means a dispatcher is about to"
                 )
 
+    def test_the_shaders_own_constants_went_with_it(self, subtests) -> None:
+        """The tunables of a deleted shader, pruned once their serialiser was gone.
+
+        `composite_params` was the only thing that recorded `KNOBS` and `SHADOW_TINT`, so with it
+        gone they reached no pixel and no recipe, and a value that reaches neither is a look
+        decision nobody can act on. ART.md holds what each was and how it was chosen; this refuses
+        the code copy coming back to be read as a live lever.
+        """
+        from pipeline.tile import shade
+
+        for name in ("Knobs", "KNOBS", "SHADOW_TINT"):
+            with subtests.test(name=name):
+                assert not hasattr(shade, name), (
+                    f"`shade.{name}` is back. It records the deleted compositor's look, reaches no "
+                    f"recipe, and would read as a lever a re-tune could move"
+                )
+
+    def test_the_numpy_cast_shadow_went_with_it(self, subtests) -> None:
+        """Its only caller was the hillshade, which was the compositor's last leaf.
+
+        `shadow_reach_px` STAYS and is unrelated: it is arithmetic `block_plan` uses to size every
+        block's context, on a path Cycles never sees. The mechanism below is the REJECTED one, and
+        CLAUDE.md records that reopening needs a different mechanism rather than a different number.
+        """
+        from pipeline.look import cast_shadow
+
+        for name in ("shadow_mask", "sun_offsets"):
+            with subtests.test(name=name):
+                assert not hasattr(cast_shadow, name), (
+                    f"`cast_shadow.{name}` is back. Nothing renders a numpy shadow now, so it would "
+                    f"be a second shading path with no caller"
+                )
+        assert hasattr(cast_shadow, "shadow_reach_px"), (
+            "`shadow_reach_px` was taken with the rest; it is live in `block_plan` and its loss "
+            "silently truncates every block's context"
+        )
+
     def test_neither_pass_dispatches_on_a_producer(self, subtests) -> None:
         """Both passes, because the cap arm was keyed on the same field the tile arm was: a disc is
         built to match the tiles it feathers into, so half a retirement is the mismatch itself."""
