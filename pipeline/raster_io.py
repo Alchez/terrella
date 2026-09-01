@@ -12,8 +12,10 @@ from typing import Any
 
 from rasterio.windows import Window
 
-# The GTiff FORMAT core the three tile-path writers share (hillshade, shade's
-# region writer, shade_planet's composite writer). Deliberately format-only:
+# The GTiff FORMAT core the tile-path writers share: `prep_block`, `prep_cap`,
+# `block_render`, `relief_scan` and `terrain_rgb`, the list
+# `test_raster_io.test_tile_writers_use_the_shared_core` curates.
+# Deliberately format-only:
 # threading (num_threads) is per-call-site policy, because fuse_planet sets
 # GDAL_NUM_THREADS=1 on purpose (its parallelism is across cells) and an
 # explicit creation option would override it — putting the flag here would

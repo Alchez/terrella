@@ -244,9 +244,8 @@ def test_row_latitude_reads_the_projection_sphere_not_the_body():
 def test_polar_rows_clip_to_mercators_limit():
     """Row 0 is past 85.05 N, where `1/cos(lat)` runs away and the z-factor with it.
 
-    `hillshade.per_row_zfactor_hillshade` applies exactly this clip before building its z-factor, so
-    without it a margin would be sized from a latitude the shading never uses. The top and bottom
-    rows of every body's grid are in that regime.
+    Without the clip a margin would be sized from a latitude no stage ever shades at. The top and
+    bottom rows of every body's grid are in that regime.
     """
     for body in (bodies.EARTH, bodies.MARS):
         edge = block_plan.grid_px(body)
@@ -458,6 +457,20 @@ class TestTheSizingLatitudeIsPolewardAndNeverNarrows:
                     if self._settled(relief_m, row_index * block_plan.RENDER_BLOCK_PX)
                     < self._mid_latitude_context(relief_m, row_index * block_plan.RENDER_BLOCK_PX)]
         assert not narrowed, f"the margin shrank on {len(narrowed)} row/relief pairs: {narrowed[:6]}"
+
+    def test_the_poleward_rule_is_STRICTLY_wider_than_its_own_centre_somewhere(self):
+        """The other side of the bound above, which centre-sizing satisfies by equality: sizing at
+        the block's centre makes every pair equal, so nothing is narrower and that guard passes.
+
+        The arm below covers the NORTH-EDGE rule, a different defect, not this one.
+        """
+        wider = [(row_index, relief_m)
+                 for row_index in self._rows() for relief_m in self.RELIEFS
+                 if self._settled(relief_m, row_index * block_plan.RENDER_BLOCK_PX)
+                 > self._mid_latitude_context(relief_m, row_index * block_plan.RENDER_BLOCK_PX)]
+        assert wider, (
+            "no row is sized wider than its own centre, so the poleward rule is inert: it is "
+            "returning the centre latitude and the safety guard above is passing on equality")
 
     def test_the_two_hemispheres_are_sized_alike(self):
         """A rule that names a compass direction rather than a distance from the equator fails here

@@ -22,10 +22,12 @@ as a calibration problem: it is set to the shadow law's own undiscounted answer 
 fraction of it. `CONTEXT_RATIO` holds why there is still a ratio at all.
 
 The shadow law itself lives elsewhere. `cast_shadow.shadow_reach_px` owns how far exaggerated relief
-throws a shadow, `hillshade.per_row_zfactor_hillshade` owns how the z-factor is built from a body's
-exaggeration, its map-unit-to-ground ratio and the row's latitude, and `bodies` owns all three
-inputs. What is added here is the per-axis `cos(45 deg)` component of a diagonal shadow, and the
+throws a shadow, and `bodies` owns the exaggeration, the map-unit-to-ground ratio and the pixel size
+it reads. What is added here is the per-axis `cos(45 deg)` component of a diagonal shadow, and the
 ratio/quantum/ceiling policy.
+
+`prep_block.row_scale` owns the per-row term. It scales the HEIGHT, which is what makes the applied
+exaggeration uniform and puts shadow reach on the OCCLUDER's latitude rather than on the block's.
 
 Pure by construction: a relief grid as an array, a window as numbers, no raster and no open file.
 It sits at the root of `pipeline/` rather than in `tile/` because it is a law the block runner and
@@ -129,8 +131,8 @@ CONTEXT_CEILING_PX = 2048
 #: and what it refuses is a block edge raised past what this GPU is proven at.
 TRACED_CEILING_PX = 8192
 
-#: Web Mercator's own cut-off. Matches the clip `hillshade.per_row_zfactor_hillshade` applies before
-#: it builds a z-factor, so a polar block is sized from the same latitude the shading will use.
+#: Web Mercator's own cut-off, applied by `row_latitude_deg` below. Past it `1 / cos(lat)` runs
+#: away, so a polar block would otherwise be sized from a latitude no stage shades at.
 MERCATOR_LATITUDE_LIMIT_DEG = 85.05
 
 
@@ -191,7 +193,7 @@ def row_latitude_deg(row: float, body: Body) -> float:
 
     The sphere is the PROJECTION's and never the body's: every grid here is EPSG:3857 whatever
     planet supplied the elevations, so reading the radius off the body registry would put Mars's
-    rows tens of degrees out. `hillshade._latitude_of_rows` states the same thing at more length.
+    rows tens of degrees out.
     """
     northing = mercator.MERCATOR_HALF_M - (row + 0.5) * body.map_units_per_pixel
     latitude = float(mercator.latitude_at(northing, mercator.WEB_MERCATOR_RADIUS_M))
@@ -206,8 +208,8 @@ def context_for(max_relief_m: float, latitude_deg: float, *, exaggeration: float
     below derives them all from a `Body` and is what production calls.
 
     `altitude_deg` has no default: the sun altitude is `palette.SUN_ALT_DEG`, read by both
-    `tile.shade.KNOBS` and the rig's `SUN_ROTATION`, and a second copy of it here would be one more
-    place to drift. Getting it wrong truncates shadows silently.
+    `block_render` on the tile side and the rig's `SUN_ROTATION`, and a second copy of it here
+    would be one more place to drift. Getting it wrong truncates shadows silently.
 
     SIZING BELOW THAT ALTITUDE IS A REJECTED IDEA RATHER THAN AN OPEN ONE. The sun is a disc
     `palette.SUN_ANGULAR_DIAMETER_DEG` wide, so the last ray a ridge can block leaves its lower
@@ -428,8 +430,7 @@ def plan(relief: NDArray[np.float64], window: Window, body: Body, *,
     geometry rather than traced pixels; it stays deleted on the correctness argument above.
 
     The body supplies exaggeration, ground scale and pixel size together, so they cannot disagree
-    with each other. `hillshade` requires `ground_scale` as an argument instead only because it is
-    handed a path and cannot know its body.
+    with each other.
     """
     check_alignment(window, body)
     rows = int(window.height) // RENDER_BLOCK_PX

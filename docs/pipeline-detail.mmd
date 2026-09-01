@@ -63,7 +63,7 @@ flowchart TD
     SV["look/sky_view.py: burn-only horizon SVF<br/>darkens land valleys post-render"]
     H8["8K hero (long edge 7680) + 6 WebP rungs 640..7680<br/>q85 to 1920, q95 above<br/>(compose/hero_variants.py)"]
     OV["compose/overlay_borders.py<br/>pyshp + pyproj + pycairo, same Albers +<br/>ortho-margin mapping; coastline oracle;<br/>cased white borders, dashed disputed/maritime"]
-    HF[("bordered hero + transparent border layer<br/>(compose/gen_borders.py: the gallery toggle asset)")]
+    HF[("bordered hero + transparent Focus layer<br/>(compose/gen_spotlight.py: the gallery toggle asset)")]
   end
 
   O1 --> P

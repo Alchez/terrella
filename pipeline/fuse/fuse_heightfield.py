@@ -42,9 +42,6 @@ from rasterio.windows import Window
 
 from pipeline import datasets, paths
 
-DATA = paths.DATA
-DEM_VRT = DATA / "work/dem_mosaic.vrt"
-WBM_VRT = DATA / "work/wbm_mosaic.vrt"
 # over the 8 GeoTIFF tiles of GEBCO_2026 (build with gdalbuildvrt); overridable
 # per run with --gebco (e.g. the old regional tile for a byte-for-byte regression)
 
@@ -67,6 +64,20 @@ BLOCK = 8192  # processing window size in pixels
 # excludes the Mingevir Reservoir (+83 m), the only other lake inside the box.
 CASPIAN_BBOX = (46.5, 36.5, 55.5, 47.5)  # west, south, east, north (EPSG:4326)
 CASPIAN_MAX_SURFACE_M = -5.0  # its surface is a uniform -28 m; +83 m Mingevir is not
+
+
+def dem_vrt() -> Path:
+    """The GLO-30 land-elevation mosaic. `build_mosaics.sh` writes it and spells this path too."""
+    return paths.DATA / "work/dem_mosaic.vrt"
+
+
+def wbm_vrt() -> Path:
+    """The GLO-30 water-body-mask mosaic, written beside the DEM's by the same script.
+
+    Consumed as a PAIR with `dem_vrt()`: a fresh DEM against a stale mask fuses new land as ocean,
+    so the script rebuilds both when either is stale.
+    """
+    return paths.DATA / "work/wbm_mosaic.vrt"
 
 
 def make_grid(bounds, res_arcsec, lat_res_arcsec=None) -> tuple[Affine, int, int]:
@@ -170,7 +181,7 @@ def backfill_watermask(mask_path, out_water):
 
     counts = np.zeros(4, dtype=np.int64)
     with rasterio.open(mask_path) as ms, \
-         rasterio.open(WBM_VRT) as wbm_src, \
+         rasterio.open(wbm_vrt()) as wbm_src, \
          WarpedVRT(wbm_src, resampling=Resampling.nearest, **vrt_kw) as wbm, \
          rasterio.open(out_water, "w", **profile) as fw:
         nwin = ((height + BLOCK - 1) // BLOCK) * ((width + BLOCK - 1) // BLOCK)
@@ -200,10 +211,10 @@ def main():
     ap.add_argument("--outdir", type=Path, required=True)
     ap.add_argument("--gebco", type=Path, default=datasets.gebco_vrt(),
                     help="bathymetry source (default: the global GEBCO_2026 mosaic)")
-    ap.add_argument("--dem-vrt", type=Path, default=DEM_VRT,
+    ap.add_argument("--dem-vrt", type=Path, default=dem_vrt(),
                     help="land-elevation mosaic (default: the GLO-30 mosaic); override "
                          "to splice a fallback DEM under GLO-30 over source voids")
-    ap.add_argument("--wbm-vrt", type=Path, default=WBM_VRT,
+    ap.add_argument("--wbm-vrt", type=Path, default=wbm_vrt(),
                     help="water-body mask mosaic (default: the GLO-30 WBM mosaic); "
                          "override alongside --dem-vrt so void-fill land is classified")
     ap.add_argument("--lat-res-arcsec", type=float,

@@ -35,9 +35,6 @@ from pathlib import Path
 
 from pipeline import datasets, paths
 
-DATA = paths.DATA
-VRT_PATH = DATA / "work/globathy/lakedepth.vrt"
-
 MIN_BYTES = 10_000     # ~84% of all GLOBathy pixels in ~6% of its files (see docstring)
 CASPIAN_HYLAK_ID = 1   # handled by the ocean path via GEBCO -- never by the lake ramp
 NAME_RE = re.compile(r"/(\d+)_bathymetry\.tif$")
@@ -51,6 +48,14 @@ def raster_dir() -> Path:
     and the writes then land in the real tree while every assertion reads the redirected one.
     """
     return paths.DATA / "work/globathy/rasters"
+
+
+def lake_vrt() -> Path:
+    """The mosaic VRT indexing every extracted lake, and the one place its location is spelled.
+
+    Read by `look/lake_depth.py` on the tile grid and `render/lake_mask.py` on the hero grid.
+    """
+    return paths.DATA / "work/globathy/lakedepth.vrt"
 
 
 def wanted(archive: zipfile.ZipFile) -> list[tuple[int, str]]:
@@ -87,12 +92,13 @@ def build_vrt(picks: list[tuple[int, str]]) -> None:
     rasters = raster_dir()
     sources = [str(rasters / f"{hylak_id}.tif") for hylak_id, _ in picks
                if hylak_id != CASPIAN_HYLAK_ID]
-    listing = VRT_PATH.parent / "vrt_sources.txt"
+    vrt_path = lake_vrt()
+    listing = vrt_path.parent / "vrt_sources.txt"
     listing.write_text("\n".join(sources) + "\n")
     print(f"gdalbuildvrt over {len(sources):,} rasters ...", flush=True)
     subprocess.run(["gdalbuildvrt", "-overwrite", "-input_file_list", str(listing),
-                    str(VRT_PATH)], check=True)
-    print(f"built {VRT_PATH}", flush=True)
+                    str(vrt_path)], check=True)
+    print(f"built {vrt_path}", flush=True)
 
 
 def main() -> int:

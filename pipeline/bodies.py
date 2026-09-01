@@ -82,9 +82,10 @@ class Body:
     name: str
     #: The tile grid's sphere, in metres — one of the three the module note sets out.
     #:
-    #: Consumers turn a Mercator y back into a latitude with it and size the per-row hillshade
-    #: z-factor from it, both of which must agree with the radius the raster was actually warped
-    #: with. Mixing two of the three yields a latitude-varying error that renders plausibly.
+    #: Consumers turn a Mercator y back into a latitude with it (`block_plan.row_latitude_deg`) and
+    #: size the per-row height scaling from it (`prep_block.row_scale`), both of which must agree
+    #: with the radius the raster was actually warped with. Mixing two of the three yields a
+    #: latitude-varying error that renders plausibly.
     mercator_radius_m: float
     #: The polar caps' azimuthal-equidistant sphere, in metres — NOT the Mercator radius above.
     #:

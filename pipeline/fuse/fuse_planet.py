@@ -4,8 +4,8 @@ Phase 2, step 1: the seamless global land+bathymetry heightfield the tile pyrami
 shaded and cut from. The tile-pyramid ceiling is z8 (~306 m/px); a 10-arcsecond EPSG:4326
 grid matches z8 at every latitude (a constant-degree grid and WebMercator both scale
 ground resolution by cos(lat), so 10" feeds z8 1:1 with no polar oversampling), so we fuse
-the analysis-ready master in plain lon/lat and leave the WebMercator reprojection (and its
-latitude-varying hillshade z-factor) to the later shading stage.
+the analysis-ready master in plain lon/lat and leave the WebMercator reprojection (and the
+latitude-varying per-row scaling it needs, `prep_block.row_scale`) to the later render stage.
 
 Why chunk, given fuse_heightfield is already windowed and memory-flat? Not for memory —
 for three things a single whole-planet invocation can't give: parallelism (one serial
@@ -85,14 +85,6 @@ MASK_TAG = fuse_heightfield.grid_tag(RES_ARCSEC, MASK_LAT_ARCSEC)
 #: 0 is land, 255 is the mosaic's nodata — what a VRT returns where it indexes no source.
 WBM_LAND = 0
 WBM_NODATA = fuse_heightfield.WBM_NODATA
-WBM_VRT = fuse_heightfield.WBM_VRT
-#: EARTH BY CONSTRUCTION, AND DELIBERATELY WITHOUT A `--body`. This driver fuses Copernicus tiles
-#: against GEBCO over a Natural-Earth-indexed land list; every input it reads describes one planet,
-#: so parameterising it would produce a flag whose only legal value is `earth`. A second body enters
-#: the same seam through its own producer (`planet_seam`), which is what makes them interchangeable
-#: downstream. Resolved through the registry rather than spelled out so the seam has ONE path home.
-EARTH_PLANET_DIR = planet_seam.planet_dir(bodies.EARTH)
-CHUNKS_DIR = EARTH_PLANET_DIR / "chunks"
 DEFAULT_WORKERS = 12
 GIB_PER_WORKER = 1.5  # fuse_heightfield peak RSS incl. GDAL cache, rounded up
 
@@ -111,6 +103,18 @@ FUSE_ENV = {
     "GDAL_NUM_THREADS": "1",         # parallelism is across cells, not within a warp
     "GDAL_MAX_DATASET_POOL_SIZE": "150",
 }
+
+
+def chunks_dir() -> Path:
+    """Where this driver's fused cells land, under Earth's planet directory.
+
+    EARTH BY CONSTRUCTION, AND DELIBERATELY WITHOUT A `--body`. This driver fuses Copernicus tiles
+    against GEBCO over a Natural-Earth-indexed land list; every input it reads describes one planet,
+    so parameterising it would produce a flag whose only legal value is `earth`. A second body enters
+    the same seam through its own producer (`planet_seam`), which is what makes them interchangeable
+    downstream. Resolved through the registry rather than spelled out so the seam has ONE path home.
+    """
+    return planet_seam.planet_dir(bodies.EARTH) / "chunks"
 
 
 def cell_bounds(west: int, south: int) -> tuple[int, int, int, int]:
@@ -212,7 +216,7 @@ def _mosaic_holds_land(listed_tiles, wbm_vrt: Path) -> bool:
 
 
 def enforce_land_guard(outdir: Path, tag: str = TAG, listed_tiles=(),
-                       wbm_vrt: Path = WBM_VRT) -> bool:
+                       wbm_vrt: Path | None = None) -> bool:
     """True if this cell's all-ocean result is explicable; on an unexplained one, fail the cell.
 
     Closes the stale-mosaic route around the coverage oracle (found when the first Antarctic sweep
@@ -233,6 +237,7 @@ def enforce_land_guard(outdir: Path, tag: str = TAG, listed_tiles=(),
     a blanket excuse either: a served tile that HOLDS land still fails, because then something
     between the mosaic and the mask dropped it.
     """
+    wbm_vrt = wbm_vrt or fuse_heightfield.wbm_vrt()
     with rasterio.open(outdir / f"oceanmask_{tag}.tif") as mask:
         for _block_index, window in mask.block_windows(1):
             if not (mask.read(1, window=window) == 1).all():
@@ -265,7 +270,7 @@ def fuse_cell(name: str, bounds, listed_tiles, masks_only: bool = False) -> tupl
     re-run every already-finished cell, and keying the square pass off the mask would let a
     half-written cell read as complete.
     """
-    outdir = CHUNKS_DIR / name
+    outdir = chunks_dir() / name
     tag = MASK_TAG if masks_only else TAG
     sentinel = f"oceanmask_{tag}.tif" if masks_only else f"heightfield_{tag}.tif"
     if (outdir / sentinel).exists():
@@ -316,7 +321,7 @@ def build_vrts(mask_tag: str = TAG):
         # make deleting one chunk a silent revert to the coarse grid. The caller ran the pass, so
         # the caller is the one that can say which grid it produced.
         tag = mask_tag if raster.endswith("mask") else TAG
-        sources = sorted(CHUNKS_DIR.glob(f"*/{raster}_{tag}.tif"))
+        sources = sorted(chunks_dir().glob(f"*/{raster}_{tag}.tif"))
         if not sources:
             print(f"no {raster} chunks yet — skipping {raster} VRT", flush=True)
             continue

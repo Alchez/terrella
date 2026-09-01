@@ -502,7 +502,6 @@ below is *delivery only* and regenerable, so a wrong call here costs an encode p
 | relief tiles (all zooms) | **q95** | 512 px served into a 256 px slot; fine shading detail is the whole look |
 | polar caps | **q85** | foreshortened background texture at the limb; the shipped rung is chosen by camera, below |
 | spotlight overlay | **q88** | only ever covers the *dimmed surroundings* — alpha is 0 across the subject |
-| border layers | lossless PNG | flat colour + alpha; PNG is both smaller and exact here |
 
 - **q95, not q98 and not lossless.** Measured on a native 7680 hero: the whole climb from q85 to q98
   costs 2.1×, and the last step to mathematical identity costs **another 2.4× on top** — you pay more
@@ -544,9 +543,8 @@ below is *delivery only* and regenerable, so a wrong call here costs an encode p
   `sizes` defeats the ladder on precisely the largest screens.
 - **Hero and spotlight share one ladder by IMPORT, not by a copied constant** — the gallery stacks
   them under one `sizes`, and a rung present in one and missing from the other makes the browser
-  fetch mismatched files (which is how an 85 kB border once landed on a 48 kB hero). The border
-  ladder does **not** share it: `gen_borders` stops at 1920, so a portrait border jumps to native.
-  That is a real gap, off the cold path only because the layer is hidden until Borders is turned on.
+  fetch mismatched files (which is how an 85 kB border once landed on a 48 kB hero). **Those two
+  are the whole set**: no other ladder is produced.
 - **Never under-declare.** Rounding down shows as blur; rounding up shows only as bytes — which is
   why the rejected alternative here was `sizes` 92vw → 80vw: it buys the same rung by lying about
   the layout.

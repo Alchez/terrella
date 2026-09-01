@@ -199,9 +199,9 @@ def write_vrt_if_changed(vrt: Path, build: Callable[[Path], None]) -> bool:
 
     NOT AN OPTIMISATION — it is what makes a producer safe to re-run at all. Every 3857 warp
     downstream is gated on the VRT's mtime, so an unconditional overwrite restages the whole planet:
-    on Earth that is a 44 GB re-warp, an 8:28 hillshade, a 53.8 min composite and a 3:44 cut, to
-    reproduce pixels that were already correct. Re-indexing is the natural thing to do after touching
-    a producer, so that cost sat one command away from anyone who tried.
+    on Earth that is a 44 GB re-warp and then every block back through Cycles, to reproduce pixels
+    that were already correct. Re-indexing is the natural thing to do after touching a producer, so
+    that cost sat one command away from anyone who tried. PROCESS.md holds the figure.
 
     Byte-identity is what makes the comparison mean anything, and it was measured rather than
     assumed: rebuilding all three of Earth's planet VRTs from the same 648 chunks, into the same

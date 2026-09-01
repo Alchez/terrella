@@ -2713,14 +2713,14 @@ SABOTAGES: list[Sabotage] = [
     # ALL THREE OF THESE ALREADY SHIPPED, which is why the guard exists rather than the reverse.
     # `tile/shade.py` cited ART.md:56 and ART.md:90, both of which had become blank lines, and the
     # since-deleted `look/hillshade.py` cited ART.md:63 for the sun's locked azimuth while that line
-    # had become a table row about the sea ramp. The mutations are planted in `gen_borders.py` because it
-    # is the pointer under a MUTABLE_ROOT; the defect has no preferred site.
+    # had become a table row about the sea ramp. The mutations are planted in `overlay_borders.py`
+    # because it is the pointer under a MUTABLE_ROOT; the defect has no preferred site.
     Sabotage(
         suite='python',
         label='a doc pointer goes back to naming a line number, which is what rotted three times',
-        path='pipeline/compose/gen_borders.py',
-        needle='(ART.md\n§ Borders',
-        replacement='(ART.md:56\n§ Borders',
+        path='pipeline/compose/overlay_borders.py',
+        needle='here (ART.md\n# § Borders',
+        replacement='here (ART.md:447\n# § Borders',
         guard='test_no_pointer_cites_a_line_number',
     ),
     # The document is renamed or leaves version control. Existence on the author's disk is NOT the
@@ -2728,9 +2728,9 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='a doc pointer names a document no clone receives',
-        path='pipeline/compose/gen_borders.py',
-        needle='downscaling (ART.md',
-        replacement='downscaling (ARTDIRECTION.md',
+        path='pipeline/compose/overlay_borders.py',
+        needle='(ART.md\n# § Borders):',
+        replacement='(ARTDIRECTION.md\n# § Borders):',
         guard='test_every_document_a_pointer_names_reaches_a_clone',
     ),
     # The heading moves out from under a pointer that still names a real file. This is the live case
@@ -2739,9 +2739,9 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='the cited section is renamed, leaving a pointer at a file that no longer explains it',
-        path='pipeline/compose/gen_borders.py',
-        needle='§ Borders, with overlay_borders',
-        replacement='§ Boundaries, with overlay_borders',
+        path='pipeline/compose/overlay_borders.py',
+        needle='# § Borders): width in render',
+        replacement='# § Boundaries): width in render',
         guard='test_every_section_citation_lands_on_a_heading',
     ),
     # The defect that shipped: the block frame's payload stopped answering the whole vocabulary,
@@ -5193,7 +5193,9 @@ SABOTAGES: list[Sabotage] = [
                     '    _lat = np.array([block_plan.row_latitude_deg(float(r), body) for r in _rows])\n'
                     '    column = (np.cos(np.radians(mid_latitude_deg(window, body)))\n'
                     '              / np.cos(np.radians(_lat))).reshape(-1, 1).astype(np.float32)',
-        guard='test_the_column_equals_the_law_to_the_float32_it_is_stored_as',
+        # Not `test_the_column_equals_the_law_...`: the inline copy computes the same values, so a
+        # comparison of values passes. Provenance needs a source check.
+        guard='test_the_writer_CALLS_the_law_rather_than_restating_it',
     ),
     Sabotage(
         suite='python',
@@ -5219,7 +5221,9 @@ SABOTAGES: list[Sabotage] = [
         path='pipeline/block_plan.py',
         needle='        nxt = context_for(max_relief_m, poleward_sizing_latitude(row0, context, body),',
         replacement='        nxt = context_for(max_relief_m, row_latitude_deg(row0 + RENDER_BLOCK_PX / 2.0, body),',
-        guard='test_no_block_row_is_narrower_than_sizing_at_its_centre',
+        # Do NOT repoint at `test_no_block_row_is_narrower_than_sizing_at_its_centre`: that bound is
+        # one-sided and this mutation satisfies it by equality, so it came back MISSED.
+        guard='test_the_poleward_rule_is_STRICTLY_wider_than_its_own_centre_somewhere',
     ),
     Sabotage(
         suite='python',
@@ -7164,17 +7168,18 @@ SABOTAGES: list[Sabotage] = [
         path='pipeline/compose/gen_spotlight.py',
         needle='    sizes = rungs_for(full_w, full_h)',
         replacement='    sizes = sorted(set(list(TARGETS) + [max(full_w, full_h)]))',
-        guard='test_the_ladder_matches_the_spotlight_overlay',
+        # Do NOT repoint at `test_the_ladder_matches_the_spotlight_overlay`: it asserts the import
+        # identity, which this mutation leaves true, and came back MISSED against the whole suite.
+        guard='test_the_overlay_ASKS_for_the_ladder_rather_than_restating_it',
     ),
-    # An exemption list is where coverage goes to die quietly. If the border ladder is ever fixed,
-    # this entry must fail rather than keep exempting nothing.
+    # An exemption list is where coverage goes to die quietly. The list is empty, so this plants the
+    # first entry: an exemption naming a ladder with no real gap must fail.
     Sabotage(
         suite='python',
         label='a ladder is exempted from the mobile contract without actually having a gap',
         path='tests/test_hero_variants.py',
-        # Names the dict: `ORPHANED_LADDERS` beside it has the same shape and the bare one matched both.
-        needle='MOBILE_EXEMPT_LADDERS: ClassVar[dict[str, str]] = {\n        "border": (',
-        replacement='MOBILE_EXEMPT_LADDERS: ClassVar[dict[str, str]] = {\n        "hero": ("no reason at all"),\n        "border": (',
+        needle='MOBILE_EXEMPT_LADDERS: ClassVar[dict[str, str]] = {}',
+        replacement='MOBILE_EXEMPT_LADDERS: ClassVar[dict[str, str]] = {"hero": "no reason at all"}',
         guard='test_every_exemption_is_load_bearing',
     ),
     # --- the cap ladder: a sweep must not leave a shipped constant swapped -----------------------

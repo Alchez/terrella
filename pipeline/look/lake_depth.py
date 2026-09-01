@@ -27,10 +27,8 @@ import subprocess
 import numpy as np
 import rasterio
 
-from pipeline import paths
+from pipeline.acquire.extract_globathy import lake_vrt
 
-DATA = paths.DATA
-LAKE_VRT = DATA / "work/globathy/lakedepth.vrt"
 GLOBATHY_NODATA = -9999.0
 
 
@@ -38,7 +36,7 @@ def _run(cmd):
     subprocess.run([str(part) for part in cmd], check=True, capture_output=True)
 
 
-def warp_depth(bounds, width, height, out_path, vrt=LAKE_VRT):
+def warp_depth(bounds, width, height, out_path, vrt=None):
     """Warp GLOBathy onto a Web-Mercator grid; return depth in metres, 0 where there is none.
 
     bounds = (left, bottom, right, top) in EPSG:3857. Bilinear, not nearest: depth is a
@@ -49,6 +47,7 @@ def warp_depth(bounds, width, height, out_path, vrt=LAKE_VRT):
     Returns None when the VRT has not been built, so shading still runs flat-water-only --
     the same contract as snow.rasterize_glaciers when RGI is missing.
     """
+    vrt = vrt or lake_vrt()
     if not vrt.exists():
         return None
     left, bottom, right, top = bounds
@@ -62,7 +61,7 @@ def warp_depth(bounds, width, height, out_path, vrt=LAKE_VRT):
     return np.where(np.isfinite(depth) & (depth > 0.0), depth, 0.0).astype("float32")
 
 
-def warp_depth_raster(bounds, width, height, out_path, vrt=LAKE_VRT):
+def warp_depth_raster(bounds, width, height, out_path, vrt=None):
     """Warp GLOBathy onto a whole Web-Mercator grid, leaving the result on disk.
 
     The planet-tier twin of `warp_depth` above, which hands the array back for the region path.
@@ -70,6 +69,7 @@ def warp_depth_raster(bounds, width, height, out_path, vrt=LAKE_VRT):
     warps beside it: the VRT carries its own. Tiled/DEFLATE/BIGTIFF because the target is a global
     grid, which is the whole difference between the two.
     """
+    vrt = vrt or lake_vrt()
     left, bottom, right, top = bounds
     _run(["gdalwarp", "-q", "-t_srs", "EPSG:3857",
           "-te", repr(left), repr(bottom), repr(right), repr(top),

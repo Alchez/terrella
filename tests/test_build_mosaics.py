@@ -22,6 +22,9 @@ import numpy as np
 import rasterio
 import rasterio.transform
 
+from pipeline import paths
+from pipeline.fuse import fuse_heightfield
+
 SCRIPT = Path(__file__).resolve().parents[1] / "pipeline" / "fuse" / "build_mosaics.sh"
 
 
@@ -112,3 +115,32 @@ class TestFreshnessSkip:
         out = run_script(tmp_path)
         assert "done:" in out
         assert wbm_vrt.stat().st_mtime_ns != wbm_before
+
+
+class TestTheShellWriterAndThePythonReadersAgree:
+    """Shell cannot import Python, so the two mosaic paths are spelled on both sides. These run the
+    real writer and ask the real resolvers to open what it produced, so a path edited on one side
+    fails here rather than at a fusion that reads a mosaic nobody rebuilt.
+    """
+
+    def test_each_resolver_lands_on_the_mosaic_the_script_wrote(self, tmp_path, monkeypatch):
+        make_store(tmp_path)
+        run_script(tmp_path)
+        monkeypatch.setattr(paths, "DATA", tmp_path)
+        dem, wbm = fuse_heightfield.dem_vrt(), fuse_heightfield.wbm_vrt()
+        for resolver, resolved in (("dem_vrt", dem), ("wbm_vrt", wbm)):
+            assert resolved.exists(), (
+                f"`fuse_heightfield.{resolver}()` resolves to {resolved}, which build_mosaics.sh "
+                f"did not write: the two sides of this seam have drifted")
+        # Not `exists()` alone, which a swap satisfies: both are written and both hold two sources.
+        assert "raw/glo30/dem/" in dem.read_text()
+        assert "raw/glo30/wbm/" in wbm.read_text()
+
+    def test_the_resolvers_follow_a_redirected_store(self, tmp_path, monkeypatch):
+        """The control: the resolvers must follow `paths.DATA` rather than resolve once."""
+        make_store(tmp_path)
+        run_script(tmp_path)
+        monkeypatch.setattr(paths, "DATA", tmp_path / "elsewhere")
+        assert not fuse_heightfield.dem_vrt().exists()
+        monkeypatch.setattr(paths, "DATA", tmp_path)
+        assert fuse_heightfield.dem_vrt().exists()

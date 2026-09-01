@@ -341,9 +341,9 @@ const routes = bodyRoutes(body);
   // default and the event name come from `highlightPreference.ts` instead of being spelled here,
   // because the globe has to read the same three and Borders' way of doing that is two copies.
   //
-  // NO BODY CLASS. Borders and Focus toggle one because CSS on the hero pages styles against them;
-  // this one has no CSS to drive, and a class nothing reads is a second source of truth waiting
-  // for someone to start believing it.
+  // NO BODY CLASS. Focus toggles one because CSS on the hero pages styles against it; this one has
+  // no CSS to drive, and a class nothing reads is a second source of truth waiting for someone to
+  // start believing it.
   import {
     HIGHLIGHT_EVENT,
     HIGHLIGHT_KEY,
@@ -379,7 +379,6 @@ const routes = bodyRoutes(body);
   if (borderButton) {
     const applyBorderState = (on: boolean) => {
       borderButton.setAttribute("aria-pressed", String(on));
-      document.body.classList.toggle("borders-on", on);
     };
     applyBorderState(localStorage.getItem(KEY) === "1");
     borderButton.addEventListener("click", () => {

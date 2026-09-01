@@ -111,7 +111,7 @@ def row_scale(window: Window, body: bodies.Body) -> NDArray[np.float64]:
     cosine cancelling completely.
 
     IT IS NOT THE COMPOSITE'S LAW, AND AN EARLIER VERSION OF THIS DOCSTRING CLAIMED IT WAS.
-    `hillshade.per_row_zfactor_hillshade` scales the GRADIENT per row; this scales the HEIGHT. A
+    The composited shading's z-factor scaled the GRADIENT per row; this scales the HEIGHT. A
     height field whose gradient is the composite's cannot exist: matching it needs
     `K'(row) * de/dcol == 0` everywhere, so no scalar displacement reproduces it and the difference
     is a spurious row-ward tilt of `K'(row) * elevation`. That term is proportional to ELEVATION and

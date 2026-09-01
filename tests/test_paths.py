@@ -667,28 +667,10 @@ class TestNoNewPathFreezesTheStoreAtImport:
     #: EQUALITY is asserted, so this fails in both directions — a new freeze, and an entry fixed
     #: without being struck off.
     #:
-    #: WAS 52. The 33 that named a location under `raw/` are gone, `pipeline.datasets` owning that
-    #: layout now. What is left is the `work/` tree, whose owner is `bodies.work_dir`, and four
-    #: `DATA = paths.DATA` aliases that exist only to spell the frozen constants beneath them.
-    #:
-    #: THE REST DO NOT COME OFF ONE AT A TIME. Every remaining entry either IS a path spelled in a
-    #: second place or exists only to spell one, so what is left is four shared-path defects rather
-    #: than twelve moves: `lakedepth.vrt` has a writer and a reader, `work/planet/chunks` is
-    #: hardcoded in `shade` and derived in `fuse_planet`, and both mosaics are spelled in
-    #: `fuse_heightfield.py` and again in `build_mosaics.sh`, which is the script that WRITES them.
+    #: EMPTY, and the assertion stays live on an empty set: `THE_ROOT_ITSELF` is still expected, so
+    #: `found` must equal exactly `{paths.DATA}` and a probe that imported nothing is red too.
+    #: `test_the_probe_can_see_a_fresh_freeze` is the control.
     FROZEN_AT_IMPORT: ClassVar[frozenset[str]] = frozenset({
-        "pipeline.acquire.extract_globathy.DATA",
-        "pipeline.acquire.extract_globathy.VRT_PATH",
-        "pipeline.fuse.fuse_heightfield.DATA",
-        "pipeline.fuse.fuse_heightfield.DEM_VRT",
-        "pipeline.fuse.fuse_heightfield.WBM_VRT",
-        "pipeline.fuse.fuse_planet.CHUNKS_DIR",
-        "pipeline.fuse.fuse_planet.EARTH_PLANET_DIR",
-        "pipeline.fuse.fuse_planet.WBM_VRT",
-        "pipeline.look.lake_depth.DATA",
-        "pipeline.look.lake_depth.LAKE_VRT",
-        "pipeline.tile.shade.CHUNKS",
-        "pipeline.tile.shade.DATA",
     })
 
     def test_the_frozen_set_is_exactly_the_one_pinned(self):

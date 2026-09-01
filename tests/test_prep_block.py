@@ -5,6 +5,7 @@ exactly 1.0 and every body-shaped term can be dropped without a symptom. So the 
 paired: Earth's answer, and the same answer on a body where the term is not the identity.
 """
 
+import ast
 import json
 import math
 from pathlib import Path
@@ -236,6 +237,21 @@ class TestTheWrittenColumnIsTheLawAndNotACopyOfIt:
         window = plane_window(0, block_plan.grid_px(body) // 2 - 4096, 4096, context)
         expected = prep_block.row_scale(window, body).astype(np.float32)
         assert self._written(tmp_path, window, body).ravel() == pytest.approx(expected, rel=1e-12)
+
+    def test_the_writer_CALLS_the_law_rather_than_restating_it(self):
+        """No comparison of values can see this: an inline copy of `row_scale` writes the same
+        column, so the guard above passes while every sabotage case that mutates `row_scale` stops
+        reaching the raster the rig samples and reports CAUGHT against an unmutated file.
+        """
+        source = ast.parse(Path(prep_block.__file__).read_text())
+        writer = next(node for node in ast.walk(source)
+                      if isinstance(node, ast.FunctionDef) and node.name == "_write_rowscale")
+        calls = {node.func.id for node in ast.walk(writer)
+                 if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)}
+        assert "row_scale" in calls, (
+            f"`_write_rowscale` no longer calls `row_scale` (it calls {sorted(calls)}). A copy of "
+            f"the law here is inert under every mutation of it, so the harness would report those "
+            f"cases CAUGHT while the written column stayed correct by coincidence")
 
     def test_it_is_one_pixel_wide_and_as_tall_as_the_PLANE(self, tmp_path):
         """The height is the plane's, not the delivered block's. Taking `size_px` would still write

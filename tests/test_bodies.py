@@ -370,14 +370,21 @@ def test_a_second_body_publishes_under_its_own_segment() -> None:
     assert bodies.public_dir(bodies.MARS, "caps") == paths.ROOT / "web/public/caps/mars"
 
 
-def test_served_assets_follow_the_checkout_not_the_data_store() -> None:
+def test_served_assets_follow_the_checkout_not_the_data_store(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """The two roots must not be collapsed.
 
     Intermediates are relocatable via MAPS_DATA; published assets are read by the site build from
     the checkout. One root for both means a relocated data store publishes nothing, silently.
+
+    THE REDIRECT IS WHAT MAKES THIS DISCRIMINATING and must stay: `paths.DATA` defaults to a
+    directory INSIDE the checkout, so without it "the served path is under `paths.ROOT`" is true of
+    the data store as well, and resolving served assets against the store passes.
     """
+    monkeypatch.setattr(paths, "DATA", tmp_path)
     assert paths.ROOT in bodies.public_dir(bodies.EARTH, "caps").parents
-    assert paths.DATA in bodies.work_dir(bodies.EARTH, "cap").parents
+    assert tmp_path not in bodies.public_dir(bodies.EARTH, "caps").parents
+    assert tmp_path in bodies.work_dir(bodies.EARTH, "cap").parents
 
 
 def test_both_roots_follow_a_redirect_so_a_fixture_can_isolate_every_write(

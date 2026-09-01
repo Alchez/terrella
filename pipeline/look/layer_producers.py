@@ -40,7 +40,12 @@ from typing import Any
 import numpy as np
 
 from pipeline import bodies, datasets, layers, progress
-from pipeline.acquire import download_add_rock, download_rgi, download_sim3292
+from pipeline.acquire import (
+    download_add_rock,
+    download_rgi,
+    download_sim3292,
+    extract_globathy,
+)
 from pipeline.look import lake_depth, mars_ice, palette, seaice, snow, viking_luma
 
 
@@ -489,7 +494,7 @@ def _mars_ice_build_recipe() -> dict[str, Any]:
 #: instances instead of one shape repeated with a different constant.
 PRODUCER_BY_BODY_LAYER: dict[tuple[str, str], LayerProducer] = {
     ("earth", layers.LAKE_DEPTH.name): LayerProducer(
-        sources=lambda: (lake_depth.LAKE_VRT,),
+        sources=lambda: (extract_globathy.lake_vrt(),),
         # None, not a white: this producer's number is a DEPTH, graded by the lake ramp. The field
         # existing and being answered "not applicable" is what keeps that visible.
         build=_build_lake_depth, contribution=_earth_lake_depth, paint=lambda _window: None,

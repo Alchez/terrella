@@ -7,7 +7,7 @@ raytraced, so the shader had no caller and the preview produced a look no body s
 
 WHAT IS LEFT HAS READERS. `render/lake_mask.py` reads `LAKE_CURVE` and passes it to `lake_position`,
 both on the HERO path, which is a different lane from the tiles entirely. `Z8_MERC_RES` is read by a
-resolution test, and `DATA`/`CHUNKS` by the path guards.
+resolution test.
 
 `Knobs`, `KNOBS` and `SHADOW_TINT` WERE PRUNED AND MUST NOT COME BACK. They were the deleted
 shader's tunables, and the only thing that ever recorded them was `composite_params`, so once that
@@ -21,11 +21,8 @@ import math
 
 import numpy as np
 
-from pipeline import paths
 from pipeline.look import palette
 
-DATA = paths.DATA
-CHUNKS = DATA / "work/planet/chunks"
 Z8_MERC_RES = 305.7483  # metres/pixel of a 512px WebMercatorQuad tile at zoom 8
 
 #: Depth-to-ramp-position mapping for inland water, and the one survivor of the shader's knobs.

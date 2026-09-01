@@ -137,24 +137,26 @@ Snow here is **not** the hero's WorldCover class-70 mask (permanent ice only, wh
 
 ## From heroes to the website
 
-Once heroes exist, three compose steps and a manifest regeneration turn them into what the site serves:
+Once heroes exist, two compose steps and a manifest regeneration turn them into what the site serves:
 
 ```bash
 python -m pipeline.compose.hero_variants --jobs 8   # 6 srcset rungs per hero (downscale-only, idempotent)
-python -m pipeline.compose.gen_borders      # transparent white border layer per country
 python -m pipeline.compose.gen_spotlight    # transparent Focus layer: dims everything outside the country
 ```
 
-All three take `--only <slug,slug>` to process a subset, and all three now take `--force`. They share
-one rung ladder, **640/960/1280/1920/3840/native**, because the gallery and the globe panel stack
-their outputs under a single `sizes`; a rung in one ladder and not another makes the browser fetch
-mismatched files (`tests/test_hero_variants.py` guards this against what the pages declare).
+Both take `--only <slug,slug>` to process a subset, and both take `--force`. They share one rung
+ladder, **640/960/1280/1920/3840/native**, because the gallery stacks their outputs under a single
+`sizes`; a rung in one ladder and not another makes the browser fetch mismatched files
+(`tests/test_hero_variants.py` guards this against what the pages declare).
+
+Each hero's borders are composited in by `overlay_borders` during the render, not toggled: there is
+no separate border layer.
 
 Parallelism is per-script and is a MEMORY question, not a core one. `hero_variants` peaks at ~525 MB
 per encode, so `--jobs 8` is comfortable and takes the 203-hero pass from ~49 min to ~6 min.
 `gen_spotlight` defaults to serial because its **native** rung peaks near 8 GB, but a small-rung
 pass (640/960/1280 only) measures ~0.5 GB per job, so that constraint does not apply to it; time one
-slug before choosing. `gen_borders` has no `--jobs` and takes ~3 s per country.
+slug before choosing.
 
 `hero_variants` also records `hero_variants_recipe.json` (rung → the WebP quality it was written at).
 Existence alone cannot tell a q95 file from the q85 one it replaced, so **changing `quality_for()` is

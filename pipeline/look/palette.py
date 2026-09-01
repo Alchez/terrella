@@ -104,7 +104,7 @@ ICE_SHADOW_RGB: RGB8 = (156, 184, 210)   # 9CB8D2 — shaded sea ice (deeper coo
 LAND_MAX_M = 6000.0
 SEA_MIN_M = -6000.0  # extended from -3000 (the sea rework) so the deep sea varies tonally
 LAKE_MAX_M = 1642.0  # Baikal — the deepest lake GLOBathy carries; the lake ramp's far end
-SUN_ALT_DEG = 45.0   # the shared sun altitude: tile KNOBS["alt"] and the hero SUN_ROTATION
+SUN_ALT_DEG = 45.0   # the shared sun altitude: the tiles' block_render and the hero SUN_ROTATION
 # X-tilt (90 - alt) both derive from this (the sea-sync — the cure for the 46/45
 # split). Azimuth stays per-side: both are NW by their own conventions (tile 315, hero -45).
 FILL_ALTITUDE = 60.0   # the fill sun's geometry, mirrored from the main sun's
