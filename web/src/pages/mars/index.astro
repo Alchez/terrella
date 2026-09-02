@@ -22,6 +22,7 @@ import MapStylesheet from "../../components/MapStylesheet.astro";
 import { BODIES } from "../../lib/bodies";
 import { hasHoverHighlight } from "../../lib/globeSubsystems";
 import { pageTitle } from "../../lib/pageTitle";
+import { PUBLISHED } from "../../lib/tileAddress";
 
 const body = BODIES.mars;
 ---
@@ -31,7 +32,7 @@ const body = BODIES.mars;
   description="An interactive globe of ray-traced Martian relief, from the blended MOLA and HRSC elevation model."
   body={body.slug}
   borders={body.hasBorders}
-  highlight={hasHoverHighlight(body.slug)}
+  highlight={hasHoverHighlight(PUBLISHED[body.slug])}
   quality={true}
   pageRole="globe"
 >

@@ -494,7 +494,7 @@ def cropped(png: Path, block: Block) -> np.ndarray:
 
 
 def render_block(body: bodies.Body, block: Block, mosaic: Path, scratch: Path,
-                 markers: Path, work: Path) -> None:
+                 markers: Path, work: Path, *, keep_intermediates: bool = False) -> None:
     """One block, end to end: prep, render, crop, write into the mosaic, mark.
 
     THE MARKER IS LAST AND THE MOSAIC IS CLOSED BEFORE IT. Only a flushed write is a block that
@@ -503,6 +503,12 @@ def render_block(body: bodies.Body, block: Block, mosaic: Path, scratch: Path,
     `work` IS CARRIED RATHER THAN RE-DERIVED so that every raster this run reads comes from the one
     directory `run` validated. The prep used to resolve the body's default itself, which made
     `--work` a flag that moved the checks and left the pixels behind.
+
+    `keep_intermediates` LEAVES THE FRAME, THE SCENE AND THE PREP DIRECTORY where this block wrote
+    them, for a question about the render itself: the crop is a pure slice and the mosaic write is
+    lossless, so the frame is the one thing that can place an artifact before or after them. The
+    frame is unlinked HERE and not inside the render directory, so suppressing that directory's
+    removal on its own keeps the inputs and loses the pixels.
     """
     name = block_name(block)
     render_dir = scratch / name
@@ -547,9 +553,10 @@ def render_block(body: bodies.Body, block: Block, mosaic: Path, scratch: Path,
     (markers / name).write_text(
         f"context {block.context_px} traced {block.traced_edge_px} "
         f"plane {block.plane_edge_px} {reported}\n")
-    shutil.rmtree(render_dir, ignore_errors=True)
-    png.unlink(missing_ok=True)
-    (scratch / f"{name}.blend").unlink(missing_ok=True)
+    if not keep_intermediates:
+        shutil.rmtree(render_dir, ignore_errors=True)
+        png.unlink(missing_ok=True)
+        (scratch / f"{name}.blend").unlink(missing_ok=True)
 
 
 def disk_floor_bytes(body: bodies.Body, remaining: int, total: int) -> float:
@@ -627,12 +634,15 @@ def log(message: str, *, stage: bool = False) -> None:
 
 
 def run(body: bodies.Body, work: Path, mosaic: Path, *, limit: int | None = None,
-        only: frozenset[str] | None = None) -> int:
+        only: frozenset[str] | None = None, keep_intermediates: bool = False) -> int:
     """Render every block this body still owes, and stamp the mosaic when none are left.
 
     Returns the number of blocks rendered by this call. `only` renders a named subset and, like
     `limit`, therefore never completes the planet — neither stamps the mosaic, because a marker on
     a partly rendered raster is exactly the state the whole freshness scheme exists to refuse.
+
+    `keep_intermediates` reaches every block AND holds the scratch tree below, so that what is kept
+    does not depend on whether this run happened to be the one that finished the planet.
     """
     # THE PLAN COMES BEFORE THE RECIPE, because the recipe records what the plan produced. The
     # repo's ordering rule — write the recipe, THEN ask the freshness question — is unchanged and
@@ -711,7 +721,8 @@ def run(body: bodies.Body, work: Path, mosaic: Path, *, limit: int | None = None
         name = block_name(block)
         started = time.monotonic()
         try:
-            render_block(body, block, mosaic, scratch, markers, work)
+            render_block(body, block, mosaic, scratch, markers, work,
+                         keep_intermediates=keep_intermediates)
         except Exception as failure:            # noqa: BLE001 — one block must not end the night
             consecutive += 1
             status.failures.append(name)
@@ -745,7 +756,8 @@ def run(body: bodies.Body, work: Path, mosaic: Path, *, limit: int | None = None
     complete = all((markers / block_name(block)).exists() for block in blocks)
     if complete and status.state == "rendering":
         freshness.mark_done(mosaic)
-        shutil.rmtree(scratch, ignore_errors=True)
+        if not keep_intermediates:
+            shutil.rmtree(scratch, ignore_errors=True)
         status.state = "complete"
         log(f"PLANET COMPLETE: {len(blocks)} blocks, {len(status.failures)} failures -> {mosaic}",
             stage=True)
@@ -780,6 +792,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--only", default=None,
                         help="comma-separated block names (rNNcNN) to render instead of the whole "
                              "grid; never stamps the mosaic complete")
+    parser.add_argument("--keep-intermediates", action="store_true",
+                        help="leave each block's Cycles frame, scene and prep directory on disk "
+                             "instead of deleting them, and keep the scratch tree at the end: the "
+                             "frame is the only thing that can place an artifact before or after "
+                             "the crop. A diagnosis flag — pair it with --only")
     return parser
 
 
@@ -789,7 +806,8 @@ def main(argv: list[str] | None = None) -> None:
     work = args.work if args.work is not None else relief_scan.work_dir(body)
     mosaic = args.mosaic if args.mosaic is not None else mosaic_in(work)
     only = frozenset(name.strip() for name in args.only.split(",")) if args.only else None
-    run(body, work, mosaic, limit=args.limit, only=only)
+    run(body, work, mosaic, limit=args.limit, only=only,
+        keep_intermediates=args.keep_intermediates)
 
 
 if __name__ == "__main__":

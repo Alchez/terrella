@@ -4613,6 +4613,46 @@ SABOTAGES: list[Sabotage] = [
         replacement='    band, edge, traced = block.context_px, block.size_px, block.traced_edge_px',
         guard='test_the_denoise_band_is_cut_back_off',
     ),
+    # The four below are one flag, and the second is the one that has already happened: an arm that
+    # suppressed `shutil.rmtree` alone kept a block's prep inputs, deleted the frame it was run to
+    # read, and reported nothing wrong. The frame and the directory are removed by different calls.
+    Sabotage(
+        suite='python',
+        label="the block's cleanup stops asking whether it was told to keep anything",
+        path='pipeline/tile/block_render.py',
+        needle='    if not keep_intermediates:\n'
+               '        shutil.rmtree(render_dir, ignore_errors=True)',
+        replacement='    if True:\n        shutil.rmtree(render_dir, ignore_errors=True)',
+        guard='test_a_kept_render_leaves_the_frame_where_it_was_written',
+    ),
+    Sabotage(
+        suite='python',
+        label='keeping covers the prep directory and not the frame beside it',
+        path='pipeline/tile/block_render.py',
+        needle='        png.unlink(missing_ok=True)\n'
+               '        (scratch / f"{name}.blend").unlink(missing_ok=True)',
+        replacement='    png.unlink(missing_ok=True)\n'
+                    '    (scratch / f"{name}.blend").unlink(missing_ok=True)',
+        guard='test_a_kept_render_leaves_the_frame_where_it_was_written',
+    ),
+    Sabotage(
+        suite='python',
+        label='the run keeps the answer to itself and every block sweeps as usual',
+        path='pipeline/tile/block_render.py',
+        needle='            render_block(body, block, mosaic, scratch, markers, work,\n'
+               '                         keep_intermediates=keep_intermediates)',
+        replacement='            render_block(body, block, mosaic, scratch, markers, work)',
+        guard='test_the_run_hands_its_answer_to_every_block',
+    ),
+    Sabotage(
+        suite='python',
+        label='the pass that finishes the planet sweeps the scratch it was asked to keep',
+        path='pipeline/tile/block_render.py',
+        needle='        if not keep_intermediates:\n'
+               '            shutil.rmtree(scratch, ignore_errors=True)',
+        replacement='        if True:\n            shutil.rmtree(scratch, ignore_errors=True)',
+        guard='test_a_finished_planet_does_not_sweep_away_what_it_was_asked_to_keep',
+    ),
     # The base grid is the one mutation here whose damage never raises, never logs and never
     # changes a file size: `MAX_SUBDIVISIONS` caps micropolygons PER PATCH, so a single quad silently
     # dices a 4,096-block's plane at half its pixels and delivers a slightly soft planet.
@@ -5708,9 +5748,9 @@ SABOTAGES: list[Sabotage] = [
         # the half a test of the prep alone would report CAUGHT while the pass read the wrong store.
         label='the runner hands the renderer the default, so --work reaches the checks only',
         path='pipeline/tile/block_render.py',
-        needle='            render_block(body, block, mosaic, scratch, markers, work)',
-        replacement='            render_block(body, block, mosaic, scratch, markers,\n'
-                    '                         relief_scan.work_dir(body))',
+        needle='            render_block(body, block, mosaic, scratch, markers, work,',
+        replacement='            render_block(body, block, mosaic, scratch, markers, '
+                    'relief_scan.work_dir(body),',
         guard='test_the_renderer_is_handed_the_directory_the_run_was_given',
     ),
     Sabotage(
@@ -6098,7 +6138,57 @@ SABOTAGES: list[Sabotage] = [
         path='web/src/lib/globeSubsystems.ts',
         needle='    terrain: published.terrain !== null,',
         replacement='    terrain: true,',
-        guard='never advertises a pyramid the body does not publish, whatever the URL says',
+        guard='draws no terrain for a body publishing no terrain pyramid, and terrain for one that '
+              'does',
+    ),
+    # The three below are what taking the registry records BOUGHT, and they were uncatchable while
+    # the lookups were inside: every registered body publishes every layer and renders caps, so each
+    # of these replacements agrees with the registry on Earth and on Mars. The guards write a body
+    # belonging to no planet, which is the only input that disagrees.
+    Sabotage(
+        suite='web',
+        label='every body draws polar caps, including one whose descriptor renders none',
+        path='web/src/lib/globeSubsystems.ts',
+        needle='    polarCaps: descriptor.rendersPolarCaps && !bare && !flags.has("nocaps"),',
+        replacement='    polarCaps: !bare && !flags.has("nocaps"),',
+        guard='draws no polar caps for a body that renders none, and caps for one that does',
+    ),
+    Sabotage(
+        suite='web',
+        label='a vector product is named for a body whose archive holds none',
+        path='web/src/lib/globeSubsystems.ts',
+        needle='    vectorProduct: published.vector !== null && !bare ? vectorProduct : null,',
+        replacement='    vectorProduct: !bare ? vectorProduct : null,',
+        guard='draws no vector product for a body publishing no vector archive, and one for a body '
+              'that does',
+    ),
+    Sabotage(
+        suite='web',
+        label='the pointer predicate stops asking the archives and lights every body',
+        path='web/src/lib/globeSubsystems.ts',
+        needle='  return published.vector !== null;',
+        replacement='  return true;',
+        guard='lights nothing under the pointer for a body publishing no vectors, and does for one '
+              'that does',
+    ),
+    # And these two are what it COST. A lookup inside the function could not name the wrong body; at
+    # a call site it is one keystroke, and a globe handed another planet's archives draws layers its
+    # own tiles do not hold, which MapLibre paints as empty with no error anywhere.
+    Sabotage(
+        suite='web',
+        label="the globe hands every planet Earth's archives, so Mars draws country layers",
+        path='web/src/components/Globe.astro',
+        needle='globeSubsystems(body, PUBLISHED[body.slug], VECTOR_PRODUCT[body.slug],',
+        replacement='globeSubsystems(body, PUBLISHED.earth, VECTOR_PRODUCT.earth,',
+        guard="is handed each planet's OWN records by the globe, which is what taking them costs",
+    ),
+    Sabotage(
+        suite='web',
+        label="Mars's page asks whether EARTH publishes vectors, so its pointer control is Earth's",
+        path='web/src/pages/mars/index.astro',
+        needle='hasHoverHighlight(PUBLISHED[body.slug])',
+        replacement='hasHoverHighlight(PUBLISHED.earth)',
+        guard='is handed this body\'s archives by every page that asks about the pointer',
     ),
     Sabotage(
         suite='web',
@@ -7323,7 +7413,7 @@ SABOTAGES: list[Sabotage] = [
         suite='web',
         label='every body is handed the countries product, whatever its archive holds',
         path='web/src/lib/globeSubsystems.ts',
-        needle='published.vector !== null && !bare ? VECTOR_PRODUCT[body] : null,',
+        needle='published.vector !== null && !bare ? vectorProduct : null,',
         replacement='published.vector !== null && !bare ? "countries" : null,',
         guard="names a product the body's own archive holds, never another planet's",
     ),

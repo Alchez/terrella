@@ -119,7 +119,7 @@ class TestTheProducersOwnOutputIsReportedOrDeliberatelyQuiet:
         mosaic.write_bytes(b"")
         markers = block_render.markers_in(mosaic)
 
-        def marked_done(body, block, mosaic_path, scratch, marker_dir, work_dir):
+        def marked_done(body, block, mosaic_path, scratch, marker_dir, work_dir, **passed):
             marker_dir.mkdir(parents=True, exist_ok=True)
             (marker_dir / block_render.block_name(block)).touch()
 

@@ -536,13 +536,15 @@ class TestTheCropTakesTheBandAndNeverTheContext:
 
 
 class _FakeRasterio:
-    """Stands in for the module, so the crop is provable without a PNG on disk."""
+    """Stands in for the module, so a frame and the mosaic it is written into are both provable
+    without a raster on disk. `written` collects the crops, in call order."""
 
     def __init__(self, frame):
         self._frame = frame
+        self.written = []
 
     def open(self, *args, **kwargs):
-        frame = self._frame
+        frame, written = self._frame, self.written
 
         class _Reader:
             def __enter__(self):
@@ -554,7 +556,95 @@ class _FakeRasterio:
             def read(self):
                 return frame
 
+            def write(self, data, window=None):
+                written.append((data, window))
+
         return _Reader()
+
+
+def _render_one_block(tmp_path, monkeypatch, **kwargs):
+    """`render_block` end to end with Blender and the rasters stood in for.
+
+    Everything it does on disk still happens: the prep fills a render directory, the stand-in
+    Blender writes the frame and the scene beside it, and the cleanup at the end is what is under
+    test. The block is small because the frame is allocated for real and nothing here reads ground.
+    """
+    block = Block(col0=0, row0=0, size_px=64, context_px=block_plan.DENOISE_BAND_PX)
+    name = block_render.block_name(block)
+    scratch, markers = tmp_path / "scratch", tmp_path / "blocks"
+    scratch.mkdir(parents=True)
+    markers.mkdir(parents=True)
+    frame, scene = scratch / f"{name}.png", scratch / f"{name}.blend"
+
+    def _cut(body, block, render_dir, *, work):
+        render_dir.mkdir(parents=True, exist_ok=True)
+        (render_dir / "heightfield.tif").write_bytes(b"")
+
+    def _blender(command):
+        frame.write_bytes(b"")
+        scene.write_bytes(b"")
+        return SimpleNamespace(
+            returncode=0, stderr="",
+            stdout=f"DENOISE_DEVICE {block_render.BLOCK_DENOISE_DEVICE}\n"
+                   f"BASE_GRID {block_render.BLOCK_BASE_GRID} BASE_PATCHES 1\n")
+
+    edge = block.traced_edge_px
+    monkeypatch.setattr(prep_block, "cut", _cut)
+    monkeypatch.setattr(block_render.blender_proc, "run", _blender)
+    monkeypatch.setattr(block_render, "rasterio",
+                        _FakeRasterio(np.zeros((4, edge, edge), dtype=np.uint8)))
+    block_render.render_block(bodies.EARTH, block, tmp_path / "planet_rgb.tif", scratch, markers,
+                              tmp_path, **kwargs)
+    return SimpleNamespace(frame=frame, scene=scene, render_dir=scratch / name,
+                           marker=markers / name)
+
+
+class TestTheFrameCanBeKeptForADiagnosis:
+    """The Cycles frame is the only thing that can say whether an artifact is in the render or
+    arrived after it, and every block deletes its own.
+
+    THE FRAME IS UNLINKED SEPARATELY FROM THE DIRECTORY BESIDE IT, so keeping one is not keeping
+    the other: a diagnosis that suppresses only `shutil.rmtree` gets the prep inputs and loses the
+    pixels it was run for. Both are asserted, and in both directions, because a `render_block` that
+    stopped cleaning up at all would satisfy the keeping half on its own.
+    """
+
+    def test_a_kept_render_leaves_the_frame_where_it_was_written(self, tmp_path, monkeypatch):
+        kept = _render_one_block(tmp_path, monkeypatch, keep_intermediates=True)
+        assert kept.frame.exists(), "the frame is what a render diagnosis reads"
+        assert kept.scene.exists() and kept.render_dir.is_dir()
+
+    def test_the_default_deletes_all_three_so_the_pin_above_can_fail(self, tmp_path, monkeypatch):
+        """The control. A pass leaves 4,096 of these behind, so keeping them is the exception and
+        the flag has to be what makes the difference rather than a cleanup that stopped running."""
+        swept = _render_one_block(tmp_path, monkeypatch)
+        assert not swept.frame.exists()
+        assert not swept.scene.exists() and not swept.render_dir.exists()
+
+    def test_the_block_is_rendered_and_marked_either_way(self, tmp_path, monkeypatch):
+        """Keeping is a cleanup decision and nothing else. A flag that also skipped the write would
+        leave the mosaic short with a marker claiming otherwise, which no later run re-renders."""
+        for keep in (True, False):
+            done = _render_one_block(tmp_path / f"k{keep}", monkeypatch, keep_intermediates=keep)
+            assert done.marker.exists()
+
+    def test_the_run_hands_its_answer_to_every_block(self, tmp_path, monkeypatch):
+        """The flag arrives at the CLI and the deletion happens per block, so the two are joined by
+        an argument that nothing else asserts: the tests above call the block directly."""
+        kept = _drive_planet(tmp_path, monkeypatch, blocks=3, keep_intermediates=True)
+        assert kept.handed == [{"keep_intermediates": True}] * 3
+
+    def test_a_finished_planet_does_not_sweep_away_what_it_was_asked_to_keep(
+            self, tmp_path, monkeypatch):
+        """`run` empties the scratch tree on the pass that completes the planet, so without this
+        the flag would hold or not hold depending on which block a diagnosis happened to ask for."""
+        kept = _drive_planet(tmp_path, monkeypatch, blocks=2, keep_intermediates=True)
+        assert kept.rendered == 2 and all(scratch.is_dir() for scratch in kept.scratches)
+
+    def test_a_finished_planet_sweeps_it_by_default(self, tmp_path, monkeypatch):
+        """The control for the test above, and the behaviour a night's pass depends on."""
+        swept = _drive_planet(tmp_path, monkeypatch, blocks=2)
+        assert swept.rendered == 2 and not any(scratch.exists() for scratch in swept.scratches)
 
 
 class TestTheDiskFloorIsSizedForWhatIsLeft:
@@ -789,11 +879,13 @@ def _drive_planet(tmp_path, monkeypatch, *, mosaic=None, blocks=3, **kwargs):
     attempted: list[str] = []
     scratches: set[Path] = set()
     cut_from: set[Path] = set()
+    handed: list[dict] = []
 
-    def _fake_render(body, block, mosaic, scratch, markers, work):
+    def _fake_render(body, block, mosaic, scratch, markers, work, **passed):
         attempted.append(block_render.block_name(block))
         scratches.add(scratch)
         cut_from.add(work)
+        handed.append(passed)
         (markers / block_render.block_name(block)).write_text("margin 0\n")
 
     monkeypatch.setattr(block_render, "plan_blocks", lambda body, work: planned)
@@ -807,7 +899,7 @@ def _drive_planet(tmp_path, monkeypatch, *, mosaic=None, blocks=3, **kwargs):
     mosaic = mosaic.resolve()          # the spelling `run` itself uses, so a caller can compare
     rendered = block_render.run(bodies.EARTH, tmp_path, mosaic, **kwargs)
     return SimpleNamespace(attempted=attempted, mosaic=mosaic, rendered=rendered,
-                           scratches=scratches, cut_from=cut_from)
+                           scratches=scratches, cut_from=cut_from, handed=handed)
 
 
 def _stop_here(*args, **kwargs):
