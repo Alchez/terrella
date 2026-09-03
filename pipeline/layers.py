@@ -42,7 +42,7 @@ class Layer:
 
     #: The vocabulary word. The one spelling: call sites pass the `Layer`, never the string.
     name: str
-    #: Read by the Mercator tile composite (`tile/shade_planet.py`).
+    #: Read by the planet warp (`planet_warp.py`), which lands it on the 3857 grid.
     in_planet: bool
     #: Read by the polar cap pass (`tile/cap_pass.py`), whichever arm it dispatches to.
     in_cap: bool

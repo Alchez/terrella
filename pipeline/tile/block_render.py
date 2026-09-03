@@ -54,13 +54,14 @@ from pipeline import (
     mercator,
     paths,
     planet_seam,
+    planet_warp,
     progress,
 )
 from pipeline.block_plan import Block
 from pipeline.look import layer_producers, palette
 from pipeline.raster_io import GTIFF_CREATE
 from pipeline.render import blender_proc, prep_block
-from pipeline.tile import relief_scan, shade_planet
+from pipeline.tile import cut_tiles, relief_scan
 
 #: Consecutive block failures that stop the run. A single block can fail for its own reasons — a
 #: transient OptiX fault, a bad frame — and throwing away the hours still queued behind it would be
@@ -90,7 +91,7 @@ GENERATION_NAME = "generation.stamp"
 
 def mosaic_in(work: Path) -> Path:
     """The colour raster this producer fills, which is the one the tile cut reads."""
-    return work / shade_planet.PLANET_RGB
+    return work / cut_tiles.PLANET_RGB
 
 
 def markers_in(mosaic: Path) -> Path:
@@ -295,8 +296,8 @@ def raytrace_deps(work: Path, recipe: Path) -> tuple[Path, ...]:
     marker, so each read the other's work as its own; one producer cannot be confused about who
     filled the mosaic. A second one arriving needs that seam back before it writes a pixel.
     """
-    return (work / shade_planet.HEIGHT_3857, work / shade_planet.OCEAN_3857,
-            work / shade_planet.WATER_3857,
+    return (work / planet_warp.HEIGHT_3857, work / planet_warp.OCEAN_3857,
+            work / planet_warp.WATER_3857,
             *(layer.warped_in(work) for layer in layers.warped_for(layers.BLOCK_LAYERS)), recipe)
 
 
@@ -350,11 +351,11 @@ def check_inputs(work: Path, body: bodies.Body, rasters: frozenset[str]) -> None
 
     The warp itself is still the pass's, which is the seam this names rather than papers over.
     """
-    required = [work / shade_planet.HEIGHT_3857]
+    required = [work / planet_warp.HEIGHT_3857]
     if "oceanmask" in rasters:
-        required.append(work / shade_planet.OCEAN_3857)
+        required.append(work / planet_warp.OCEAN_3857)
     if "watermask" in rasters:
-        required.append(work / shade_planet.WATER_3857)
+        required.append(work / planet_warp.WATER_3857)
     missing = [path.name for path in required if not path.exists()]
     if missing:
         raise SystemExit(

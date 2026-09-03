@@ -24,9 +24,9 @@
 #   3. stamp.py      -> per-stage wall clock from the pass's own existing stage prints, free.
 #   4. the cgroup    -> memory.peak for the whole scope, and the body's own cap, which kills the job
 #                       rather than the box (proven: a 4-cell region render hit it and died alone).
-#                       The number is pass_cap.py's, never this script's -- see the block below.
+#                       The number is pass_memory.py's, never this script's -- see the block below.
 #
-# THE CAP IS THE BODY'S AND THIS SCRIPT DOES NOT KNOW IT -- pipeline/profile/pass_cap.py derives
+# THE CAP IS THE BODY'S AND THIS SCRIPT DOES NOT KNOW IT -- pipeline/profile/pass_memory.py derives
 # it from the registry, and holds the whole argument plus the measurements behind both numbers.
 # MEMORY_CAP_OVERRIDE_GIB substitutes the number afterwards and says so on stdout when it does; the
 # registry is still asked either way, and the branch itself carries why that ordering matters.
@@ -37,7 +37,7 @@
 # COMPOSITE_ROWS=128 is a hardcoded constant rather than a function of this cap, so a larger cap
 # cannot let it grow. The per-stage peaks are measured in PROCESS.md, not restated here.
 #
-# What this script still owns is GDAL_CACHEMAX=512 (per shade_planet.py's own launch note), which
+# What this script still owns is GDAL_CACHEMAX=512 (per planet_warp.py's own launch note), which
 # `gdal raster tile` multiplies: it spawns -j ALL_CPUS workers that EACH inherit it. That product is
 # an UPPER BOUND the cut never reaches -- the block cache fills lazily, and measured the cut is the
 # lightest stage of the pass, so it is not what sizes this cap. A worker killed mid-write still
@@ -67,7 +67,7 @@ UNIT=terrella-$RUN_LABEL
 # a second thing to keep in step. It also makes this wrapper honour the contract its header states
 # -- until now a run that omitted --body cleared the preflight, opened a cgroup scope, and only
 # then died inside Python. argparse writes its own message to stderr, so nothing is restated here.
-MEMORY_CAP_GIB=$("$VENV" -m pipeline.profile.pass_cap "$@") || exit 1
+MEMORY_CAP_GIB=$("$VENV" -m pipeline.profile.pass_memory "$@") || exit 1
 
 # A DELIBERATE OVERRIDE, READ AFTER THE RESOLVER AND NEVER INSTEAD OF IT, which is the whole design
 # of this branch. Written `${MEMORY_CAP_OVERRIDE_GIB:-$(...)}` it would let an exported variable skip
@@ -77,10 +77,10 @@ MEMORY_CAP_GIB=$("$VENV" -m pipeline.profile.pass_cap "$@") || exit 1
 # It exists because the alternative is an untestable wiring. Both bodies render caps now, so the
 # resolver answers 16 for every planet in the registry and no real invocation can tell "the shell
 # used the number it was given" from "the shell holds a 16" -- a distinction sabotage.py has a case
-# for. A synthetic body cannot help: pass_cap runs in a SUBPROCESS, so a monkeypatched registry
+# for. A synthetic body cannot help: pass_memory runs in a SUBPROCESS, so a monkeypatched registry
 # never reaches it. This makes the number a controllable input, which is what a wiring test needs.
 #
-# ANNOUNCED, BECAUSE A SILENT ONE WOULD BE THE THING pass_cap's "NO FALLBACK" NOTE REFUSES. A pass
+# ANNOUNCED, BECAUSE A SILENT ONE WOULD BE THE THING pass_memory's "NO FALLBACK" NOTE REFUSES. A pass
 # capped at an arbitrary number that nothing names is exactly the failure that module is written to
 # prevent; a pass capped at a number it prints is an operator decision, like ALLOW_LOW_MEMORY.
 if [[ -n "${MEMORY_CAP_OVERRIDE_GIB:-}" ]]; then
@@ -159,7 +159,7 @@ fi
 # The raytrace producer forks one long-lived Blender per block instead, which nothing can race, so
 # on that producer the rate buys accuracy nobody needs and costs ~158k samples over a night. It is
 # left at 0.5 s rather than made per-producer because this script does not know which one runs --
-# the body does, and asking would be a second reader of pass_cap's question for a sampling rate.
+# the body does, and asking would be a second reader of pass_memory's question for a sampling rate.
 "$VENV" "$HARNESS/sample_tree.py" --unit "${UNIT}.scope" --out "$PROF/samples.jsonl" \
     --interval 0.5 2> "$PROF/sampler.log" &
 SAMPLER_PID=$!

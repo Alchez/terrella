@@ -51,7 +51,7 @@ def _alps_grid(width=400, rows=384):
 
 
 def _window_bounds(transform, width, row0, row1):
-    """Exactly the planet warp's per-window bounds derivation (shade_planet.py)."""
+    """Exactly the planet warp's per-window bounds derivation (planet_warp.py)."""
     win_top = transform.f + row0 * transform.e
     win_bottom = transform.f + row1 * transform.e
     return (transform.c, win_bottom, transform.c + width * transform.a, win_top)

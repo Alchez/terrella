@@ -25,7 +25,8 @@ export const DEEP_SEA = "#47808F";
  *  hand-typed in `bodies.ts` while equalling this stop exactly: right by luck, and unguarded. */
 export const TRENCH_FLOOR = "#3A6E7D";
 
-/** `_srgb8(MARS_LAND_STOPS[3])` — the +655 m stop the ramp names the modal elevation, so it is the
+/** `_srgb8(MARS_LOOK.land.stop_at(655))` — the +655 m stop the ramp names the modal elevation, so
+ *  it is the
  *  tone most of Mars is. Mars's `space-floor`, on the rule that gives Earth `DEEP_SEA`: a missing
  *  tile must read as more of this planet. The `#6b3a2a` it replaced was darker than any Mars tile.
  *
@@ -82,11 +83,12 @@ export interface RampStop {
  * entry from `MARS_LAND_STOPS` through `MARS.planet_producer`, and fails on drift in the stops,
  * the producer, or a knob the producer in force reads. */
 export const MARS_RAMP: readonly RampStop[] = [
-  { at: 0.0, hex: "#784F3C" }, // ~-6,000 m, the deepest basin floors
-  { at: 0.15, hex: "#8F5F49" }, // ~-4,185 m, lowland plains
-  { at: 0.35, hex: "#AC7351" }, // ~-1,765 m, the northern lowlands
-  { at: 0.55, hex: "#BE885E" }, // ~  +655 m, just above the areoid — the modal elevation
-  { at: 0.78, hex: "#CBA378" }, // ~+3,438 m, southern highlands
+  { at: 0.0, hex: "#5D3C2D" }, // ~-8,600 m, below Mars's measured floor so nothing clips
+  { at: 0.17687075, hex: "#784F3C" }, // ~-6,000 m, p1 of the heightfield
+  { at: 0.30034014, hex: "#8F5F49" }, // ~-4,185 m, lowland plains
+  { at: 0.46496599, hex: "#AC7351" }, // ~-1,765 m, the northern lowlands
+  { at: 0.62959184, hex: "#BE885E" }, // ~  +655 m, just above the areoid — the modal elevation
+  { at: 0.81891156, hex: "#CBA378" }, // ~+3,438 m, southern highlands
   { at: 1.0, hex: "#D4BF9D" }, // ~+6,100 m, Tharsis and the volcanic summits
 ];
 

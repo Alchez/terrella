@@ -20,7 +20,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n")[0])
     # REQUIRED, WITH NO DEFAULT, exactly as the planet pass requires it. A cap is the one output
     # where the wrong sphere leaves no trace: it projects, blends and downsamples to every rung, and
-    # simply sits on a different parallel than the tiles it feathers into. `shade_planet` passes
+    # simply sits on a different parallel than the tiles it feathers into. `planet_pass` passes
     # this through when it invokes the cap pass — the flag name is stated in both places, and
     # `test_the_shade_pass_hands_its_own_body_down_to_the_cap_pass` is what stops the two drifting.
     parser.add_argument("--body", required=True,

@@ -23,7 +23,7 @@ body that registers one half inherits Earth's other half in silence. A Martian r
 Martian producer and then run through Earth's `unpack_persistence` and Earth's latitude ramp is ice
 graded by NSIDC's packing convention, which no type and no test could notice.
 
-`contribution` RUNS ON A WORKER THREAD AND MUST TOUCH NO FILESYSTEM. `shade_planet` gathers every
+`contribution` RUNS ON A WORKER THREAD AND MUST TOUCH NO FILESYSTEM. `planet_warp` gathers every
 read on the main thread precisely so the compute stays pure; a producer opening a file here would
 put GDAL back where rasterio is not thread-safe.
 

@@ -56,7 +56,7 @@ describe("what a body's globe draws", () => {
 
   it("gives a body its own vector product rather than the one Earth publishes", () => {
     // The caps are not an exception — they are the projection's repair rather than a layer over it.
-    // Web Mercator carries no data past ~85°, so a globe without them draws `shade_planet.CAP_RGB`
+    // Web Mercator carries no data past ~85°, so a globe without them draws the polar plug
     // at both poles: a flat pale disc, tested on Earth and rejected.
     //
     // `vectorProduct` is the field this case exists for now that Mars publishes vectors. It read

@@ -109,7 +109,7 @@ pipeline/profile/run_pass.sh --body earth            # shade only
 pipeline/profile/run_pass.sh --body earth --tiles    # shade (skipped when fresh), then cut tiles
 ```
 
-It runs the pass inside a systemd scope with a memory cap derived per body by `pipeline/profile/pass_cap.py`, so an overrun kills the job rather than the box, and it sets `GDAL_CACHEMAX=512`. Run **one heavy job at a time**: the cap is sized for a single pass, and the planet pass ends by invoking `cap_render` as a subprocess inside the same cgroup.
+It runs the pass inside a systemd scope with a memory cap derived per body by `pipeline/profile/pass_memory.py`, so an overrun kills the job rather than the box, and it sets `GDAL_CACHEMAX=512`. Run **one heavy job at a time**: the cap is sized for a single pass, and the planet pass ends by invoking `cap_render` as a subprocess inside the same cgroup.
 
 | Module | Produces |
 |---|---|
@@ -124,8 +124,9 @@ It runs the pass inside a systemd scope with a memory cap derived per body by `p
 | `pipeline.look.snow` | tile snow: persistence → latitude-ramped soft alpha, unioned with RGI glaciers |
 | `pipeline.look.seaice` | sea-ice alpha over the ocean (translucent white, seafloor glows through) |
 | `pipeline.look.lake_depth` | GLOBathy lake depth on the tile grid (depth-keyed lake tint) |
-| `pipeline.tile.planet_pass` | the production planet pass: warp everything to one Web-Mercator grid, then whichever producer the body names → `planet_rgb.tif`, then `gdal raster tile` → the z0–8 pyramid, then the polar caps |
-| `pipeline.tile.shade_planet` | the planet stages either side of the raster: warp the 4326 inputs onto the 3857 grid, and cut the tiles out of the finished one. It fills nothing between them; `pipeline.tile.block_render` does. `pipeline.tile.shade` is what is left of the deleted compositor's tunables |
+| `pipeline.tile.planet_pass` | the production planet pass: warp everything to one Web-Mercator grid, then raytrace it block by block → `planet_rgb.tif`, then `gdal raster tile` → the z0–8 pyramid, then the polar caps. Four stages in order, sequenced from outside whichever one fills the raster |
+| `pipeline.planet_warp` | the first planet stage: warp the 4326 height and masks onto the WMQ-aligned 3857 grid every block's context is cut from |
+| `pipeline.tile.cut_tiles` | the last planet stage: cut 512px tiles out of the finished raster, to this body's own ceiling. What fills the raster between the two is `pipeline.tile.block_render` |
 | `pipeline.tile.block_render` | the pass's RAYTRACE producer: the same raster rendered block by block through Cycles, resumable per block |
 | `pipeline.tile.cap_pass` | both polar caps (AEQD) → `web/public/caps/` for Earth, whose URLs are a frontend contract, with a second body nesting one level in. Every disc is raytraced, so it matches the tiles it feathers into by construction: `pipeline.tile.cap_render` is everything a disc is built from and `pipeline.tile.cap_raytrace` is the only producer. The arm was picked off a per-body field until that field and the composited arm were deleted. Takes the same required `--body` the planet pass does, and is invoked with it automatically at that pass's tail. The cap assets are gitignored, so a fresh clone regenerates them here; `--elev-only` rebuilds just the per-pole terrain-RGB textures, which have their own freshness gate and do not require the ~14 GB colour render |
 | `pipeline.tile.terrain_rgb` | the terrain-RGB elevation pyramid for the globe's Tier-3 displacement, read straight off `height_3857.tif`, never the colour raster, so it is a separate lane rather than a stage of the planet pass. Takes the same required `--body` the shade and cap passes do, which picks the master, the ceiling and the descent's factor together; `--out` stays required, because the variant directory under the stage is operator-named and is checked to be under that body's tree rather than derived |

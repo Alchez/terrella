@@ -277,7 +277,7 @@ MARS = Body(
     # discs would exist as bare relief in the same ramps even with nothing white to paint on them.
     #
     # Held False until the M2a ramp was ratified, per the field note. What the False cost meanwhile
-    # was not a hole but something worse — `shade_planet.CAP_RGB`, the flat pale plug the cap
+    # was not a hole but something worse — a flat pale plug, since deleted, that the cap
     # textures exist to be drawn over, which MapLibre stretched across the pole and which was tested
     # on Earth's globe and rejected. Do not reach for False again as a cheap way to skip a render.
     renders_polar_caps=True,

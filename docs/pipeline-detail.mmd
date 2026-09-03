@@ -80,35 +80,27 @@ flowchart TD
     SN["look/snow.py: NSIDC-0791 persistence to a<br/>latitude-ramped soft alpha (0.40@45 to 0.60@63)<br/>unioned with an RGI 7.0 glacier raster"]
     LD["look/lake_depth.py: GLOBathy depth warped once<br/>to the 3857 grid, masked to watermask class 2<br/>(tint-only: never carved into the heightfield)"]
     IC["look/seaice.py: OSI SAF monthlies reduced to a<br/>1991-2020 annual ice-frequency climatology;<br/>smoothstep alpha, ocean-gated"]
-    WI["tile/shade_planet.py warp_inputs<br/>height + masks -> one WMQ-aligned 3857 grid<br/>-tap -tr 305.7483 -> 131072 x 131072<br/>SHARED: both producers below read exactly this, so it runs before the fork"]
-    PP{"tile/planet_pass.py: the fork, decided by Body.planet_producer<br/>refuses a body that names a producer its seam cannot feed, BEFORE the warp<br/>one raster, one path, one .done marker either way, so each producer<br/>declares ITSELF into planet_producer.json (tile/producer_seam.py)"}
-    BR["tile/block_render.py: the RAYTRACE producer<br/>the same 3857 grid rendered block by block through Cycles<br/>Earth 4096 blocks; skipped by marker existence, so a night can stop<br/>and resume, and an interrupted run never marks the mosaic done"]
-    PR[("planet_rgb.tif, EPSG:3857 uint8 RGB<br/>whichever producer filled it, with its own recipe sidecar beside it<br/>the cut cannot tell which ran, which is the design")]
-    HS["look/hillshade.py: per-row z-factor 15/cos(lat)<br/>full-width, 1-row halo -> seamless;<br/>gdaldem takes only a scalar z, hence our own"]
-    SH["tile/shade.py composite(): per 128-row window, 4 workers:<br/>land/sea ramps from elevation via a 17.6 KB LUT<br/>(replaced two gdaldem color-relief passes)<br/>x hillshade x sky-view + snow + sea ice + lake depth"]
+    WI["planet_warp.py warp_inputs<br/>height + masks -> one WMQ-aligned 3857 grid<br/>-tap -tr 305.7483 -> 131072 x 131072 (Mars 65536)<br/>the grid every block's context is cut from, so it runs before the raster"]
+    PP["tile/planet_pass.py: the pass, four stages in this order<br/>warp the inputs, fill the raster, cut the tiles, render the caps<br/>the sequence lives outside the stage that fills the raster, so no stage hosts it<br/>one raster, one path, one .done marker"]
+    BR["tile/block_render.py: the raytrace producer, and since the composite went the ONLY one<br/>the same 3857 grid rendered block by block through Cycles off the heroes' rig<br/>4096 px blocks: Earth 32x32 = 1024, Mars 16x16 = 256<br/>skipped by marker existence, so a night can stop and resume, and an<br/>interrupted run never marks the mosaic done"]
+    PR[("planet_rgb.tif, EPSG:3857 uint8 RGB<br/>with its recipe sidecar beside it, because existence cannot see a settings change")]
     T2["gdal raster tile: 512 px, xyz convention, to the body ceiling<br/>Earth z0-8, 87,381 tiles; tiles_old kept as rollback<br/>(cut/pyramid/@2x/serve mechanics: see docs/tiling.mmd)"]
     T5["tile/pack_pmtiles.py + pmtiles convert<br/>-> planet.pmtiles 3.1 GB, range-request served<br/>(see docs/tiling.mmd)"]
-    TT["tile/terrain_rgb.py: stage T, a SEPARATE LANE<br/>reads height_3857.tif directly, never the composite above<br/>elevation -> RGB at 8 m, sea kept as bathymetry, LOSSLESS WebP<br/>-> terrain.pmtiles 2.6 GB, declared tileSize 128 (see docs/tiling.mmd)"]
-    CP["tile/cap_pass.py: AEQD polar caps, both poles<br/>arm picked off planet_producer, so a disc matches its tiles:<br/>cap_render.py composites, cap_raytrace.py renders a 24-pass ring<br/>8192-px WebP pair + caps.json -> web/public/caps/<br/>freshness-guarded: restages whenever the look does"]
+    TT["tile/terrain_rgb.py: stage T, a SEPARATE LANE<br/>reads height_3857.tif directly, never the shaded raster above<br/>elevation -> RGB at 8 m, sea kept as bathymetry, LOSSLESS WebP<br/>-> terrain.pmtiles 2.6 GB, declared tileSize 128 (see docs/tiling.mmd)"]
+    CP["tile/cap_pass.py: AEQD polar caps, both poles<br/>raytraced off the same rig as the blocks, so a disc matches what it feathers into<br/>cap_raytrace.py renders a CAP_AZIMUTH_PASSES ring (24), each quadrant only its own arc;<br/>cap_render.py owns the grid, the warps, the meridian rotation and the rung ladder<br/>8192-px WebP pair + caps.json -> web/public/caps/<br/>freshness-guarded: restages whenever the look does"]
   end
 
   PH --> WI
   PH --> TT
   WI --> PP
-  PP --> HS
-  HS --> SH
   PP --> BR
   S4 --> SN
   S5 --> SN
   S7 --> IC
-  IC --> SH
   IC --> BR
   R5 --> LD
-  SN --> SH
   SN --> BR
-  LD --> SH
   LD --> BR
-  SH --> PR
   BR --> PR
   PR --> T2
   T2 --> T5
@@ -153,7 +145,7 @@ flowchart TD
   class S1,S2,S3,S4,S5,S6,S7 ext
   class D1,R1,D2,R4,D3,R3,D4,R5,V,F,PF,PH,O1,O2,O3,TT done
   class P,B,SV,H8,OV,HF done
-  class SN,LD,IC,WI,HS,SH,T2,T5,CP done
+  class SN,LD,IC,WI,PP,BR,PR,T2,T5,CP done
   class MS1,MS2,MS3,MS4 ext
   class MH,VC,VD done
   class W done

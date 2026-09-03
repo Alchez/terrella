@@ -65,10 +65,12 @@ class TestAdoption:
     """Source-scan drift guards: every tile writer carries the shared core, and fusion's writers
     never gain the threading flag.
 
-    `tile/shade_planet.py` and `tile/shade.py` both left this list when the composite did. Neither
-    writes a raster now — one warps and cuts through GDAL subprocesses, the other is a constants
-    module — so requiring the core of either would pin a string no call site can carry.
-    `look/hillshade.py` left it by being deleted, as the composite's last unimported leaf.
+    The planet shader and its compositor both left this list when the composite did. Neither
+    wrote a raster afterwards — one warps and cuts through GDAL subprocesses, the other had become a
+    constants module — so requiring the core of either would have pinned a string no call site can
+    carry. `tile/shade.py` has since been deleted too, its lake ramp moving to `look/lake_depth.py`
+    and its Mercator constant to `mercator.py`. `look/hillshade.py` left the list by being deleted,
+    as the composite's last unimported leaf.
 
     IT HAD DRIFTED TO ONE MEMBER AND THAT ONE WAS THE DELETED MODULE, so five real tile writers were
     unwatched while the guard read as live. THE LIST IS CURATED RATHER THAN DERIVED, deliberately: a

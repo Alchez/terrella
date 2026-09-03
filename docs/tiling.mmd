@@ -11,7 +11,7 @@
 
 flowchart TD
 
-  M[("Shaded planet master, written by whichever producer the body names<br/>tile/planet_pass.py dispatches: shade_planet composites, block_render raytraces<br/>planet_rgb.tif, EPSG:3857, uint8 RGB, one path and one done-marker either way<br/>Earth: 131072 x 131072 (full Mercator square, Antarctica included), 305.7483 m/px<br/>MAX-ZOOM-NATIVE: width = 512 x 2^maxzoom, so its pixels ARE the finest grid<br/>the ceiling is the BODY's (Body.tile_max_zoom), so this size is a body fact, not a constant")]
+  M[("Shaded planet master, raytraced block by block by tile/block_render.py<br/>tile/planet_pass.py sequences the pass around it; planet_warp warps the inputs in and cut_tiles cuts them out<br/>planet_rgb.tif, EPSG:3857, uint8 RGB, one path and one done-marker<br/>Earth: 131072 x 131072 (full Mercator square, Antarctica included), 305.7483 m/px<br/>MAX-ZOOM-NATIVE: width = 512 x 2^maxzoom, so its pixels ARE the finest grid<br/>the ceiling is the BODY's (Body.tile_max_zoom), so this size is a body fact, not a constant")]
 
   subgraph CUT["gdal raster tile: build_tiles (one call, two phases)"]
     P1["Phase 1: max-zoom cut (z8 on Earth)<br/>each tile = the source region it covers, 512 px<br/>source is already 3857, grid-aligned, at that resolution, so this is a<br/>pure copy: --resampling=cubic is INERT here (proven byte-identical to nearest)"]
@@ -20,7 +20,7 @@ flowchart TD
   end
 
   subgraph TERRAIN["Terrain-RGB: a SEPARATE LANE, not a variant of the above"]
-    TR["tile/terrain_rgb.py reads height_3857.tif DIRECTLY<br/>never the shaded composite, so it is not part of the shading pass at all<br/>elevation to RGB (Terrarium: (e + 32768) / step), step = 8 m, sea left as bathymetry<br/>so the seafloor displaces instead of reading as a wall<br/>encoded elevation feathers to zero over 78-85 deg by smoothstep<br/>LOSSLESS WebP: a lossy pixel here is a wrong ELEVATION, not a blemish"]
+    TR["tile/terrain_rgb.py reads height_3857.tif DIRECTLY<br/>never the shaded raster, so it is not part of the shading pass at all<br/>elevation to RGB (Terrarium: (e + 32768) / step), step = 8 m, sea left as bathymetry<br/>so the seafloor displaces instead of reading as a wall<br/>encoded elevation feathers to zero over 78-85 deg by smoothstep<br/>LOSSLESS WebP: a lossy pixel here is a wrong ELEVATION, not a blemish"]
     TD["bathy_s8_webp/tiles/&lt;z&gt;/&lt;x&gt;/&lt;y&gt;.webp, Earth: 87,381 tiles, z0-8<br/>same grid and count as the relief cut; guarded by its own tiles.done + terrain_params.json<br/>DECLARED tileSize 128 to the client, which is what makes the ceiling reachable at all"]
   end
 

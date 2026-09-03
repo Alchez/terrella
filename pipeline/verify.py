@@ -32,7 +32,7 @@ So this helper is deliberately incapable of returning a bare aggregate. Every co
 
 Companion rule this module CANNOT enforce, so it is written here instead: **verify by calling the
 production function with the production module's own constants -- import, never retype.** Bug 7 was
-a retyped constant. `from pipeline.tile.shade_planet import ALT` cannot drift; `ALT = 46.0` can.
+a retyped constant. `from pipeline.tile.cut_tiles import PLANET_RGB` cannot drift; retyping it can.
 """
 
 from dataclasses import dataclass, field

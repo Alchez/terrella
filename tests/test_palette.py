@@ -176,7 +176,9 @@ class TestSharedConstants:
         derived = {
             "DEEP_SEA": palette.SEA_STOPS[4][1],                 # -3800 m, Earth's space-floor
             "TRENCH_FLOOR": palette.SEA_STOPS[5][1],             # -6000 m, Earth's light accent
-            "MARS_MODAL_GROUND": palette.MARS_LAND_STOPS[3][1],  #  +655 m, Mars's space-floor
+            # BY ELEVATION, NOT BY INDEX: widening Mars's domain prepends a stop and slides every
+            # index by one, which would hand this a real colour from the wrong elevation.
+            "MARS_MODAL_GROUND": palette.MARS_LOOK.land.stop_at(655.0),  # Mars's space-floor
         }
         for name, linear in derived.items():
             red, green, blue = palette._srgb8(linear)
@@ -302,7 +304,10 @@ SHIPPED_TILE_HEX: dict[str, dict[str, list[str]]] = {
         "land": ["E9D9C0", "D7AC8E", "CE9880", "C9AD97", "DCC9B2", "E9DCC8"],
         "sea": ["85B9B7", "73ABAB", "68A6AC", "56939E", "47808F", "3A6E7D"],
     },
-    "mars": {"land": ["784F3C", "8F5F49", "AC7351", "BE885E", "CBA378", "D4BF9D"]},
+    # SEVEN ENTRIES, AND THE FIRST IS THE TAIL: `5D3C2D` at -8600 m, below Mars's measured floor.
+    # Six here means the domain lost its tail and clamps again, which is a look change and wants
+    # judging rather than a transcription fix.
+    "mars": {"land": ["5D3C2D", "784F3C", "8F5F49", "AC7351", "BE885E", "CBA378", "D4BF9D"]},
 }
 
 class TestTheShippedTileColourIsPinned:
@@ -458,7 +463,7 @@ class TestTheLookRegistry:
         assert upward.lowest_m == -200.0
 
     def test_mars_land_spans_its_own_measured_elevations(self):
-        """The domain is p1/p99 of Mars's own heightfield, area-weighted on the sphere.
+        """The domain spans Mars's own elevations, starting below the datum where Earth's starts at it.
 
         Asserted as an ORDERING against Earth rather than as two literals restated from the module:
         what must stay true is that Mars starts below the datum and Earth does not, which is the
@@ -526,10 +531,10 @@ def test_no_module_reaches_around_the_look_to_the_ramp_globals():
 
     # Anti-vacuity that NAMES the two modules which actually held the defect, rather than counting
     # files. A count survives a walk narrowed to one package; these two do not.
-    must_scan = {"pipeline/tile/shade_planet.py", "pipeline/render/scene_build.py"}
+    must_scan = {"pipeline/tile/block_render.py", "pipeline/render/scene_build.py"}
     assert must_scan <= scanned, (
-        f"the sweep never reached {sorted(must_scan - scanned)} — the two modules that carried "
-        "this exact bug. Whatever it is scanning now, it is not the shading path."
+        f"the sweep never reached {sorted(must_scan - scanned)} — the two modules on the shading "
+        "path. Whatever it is scanning now, it is not that path."
     )
     assert not offenders, (
         f"these modules reach around the look to Earth's ramp globals: {offenders}. Resolve the "

@@ -28,7 +28,7 @@ stale, and nothing should be listed.
 
 THE WARP IS INJECTED RATHER THAN IMPORTED. A producer that reads a raster has to land it on the
 cap's AEQD grid, and that grid — with its sphere, its extent and its pixel count — belongs to
-`cap_render`, which imports `shade_planet`, which imports this package. Reaching back for it would
+`cap_render`, which imports this package. Reaching back for that grid would
 close that cycle. Taking a `WarpToCap` instead keeps the dependency pointing one way and makes a
 producer drivable in a test with no GDAL behind it, which is how the alpha arithmetic gets an
 oracle at all.

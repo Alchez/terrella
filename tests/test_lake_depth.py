@@ -22,7 +22,6 @@ import numpy as np
 import pytest
 
 from pipeline.look import lake_depth, palette
-from pipeline.tile import shade
 
 CURVES = ["log1p", "sqrt", "linear"]
 
@@ -62,11 +61,11 @@ class TestLakeRamp:
 class TestLakePosition:
     @pytest.mark.parametrize("curve", CURVES)
     def test_shore_is_zero(self, curve):
-        assert shade.lake_position(np.array([0.0], "float32"), curve)[0] == 0.0
+        assert lake_depth.lake_position(np.array([0.0], "float32"), curve)[0] == 0.0
 
     @pytest.mark.parametrize("curve", CURVES)
     def test_deepest_lake_reaches_the_end(self, curve):
-        position = shade.lake_position(np.array([palette.LAKE_MAX_M], "float32"), curve)
+        position = lake_depth.lake_position(np.array([palette.LAKE_MAX_M], "float32"), curve)
         assert position[0] == pytest.approx(1.0)
 
     @pytest.mark.parametrize("curve", CURVES)
@@ -75,14 +74,14 @@ class TestLakePosition:
         so nothing should exceed it -- but a curve that can return >1 is one re-tune of
         LAKE_MAX_M away from indexing off the end of the ramp."""
         depths = np.array([-5.0, 0.0, 1.0, 11.2, 1642.0, 5000.0], "float32")
-        position = shade.lake_position(depths, curve)
+        position = lake_depth.lake_position(depths, curve)
         assert position.min() >= 0.0
         assert position.max() <= 1.0
 
     @pytest.mark.parametrize("curve", CURVES)
     def test_position_is_monotonic(self, curve):
         depths = np.array([0.0, 5.0, 11.2, 50.0, 230.0, 1642.0], "float32")
-        position = shade.lake_position(depths, curve)
+        position = lake_depth.lake_position(depths, curve)
         assert all(later >= earlier for earlier, later in itertools.pairwise(position))
 
     def test_log1p_spreads_shallow_lakes_where_sqrt_does_not(self):
@@ -90,12 +89,12 @@ class TestLakePosition:
         the first tenth of the ramp (region p10-p90 spread 0.14 vs log1p's 0.38), i.e. sqrt
         is a no-op dressed as caution."""
         median_lake = np.array([11.2], "float32")
-        assert shade.lake_position(median_lake, "log1p")[0] > 0.3
-        assert shade.lake_position(median_lake, "sqrt")[0] < 0.1
+        assert lake_depth.lake_position(median_lake, "log1p")[0] > 0.3
+        assert lake_depth.lake_position(median_lake, "sqrt")[0] < 0.1
 
     def test_unknown_curve_raises(self):
         with pytest.raises(ValueError, match="unknown LAKE_CURVE"):
-            shade.lake_position(np.array([1.0], "float32"), "cubic")
+            lake_depth.lake_position(np.array([1.0], "float32"), "cubic")
 
 
 class TestLakesOnly:

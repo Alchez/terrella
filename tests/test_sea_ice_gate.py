@@ -98,12 +98,22 @@ class TestTheConsumersNoLongerGate:
     Kept as a test rather than a deletion note: a consumer-side gate reappearing is not a bug on its
     own, but it silently restores the world where a producer can ship an ungated alpha and only the
     consumers that happen to gate are safe.
+
+    ASKED OF THE PACKAGE RATHER THAN OF ONE FILE. It used to read `tile/shade.py`, the module that
+    held `composite` -- which has since lost that function and then been deleted outright, so the
+    guard was reading a lake ramp and passing for want of anything to find. A consumer that regates
+    would not have put itself back in that file, and now it does not have to.
     """
 
-    def test_the_composite_does_not_regate_what_it_is_handed(self):
-        source = re.sub(r"#.*", "", (paths.ROOT / "pipeline/tile/shade.py").read_text())
-        assert "np.where(ocean, np.asarray(ice_a" not in source, (
-            "a consumer is gating the alpha again; the producers own that now")
+    def test_no_consumer_regates_what_it_is_handed(self):
+        regating = sorted(
+            str(module.relative_to(paths.ROOT))
+            for module in (paths.ROOT / "pipeline").rglob("*.py")
+            if "np.where(ocean, np.asarray(ice_a"
+            in re.sub(r"#.*", "", module.read_text(encoding="utf-8"))
+        )
+        assert not regating, (
+            f"a consumer is gating the alpha again in {regating}; the producers own that now")
 
 
 @pytest.mark.parametrize("empty", [np.zeros((ROWS, COLS)), np.zeros((ROWS, COLS), dtype=bool)])

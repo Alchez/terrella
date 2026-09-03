@@ -1,17 +1,17 @@
 """The hero lake-depth stage's pure core: depth metres + watermask -> ramp position.
 
 `lake_mask.depth_to_position` composes the two shared single-home implementations
-(`lake_depth.lakes_only` for the class gate, `shade.lake_position` for the curve), so
+(`lake_depth.lakes_only` for the class gate, `lake_depth.lake_position` for the curve), so
 these tests pin the composition — the gating, the range contract, the log1p endpoints
 the tile side documents, and the "off" A/B carry-over — not the internals, which have
-their own suites (test_lake_depth, test_shade-side coverage).
+their own suite (test_lake_depth).
 """
 
 import numpy as np
 import pytest
 
+from pipeline.look import lake_depth
 from pipeline.render.lake_mask import depth_to_position
-from pipeline.tile import shade
 
 
 @pytest.fixture(autouse=True)
@@ -21,7 +21,7 @@ def restore_lake_curve(monkeypatch):
     The fixture stays because the "off" control below still has to set it, and a leaked value would
     silently flatten every later test's water.
     """
-    monkeypatch.setattr(shade, "LAKE_CURVE", shade.LAKE_CURVE)
+    monkeypatch.setattr(lake_depth, "LAKE_CURVE", lake_depth.LAKE_CURVE)
 
 
 def position_of(depth_metres, watercode=2):
@@ -59,7 +59,7 @@ class TestCurve:
     def test_off_curve_is_flat_water(self, monkeypatch):
         """The flat-water A/B control carries over: "off" -> all zeros -> the
         scene's ColorRamp emits exactly the flat WATER_RGB everywhere."""
-        monkeypatch.setattr(shade, "LAKE_CURVE", "off")
+        monkeypatch.setattr(lake_depth, "LAKE_CURVE", "off")
         assert position_of(1642.0) == 0.0
 
     def test_dtype_is_float32(self):

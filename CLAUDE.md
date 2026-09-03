@@ -81,7 +81,7 @@ own skill (`.claude/skills/acquire-data/`).
 - Pipeline Python is the uv-managed venv (`source .venv/bin/activate`); `uv sync` rebuilds it exactly, upgrades only via `uv lock --upgrade`.
 - Dev/render box: dual-boot desktop, RTX 4070 Super, 12 GB VRAM. **All work happens in the Ubuntu boot** — never suggest Windows paths, WSL, or PowerShell.
 - Blender's own version, path, interpreter boundary and crash recipe are in `.claude/skills/blender-rig/`, which loads when a session touches the rig.
-- **One heavy job at a time under a 16 G cgroup cap, no exemptions.** The category that matters is "touches a full-planet raster" rather than "is a pipeline stage", so third-party tools and ad-hoc measurements are in scope too. `run_pass.sh` sizes the cap per body from `pipeline/profile/pass_cap.py`, and a hook refuses an unwrapped heavy command.
+- **One heavy job at a time under a 16 G cgroup cap, no exemptions.** The category that matters is "touches a full-planet raster" rather than "is a pipeline stage", so third-party tools and ad-hoc measurements are in scope too. `run_pass.sh` sizes the cap per body from `pipeline/profile/pass_memory.py`, and a hook refuses an unwrapped heavy command.
 - Keep project data and temp on ext4, never tmpfs `/tmp` and never large rasters on NTFS.
 - A separate home server runs the pipeline and is not the site's origin.
 - Keep intermediates out of backups. INVENTORY.md is the storage map: current sizes, what each store feeds, and which are reclaimable.

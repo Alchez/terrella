@@ -29,7 +29,7 @@ import { type VectorProduct } from "./sourceLayers";
 export interface GlobeSubsystems {
   /** The two azimuthal-equidistant polar textures that repair the Mercator projection above ~85°.
    *  Off does NOT leave a hole: MapLibre stretches the top tile row over the gap, so the pole
-   *  becomes `shade_planet.CAP_RGB`, a flat pale disc that reads as a decision rather than a
+   *  becomes the polar plug, a flat pale disc that reads as a decision rather than a
    *  defect. That is why this is a repair every body wants and not a layer only Earth needs. */
   polarCaps: boolean;
   /** The terrain-RGB displacement layer. Publishing the pyramid is necessary but not sufficient —

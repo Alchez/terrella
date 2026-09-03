@@ -7,7 +7,7 @@
 
 /** The archive's tile encoding, in the three spellings the request path needs. A PMTiles archive
  *  stores ONE encoding for every tile, so these follow `format` in the archive header — set by
- *  pipeline/tile/shade_planet.py's TILE_CUT and carried through by pack_pmtiles.
+ *  pipeline/tile/cut_tiles.py's tile_cut and carried through by pack_pmtiles.
  *
  *  WebP q95, previously PNG. Changing the extension is also what retires the old
  *  cached tiles: every URL changes, so no zone purge is involved. */
@@ -84,7 +84,7 @@ export function describeTileTypeMismatch(archiveExtension: string): string | nul
   return (
     `PMTiles archive stores ${declared} tiles, but the globe requests .${TILE_EXTENSION} and the ` +
     `server labels them ${TILE_CONTENT_TYPE}. Update TILE_EXTENSION in src/lib/reliefTiles.ts to ` +
-    `match the re-cut pyramid (its source of truth is TILE_CUT in pipeline/tile/shade_planet.py).`
+    `match the re-cut pyramid (its source of truth is tile_cut in pipeline/tile/cut_tiles.py).`
   );
 }
 

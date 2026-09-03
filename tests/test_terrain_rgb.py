@@ -216,7 +216,7 @@ def test_encode_raster_matches_the_array_encoder(tmp_path):
 def test_cut_zoom_never_resamples_encoded_bytes(monkeypatch, tmp_path):
     """Cubic/average/bilinear interpolate ACROSS the green byte's 256 m wrap and invent cliffs.
 
-    `shade_planet.tile_cut` uses cubic for both its cut and its overviews — correct for colour,
+    `cut_tiles.tile_cut` uses cubic for both its cut and its overviews — correct for colour,
     catastrophic here — so the risk is a well-meaning port, not a typo. Every other test in this
     file passes with `--resampling=cubic`.
     """
@@ -545,7 +545,7 @@ def test_an_empty_pyramid_is_never_fresh(tmp_path):
 
 def test_an_unstamped_master_is_never_fresh(monkeypatch, tmp_path):
     """"Cannot know" must read as stale, not as fresh: a master with no .done marker is one
-    shade_planet did not finish writing. Asserted in BOTH directions so the check can fail."""
+    planet_warp did not finish writing. Asserted in BOTH directions so the check can fail."""
     _fake_pipeline(monkeypatch)
     master = _stamped_master(tmp_path)
     out = tmp_path / "out"

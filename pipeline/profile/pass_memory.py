@@ -73,8 +73,8 @@ STANDING_GIB = 12
 HEAVY_JOB_GIB = 16
 
 
-def pass_memory_cap_gib(body: bodies.Body) -> int:
-    """The cgroup cap this body's pass may take, in GiB.
+def limit_gib(body: bodies.Body) -> int:
+    """The cgroup limit this body's pass may take, in GiB.
 
     Derived from `renders_polar_caps` rather than held as a per-body number, so a body that starts
     publishing caps gets the headroom by construction on the same commit that turns them on.
@@ -99,8 +99,8 @@ def pass_memory_cap_gib(body: bodies.Body) -> int:
     return CAP_RENDERING_GIB if body.renders_polar_caps else STANDING_GIB
 
 
-def cap_for_argv(argv: list[str]) -> int:
-    """The cap for a pass invoked with `argv`, parsed by the pass's OWN parser.
+def limit_for_argv(argv: list[str]) -> int:
+    """The limit for a pass invoked with `argv`, parsed by the pass's OWN parser.
 
     Sharing `planet_pass.build_parser` rather than re-reading `--body` in shell is the point: the
     harness forwards this exact argv to that module moments later, so a second spelling of the
@@ -108,12 +108,12 @@ def cap_for_argv(argv: list[str]) -> int:
     contract EARLIER — `--body` is required, and until now a run that omitted it cleared the
     preflight, opened a cgroup scope and only then died inside Python.
     """
-    return pass_memory_cap_gib(bodies.get(planet_pass.build_parser().parse_args(argv).body))
+    return limit_gib(bodies.get(planet_pass.build_parser().parse_args(argv).body))
 
 
 def main() -> None:
-    """Print the cap in GiB, for `run_pass.sh` to read. Errors go to stderr via argparse."""
-    print(cap_for_argv(sys.argv[1:]))
+    """Print the limit in GiB, for `run_pass.sh` to read. Errors go to stderr via argparse."""
+    print(limit_for_argv(sys.argv[1:]))
 
 
 if __name__ == "__main__":

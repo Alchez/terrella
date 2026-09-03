@@ -689,9 +689,9 @@ class TestTheCutReadsTheWorkDirectoryItWasGiven:
         """A minimal stage directory: the three warped rasters this cut reads, at one elevation so
         a block cut from it is identifiable by value alone."""
         root.mkdir(parents=True, exist_ok=True)
-        for name, dtype, value in ((prep_block.shade_planet.HEIGHT_3857, "float32", elevation),
-                                   (prep_block.shade_planet.OCEAN_3857, "uint8", 0),
-                                   (prep_block.shade_planet.WATER_3857, "uint8", 0)):
+        for name, dtype, value in ((prep_block.planet_warp.HEIGHT_3857, "float32", elevation),
+                                   (prep_block.planet_warp.OCEAN_3857, "uint8", 0),
+                                   (prep_block.planet_warp.WATER_3857, "uint8", 0)):
             with rasterio.open(root / name, "w", driver="GTiff",  # pyright: ignore[reportCallIssue]
                                width=self.STORE_PX, height=self.STORE_PX, count=1,
                                dtype=dtype) as out:
@@ -723,7 +723,7 @@ class TestTheCutReadsTheWorkDirectoryItWasGiven:
         argument and crashed, and it would pass for a body whose store simply is not there."""
         _, default = self._both_stores(monkeypatch, tmp_path)
         assert default == relief_scan.work_dir(bodies.EARTH)
-        with rasterio.open(default / prep_block.shade_planet.HEIGHT_3857) as height:  # pyright: ignore[reportCallIssue]
+        with rasterio.open(default / prep_block.planet_warp.HEIGHT_3857) as height:  # pyright: ignore[reportCallIssue]
             assert np.unique(height.read(1)).tolist() == [222.0]
 
     def test_the_mask_is_gated_on_the_SEAMS_DECLARATION_and_not_on_the_file(
@@ -747,7 +747,7 @@ class TestTheCutReadsTheWorkDirectoryItWasGiven:
 
         prep_block.cut(bodies.EARTH, self.BLOCK, outdir, work=store)
 
-        assert (store / prep_block.shade_planet.OCEAN_3857).exists(), (
+        assert (store / prep_block.planet_warp.OCEAN_3857).exists(), (
             "the fixture stopped writing the ocean raster, so this proves nothing: the whole "
             "question is what happens when the FILE is present and the DECLARATION is not")
         assert not (outdir / prep_block.render_seam.OCEANMASK).exists(), (

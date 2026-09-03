@@ -31,7 +31,7 @@ Fires on:
   * HEARTBEAT -- HEARTBEAT_S elapsed with none of the above, so silence is never ambiguous
 
 The cap this runs under is the BODY's and this module does not know it: `pipeline/profile/
-pass_cap.py` derives it and holds every measurement behind it.
+pass_memory.py` derives it and holds every measurement behind it.
 
 Exit code is always 0; the REASON is on stdout. Usage:
   watchdog.py --unit terrella-pass.scope --log pass.log --samples samples.jsonl \

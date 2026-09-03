@@ -24,10 +24,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from pipeline import bodies, layers, mercator, paths, planet_seam
+from pipeline import bodies, layers, mercator, paths, planet_seam, planet_warp
 from pipeline.compose import countries_pmtiles, features_pmtiles
 from pipeline.look import palette
-from pipeline.tile import cap_render, shade_planet, terrain_rgb
+from pipeline.tile import cap_render, cut_tiles, terrain_rgb
 
 #: A planet whose seam emitted all three rasters — what Earth declares, and the only
 #: shape these tests care about unless they say otherwise.
@@ -109,14 +109,26 @@ class TestTheCompositePlanetProducerIsDeletedAndCannotReturn:
         gone they reached no pixel and no recipe, and a value that reaches neither is a look
         decision nobody can act on. ART.md holds what each was and how it was chosen; this refuses
         the code copy coming back to be read as a live lever.
-        """
-        from pipeline.tile import shade
 
+        SCOPED TO THE PACKAGE RATHER THAN TO ONE MODULE, because `tile/shade.py` -- which used to
+        be the module this asked -- is itself gone now, its lake ramp having moved to
+        `look/lake_depth.py`. A guard naming one file cannot see the constant reappear in another,
+        and the file it named was the one most likely to be deleted.
+        """
+        sources = {
+            path: path.read_text(encoding="utf-8")
+            for path in (paths.ROOT / "pipeline").rglob("*.py")
+        }
         for name in ("Knobs", "KNOBS", "SHADOW_TINT"):
             with subtests.test(name=name):
-                assert not hasattr(shade, name), (
-                    f"`shade.{name}` is back. It records the deleted compositor's look, reaches no "
-                    f"recipe, and would read as a lever a re-tune could move"
+                defined = sorted(
+                    str(path.relative_to(paths.ROOT))
+                    for path, source in sources.items()
+                    if re.search(rf"^{name}\b *[:=]", source, re.MULTILINE)
+                )
+                assert not defined, (
+                    f"`{name}` is back, in {defined}. It records the deleted compositor's look, "
+                    f"reaches no recipe, and would read as a lever a re-tune could move"
                 )
 
     def test_the_numpy_cast_shadow_went_with_it(self, subtests) -> None:
@@ -261,7 +273,7 @@ def test_earth_carries_web_mercator_s_defining_sphere() -> None:
 def test_earth_s_grid_resolution_is_the_one_its_live_raster_was_built_at() -> None:
     """Pinned to the literal, like Web Mercator's sphere above and for a stronger reason.
 
-    THE BRIDGE THIS REPLACES IS GONE BECAUSE ITS COPY IS. `Z8_RES` briefly lived in `shade_planet`
+    THE BRIDGE THIS REPLACES IS GONE BECAUSE ITS COPY IS. `Z8_RES` briefly lived in the planet stage
     beside this field, held to it by an assertion; the constant has since been deleted and every
     caller reads the body. What survives it is the fact the bridge existed to protect, which is not
     derivable and not a tunable: **46 GB of `height_3857.tif` was warped at exactly this number**.
@@ -284,7 +296,7 @@ def test_every_body_s_grid_resolution_agrees_with_its_own_tile_ceiling() -> None
     body whose pixels already exist. A wrong ceiling, the error actually worth catching, is a factor
     of two. 1e-5 admits the first and cannot admit the second.
     """
-    tile_px = shade_planet.tile_cut(bodies.EARTH)["tile_size"]
+    tile_px = cut_tiles.tile_cut(bodies.EARTH)["tile_size"]
     for body in bodies.BODIES.values():
         exact = 2.0 * math.pi * body.mercator_radius_m / (tile_px * 2 ** body.tile_max_zoom)
         assert math.isclose(body.map_units_per_pixel, exact, rel_tol=1e-5), (
@@ -308,7 +320,7 @@ def test_the_cut_differs_between_bodies_in_exactly_one_setting() -> None:
     eight facts across every planet, and it lets two bodies' encodings drift apart while every test
     still passes. Nothing about a WebP quality is a property of Mars.
     """
-    earth, mars = shade_planet.tile_cut(bodies.EARTH), shade_planet.tile_cut(bodies.MARS)
+    earth, mars = cut_tiles.tile_cut(bodies.EARTH), cut_tiles.tile_cut(bodies.MARS)
     differing = {key for key in earth if earth[key] != mars[key]}  # pyright: ignore[reportTypedDictNotRequiredAccess]
     assert differing == {"max_zoom"}, (
         f"the cut differs between Earth and Mars in {sorted(differing)} — only the ceiling is a "
@@ -628,7 +640,7 @@ def _pipeline_zoom_range(layer: str, body: bodies.Body) -> tuple[int | None, int
     default would let a new layer's ceiling go unpinned while every suite stayed green.
     """
     if layer == "relief":
-        cut = shade_planet.tile_cut(body)
+        cut = cut_tiles.tile_cut(body)
         return cut["min_zoom"], cut["max_zoom"]
     if layer == "terrain":
         # PER BODY, like `vector` below and for the same reason: the elevation cut descends from
@@ -862,16 +874,21 @@ def test_the_shade_pass_no_longer_carries_its_own_grid_or_ceiling() -> None:
 
     Both spellings are checked because they fail differently. The resolution silently orphans the
     raster of any body whose ceiling is not z8; the ceiling silently cuts every planet to Earth's.
+
+    ONE SCAN PER MODULE, BECAUSE THE TWO CONSTANTS NOW LIVE IN DIFFERENT FILES. They shared one
+    when the warp and the cut shared one; scanning either alone would leave the other's needle
+    unwatched while still reading as a guard over both.
     """
-    source = Path(shade_planet.__file__).read_text(encoding="utf-8")  # pyright: ignore[reportArgumentType]
-    # The prose above the deleted constant explains WHY it left, and naming the number there would
-    # re-create this needle in a comment — so the note describes it and this stays a code scan.
-    assert "305.7483" not in source, (
-        "shade_planet has regrown a hard-coded grid resolution — it is Body.map_units_per_pixel, "
+    # The prose above each deleted constant explains WHY it left, and naming the number there would
+    # re-create these needles in a comment — so the notes describe them and these stay code scans.
+    warp = Path(planet_warp.__file__).read_text(encoding="utf-8")  # pyright: ignore[reportArgumentType]
+    cut = Path(cut_tiles.__file__).read_text(encoding="utf-8")  # pyright: ignore[reportArgumentType]
+    assert "305.7483" not in warp, (
+        "planet_warp has regrown a hard-coded grid resolution — it is Body.map_units_per_pixel, "
         "and a literal here warps every planet onto Earth's z8 lattice"
     )
-    assert "max_zoom=8" not in source, (
-        "shade_planet has regrown a hard-coded tile ceiling — it is Body.tile_max_zoom, and a "
+    assert "max_zoom=8" not in cut, (
+        "cut_tiles has regrown a hard-coded tile ceiling — it is Body.tile_max_zoom, and a "
         "literal here cuts every planet's pyramid to Earth's depth"
     )
 
@@ -879,7 +896,7 @@ def test_the_shade_pass_no_longer_carries_its_own_grid_or_ceiling() -> None:
 def test_neither_shading_module_carries_its_own_exaggeration() -> None:
     """Anti-regrowth over the third constant, and the one that reached furthest.
 
-    `EXAG` was a module constant in shade_planet and an IMPORT in cap_render, so the caps drew
+    `EXAG` was a module constant in the planet shader and an IMPORT in cap_render, so the caps drew
     every planet at Earth's relief however `--body` was set — and then feathered that into tiles
     shaded at the body's own. Both spellings are scanned because both are how it comes back: a
     local `EXAG = ...` reads as tidy, and re-importing it from the sibling reads as reuse.
@@ -887,10 +904,14 @@ def test_neither_shading_module_carries_its_own_exaggeration() -> None:
     The name is scanned rather than the number. A literal scan would miss `EXAG = 15` and
     `EXAGGERATION = palette.EXAGGERATION` alike, and both are the same bug: a look value pinned
     at module scope, where a body cannot reach it.
+
+    BOTH HALVES OF THE SPLIT PLANET STAGE ARE SCANNED, not just the one that shaded: the constant
+    reached the warp and the cut alike when they were one file, so dropping either from this loop
+    would reopen half the hole.
     """
     from pipeline.tile import cap_render
 
-    for module in (shade_planet, cap_render):
+    for module in (planet_warp, cut_tiles, cap_render):
         source = Path(module.__file__).read_text(encoding="utf-8")  # pyright: ignore[reportArgumentType]
         assert re.search(r"\bEXAG", source) is None, (
             f"{module.__name__} has regrown a module-scope exaggeration — it is Body.exaggeration, "

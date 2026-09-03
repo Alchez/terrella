@@ -73,26 +73,32 @@ WATER_RGB: RGB8 = (142, 198, 196)  # 8EC6C4 — flat inland lake/river teal: the
 SNOW_RGB: RGB8 = (232, 241, 246)         # E8F1F6 — sunlit snow (bright glacial white)
 SNOW_SHADOW_RGB: RGB8 = (176, 199, 219)  # B0C7DB — shaded snow (cool blue-white, not grey)
 
-# MARS, PER POLE, because the two deposits are measurably different colours: north 1.053 and south
-# 1.291 in red:violet against their own ground at 1.231 and 1.807. Normalising each cap by its own
-# surroundings leaves most of that gap standing, so the difference belongs to the ice rather than to
-# what surrounds it or to how it was imaged.
+# MARS, ONE WHITE FOR BOTH POLES, AND IT IS AUTHORED RATHER THAN DERIVED. Ratified on a rendered
+# frame: the south read as desert sand, and the pair below is the coolest white that holds Earth's
+# luminance in sRGB. Cooler does not exist here — `on_locus` raises rather than returning a colour
+# outside the gamut — so going further means spending luminance for dimmer ice, a fresh decision.
+#
+# WHY NOT PER POLE, WHICH IS WHAT THIS USED TO BE. The two deposits really are different colours,
+# north 1.042 and south 1.292 in red:violet, and while the white was DERIVED from the ice that
+# difference had to travel into the constant. It no longer is: one white is what was judged to look
+# right on both poles, and the measured difference stays where it belongs, in the ice.
 #
 # RED AND BLUE ARE MEASURED; GREEN IS NOT AND CANNOT BE. The Viking mosaic's green band is a fixed
 # linear combination of its red and violet (R^2 0.9998), so only the red:violet ratio is evidence
-# and green is a stated design rule: hold Earth's luminance, and keep the pair on one locus. The
-# south could not hold both — sRGB cannot reach Earth's brightness at that warmth with red pinned at
-# 255 — so its green is lifted to buy the luminance back, which is the choice that was ratified by
-# eye rather than derived.
+# and green is a stated design rule: hold Earth's luminance, and keep the pair on one locus.
 #
-# The derivation is checkable and `scripts/measure_mars_ice_white.py` is the check: it reproduces
-# Earth's own shipped pair exactly from Earth's ratio and luminance before it will report anything,
-# which is what makes it trustworthy on a pair nobody had seen. Its `--compare` mode re-measures the
-# ice and refuses a white that has stopped describing it — re-run it after any change to the alpha
-# levels or to the cap grid, both of which have moved once already.
+# THE HEX IS NOT THE QUANTITY ANYONE LOOKS AT: the render adds twenty-odd DN of warmth, so a white
+# is chosen by asking for a RENDERED target and inverting the transfer. Both lanes obey one transfer
+# — measured the same way, tiles fit `0.9312c + 7.59` and the north cap `0.9589c + 3.64` — so use
+# the ALPHA-WEIGHTED law when deriving a candidate. The `0.7196c + 23.38` that once circulated came
+# from a population rule that admitted the soft-alpha edge and reads about 21 DN warm.
+#
+# `scripts/measure_mars_ice_white.py` is the standing oracle, and its `--compare` now asks whether
+# the ICE has moved since this was ratified rather than whether this still matches the ice: an
+# authored white departs on purpose, and what expires a look decision is its subject changing.
 MARS_ICE_WHITE: dict[str, tuple[RGB8, RGB8]] = {   # pole -> (sunlit, shadowed)
-    "north": ((243, 239, 231), (198, 195, 188)),   # F3EFE7 / C6C3BC
-    "south": ((255, 239, 198), (207, 196, 160)),   # FFEFC6 / CFC4A0
+    "north": ((226, 242, 253), (185, 198, 207)),   # E2F2FD / B9C6CF
+    "south": ((226, 242, 253), (185, 198, 207)),   # E2F2FD / B9C6CF
 }
 # Sea ice: the same light-keyed white family but a subtle notch COOLER and dimmer than land snow,
 # so the poles read floating-thin-ice vs thick-ice-sheet without a hard colour split (the coastline
@@ -233,6 +239,29 @@ class Surface:
         """The elevation at LUT index 0, which is the lower end whichever way the ramp runs."""
         return min(self.origin_m, self.extreme_m)
 
+    def stop_at(self, metres: float) -> tuple[float, float, float]:
+        """The authored stop sitting at `metres`, found by the domain law rather than by INDEX.
+
+        WHY NOT `stops[3]`, WHICH IS WHAT TWO SITES USED TO DO. The elevations live in the comments
+        beside each stop and the code only ever saw a position, so naming a stop meant counting to
+        it. Widening Mars's domain to reach below its floor prepends one stop and slides every index
+        by one: `MARS_LAND_STOPS[3]` silently stops being +655 m and becomes -1765 m, which is a
+        real colour, in range, and wrong. Nothing about the value says so.
+
+        The position is recoverable exactly because it is DERIVED from the domain rather than
+        chosen: `(metres - origin_m) / span_m`. So a stop that keeps its elevation across a domain
+        change keeps answering here, and a stop that genuinely moved raises instead of returning a
+        neighbour.
+        """
+        wanted = (metres - self.origin_m) / self.span_m
+        for position, linear in self.stops:
+            if abs(position - wanted) <= 1e-6:
+                return linear
+        raise ValueError(
+            f"no stop at {metres:g} m (position {wanted:.6f}); this ramp has "
+            f"{[round(position, 6) for position, _ in self.stops]}. A stop that moved is a look "
+            f"change and wants judging, not a tolerance.")
+
 
 @dataclass(frozen=True)
 class Look:
@@ -307,12 +336,24 @@ EARTH_LOOK = Look(
 #: where they came from rather than an instruction. DO NOT re-tune them by inverting through that
 #: shader again; it is deleted and reached no pixel on this body before it went. Judge a re-tune on
 #: a rendered block, which is the only place this look now exists.
+#
+# THE DOMAIN REACHES BELOW MARS'S FLOOR: -8600..+6100 against a measured floor of -8525.7 m, so
+# nothing clips at either end. Narrowing it back to -6000 is the tidy that looks right, and it
+# clamps every pixel below that to one colour, which is the defect this domain exists to remove.
+#
+# THE SIX AUTHORED STOPS KEEP THEIR OWN ELEVATIONS and only their POSITIONS are recomputed against
+# the width, so nothing at or above -6000 changes colour and only the tail below it is this
+# domain's own.
+#
+# "NATURALIZED -7000" IS A DIFFERENT PROPOSAL AND IS NOT THIS: it restretches the whole ramp where
+# this only adds a tail. Rohan ratified this one on a rendered globe; that one is unrendered.
 MARS_LAND_STOPS: list[Stop] = [
-    (0.000, (0.187821, 0.078187, 0.045186)),  # -6000 m  p1, NOT the floor (-8526), ships #804d35
-    (0.150, (0.274677, 0.114435, 0.066626)),  # -4185 m  lowland plains
-    (0.350, (0.412543, 0.171441, 0.082283)),  # -1765 m  the northern lowlands' own tone
-    (0.550, (0.514918, 0.246201, 0.111932)),  #  +655 m  just above the areoid, the modal elevation
-    (0.780, (0.597202, 0.366253, 0.187821)),  # +3438 m  southern highlands
+    (0.00000000, (0.108487, 0.045162, 0.026101)),  # -8600 m  below the measured floor
+    (0.17687075, (0.187821, 0.078187, 0.045186)),  # -6000 m  p1, ships #804d35
+    (0.30034014, (0.274677, 0.114435, 0.066626)),  # -4185 m  lowland plains
+    (0.46496599, (0.412543, 0.171441, 0.082283)),  # -1765 m  the northern lowlands' own tone
+    (0.62959184, (0.514918, 0.246201, 0.111932)),  #  +655 m  just above the areoid, modal elevation
+    (0.81891156, (0.597202, 0.366253, 0.187821)),  # +3438 m  southern highlands
     (1.000, (0.658375, 0.520996, 0.337164)),  # +6100 m  Tharsis and the volcanic summits
 ]
 
@@ -345,7 +386,7 @@ MARS_LAND_STOPS: list[Stop] = [
 #: drift this file exists to refuse. The dataclass IS the representation; a constant earns its own
 #: name only when something other than the constructor needs it.
 MARS_LOOK = Look(
-    land=Surface(stops=MARS_LAND_STOPS, origin_m=-6000.0, extreme_m=6100.0),
+    land=Surface(stops=MARS_LAND_STOPS, origin_m=-8600.0, extreme_m=6100.0),
     sea=None,
 )
 

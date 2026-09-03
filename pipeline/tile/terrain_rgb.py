@@ -1,6 +1,6 @@
 """Terrain-RGB elevation tiles — the Tier-3 displacement source.
 
-Sibling of `shade_planet.py`, and deliberately NOT part of it: that module cuts *colour*, this
+Sibling of `cut_tiles.py`, and deliberately NOT part of it: that module cuts *colour*, this
 one cuts *elevation*. They share one input (`height_3857.tif`), one tiling scheme, and the
 stage-freshness primitives, which live in `pipeline/freshness.py` and belong to neither stage.
 Nothing about the LOOK crosses over. MapLibre consumes this as a second `raster-dem` source with
@@ -11,7 +11,7 @@ THE ONE TRAP THIS MODULE EXISTS TO AVOID
 Elevation packed into RGB is not an image. The value is `R*256 + G - 32768`, so the green byte
 WRAPS every 256 metres — and interpolating across a wrap invents a 256 m cliff. That makes every
 smooth resampler wrong on this data: `average`, `cubic`, `bilinear`, `lanczos` all mix bytes.
-`shade_planet.tile_cut` uses `cubic` for both the cut and its overviews, which is correct for
+`cut_tiles.tile_cut` uses `cubic` for both the cut and its overviews, which is correct for
 colour and catastrophic here.
 
 So the pyramid is built **per zoom, from elevation downsampled in elevation space**, and each
@@ -120,7 +120,7 @@ def master_zoom_for(body: bodies.Body) -> int:
     terrain zoom there is to cut.
 
     DERIVED RATHER THAN STORED, because the chain that makes deriving safe already has two owners
-    and a third copy of the number is exactly the drift they exist to prevent. `shade_planet` warps
+    and a third copy of the number is exactly the drift they exist to prevent. `planet_warp` warps
     the master at `body.map_units_per_pixel` and rebuilds it whenever the raster's own pixel size
     disagrees, so the file matches the field; `test_bodies` then pins that field against
     `tile_max_zoom` relationally, at a tolerance that admits Earth's rounded value and cannot admit
@@ -418,7 +418,7 @@ def build_parser() -> argparse.ArgumentParser:
     reads a 46 GB raster.
     """
     ap = argparse.ArgumentParser(description=__doc__)
-    # REQUIRED, WITH NO DEFAULT, exactly as shade_planet's is and for the same reason: a pass that
+    # REQUIRED, WITH NO DEFAULT, exactly as the planet pass's is and for the same reason: a pass that
     # assumes Earth because nobody said otherwise does not fail, it emits a complete and plausible
     # pyramid for the wrong planet. Here it decides four things at once — the master, where the
     # output lands, the ceiling cut to, and the descent's factor.

@@ -81,6 +81,17 @@ STYLE_BY_POLE = {"north": "locus", "south": "cream"}
 #: times above the noise and twelve times below the smallest difference that means anything.
 RATIO_TOLERANCE = 0.02
 
+#: The ice's own red:violet the day the shipped white was ratified, which is what `compare` alarms
+#: against. MEASURED, not authored: this run's own alpha-weighted numbers over the 8192 px discs at
+#: `edge_lat` 82, north 79.05% painted and south 11.53%.
+#:
+#: IT IS THE BASELINE BECAUSE THE WHITE STOPPED BEING DERIVED FROM IT. While a white was a function
+#: of the ice, holding the white to the ice tested both at once; an AUTHORED white departs on
+#: purpose, so the only question left for a machine is whether the ice Rohan judged is still the ice
+#: on disk. Re-measure and re-pin this only when a re-judged frame ratifies a new white, never to
+#: quiet an alarm — the alarm IS the finding that the judged frame has expired.
+ICE_RATIO_AT_RATIFICATION = {"north": 1.042, "south": 1.292}
+
 
 def out_dir() -> Path:
     """Scratch for the warps and masks, resolved at call time so a redirected data root moves it."""
@@ -279,32 +290,46 @@ def report():
 
 
 def compare(measured, derived) -> int:
-    """Hold the SHIPPED whites to the hue the ice now measures.
+    """Alarm when the ICE moves away from what was measured the day the white was ratified.
 
-    THE TEST IS THAT EACH PINNED PAIR STILL DESCRIBES ITS OWN ICE, which is a question about hue and
-    not about bytes. Both ends of a pair are checked because a pair is one white under two lights: if
-    the shadow's ratio drifted alone, the terminator would shift hue and nothing about the sunlit end
-    would say so.
+    THIS USED TO HOLD THE PINNED WHITE TO THE ICE'S HUE, which is the overrule the paragraph below
+    disclaims. That test was right for as long as the whites were DERIVED from the ice; it stopped
+    being right the day a white was authored to a look target instead. The ratified pair's red:violet
+    is 0.893 against a measured 1.042 north and 1.292 south, so the old assertion fires at 7x and 20x
+    tolerance on a value chosen deliberately, and an oracle that cries drift at a decision is an
+    oracle nobody reads by the time it matters.
+
+    WHAT INVALIDATES A RATIFICATION IS THE SUBJECT MOVING, not the distance from it. Rohan judged a
+    frame of ice that measured `ICE_RATIO_AT_RATIFICATION`; if the ice's own hue drifts out of
+    tolerance, that frame has stopped describing the planet and the look decision needs re-taking.
+    That is what this returns non-zero for.
 
     The derived pair is printed rather than asserted. It is what a re-pin would copy, but a re-pin is
     a look decision — the eye ratified these, and a ratio has no standing to overrule it.
     """
-    print("\n--- do the shipped whites still describe this ice? ---")
+    print("\n--- has the ice moved since the white was ratified? ---")
     worst = 0.0
     for pole, target in sorted(measured.items()):
+        baseline = ICE_RATIO_AT_RATIFICATION[pole]
+        deviation = abs(target - baseline)
+        worst = max(worst, deviation)
+        print(f"  {pole:>5}: ice measures red:violet {target:.3f} against {baseline:.3f} when the "
+              f"white was ratified   off by {deviation:.3f}"
+              f"   {'OK' if deviation <= RATIO_TOLERANCE else 'DRIFT'}")
+
+    print("\n--- how far the AUTHORED white sits from that ice, which is a look decision ---")
+    for pole in sorted(measured):
         for end, pinned in (("sunlit", palette.MARS_ICE_WHITE[pole][0]),
                             ("shadow", palette.MARS_ICE_WHITE[pole][1])):
             ratio = pinned[0] / pinned[2]
-            deviation = abs(ratio - target)
-            worst = max(worst, deviation)
-            print(f"  {pole:>5} {end}: pinned {tuple(pinned)} is red:violet {ratio:.3f} "
-                  f"against a measured {target:.3f}   off by {deviation:.3f}"
-                  f"   {'OK' if deviation <= RATIO_TOLERANCE else 'DRIFT'}")
+            print(f"  {pole:>5} {end}: pinned {tuple(pinned)} is red:violet {ratio:.3f}, "
+                  f"{abs(ratio - measured[pole]):.3f} from the ice. Reported, not asserted.")
 
-    print(f"\nworst deviation of a shipped white from its measured hue: {worst:.3f} "
+    print(f"\nworst movement of the ICE from its ratification measurement: {worst:.3f} "
           f"(tolerance {RATIO_TOLERANCE})")
     if worst > RATIO_TOLERANCE:
-        print("\nThe subject moved. What this run derives from the current data:")
+        print("\nThe subject moved, so the frame that was judged no longer describes it. "
+              "What this run derives from the current data:")
         for pole, (lit, shadow) in sorted(derived.items()):
             print(f'    "{pole}": ({tuple(lit)}, {tuple(shadow)}),')
         print("Re-judge on the globe before re-pinning.")

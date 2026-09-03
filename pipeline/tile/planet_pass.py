@@ -18,9 +18,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-from pipeline import bodies, planet_seam, progress
+from pipeline import bodies, planet_seam, planet_warp, progress
 from pipeline.freshness import is_stale
-from pipeline.tile import block_render, relief_scan, shade_planet
+from pipeline.tile import block_render, cut_tiles, relief_scan
 
 
 def _raytrace(work: Path, body: bodies.Body, rasters: frozenset[str], height: Path) -> Path:
@@ -108,20 +108,20 @@ def main() -> None:
     # plausible-looking pyramid.
     rasters = planet_seam.declared(body)
 
-    height = shade_planet.warp_inputs(work, planet_seam.planet_dir(body), body, rasters)
+    height = planet_warp.warp_inputs(work, planet_seam.planet_dir(body), body, rasters)
     planet_tif = _raytrace(work, body, rasters, height)
 
     if args.tiles and not raster_is_complete(planet_tif):
         progress.stage(f"{planet_tif.name} is incomplete -> tiles NOT cut "
                        f"(re-run to resume the producer)")
     elif args.tiles:
-        shade_planet.build_tiles(planet_tif, work, body)
+        cut_tiles.build_tiles(planet_tif, work, body)
 
     # The polar caps are pass outputs too: they run the same composite over the same sources, so a
     # look change that restages the raster must restage them. Both caps once sat stale against the
     # tiles they feather into (the north -6.7 DN adrift) because nothing coupled them to the recipe.
     # cap_render guards itself (cap_is_fresh), so a fresh pass pays only the ~2 s import here.
-    # Subprocess, not import: cap_render imports FROM shade_planet, and the caps' pyproj/scipy stack
+    # Subprocess, not import: cap_render imports FROM this package, and the caps' pyproj/scipy stack
     # stays out of the tile pass.
     if runs_cap_pass(body):
         progress.stage("polar caps ...")

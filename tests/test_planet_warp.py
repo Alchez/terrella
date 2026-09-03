@@ -1,4 +1,4 @@
-"""Tests for the freshness guard that decides which planet-shading stages re-run.
+"""Tests for the planet warp and the freshness guard that decides whether it re-runs.
 
 The load-bearing case is `test_refused_cell_makes_the_warp_stale`: it reproduces the
 Caspian miss, where re-fusing 4 of 540 chunks left every derived raster
@@ -6,7 +6,6 @@ silently stale because the old guard only asked whether the output existed.
 """
 
 import dataclasses
-import json
 import os
 import time
 from pathlib import Path
@@ -16,9 +15,8 @@ import pytest
 import rasterio
 from rasterio.transform import from_bounds
 
-from pipeline import bodies, freshness, mercator, planet_seam
+from pipeline import bodies, freshness, mercator, planet_seam, planet_warp
 from pipeline.look import palette
-from pipeline.tile import shade_planet
 
 #: A planet whose seam emitted all three rasters — what Earth declares, and the only
 #: shape these tests care about unless they say otherwise.
@@ -307,7 +305,7 @@ def test_the_reference_raster_is_not_gated_on_mtimes_alone() -> None:
     was one call asking the cheaper question. `TestReferenceNeedsRebuild` pins the decision;
     this pins that `warp_inputs` is the thing making it.
     """
-    source = Path(shade_planet.__file__).read_text(encoding="utf-8")  # pyright: ignore[reportArgumentType]
+    source = Path(planet_warp.__file__).read_text(encoding="utf-8")  # pyright: ignore[reportArgumentType]
     assert "reference_needs_rebuild(height" in source, (
         "the height warp is gated on mtimes alone again — its inputs do not move when a body's "
         "ceiling does, so the pass will cut the new pyramid out of the old grid and raise nothing"
@@ -347,141 +345,6 @@ class TestPaletteTextRefactor:
         assert path.read_text() == palette.color_relief_text(kind, look=palette.EARTH_LOOK)
 
 
-class TestBuildTilesGuard:
-    """build_tiles was the one unguarded stage -- it re-cut all 62k tiles on every --tiles run and
-    resumed over truncated pngs. A tiles.done sentinel + tiles_are_fresh + a clean cut (no --resume)
-    close both gaps. These lock the freshness decision the way TestIsStale locks is_stale.
-    """
-
-    def test_current_pyramid_is_fresh(self, tmp_path):
-        planet = _built(tmp_path, "planet_rgb.tif")
-        _built_pyramid(tmp_path)
-        _at(planet, 200)               # composite finished 200 s ago...
-        _at(tmp_path / "tiles", 100)   # ...tiles cut 100 s ago, so the pyramid is current
-        assert shade_planet.tiles_are_fresh(planet, tmp_path) is True
-
-    def test_stale_when_composite_is_newer(self, tmp_path):
-        planet = _built(tmp_path, "planet_rgb.tif")
-        _built_pyramid(tmp_path)
-        _at(planet, 100)               # recomposited 100 s ago...
-        _at(tmp_path / "tiles", 200)   # ...over a pyramid cut 200 s ago -> must re-cut
-        assert shade_planet.tiles_are_fresh(planet, tmp_path) is False
-
-    def test_stale_without_a_pyramid_marker(self, tmp_path):
-        """A tiles/ dir with content but no tiles.done -- e.g. an interrupted swap -- is not fresh."""
-        planet = _built(tmp_path, "planet_rgb.tif")
-        live = tmp_path / "tiles"
-        (live / "0").mkdir(parents=True)
-        (live / "0" / "0.png").write_text("png")
-        assert shade_planet.tiles_are_fresh(planet, tmp_path) is False
-
-    def test_stale_when_pyramid_dir_is_empty(self, tmp_path):
-        """An empty tiles/ (a half-finished swap) passes exists() but must still re-cut."""
-        planet = _built(tmp_path, "planet_rgb.tif")
-        live = tmp_path / "tiles"
-        live.mkdir()
-        freshness.mark_done(live)
-        assert shade_planet.tiles_are_fresh(planet, tmp_path) is False
-
-    def test_stale_when_composite_never_stamped(self, tmp_path):
-        """planet_rgb.tif with no .done (a crashed composite) must never read as fresh -- else the
-        0.0 mtime of the missing marker would slip past is_stale and skip a needed cut."""
-        planet = tmp_path / "planet_rgb.tif"
-        planet.write_text("half-written")
-        _built_pyramid(tmp_path)
-        assert shade_planet.tiles_are_fresh(planet, tmp_path) is False
-
-    def test_tile_cmd_omits_resume(self, tmp_path):
-        """No --resume: GDAL would skip a truncated tile by existence. --skip-blank is asserted too
-        so a wrong or empty arg list would trip the check rather than pass vacuously."""
-        cmd = shade_planet._tile_cmd(tmp_path / "planet_rgb.tif", tmp_path / "tiles_new",
-                                     bodies.EARTH)
-        assert "--resume" not in cmd
-        assert "--skip-blank" in cmd
-
-
-class TestTileRecipe:
-    """The cut's own settings are a freshness input, and the command is built from them.
-
-    This stage was the one that could not see its own recipe: `tiles_are_fresh` keyed off
-    `planet_rgb` alone, so changing the output format left the guard true and a `--tiles` run would
-    have reported "tiles fresh -> skip cut" while shipping the previous encoding. These lock both
-    halves — that the cut reaches the command line, and that changing it restages.
-    """
-
-    def test_every_setting_reaches_the_command(self, subtests, tmp_path):
-        """The command and the recorded recipe cannot disagree, because one is built from the other.
-        A setting recorded but never passed would restage the world for no pixel change.
-
-        Subtests because the realistic regression is a rewritten `_tile_cmd`, which drops SEVERAL
-        settings at once; a chain of asserts would name the first and hide the rest. `skip_blank`
-        is the cut's ninth key and is asserted next door, from the flag rather than the constant,
-        because its presence depends on its value.
-        """
-        cmd = " ".join(shade_planet._tile_cmd(tmp_path / "planet_rgb.tif", tmp_path / "tiles_new",
-                                     bodies.EARTH))
-        with subtests.test("format"):
-            assert f"--format={shade_planet.tile_cut(bodies.EARTH)['format']}" in cmd
-        with subtests.test("quality"):
-            assert f"QUALITY={shade_planet.tile_cut(bodies.EARTH)['quality']}" in cmd
-        with subtests.test("tile_size"):
-            assert f"--tile-size={shade_planet.tile_cut(bodies.EARTH)['tile_size']}" in cmd
-        with subtests.test("min_zoom"):
-            assert f"--min-zoom={shade_planet.tile_cut(bodies.EARTH)['min_zoom']}" in cmd
-        with subtests.test("max_zoom"):
-            assert f"--max-zoom={shade_planet.tile_cut(bodies.EARTH)['max_zoom']}" in cmd
-        with subtests.test("resampling"):
-            assert f"--resampling={shade_planet.tile_cut(bodies.EARTH)['resampling']}" in cmd
-        with subtests.test("overview_resampling"):
-            assert f"--overview-resampling={shade_planet.tile_cut(bodies.EARTH)['overview_resampling']}" in cmd
-        with subtests.test("convention"):
-            assert f"--convention={shade_planet.tile_cut(bodies.EARTH)['convention']}" in cmd
-
-    def test_params_serialise_the_whole_recipe(self):
-        assert json.loads(shade_planet.tile_params(bodies.EARTH)) == dict(shade_planet.tile_cut(bodies.EARTH))
-
-    def test_skip_blank_follows_the_recipe(self, tmp_path):
-        """Asserted from the flag rather than the constant, so flipping it off is a real change and
-        not a silently ignored field in the record."""
-        cmd = shade_planet._tile_cmd(tmp_path / "planet_rgb.tif", tmp_path / "tiles_new",
-                                     bodies.EARTH)
-        assert ("--skip-blank" in cmd) is shade_planet.tile_cut(bodies.EARTH)["skip_blank"]
-
-    def test_a_newer_recipe_restages_a_current_pyramid(self, tmp_path):
-        """The whole point: composite untouched, pyramid present and stamped, recipe rewritten
-        after the cut -> must re-cut. Without tile_params in the key this reads as fresh."""
-        planet = _built(tmp_path, "planet_rgb.tif")
-        _built_pyramid(tmp_path)
-        _at(planet, 300)
-        _at(tmp_path / "tiles", 200)
-        params = shade_planet.tile_params_path(tmp_path)
-        params.write_text(shade_planet.tile_params(bodies.EARTH))
-        _at(params, 100)                # recipe changed after the cut
-        assert shade_planet.tiles_are_fresh(planet, tmp_path) is False
-
-    def test_an_older_recipe_leaves_the_pyramid_fresh(self, tmp_path):
-        """The control that stops the check passing vacuously: an unchanged recipe (write_if_changed
-        never moves its mtime) must NOT restage a 4:19 cut."""
-        planet = _built(tmp_path, "planet_rgb.tif")
-        _built_pyramid(tmp_path)
-        params = shade_planet.tile_params_path(tmp_path)
-        params.write_text(shade_planet.tile_params(bodies.EARTH))
-        _at(params, 300)
-        _at(planet, 200)
-        _at(tmp_path / "tiles", 100)
-        assert shade_planet.tiles_are_fresh(planet, tmp_path) is True
-
-    def test_write_if_changed_leaves_an_identical_recipe_alone(self, tmp_path):
-        """build_tiles rewrites the recipe on every run, so an unchanged one must not move its
-        mtime — otherwise every --tiles invocation would restage the pyramid."""
-        params = shade_planet.tile_params_path(tmp_path)
-        freshness.write_if_changed(params, shade_planet.tile_params(bodies.EARTH))
-        _age(params, 500)
-        before = params.stat().st_mtime
-        freshness.write_if_changed(params, shade_planet.tile_params(bodies.EARTH))
-        assert params.stat().st_mtime == before
-
-
 class TestTheWarpPassAsksTheSeamBeforeTheDisk:
     """`warp_inputs`, driven for real with gdalwarp captured at the boundary.
 
@@ -508,8 +371,8 @@ class TestTheWarpPassAsksTheSeamBeforeTheDisk:
             source.write_text("vrt")
             _age(source, 500)  # older than the height marker -> nothing is stale
         commands: list[list[str]] = []
-        monkeypatch.setattr(shade_planet, "_run", lambda cmd: commands.append([str(p) for p in cmd]))
-        shade_planet.warp_inputs(work, planet, self.BARE, rasters)
+        monkeypatch.setattr(planet_warp, "_run", lambda cmd: commands.append([str(p) for p in cmd]))
+        planet_warp.warp_inputs(work, planet, self.BARE, rasters)
         return commands
 
     def test_an_undeclared_mask_never_reaches_gdalwarp(self, tmp_path, monkeypatch):
@@ -564,9 +427,9 @@ class TestTheWarpPassAsksTheSeamBeforeTheDisk:
             source.write_text("vrt")
             _age(source, 500)
         commands: list[list[str]] = []
-        monkeypatch.setattr(shade_planet, "_run", lambda cmd: commands.append([str(p) for p in cmd]))
+        monkeypatch.setattr(planet_warp, "_run", lambda cmd: commands.append([str(p) for p in cmd]))
 
-        shade_planet.warp_inputs(work, planet, body, frozenset({"heightfield"}))
+        planet_warp.warp_inputs(work, planet, body, frozenset({"heightfield"}))
 
         assert commands == [], "the warp re-ran, so this fixture never exercised the skip path"
         with rasterio.open(height) as dataset:

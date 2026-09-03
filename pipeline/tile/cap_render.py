@@ -567,9 +567,9 @@ def feather_hi_deg() -> float:
     between the cap and the tiles beneath it, so it has to finish exactly where there is nothing
     beneath it left to hide; a ceiling above the grid edge would fade over emptiness.
 
-    IT USED TO BE `shade_planet.CAP_NORTH`, and that was one constant doing two jobs. That one is
-    the latitude a COMPOSITED raster is flat-filled above, which is a statement about what a body
-    without a rendered cap holds in its polar sliver -- a different question with a different
+    IT USED TO BE A FLAT-FILL BOUNDARY REUSED AS A FEATHER CEILING, one constant doing two jobs.
+    The other job was the latitude a composited raster is flat-filled above, a statement about what
+    a body without a rendered cap holds in its polar sliver -- a different question with a different
     answer, and tying them meant the fade could not widen without moving the plug on Mars.
     """
     return block_plan.MERCATOR_LATITUDE_LIMIT_DEG
@@ -588,7 +588,7 @@ def caps_manifest(body: bodies.Body) -> str:
     """The pipeline->web contract, served beside the textures as caps.json.
 
     polarCaps.ts used to hand-copy `edge_lat` (as texEdgeLat) and the ±84 feather ceiling
-    (shade_planet's Mercator plug boundary) as literals — the same copy-drift species as the
+    (the old Mercator plug boundary) as literals — the same copy-drift species as the
     hero/tile colour constants. The web layer now FETCHES this file, so the pipeline is the
     single author of every value it renders into the textures; only frontend aesthetics
     (featherLo, mesh extent) stay web-side.
@@ -703,7 +703,7 @@ def cap_ground_metres_per_px(grid: CapGrid) -> float:
 
 def cap_reference_grid(grid: CapGrid) -> tuple[int, int, tuple[float, float, float, float]]:
     """This cap's warp target as `(width, height, bounds)` — the shape `freshness.grid_matches` asks
-    for, in the vocabulary `shade_planet` already calls a reference grid.
+    for, in the vocabulary `planet_warp` already calls a reference grid.
 
     THE POINT IS THAT A CACHED RASTER CAN BE ASKED WHICH DISC IT IS ON. An artifact warped here is
     named for its pole and nothing else, so `edge_lat` or `CAP_PX` can move underneath one and leave
@@ -756,7 +756,7 @@ def _lonlat_grid(grid: CapGrid) -> tuple[np.ndarray, np.ndarray]:
 #: The bearing `azimuth_delta` is a delta FROM: the tile side's north-west convention, which the
 #: cap's light turns away from as the meridians converge.
 #:
-#: OWNED HERE BECAUSE THE CAP IS ITS ONLY SUBJECT LEFT. It lived in `shade_planet` while that module
+#: OWNED HERE BECAUSE THE CAP IS ITS ONLY SUBJECT LEFT. It lived beside the planet shader while that
 #: drove a hillshade at it, and went when the composite did; the raytraced disc reads it only
 #: through the rig, which is handed `index * azimuth_step()` on top of it. So nothing in this
 #: process consults it and the value is still the meaning of the law below, which is exactly the

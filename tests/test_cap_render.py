@@ -2,7 +2,7 @@
 contract the web layer consumes.
 
 The contract tests are the load-bearing ones: `edge_lat` and the feather ceiling
-(= shade_planet's Mercator plug boundary) were hand-duplicated as literals in
+(= the old Mercator plug boundary) were hand-duplicated as literals in
 polarCaps.ts — the same copy-drift species as the hero/tile colour constants. caps.json
 makes the pipeline the single author; these tests pin what it publishes.
 
@@ -420,7 +420,7 @@ class TestCapsManifest:
             assert [rung["px"] for rung in entry["rungs"]] == list(cap_render.CAP_RUNGS)
             for rung in entry["rungs"]:
                 assert rung["url"] == f"/caps/cap_{name}_{rung['px']}.webp"
-        # NOT `shade_planet.CAP_NORTH` any more: that is the plug boundary, a statement about what a
+        # NOT the old plug boundary any more: that was a statement about what a
         # COMPOSITED raster holds in its polar sliver. The fade's ceiling is where Mercator tiles
         # stop, which is why it derives from the limit rather than from the plug.
         assert manifest["north"]["feather_hi"] == cap_render.feather_hi_deg()

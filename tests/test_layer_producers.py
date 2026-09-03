@@ -13,10 +13,9 @@ import pytest
 import rasterio
 from rasterio.transform import from_bounds
 
-from pipeline import bodies, datasets, freshness, layers, mercator
+from pipeline import bodies, datasets, freshness, layers, mercator, planet_warp
 from pipeline.acquire import download_rgi
 from pipeline.look import lake_depth, layer_producers, mars_ice, palette, seaice, snow
-from pipeline.tile import shade_planet
 
 #: A window well south of the Antarctic patch's -60, so the rule that has no dataset behind it is
 #: live in every oracle below rather than sitting at zero.
@@ -137,7 +136,7 @@ class TestWhatAProducerDeclaresItReads:
     def test_the_warp_consequence_covers_every_built_layer(self):
         """A layer added to the table and forgotten here would raise on the next pass of any body,
         which is the intent — pinned so the set is checked without waiting for a pass."""
-        assert set(shade_planet.WARP_CONSEQUENCE) == {
+        assert set(planet_warp.WARP_CONSEQUENCE) == {
             layer.name for layer in layers.warped_for(layers.PLANET_LAYERS)}
 
 
@@ -299,7 +298,7 @@ class TestTheWarpGateAsksTheBodyFirst:
                     build=lambda request, name=layer.name: built.append(name),
                     contribution=lambda window: None, paint=lambda window: None,
                     contribution_recipe=dict, paint_recipe=dict, build_recipe=dict))
-        shade_planet.warp_inputs(work, planet, body, frozenset())
+        planet_warp.warp_inputs(work, planet, body, frozenset())
         return built
 
     def test_earth_builds_every_layer_it_declares(self, monkeypatch, tmp_path):
@@ -355,7 +354,7 @@ class TestTheWarpGateAsksTheBodyFirst:
                     build=lambda request, name=layer.name: built.append(name),
                     contribution=lambda window: None, paint=lambda window: None,
                     contribution_recipe=dict, paint_recipe=dict, build_recipe=dict))
-        shade_planet.warp_inputs(work, planet, bodies.EARTH, frozenset())
+        planet_warp.warp_inputs(work, planet, bodies.EARTH, frozenset())
         assert layers.PERENNIAL_ICE.name not in built
         assert layers.SEA_ICE.name in built, "the other layers must be unaffected"
 
@@ -395,7 +394,7 @@ class TestABuildTimeConstantReachesTheFreshnessGate:
                     contribution_recipe=dict, paint_recipe=dict, build_recipe=dict))
             monkeypatch.setitem(layer_producers.PRODUCER_BY_BODY_LAYER,
                                 (body.name, layer.name), registered)
-        shade_planet.warp_inputs(work, planet, body, frozenset())
+        planet_warp.warp_inputs(work, planet, body, frozenset())
         return builds
 
     def _producer(self, tmp_path, tunables):
@@ -598,16 +597,37 @@ class TestAProducerDeclaresTheWhiteItIsPaintedIn:
         glaciers = layer_producers.producer_for(bodies.EARTH, layers.GLACIERS).paint(_window(None))
         assert ice == glaciers
 
-    def test_mars_paints_its_two_poles_in_DIFFERENT_whites(self):
-        """The measurement that motivated the whole seam: 1.053 red:violet north against 1.291
-        south. One producer spans both hemispheres, so the difference has to appear WITHIN a
-        producer's answer rather than between two registry entries."""
+    def test_mars_still_resolves_its_white_PER_POLE_though_both_poles_now_carry_one(
+            self, monkeypatch):
+        """This used to assert the two poles paint DIFFERENT whites, and that has been superseded.
+
+        It was written when the white was DERIVED from each deposit's own hue (1.042 red:violet
+        north against 1.292 south), so the difference had to reach the pixels. The shipped white is
+        authored now and is one white on both poles, so the old assertion pinned a look decision
+        that has since been re-taken and would have failed the ratified value.
+
+        WHAT STILL HAS TO HOLD IS THE SEAM, and with both entries equal nothing exercises it: a
+        producer that had stopped reading the pole at all would return the same answer and every
+        equality below would pass. So the pole is made to matter synthetically, which is the only
+        arm that separates "asked and told one thing twice" from "never asked".
+        """
         producer = layer_producers.producer_for(bodies.MARS, layers.PERENNIAL_ICE)
-        northern = producer.paint(_window(None, top=9_000_000.0, bottom=8_000_000.0))
-        southern = producer.paint(_window(None, top=-8_000_000.0, bottom=-9_000_000.0))
-        assert northern is not None and southern is not None
-        for north_end, south_end in zip(northern, southern, strict=True):
-            assert not np.array_equal(np.asarray(north_end), np.asarray(south_end))
+        northern_sky = _window(None, top=9_000_000.0, bottom=8_000_000.0)
+        southern_sky = _window(None, top=-8_000_000.0, bottom=-9_000_000.0)
+
+        def same(one, other) -> bool:
+            return all(np.array_equal(np.asarray(a), np.asarray(b))
+                       for a, b in zip(one, other, strict=True))
+
+        shipped_north, shipped_south = producer.paint(northern_sky), producer.paint(southern_sky)
+        assert shipped_north is not None and shipped_south is not None
+        assert same(shipped_north, shipped_south), "the ratified white is one white on both poles"
+
+        monkeypatch.setitem(palette.MARS_ICE_WHITE, "south", ((1, 2, 3), (4, 5, 6)))
+        assert same(producer.paint(northern_sky), shipped_north), "the north entry must not move"
+        assert not same(producer.paint(southern_sky), shipped_south), (
+            "the producer stopped resolving per pole: a re-split of MARS_ICE_WHITE would paint "
+            "both poles in the north's white and nothing would report it")
 
     def test_mars_does_not_paint_in_earths_white(self):
         """The failure this replaced, and it shipped: a module-global read gave Mars Earth's
@@ -694,7 +714,7 @@ class TestARockLayerBuildsARasterAndContributesNothing:
     def test_a_body_that_declares_no_rock_layer_excludes_nothing(self):
         """The body gate, and it has to live in `gather` because one supplier does not apply it.
 
-        `shade_planet` builds `layer_raw` off `path.exists()` alone — every per-layer declaration
+        `planet_warp` builds `layer_raw` off `path.exists()` alone — every per-layer declaration
         check is `gather`'s — so a rock slice can reach here for a body that declares no such layer.
         The answer must then be today's exactly, not a plausible one.
         """
@@ -779,7 +799,7 @@ class TestTheOutcropLosesItsWhiteWhateverElseClaimsThePixel:
     convenient extreme. Run against an all-zero persistence raster every assertion below passes on
     the broken placement and on the fixed one alike, which is the shape that let this ship.
 
-    Taken through `shade_planet._compute_shared` rather than through `fold_white` directly, because
+    Taken through the producer the warp drives rather than through `fold_white` directly, because
     the claim is about the alpha the painter takes and not about one function's return.
     """
 
@@ -837,7 +857,7 @@ class TestTheOutcropLosesItsWhiteWhateverElseClaimsThePixel:
                                  glacier=np.ones((ROWS, COLS), dtype=np.uint8)) == 1.0).all()
 
     def test_a_body_that_declares_no_rock_layer_keeps_every_pixel_white(self):
-        """The declaration gate at the outcome level. `shade_planet` keys `layer_raw` on
+        """The declaration gate at the outcome level. `planet_warp` keys `layer_raw` on
         `path.exists()` alone, so a slice genuinely can arrive for a body that declares no such
         layer, and the answer must then be today's exactly rather than a plausible one.
         """

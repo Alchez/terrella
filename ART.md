@@ -110,7 +110,7 @@ carries the measured row; never price one from this table.
 | `exaggeration` (bodies.py) | 15 on Earth, a per-body field; tiles AND caps read it, pinned equal to `palette.EXAGGERATION` | Yes, through the rig | § Vertical exaggeration |
 | NH ice trio `ICE_LO`/`ICE_BAND`/`ICE_MAX_ALPHA` (seaice.py) | 0.55 / 0.40 / 0.85 | Yes: the ice alpha, recorded in the producers' recipe | § Sea ice |
 | SH ice pair `SH_ICE_LO`/`SH_ICE_MAX_ALPHA` (seaice.py) | 0.62 / 0.55 | Yes, same path, and the south cap's own overrides read them | § Sea ice |
-| `shade.LAKE_CURVE` | log1p | HERO only, through `render/lake_mask.py`; the one knob that survived the prune | § Inland water |
+| `lake_depth.LAKE_CURVE` | log1p | HERO only, through `render/lake_mask.py`; the one knob that survived the prune | § Inland water |
 | `OCCLUSION_TARGET_M_PER_PX` (look/sky_view.py) | 9784, a resolution and not a hue | HERO only; `batch.py` shells into `sky_view` | § Sky-view shading |
 | the rest of the old `KNOBS` | `ambient`, `ambient_knee`, `hi`, `exposure`, `saturation`, `warmth`, `shadow_warmth`, `svf_strength`, `svf_threshold`, the sea quartet, `snow_lo`/`snow_hi_pt`/`snow_curve`, `ice_relief_damp`, `fill_strength`, `shadow_strength`, `shadow_reach`, and `SHADOW_TINT` | **No, and they no longer exist in code.** The sections below are the only record | each section records how the value was chosen |
 
@@ -383,7 +383,7 @@ carries the measured row; never price one from this table.
   fetches `caps.json` (edge_lat, feather ceiling, URLs) instead of hand-copying pipeline
   constants. Default-on; `?nocaps` disables (kept for layer-on/off artifact diagnosis);
   constrained GPUs clamp to `MAX_TEXTURE_SIZE`, so mobile effectively ships 4096.
-- `CAP_RGB` in `shade_planet.py` is only the flat fill on Mercator tiles under the caps — not a
+- The polar flat fill is only the plug on Mercator tiles under the caps — not a
   lever.
 
 ### Sky-view shading — heroes post-render (`pipeline/look/sky_view.py`)

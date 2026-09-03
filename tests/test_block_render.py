@@ -17,15 +17,15 @@ import numpy as np
 import pytest
 from conftest import declare_planet_rasters
 
-from pipeline import block_plan, bodies, freshness, layers, planet_seam
+from pipeline import block_plan, bodies, freshness, layers, planet_seam, planet_warp
 from pipeline.block_plan import Block
 from pipeline.look import layer_producers, palette, seaice, snow
 from pipeline.raster_io import GTIFF_CREATE
 from pipeline.render import prep_block
 from pipeline.tile import (
     block_render,
+    cut_tiles,
     relief_scan,
-    shade_planet,
 )
 
 
@@ -229,7 +229,7 @@ class TestASecondMosaicOwnsEverySidecarThatDescribesIt:
         failure as the tests above, arriving from the opposite direction.
         """
         (tmp_path / "sub").mkdir()
-        spelled = tmp_path / "sub" / ".." / shade_planet.PLANET_RGB
+        spelled = tmp_path / "sub" / ".." / cut_tiles.PLANET_RGB
         sidecars = block_render.sidecars_for(tmp_path, spelled)
         assert sidecars.canonical
         assert sidecars.recipe == tmp_path.resolve() / block_render.PARAMS_NAME
@@ -294,7 +294,7 @@ class TestTheDependencySetIsExactlyWhatTheRaytraceReads:
         """The block prep reads exactly these, so a re-warp — a re-fuse, a new NSIDC or RGI —
         has to restage the planet."""
         deps = set(block_render.raytrace_deps(tmp_path, tmp_path / block_render.PARAMS_NAME))
-        for name in (shade_planet.HEIGHT_3857, shade_planet.OCEAN_3857, shade_planet.WATER_3857):
+        for name in (planet_warp.HEIGHT_3857, planet_warp.OCEAN_3857, planet_warp.WATER_3857):
             assert tmp_path / name in deps
         for layer in layers.warped_for(layers.BLOCK_LAYERS):
             assert layer.warped_in(tmp_path) in deps
@@ -774,7 +774,7 @@ class TestARunRefusesToStartWithoutItsInputs:
     FEEDS_THE_RIG = frozenset({"heightfield", "watermask"})
 
     def test_a_missing_heightfield_stops_the_run_by_name(self, tmp_path):
-        with pytest.raises(SystemExit, match=shade_planet.HEIGHT_3857):
+        with pytest.raises(SystemExit, match=planet_warp.HEIGHT_3857):
             block_render.check_inputs(tmp_path, bodies.EARTH, self.FEEDS_THE_RIG)
 
     def test_the_error_names_the_stage_that_builds_them(self, tmp_path):
@@ -790,13 +790,13 @@ class TestARunRefusesToStartWithoutItsInputs:
         `scene_build.textures_for` loads what the render directory declared, so a block missing any
         of them is a scene the rig will build rather than one it refuses.
         """
-        (tmp_path / shade_planet.HEIGHT_3857).write_bytes(b"")
-        (tmp_path / shade_planet.WATER_3857).write_bytes(b"")
+        (tmp_path / planet_warp.HEIGHT_3857).write_bytes(b"")
+        (tmp_path / planet_warp.WATER_3857).write_bytes(b"")
         block_render.check_inputs(tmp_path, bodies.EARTH, self.FEEDS_THE_RIG)
 
     def test_a_body_that_does_declare_one_may_not_start_without_it(self, tmp_path):
-        (tmp_path / shade_planet.HEIGHT_3857).write_bytes(b"")
-        with pytest.raises(SystemExit, match=shade_planet.WATER_3857):
+        (tmp_path / planet_warp.HEIGHT_3857).write_bytes(b"")
+        with pytest.raises(SystemExit, match=planet_warp.WATER_3857):
             block_render.check_inputs(tmp_path, bodies.EARTH, self.FEEDS_THE_RIG)
 
 
@@ -828,7 +828,7 @@ class TestATHinSeamNoLongerStopsTheProducer:
     def test_a_thin_seam_is_asked_for_no_water_raster(self, tmp_path):
         """The other half of that control: refusing Mars for a missing `water_3857.tif` would be
         the same defect wearing the other hat, since its seam declares no watermask."""
-        (tmp_path / shade_planet.HEIGHT_3857).write_bytes(b"")
+        (tmp_path / planet_warp.HEIGHT_3857).write_bytes(b"")
         block_render.check_inputs(tmp_path, bodies.MARS, frozenset({"heightfield"}))
 
 
@@ -840,7 +840,7 @@ def _stage_warped_inputs(tmp_path):
     directory would otherwise move an input's mtime between them and restage the second by its own
     setup — which reads exactly like the defect such a test is looking for.
     """
-    for name in (shade_planet.HEIGHT_3857, shade_planet.OCEAN_3857, shade_planet.WATER_3857):
+    for name in (planet_warp.HEIGHT_3857, planet_warp.OCEAN_3857, planet_warp.WATER_3857):
         if not (tmp_path / name).exists():
             (tmp_path / name).write_bytes(b"")
 
@@ -1067,15 +1067,21 @@ class TestTheRecipeRecordsWhatThePrepGradesWith:
     def test_a_body_whose_producers_grade_nothing_still_records_its_white(self):
         """Mars: nothing to GRADE and a white to PAINT, which are separate halves of the recipe.
 
-        Its `contribution_recipe` is empty on the conditional-record idiom, while its paint is two
-        measured pairs — one per pole, since the deposits are different colours. A raytraced Mars
-        that recorded Earth's shape here would be recording a white no Martian pixel is painted in.
+        Its `contribution_recipe` is empty on the conditional-record idiom, while its paint is a
+        pair per pole. A raytraced Mars that recorded Earth's shape here would be recording a white
+        no Martian pixel is painted in.
+
+        BOTH KEYS STAY REQUIRED NOW THAT THE TWO VALUES AGREE, and that is the whole point of this
+        assertion rather than a leftover. The ratified white is one white on both poles, so an
+        implementation that collapsed the pair to a single `snow_rgb` key would record every pixel
+        it paints today and still be wrong: the day either pole is re-split, half the planet's
+        restage would go untracked and the pass would call stale blocks fresh. The previous version
+        of this test asserted the two values DIFFER, which pinned a look decision that has since
+        been re-taken.
         """
         graded = {key for _layer, producer in self._in_block_producers(bodies.MARS)
                   for key in producer.contribution_recipe()}
         assert not graded, f"Mars grades with {graded}; this test's premise has moved"
         recorded = json.loads(self._params(bodies.MARS))
         assert "snow_rgb_north" in recorded and "snow_rgb_south" in recorded, \
-            "Mars paints its polar ice from its own registry, so both whites must be tracked"
-        assert recorded["snow_rgb_north"] != recorded["snow_rgb_south"], \
-            "the two poles were measured separately; one value here means the pair collapsed"
+            "Mars paints its polar ice per pole, so both keys must be tracked even while they agree"

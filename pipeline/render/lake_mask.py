@@ -3,7 +3,7 @@
 The hero twin of the tile pipeline's lake-depth layer (`look/lake_depth.py` +
 the tile side's lake branch), as `snow_mask.py` is the hero twin of `look/snow.py`.
 Emits `lakedepth.tif` on the exact `heightfield.tif` grid: Float32 storing the
-lake ramp POSITION 0..1 — `shade.lake_position`'s curve baked here, venv-side, where the
+lake ramp POSITION 0..1 — `lake_depth.lake_position`'s curve baked here, venv-side, where the
 tile implementation lives — so the scene just samples it into a ColorRamp over
 `palette.LAKE_STOPS`. Position 0 IS the flat `WATER_RGB` tint, so lakes without depth
 data degrade to exactly the pre-lake-depth look.
@@ -34,7 +34,6 @@ import rasterio
 from pipeline.acquire import extract_globathy
 from pipeline.look import lake_depth
 from pipeline.render import render_seam
-from pipeline.tile import shade
 
 
 def depth_to_position(depth: np.ndarray, watercode: np.ndarray) -> np.ndarray:
@@ -42,13 +41,14 @@ def depth_to_position(depth: np.ndarray, watercode: np.ndarray) -> np.ndarray:
 
     `lakes_only` zeroes depth off watermask class 2 (rivers flat, ocean/Caspian keep
     their own bathymetry); `lake_position` applies the shared depth->position curve
-    read from `shade.LAKE_CURVE` — hero and tile cannot disagree on it. "off"
+    read from `lake_depth.LAKE_CURVE` — hero and tile cannot disagree on it. "off"
     (the flat-water A/B control) carries over as an all-zero field.
     """
     lakes = lake_depth.lakes_only(depth, watercode)
-    if shade.LAKE_CURVE == "off":
+    if lake_depth.LAKE_CURVE == "off":
         return np.zeros_like(lakes, dtype=np.float32)
-    return np.asarray(shade.lake_position(lakes, shade.LAKE_CURVE), dtype=np.float32)
+    return np.asarray(
+        lake_depth.lake_position(lakes, lake_depth.LAKE_CURVE), dtype=np.float32)
 
 
 def main():

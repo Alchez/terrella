@@ -18,7 +18,7 @@ import pytest
 
 from pipeline import bodies
 from pipeline.look.sky_view import OCCLUSION_TARGET_M_PER_PX, occlusion_shape
-from pipeline.tile.shade import Z8_MERC_RES
+from pipeline.mercator import Z8_MERC_RES
 
 # The planet grid's pixel, which is now the BODY's rather than a module constant. Earth's, because
 # these are Earth's measured production numbers (131072 x 93009, 2907 x 4096 occlusion).

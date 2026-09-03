@@ -36,7 +36,7 @@ warp → per-row-z hillshade (full-width, 1-row halo, which is what made it seam
 globally-normalised SVF → per-window composite; seamlessness now comes from each block's own haloed
 context rather than from full-width rows.
 
-**`shade_planet.py` caches its warps**: exposed by design, and covered by `is_stale`. The region
+**`planet_warp.py` caches its warps**: exposed by design, and covered by `is_stale`. The region
 path that re-warped on every run and was the right pre-flight before a re-fuse went with the
 compositor, so there is no always-current path left to check a fuse against.
 
@@ -149,7 +149,7 @@ ice sources, never `height_3857.tif`, so rebuilding the master cannot restage a 
 
 ### Memory: what a cap has to back, and which of the three readings says so
 
-This block is the authority for both cgroup caps, and `pipeline/profile/pass_cap.py` argues from its
+This block is the authority for both cgroup caps, and `pipeline/profile/pass_memory.py` argues from its
 figures by name. A heading rather than a bold lead-in because code cites it: a load-bearing block
 nothing can point at is one nobody re-reads before changing a number.
 
@@ -191,7 +191,7 @@ was meant to leave it conservative never happened. The same live pass reads 12.6
 the 4.43 GiB above live RSS being exactly the page cache the rule at the top of this section
 describes.
 
-**WHICH STAGE BINDS DEPENDS ON THE BODY'S PRODUCER AND ITS CAPS' FRESHNESS, AND `pass_cap.py`'s
+**WHICH STAGE BINDS DEPENDS ON THE BODY'S PRODUCER AND ITS CAPS' FRESHNESS, AND `pass_memory.py`'s
 FIELD SEES NEITHER.** On a raytraced Earth pass whose caps are already current, the composite never
 runs (that is the fork) and `cap_render` never runs (`cap_sources` does not name `planet_rgb.tif`,
 so a block pass cannot make a cap stale), which leaves the block producer and the cut. Both peaks
@@ -242,7 +242,7 @@ rows/s, flat from pole to pole), so something uniform is absorbing the compute v
 it means instrumenting the REAL pass for per-window read against compute, not building another arm.
 
 **`pipeline/profile/run_pass.sh` sizes its cgroup cap from the body, and both bodies now want 16 G.**
-`pipeline/profile/pass_cap.py` derives it from `renders_polar_caps` and holds both measurements. 16 G
+`pipeline/profile/pass_memory.py` derives it from `renders_polar_caps` and holds both measurements. 16 G
 is the cap-rendering number because the pass ends by invoking `cap_pass` as a subprocess that
 inherits the scope's cgroup and peaks near 14 GB; a body that renders no caps never reaches that
 stage, so on it 16 G is unbacked rather than protective and the harness's own `MemAvailable`
@@ -255,7 +255,7 @@ refused at the wrapper instead of after a cgroup scope has already been opened.
 *after* the resolver, never instead of it, so `--body` stays enforced; a non-numeric value aborts,
 because bash would otherwise evaluate it as 0 and every box would clear every cap. It exists because
 with no body on the 12 G branch nothing else can show that the shell uses the number it is handed
-rather than a constant — `pass_cap` runs in a subprocess, so no test fixture can reach its registry.
+rather than a constant: `pass_memory` runs in a subprocess, so no test fixture can reach its registry.
 
 ### The cap stage costs about twice at a pass tail
 
@@ -444,7 +444,7 @@ Why the numbers are what they are (current-state explanations, not history):
 > invokes `cap_pass` as a subprocess at the tail of the planet pass, inheriting the pass's cgroup —
 > so a pass at `MEMORY_CAP=12G` completed every tile stage and then died at the last one.
 > **Resolved:** `run_pass.sh`'s shade cap is now **16 G**, matching the tiling run, and
-> `pass_cap.py` derives it per body. `COMPOSITE_ROWS=128` is a hardcoded constant rather than a
+> `pass_memory.py` derives it per body. `COMPOSITE_ROWS=128` is a hardcoded constant rather than a
 > function of the cap, so a bigger cap cannot let the composite grow into it. Accepted cost: 12 G
 > was also an accidental tripwire on composite footprint, and a regression there now hides until
 > 16 G. **That tripwire had already fired by the time anyone looked**: the composite is measured at
@@ -490,7 +490,7 @@ restaged SVF and the composite for ~29 min, and the composite was the bulk of an
 Peak RSS is **12.56 GiB** for the threaded composite, measured as peak live RSS in § EARTH, PER
 STAGE above; the **10.55 GiB** this line used to give was taken by a retired method, and the 1.14x
 headroom it claimed under a 12 G cap was never available. The pass runs under **16 G** whichever run
-label it takes, sized per body by `pass_cap.py`, and the cut is the lightest of the three stages
+label it takes, sized per body by `pass_memory.py`, and the cut is the lightest of the three stages
 rather than the reason for the cap. **`memory.current` is not RSS**: during tiling the cgroup sits at
 ~16 GiB, but that is reclaimable page cache (`anon` 0.58 GiB), so watch **anon**, not the total.
 
@@ -513,7 +513,7 @@ rather than the reason for the cap. **`memory.current` is not RSS**: during tili
   **21M** and is comfortable, Nepal at **41.8M** renders but takes **177% longer**, and Australia at
   **67M** fails outright with `Failed to build OptiX acceleration structure`, having wanted
   **17.0 GB** of host against the ratified 16 G. Which frame sizes sit on which side is unmeasured:
-  Nepal clears it at 36.8 Mpx and Australia does not at 58.8. `pipeline/profile/pass_cap.py`,
+  Nepal clears it at 36.8 Mpx and Australia does not at 58.8. `pipeline/profile/pass_memory.py`,
   `pipeline/batch.py` and `render/scene_build.py` all argue from the 17.0 GB figure, and this row is
   where it is measured.
 - The warm walk is near-free because the two expensive per-country redundancies are guarded:

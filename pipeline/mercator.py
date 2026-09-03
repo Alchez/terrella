@@ -43,6 +43,10 @@ WEB_MERCATOR_RADIUS_M = 6378137.0
 #: which is a judgement a caller can only make if the exact value has one owner.
 MERCATOR_HALF_M = math.pi * WEB_MERCATOR_RADIUS_M
 
+#: Ground metres per pixel of a 512px WebMercatorQuad tile at zoom 8, AT THE EQUATOR. Every other
+#: latitude is this times `cos(lat)`, which is what `ground_metres_per_pixel` above is for.
+Z8_MERC_RES = 305.7483
+
 
 def latitude_at(mercator_y, radius_m: float):
     """Latitude in degrees of a Web-Mercator northing, on a sphere of `radius_m`.

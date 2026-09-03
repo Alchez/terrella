@@ -562,7 +562,7 @@ The working plan had become the project's only backlog as well as its live state
 - **Open call: should `check.sh` run the suite a second time under an empty `MAPS_DATA`?** 17.5 s to reproduce CI exactly. Without it, a store-reading test is green locally and red only after a push.
   - **The trigger has now fired twice.** Five recipe tests in `test_block_render.py` went red in CI this way, and then a registry sweep in `test_planet_pass.py` did the same, in a module written after the first was fixed. Both were green on every local gate.
   - The second one is what settles the shape of the objection: the fix for the first was a per-file helper, so the next file could not inherit it. A gate is the only form of this that reaches a module nobody has written yet.
-- **An explicit env override on `pass_cap.HEAVY_JOB_GIB`** is the half of the ratified cap ruling `4f4daf8` that never landed. The two measured caps stay fixed either way.
+- **An explicit env override on `pass_memory.HEAVY_JOB_GIB`** is the half of the ratified cap ruling `4f4daf8` that never landed. The two measured caps stay fixed either way.
 - **Every planet fusion chunk is older than the mosaics it was fused from, and nothing can notice.** `fuse_planet.fuse_cell` skips a cell on `heightfield_10s.tif` EXISTENCE, so rebuilding `dem_mosaic.vrt` or `wbm_mosaic.vrt` after a tile download never restages one.
   - Measured on `e010_n70`: re-fusing today moves **928 px of 12.96 M, 0.0072%**, scattered and symmetric. Small per cell, systematic across all 648, and invisible from disk.
   - The module already guards the OPPOSITE direction, warning that a stale mosaic fuses new land as ocean. This is the same hazard with the arrow reversed and no guard at all.

@@ -163,6 +163,11 @@ MUTABLE_ROOTS = (
     # would be reintroduced, and it is invisible while Earth is the only body — so the guards against
     # it are worth exactly as much as the proof that they still fire.
     "pipeline/tile",
+    # The warp half of the same argument, which left `pipeline/tile` when the planet stage split in
+    # two. Seven cases live here — the grid resolution, the freshness gate, the layer and mask
+    # declaration order, and both halves of the wrap fill — and every one of them is a guard whose
+    # subject produces a plausible raster when it is wrong.
+    "pipeline/planet_warp.py",
     # Joined with the Mars DEM recipe, and for the sharpest version of the same argument: an
     # acquisition guard runs ONCE, against a server, before ~10.6 GiB lands. It cannot be exercised
     # by any pipeline run, it has no output to inspect, and by the time it would have mattered the
@@ -373,11 +378,15 @@ SABOTAGES: list[Sabotage] = [
     # shipping body reaches — which is precisely why they are mutations rather than review comments.
     Sabotage(
         suite='python',
-        label='Mars paints both poles in its northern white, losing the measurement entirely',
+        # INVISIBLE IN TODAY'S PIXELS, which is what makes it worth mutating rather than reviewing.
+        # The ratified white is one white on both poles, so forcing every row northern paints the
+        # planet exactly as it ships; what it destroys is the producer's ability to tell the poles
+        # apart at all, and the day either is re-split the south would silently take the north's.
+        label='Mars stops resolving its ice white per pole, which today changes no pixel',
         path='pipeline/look/layer_producers.py',
         needle='    northern = np.asarray(window.latitude) >= 0.0',
         replacement='    northern = np.ones(np.asarray(window.latitude).shape, dtype=bool)',
-        guard='test_mars_paints_its_two_poles_in_DIFFERENT_whites',
+        guard='test_mars_still_resolves_its_white_PER_POLE_though_both_poles_now_carry_one',
     ),
     Sabotage(
         suite='python',
@@ -460,7 +469,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='a build-time constant stops reaching the freshness gate',
-        path='pipeline/tile/shade_planet.py',
+        path='pipeline/planet_warp.py',
         needle='        tunables = producer.build_recipe()',
         replacement='        tunables = {}',
         guard='test_a_changed_build_constant_rebuilds_the_raster',
@@ -2930,7 +2939,7 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the Mars legend goes back to the composited stops it held while Mars raytraced',
         path='web/src/lib/palette.ts',
-        needle='  { at: 0.0, hex: "#784F3C" },',
+        needle='  { at: 0.0, hex: "#5D3C2D" },',
         replacement='  { at: 0.0, hex: "#7E4B33" },',
         guard='test_web_mars_ramp_matches_what_mars_actually_ships',
     ),
@@ -3027,7 +3036,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='the warp regrows Earth\'s grid resolution, putting every body on the z8 lattice',
-        path='pipeline/tile/shade_planet.py',
+        path='pipeline/planet_warp.py',
         needle='    resolution = body.map_units_per_pixel',
         replacement='    resolution = 305.7483',
         guard='test_the_shade_pass_no_longer_carries_its_own_grid_or_ceiling',
@@ -3060,7 +3069,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='the height warp goes back to mtimes alone, so a moved ceiling reuses the old grid',
-        path='pipeline/tile/shade_planet.py',
+        path='pipeline/planet_warp.py',
         needle='    if reference_needs_rebuild(height, resolution, planet / "planet_heightfield.vrt", chunks):',
         replacement='    if is_stale(height, planet / "planet_heightfield.vrt", chunks):',
         guard='test_the_reference_raster_is_not_gated_on_mtimes_alone',
@@ -3068,7 +3077,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='the cut ceiling is hardcoded again, so every planet stops at Earth\'s depth',
-        path='pipeline/tile/shade_planet.py',
+        path='pipeline/tile/cut_tiles.py',
         needle='                   max_zoom=body.tile_max_zoom,',
         replacement='                   max_zoom=8,',
         guard='test_the_cut_differs_between_bodies_in_exactly_one_setting',
@@ -3076,7 +3085,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='the encoder quality is parameterised by body, duplicating a fact that is not one',
-        path='pipeline/tile/shade_planet.py',
+        path='pipeline/tile/cut_tiles.py',
         needle='    return TileCut(format="WEBP", quality=95, tile_size=512, min_zoom=0,',
         replacement=('    return TileCut(format="WEBP", quality=95 if body.name == "earth" else 90,\n'
                      '                   tile_size=512, min_zoom=0,'),
@@ -3304,7 +3313,7 @@ SABOTAGES: list[Sabotage] = [
               'producer keeps painting',
         path='pipeline/render/prep_block.py',
         needle='    if "oceanmask" in rasters:',
-        replacement='    if (work / shade_planet.OCEAN_3857).exists():',
+        replacement='    if (work / planet_warp.OCEAN_3857).exists():',
         guard='test_the_mask_is_gated_on_the_SEAMS_DECLARATION_and_not_on_the_file',
     ),
     Sabotage(
@@ -3327,7 +3336,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label="the warp asks the disk before the body, so Earth's datasets reach every planet",
-        path='pipeline/tile/shade_planet.py',
+        path='pipeline/planet_warp.py',
         needle=('        if not layers.body_declares_layer(body, layer, consequence):\n'
                 '            continue\n'
                 '        producer = layer_producers.producer_for(body, layer)'),
@@ -3473,7 +3482,7 @@ SABOTAGES: list[Sabotage] = [
         replacement='    for layer in ():',
         guard='test_saturated_persistence_does_not_rescue_the_white_on_rock',
     ),
-    # `shade_planet` keys `layer_raw` on `path.exists()` alone, so this gate is the only thing
+    # `planet_warp` keys `layer_raw` on `path.exists()` alone, so this gate is the only thing
     # standing between a body that declares no rock layer and an exclusion on its fold.
     Sabotage(
         suite='python',
@@ -4599,9 +4608,9 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label="the raytrace inherits the composite's hillshade as a dependency it never reads",
         path='pipeline/tile/block_render.py',
-        needle='    return (work / shade_planet.HEIGHT_3857, work / shade_planet.OCEAN_3857,',
-        replacement='    return (work / "hs_3857.tif", work / shade_planet.HEIGHT_3857,\n'
-                    '            work / shade_planet.OCEAN_3857,',
+        needle='    return (work / planet_warp.HEIGHT_3857, work / planet_warp.OCEAN_3857,',
+        replacement='    return (work / "hs_3857.tif", work / planet_warp.HEIGHT_3857,\n'
+                    '            work / planet_warp.OCEAN_3857,',
         guard='test_the_hillshade_is_not_a_raytrace_dependency',
     ),
     Sabotage(
@@ -5315,7 +5324,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='the mask warps run for every planet, so a sea-less body gets Earth\'s coastlines',
-        path='pipeline/tile/shade_planet.py',
+        path='pipeline/planet_warp.py',
         needle='        if raster not in rasters:',
         replacement='        if False:',
         guard='test_an_undeclared_mask_never_reaches_gdalwarp',
@@ -5440,8 +5449,8 @@ SABOTAGES: list[Sabotage] = [
         # Mars silently goes back to wearing a shoreline hinge on a planet with no shore.
         label="Mars's ramp is pointed back at Earth's stops as a de-duplication",
         path='pipeline/look/palette.py',
-        needle='    land=Surface(stops=MARS_LAND_STOPS, origin_m=-6000.0, extreme_m=6100.0),',
-        replacement='    land=Surface(stops=EARTH_LOOK.land.stops, origin_m=-6000.0, extreme_m=6100.0),',
+        needle='    land=Surface(stops=MARS_LAND_STOPS, origin_m=-8600.0, extreme_m=6100.0),',
+        replacement='    land=Surface(stops=EARTH_LOOK.land.stops, origin_m=-8600.0, extreme_m=6100.0),',
         guard='test_mars_draws_its_own_colours_and_no_longer_borrows_earths',
     ),
     Sabotage(
@@ -5919,8 +5928,8 @@ SABOTAGES: list[Sabotage] = [
         # finds no `water_3857.tif`, and is turned away for a file its planet does not produce.
         label='a thin seam is asked for the water raster its planet never emits',
         path='pipeline/tile/block_render.py',
-        needle='    if "watermask" in rasters:\n        required.append(work / shade_planet.WATER_3857)',
-        replacement='    required.append(work / shade_planet.WATER_3857)',
+        needle='    if "watermask" in rasters:\n        required.append(work / planet_warp.WATER_3857)',
+        replacement='    required.append(work / planet_warp.WATER_3857)',
         guard='test_a_thin_seam_is_asked_for_no_water_raster',
     ),
     Sabotage(
@@ -6063,7 +6072,7 @@ SABOTAGES: list[Sabotage] = [
         # Deliberately a PYTHON case over a web file: the pipeline decides whether ~14 GB per pole
         # gets rendered, so the browser flag is only ever the second half of that fact. Dropping it
         # here leaves both discs rendered, uploaded and never fetched — and the pole does not go
-        # blank, it keeps `shade_planet.CAP_RGB`, the flat pale plug the textures exist to cover.
+        # blank, it keeps the flat pale polar plug the textures exist to cover.
         # No 404, no console line, just a colour that reads as a decision.
         #
         # The needle carries the line BELOW it because both bodies answer `true` now; `hasBorders`
@@ -6332,7 +6341,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='the wrap fill is gated on a re-warp, so no planet already on disk is ever closed',
-        path='pipeline/tile/shade_planet.py',
+        path='pipeline/planet_warp.py',
         needle='    filled = wrap_seam.close_wrap_seam(height)',
         replacement='    filled = 0',
         guard='test_the_wrap_seam_is_closed_on_a_height_the_warp_did_not_rebuild',
@@ -6343,7 +6352,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='the wrap fill changes the height and leaves the freshness marker vouching for the old bytes',
-        path='pipeline/tile/shade_planet.py',
+        path='pipeline/planet_warp.py',
         needle='        print(f"wrap seam: filled {filled} px at the antimeridian -> height restaged", flush=True)\n'
                '        mark_done(height)',
         replacement='        print(f"wrap seam: filled {filled} px at the antimeridian", flush=True)',
@@ -8143,9 +8152,9 @@ SABOTAGES: list[Sabotage] = [
         # cgroup scope is opened. An operator with the variable exported gets an unnamed planet.
         label='the cap override short-circuits the resolver, taking --body enforcement with it',
         path='pipeline/profile/run_pass.sh',
-        needle='MEMORY_CAP_GIB=$("$VENV" -m pipeline.profile.pass_cap "$@") || exit 1',
+        needle='MEMORY_CAP_GIB=$("$VENV" -m pipeline.profile.pass_memory "$@") || exit 1',
         replacement='MEMORY_CAP_GIB=${MEMORY_CAP_OVERRIDE_GIB:-'
-                    '$("$VENV" -m pipeline.profile.pass_cap "$@")} || exit 1',
+                    '$("$VENV" -m pipeline.profile.pass_memory "$@")} || exit 1',
         guard='test_the_resolver_still_runs_when_the_override_is_set',
     ),
     Sabotage(
@@ -8162,7 +8171,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='the resolver stops reading the body and answers Earth for every planet',
-        path='pipeline/profile/pass_cap.py',
+        path='pipeline/profile/pass_memory.py',
         needle='    return CAP_RENDERING_GIB if body.renders_polar_caps else STANDING_GIB',
         replacement='    return CAP_RENDERING_GIB',
         guard='test_a_capless_body_gets_the_standing_cap',
@@ -8172,7 +8181,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='the standing cap creeps up to match Earth so the split is a no-op',
-        path='pipeline/profile/pass_cap.py',
+        path='pipeline/profile/pass_memory.py',
         needle='STANDING_GIB = 12',
         replacement='STANDING_GIB = 16',
         guard='test_the_two_numbers_actually_differ',
@@ -8185,7 +8194,7 @@ SABOTAGES: list[Sabotage] = [
         # constant. Nothing checked the relationship, and the cap has sat exactly AT the ceiling
         # since the caps stage pushed it there, so the first body to want more takes it silently.
         label='the pass cap is raised past the ratified heavy-job ceiling',
-        path='pipeline/profile/pass_cap.py',
+        path='pipeline/profile/pass_memory.py',
         needle='CAP_RENDERING_GIB = 16',
         replacement='CAP_RENDERING_GIB = 20',
         guard='test_no_pass_is_capped_above_the_ratified_ceiling',
@@ -8203,14 +8212,14 @@ SABOTAGES: list[Sabotage] = [
     ),
     Sabotage(
         suite='python',
-        # The document goes back to naming the module the pass used to live in. It reads as a true
-        # sentence -- shade_planet is still where the shared stages and the composite producer are
-        # -- and it names a module with no CLI at all, so a reader who runs it gets exit 0 and no
-        # output. This exact sentence carried the stale name for the whole of the arc.
+        # The document goes back to naming a stage module instead of the pass. It reads as a true
+        # sentence -- cut_tiles really is one of the planet stages -- and it names a module with no
+        # CLI at all, so a reader who runs it gets exit 0 and no output. This exact sentence carried
+        # a stale name for the whole of the arc.
         label='the docs name a planet stage that has no entry point to require a body',
         path='docs/pipeline.md',
         needle='**The four planet-raster stages take a required `--body`**: `planet_pass`,',
-        replacement='**The four planet-raster stages take a required `--body`**: `shade_planet`,',
+        replacement='**The four planet-raster stages take a required `--body`**: `cut_tiles`,',
         guard='test_every_stage_the_docs_name_actually_refuses_an_empty_argv',
     ),
     Sabotage(
@@ -8221,7 +8230,7 @@ SABOTAGES: list[Sabotage] = [
         label='the harness forwards its argv to a module the cap resolver does not parse with',
         path='pipeline/profile/run_pass.sh',
         needle='"$VENV" -u -m pipeline.tile.planet_pass "$@" 2>&1',
-        replacement='"$VENV" -u -m pipeline.tile.shade_planet "$@" 2>&1',
+        replacement='"$VENV" -u -m pipeline.tile.cut_tiles "$@" 2>&1',
         guard='test_the_shell_and_the_resolver_name_the_same_module',
     ),
     Sabotage(
@@ -8231,7 +8240,7 @@ SABOTAGES: list[Sabotage] = [
         # reads as sourced, and a reader who follows the pointer finds a different number with
         # nothing saying the two disagree.
         label='the module argues from a composite peak PROCESS no longer carries',
-        path='pipeline/profile/pass_cap.py',
+        path='pipeline/profile/pass_memory.py',
         needle='- Earth at z8: `cap_render` **14.41 GiB** · composite **12.56 GiB**',
         replacement='- Earth at z8: `cap_render` **14.41 GiB** · composite **11.02 GiB**',
         guard='test_every_figure_the_module_argues_from_is_one_PROCESS_still_carries',
@@ -8243,8 +8252,8 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label="the resolver's refusal goes unchecked, so a bad argv reaches the scope",
         path='pipeline/profile/run_pass.sh',
-        needle='pipeline.profile.pass_cap "$@") || exit 1',
-        replacement='pipeline.profile.pass_cap "$@")',
+        needle='pipeline.profile.pass_memory "$@") || exit 1',
+        replacement='pipeline.profile.pass_memory "$@")',
         guard='test_an_omitted_body_is_refused_before_the_scope_opens',
     ),
     # RETIRED AND REPLACED, because the defect it modelled is now unreachable rather than merely

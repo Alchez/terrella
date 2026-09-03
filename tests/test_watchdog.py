@@ -1,7 +1,7 @@
 """The pass watchdog: what wakes a reader in the night, and what deliberately does not.
 
 This module had no test of its own until the raytrace producer arrived, and the gap was not
-theoretical. It held a regex of the stage phrasings it expected `shade_planet` to print, so it
+theoretical. It held a regex of the stage phrasings it expected the planet stages to print, so it
 could only see stages someone had come back and taught it about: four of Earth's five surface
 layers and both of the two stages Mars runs that Earth does not had never been reported, silently,
 because an unreported stage looks exactly like a stage that has not started yet. A second producer
@@ -26,9 +26,9 @@ from pathlib import Path
 
 import pytest
 
-from pipeline import bodies, progress
+from pipeline import bodies, planet_warp, progress
 from pipeline.profile import watchdog
-from pipeline.tile import block_render, shade_planet
+from pipeline.tile import block_render, cut_tiles
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -110,12 +110,12 @@ class TestTheProducersOwnOutputIsReportedOrDeliberatelyQuiet:
                             lambda body: frozenset(block_render.planet_seam.KNOWN_RASTERS))
         monkeypatch.setattr(block_render, "plan_blocks", lambda body, w: plan)
         monkeypatch.setattr(block_render, "ensure_mosaic", lambda mosaic, body: None)
-        for name in (shade_planet.HEIGHT_3857, shade_planet.OCEAN_3857, shade_planet.WATER_3857):
+        for name in (planet_warp.HEIGHT_3857, planet_warp.OCEAN_3857, planet_warp.WATER_3857):
             (work / name).write_bytes(b"")
         (work / block_render.PARAMS_NAME).write_text(block_render.params(
             bodies.EARTH, frozenset(block_render.planet_seam.KNOWN_RASTERS),
             palette.look_for("earth"), block_render.rig_recipe(bodies.EARTH), []))
-        mosaic = work / shade_planet.PLANET_RGB
+        mosaic = work / cut_tiles.PLANET_RGB
         mosaic.write_bytes(b"")
         markers = block_render.markers_in(mosaic)
 
@@ -159,16 +159,16 @@ class TestTheCompositesOwnStagesSurvivedTheChange:
         """
         out = tmp_path / body.name
         out.mkdir()
-        monkeypatch.setattr(shade_planet, "tiles_are_fresh", lambda *a, **k: False)
-        monkeypatch.setattr(shade_planet, "_run",
+        monkeypatch.setattr(cut_tiles,"tiles_are_fresh", lambda *a, **k: False)
+        monkeypatch.setattr(cut_tiles,"_run",
                             lambda *a, **k: (out / "tiles_new").mkdir(exist_ok=True))
-        shade_planet.build_tiles(out / "planet_rgb.tif", out, body)
+        cut_tiles.build_tiles(out / "planet_rgb.tif", out, body)
 
         printed = capsys.readouterr().out.splitlines()
         cut = [line for line in printed if "cutting z" in line]
         assert cut, f"{body.name} printed no cut marker at all; this harness is broken, not the code"
         assert all(watchdog.classify(line) == "STAGE" for line in cut), (
-            f"{body.name} cuts z{shade_planet.tile_cut(body)['max_zoom']} and its cut is unreported"
+            f"{body.name} cuts z{cut_tiles.tile_cut(body)['max_zoom']} and its cut is unreported"
         )
 
     def test_the_every_window_row_count_stays_quiet(self, capsys):
@@ -243,8 +243,8 @@ class TestANewStageCannotBeAddedUnreported:
         the sentinel leaves the population quietly and takes its own guard with it — which is one
         rename away from the guard passing over the very modules it was written for."""
         announcing = {path.name for path in self.modules_that_announce_stages()}
-        for owner in ("planet_pass.py", "shade_planet.py", "block_render.py", "cap_render.py",
-                      "layer_producers.py"):
+        for owner in ("planet_pass.py", "planet_warp.py", "cut_tiles.py", "block_render.py",
+                      "cap_render.py", "layer_producers.py"):
             with subtests.test(owner):
                 assert owner in announcing
 
@@ -320,12 +320,12 @@ class TestTheModuleRunsAndSaysWhatItTakes:
 
     def test_the_help_argues_from_no_stage_and_no_cap_it_does_not_own(self):
         """Both stale claims came from the same place: prose about a specific composite stage under
-        a cap that stopped being 12 G when `pass_cap` started answering per body. The hillshade does
-        not run on a raytraced pass at all, so a reader hitting this alarm at 3 a.m. was routed to a
-        stage that is not in the pass.
+        a cap that stopped being 12 G when `pass_memory` started answering per body. The hillshade
+        does not run on a raytraced pass at all, so a reader hitting this alarm at 3 a.m. was routed
+        to a stage that is not in the pass.
         """
-        from pipeline.profile import pass_cap
+        from pipeline.profile import pass_memory
         source = (ROOT / "pipeline" / "profile" / "watchdog.py").read_text()
         assert "hillshade" not in source
-        assert f"{pass_cap.STANDING_GIB} G cap" not in source
-        assert f"{pass_cap.CAP_RENDERING_GIB} G cap" not in source
+        assert f"{pass_memory.STANDING_GIB} G cap" not in source
+        assert f"{pass_memory.CAP_RENDERING_GIB} G cap" not in source

@@ -68,7 +68,7 @@ class TestTheBodyIsRequired:
     def test_every_stage_the_docs_name_actually_refuses_an_empty_argv(self, subtests):
         """THE CLAIM IS PROSE, SO NOTHING COULD GO RED WHEN ONE OF THEM STOPPED BEING AN ENTRY POINT.
 
-        That is not hypothetical: the sentence named `shade_planet` for as long as the pass lived
+        That is not hypothetical: the sentence named the planet shader for as long as the pass lived
         there, and kept naming it after the sequence moved out. A module with no CLI does not fail
         visibly when run — it imports, runs no main, and exits 0, which is indistinguishable from
         success, so a reader following the document got a stage that accepted anything and did
