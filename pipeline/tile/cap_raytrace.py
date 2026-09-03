@@ -58,7 +58,15 @@ def azimuth_step() -> float:
 
 
 def frames_dir(grid: cap_render.CapGrid) -> Path:
-    """Where this pole's rendered ring lives. Kept across a run, which is what makes it resumable."""
+    """Where this pole's rendered ring lives. Kept across a run, which is what makes it resumable.
+
+    NAMED FOR THE POLE ALONE, WHICH IS WHAT MAKES A REDUCED-`px` PREVIEW UNSAFE IN THE LIVE STORE.
+    `grid.px` is a field, so a disc renders at any side and a 1024 px one costs about a minute
+    against the shipped disc's twenty. But this path does not vary with it while `params` DOES
+    record it, so a preview writes its frames over the shipped disc's own and then moves the recipe
+    that declares them stale. Give a preview its own `MAPS_DATA`, and its own checkout too, since
+    `cap_render.caps_public_dir` follows `paths.ROOT` rather than the store.
+    """
     return cap_render.cap_work_dir(grid.body) / f"frames_{grid.name}"
 
 

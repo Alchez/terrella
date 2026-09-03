@@ -450,6 +450,27 @@ Why the numbers are what they are (current-state explanations, not history):
 > 16 G. **That tripwire had already fired by the time anyone looked**: the composite is measured at
 > **12.56 GiB** in § EARTH, PER STAGE above, so it no longer fits under 12 G at all.
 
+**A cap is priced PER POLE PER BODY, and 45:35 is neither.** That figure is Earth's BOTH discs; one
+Earth pole is 22:50. **Mars's south is 22:12**, and it decomposes as **68.7 s** prep, 28 frames in
+**19.9 min** at 42.6 s each, a **58.1 s** blend and **12.6 s** of rungs. Same order as Earth's,
+which follows once the grid is 8192 squared whatever the planet. Provenance, because it differs from
+every other row here: this was recovered from the shipped artifact's own mtimes rather than from a
+timed run, so the stage boundaries are file writes and not instrumented spans.
+
+**A cap can be PREVIEWED at reduced resolution for a minute, which is the cheap loop for any look
+question about a disc.** `CapGrid.px` is a field and `frame_plan` is derived from longitudes, so a
+disc renders at any side. Measured on Mars, 1024 px: **28 frames at 1.6 s each, 54 s end to end**
+including prep and blend. That is 1/64 the pixels of the shipped 8192 and the traced part scales
+with them, so the ladder from the 42.6 s production frame is arithmetic: expect roughly 4.5 s a
+frame at 2048 and 11.5 s at 4096, neither measured.
+
+- **It needs an isolated store and it is not optional.** `frames_dir` and `cap_render_dir` key on the
+  POLE alone while `px` rides in `cap_raytrace.params`, so a preview run through `cap_pass` writes
+  over the shipped disc's own frames and marks them stale leaving. Redirect `MAPS_DATA` for the
+  intermediates and run from an arm worktree for the served rungs, which follow `paths.ROOT`.
+- The harness, its refuse-to-render guard and that guard's positive control are in
+  `~/terrella-scratch/mars-south-preview/`, which carries a KEEP.md.
+
 **Memory preflight (both run labels).** `run_pass.sh` reads `MemAvailable` and **refuses to start**
 when it is below the cap, because a cap the box cannot back protects nothing — it relocates the OOM
 to the most expensive moment, hours in, after every finished stage has been paid for. `MemAvailable`

@@ -101,6 +101,15 @@ def on_locus(ratio: float, target: float, offset: float) -> tuple[float, float, 
     CLIPS BY PINNING RED AT 255, which spends luminance rather than hue. Past a certain warmth the
     sRGB cube simply cannot hold Earth's brightness, and that is a fact about the colour space rather
     than a decision — the caller sees it as a luminance that came out below `target`.
+
+    THAT CLIP IS ONE-SIDED, AND THE OTHER SIDE RAISES RATHER THAN RETURNING NONSENSE. Every white
+    this was written for is warmer than neutral, where red is the channel that runs out; ask it for a
+    COOLER one and blue is what climbs, and there is no `blue > 255` branch above because that case
+    had never been asked for. A ratio near 0.874 returns a blue of 256, which formats as a hex with
+    seven digits and reads as a colour. The ceiling is real and worth surfacing rather than clamping:
+    it says the coolest white expressible at this luminance is about ratio 0.893, and that anything
+    cooler has to spend luminance for a dimmer white, which is a different decision from a cooler
+    one and belongs to whoever is making it.
     """
     red_weight, green_weight, blue_weight = REC709
     blue = ((target - green_weight * offset)
@@ -108,7 +117,13 @@ def on_locus(ratio: float, target: float, offset: float) -> tuple[float, float, 
     red = ratio * blue
     if red > 255.0:
         red, blue = 255.0, 255.0 / ratio
-    return red, (red + blue) / 2 + offset, blue
+    green = (red + blue) / 2 + offset
+    if max(red, green, blue) > 255.5 or min(red, green, blue) < -0.5:
+        raise ValueError(
+            f"ratio {ratio:.4f} at luminance {target:.1f} needs "
+            f"({red:.1f}, {green:.1f}, {blue:.1f}), which is outside sRGB. Cooler than about 0.893 "
+            f"cannot hold this luminance: lower the target to buy a dimmer white, or stop here")
+    return red, green, blue
 
 
 def cream(ratio: float, target: float) -> tuple[float, float, float]:
