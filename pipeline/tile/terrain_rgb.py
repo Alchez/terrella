@@ -181,7 +181,7 @@ def master_grid_mismatch(master: Path, master_zoom: int) -> str | None:
 #: Source rows held in memory at once by `downsample_elevation`. Budgeted on the SOURCE side, not
 #: the output side: a band of N output rows reads `N * factor` source rows, so a fixed output band
 #: silently scales peak RAM with the downsample factor — at the master's width, 256 output rows at
-#: factor 64 would be 8.6 GB, against a 12 G cap. 2048 master rows is ~1.07 GB.
+#: factor 64 would be 8.6 GB, against the heavy-job cap. 2048 master rows is ~1.07 GB.
 SOURCE_ROW_BUDGET = 2048
 
 

@@ -75,6 +75,7 @@ Not a lower tier. Nobody has written down what would make them worth doing, and 
 - [Brotli sidecars for the text-like assets](#brotli-sidecars-for-the-text-like-assets-analysed-2026-07-25-blocked) · an R2 `Content-Encoding` probe nobody has run
 - [The polar caps are a texture](#the-polar-caps-are-a-texture-because-maplibre-allows-nothing-else-and-the-ceiling-is-webps-analysed-2026-08-07) · MapLibre gaining a TileMatrixSet source
 - [MapLibre's WebGPU backend](#maplibres-webgpu-backend-irrelevant-to-our-memory-problem-and-not-the-no-op-we-recorded-analysed-2026-07-29) · MapLibre publishing a timeline
+- [A quadtree block partition](#a-quadtree-block-partition-instead-of-the-uniform-grid-analysed-2026-09-03) · a uniform partition shipping a full planet first, as the baseline
 - [GDAL 3.13](#gdal-313-assessed-and-skipped-analysed-2026-07-23) · a full-restage boundary, and rasterio bundling 3.13
 - [The layer-rename alias cannot be deleted yet](#the-layer-rename-alias-cannot-be-deleted-yet-and-the-clock-is-longer-than-it-reads-analysed-2026-08-31) · a year of `immutable` URLs expiring, then a production log read
 
@@ -302,6 +303,15 @@ Presets decompose into **three kinds by where the variation lives**: costs diffe
   - ~360 GB of intermediates are compute-regenerable, and a remote read is a rejected shape for reading them: COG buys selective reads, while a pass is a full sequential scan two or three times over. HISTORY, *remote COG is the wrong shape for a full sequential scan*.
   - The **~56 GB worth putting in a cloud is the backup set, not an offload**: heroes+raws+variants (27 GB real bytes, hardlink archives ~free; Cycles isn't bit-deterministic so ratified pixels are irreplaceable), `planet.pmtiles` (**3 GB**: doubles as deploy transport), `planet/` fused cells (14 GB: the one expensive-to-rebuild intermediate), caps/geojson/frame pins. ≈ $1/mo on R2/B2 (ballpark; R2's zero egress is the differentiator: verify pricing at pickup).
 - **The big lever:** if Phase 5 goes no-go on a finer re-fuse, `glo30/` (551 GB) drops to per-country-on-demand like WorldCover: the upstream *is* the cloud store. Deferred the whole topic to after Phase 5.
+
+## A quadtree block partition, instead of the uniform grid (analysed 2026-09-03)
+
+> **BLOCKED** · needs-render-store · **reopens when** a uniform partition has shipped a full planet, which is the baseline a variable one has to be measured against.
+
+- **What it is:** the render grid is cut into equal 4096 px blocks, so a block of flat seabed is planned exactly like one holding 5,076 m of haloed relief. A quadtree would subdivide on the relief that `relief_scan` already records per cell.
+- **Why it would be cheap to try:** the relief cache is deliberately finer than the block. `block_plan.CELL_PX` is 512 and a block is `CELLS_PER_BLOCK` of them across, so a different partition re-folds the cache instead of re-reading a 46 GB master. `relief_scan.py`'s own docstring says this, and names this idea as the reason the fold lives in `block_plan` rather than in the scan.
+- **Why it is blocked rather than open:** a variable partition has to be compared against a uniform one that actually shipped a planet, or there is no control, and the failure mode is a partition that looks better only on the blocks someone chose to inspect.
+- **One term did not survive the move out of the raytrace arc's working doc:** that doc recorded the precondition as "until uniform 2048 has shipped a planet", and 2048 matches `CONTEXT_CEILING_PX` rather than any block size, blocks being 4096. Resolve which was meant before acting on this entry.
 
 ## A z9 / z10 pyramid: z10 is BLOCKED ON DISK, z9 is reachable (analysed 2026-07-26)
 

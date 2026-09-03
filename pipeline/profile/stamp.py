@@ -2,7 +2,7 @@
 
 The pass marks its own stage boundaries (`pipeline/progress.py`), so timestamping every line it
 prints is the per-stage timing story at zero overhead and zero code change. The lines that are NOT
-boundaries pay off too: the composite's every-20-windows row count becomes a rows/second curve over
+boundaries pay off too: any stage printing a periodic row count becomes a rows/second curve over
 latitude for free, which is how the lake warp's spatially non-uniform rate would have been caught
 before it broke the estimate.
 

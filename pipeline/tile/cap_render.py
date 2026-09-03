@@ -126,7 +126,7 @@ CAP_QUADRANT_SPLIT = 2
                        # separately, a frame could ask for a resolution its camera does not cover
                        # and the four pieces would overlap or leave a gap.
                        #
-                       # WHY IT IS NOT 1. CAP_PX in a single frame is OOM-killed at the 16 G cap,
+                       # WHY IT IS NOT 1. CAP_PX in a single frame is OOM-killed at the heavy-job cap,
                        # measured at both edge 82 and 84; a quadrant peaks near 8 G. → HISTORY,
                        # *both caps raytraced at edge 84*.
 CAP_FEATHER_MIN_DEG = 3.0

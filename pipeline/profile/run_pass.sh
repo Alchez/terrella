@@ -13,7 +13,7 @@
 # would reintroduce, one layer up, exactly the silent Earth assumption planet_pass refuses to make.
 #
 # Args are passed through to pipeline.tile.planet_pass, which is the pass's entry point and the
-# module that chooses the body's producer; --tiles additionally picks its own output dir, scope name
+# module that sequences its stages; --tiles additionally picks its own output dir, scope name
 # and memory cap, so a tiling run never overwrites a shade run's profile.
 #
 # Four instruments, chosen because each answers something the others cannot:
@@ -33,9 +33,9 @@
 # The short version: 16 G is the CAP-RENDERING number, because the pass ENDS by invoking cap_render
 # as a subprocess that inherits this scope's cgroup; a body rendering no caps never reaches that
 # stage, so on it the 16 G is unbacked rather than protective and the preflight below then refuses
-# a pass the box could have run. The composite is NOT why either number is what it is, and
-# COMPOSITE_ROWS=128 is a hardcoded constant rather than a function of this cap, so a larger cap
-# cannot let it grow. The per-stage peaks are measured in PROCESS.md, not restated here.
+# a pass the box could have run. Neither number was ever sized off the composite, which is worth
+# saying because that stage and the COMPOSITE_ROWS constant this note used to cite are both deleted.
+# The per-stage peaks are measured in PROCESS.md, not restated here.
 #
 # What this script still owns is GDAL_CACHEMAX=512 (per planet_warp.py's own launch note), which
 # `gdal raster tile` multiplies: it spawns -j ALL_CPUS workers that EACH inherit it. That product is
@@ -153,13 +153,15 @@ fi
 [[ "${STOP_AFTER:-}" == logs ]] && exit 0
 
 # Sampler first: it polls for the cgroup, so it is already watching when the scope appears.
-# 0.5 s, not 1 s, AND THE REASON IS THE COMPOSITE PRODUCER'S ALONE: it forks ~728 short-lived snow
-# subprocesses (gdalwarp + gdal_rasterize per window x 364 windows) and a 1 s interval races their
-# exit. perf catches their CPU regardless, but only the sampler sees their RSS and disk bytes.
-# The raytrace producer forks one long-lived Blender per block instead, which nothing can race, so
-# on that producer the rate buys accuracy nobody needs and costs ~158k samples over a night. It is
-# left at 0.5 s rather than made per-producer because this script does not know which one runs --
-# the body does, and asking would be a second reader of pass_memory's question for a sampling rate.
+# 0.5 s, not 1 s, AND THE REASON IT WAS CHOSEN IS GONE: it was the composite producer's, which
+# forked ~728 short-lived snow subprocesses (gdalwarp + gdal_rasterize per window x 364 windows)
+# that a 1 s interval races. The raytrace is the only producer now and forks one long-lived Blender
+# per block, which nothing can race, so the rate buys accuracy nobody needs and costs ~158k samples
+# over a night.
+#
+# IT STAYS AT 0.5 s ANYWAY, AND THIS IS A DECISION RATHER THAN AN OVERSIGHT. Every per-stage figure
+# in PROCESS.md was sampled at this rate, and a pass profiled at 1 s would be compared against them
+# as though the instrument had not moved. Change it with a re-measure, not on its own.
 "$VENV" "$HARNESS/sample_tree.py" --unit "${UNIT}.scope" --out "$PROF/samples.jsonl" \
     --interval 0.5 2> "$PROF/sampler.log" &
 SAMPLER_PID=$!

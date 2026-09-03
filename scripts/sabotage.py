@@ -8239,10 +8239,10 @@ SABOTAGES: list[Sabotage] = [
         # Both retired figures got here exactly this way and neither was noticed: the prose still
         # reads as sourced, and a reader who follows the pointer finds a different number with
         # nothing saying the two disagree.
-        label='the module argues from a composite peak PROCESS no longer carries',
+        label='the module argues from a stage peak PROCESS no longer carries',
         path='pipeline/profile/pass_memory.py',
-        needle='- Earth at z8: `cap_render` **14.41 GiB** · composite **12.56 GiB**',
-        replacement='- Earth at z8: `cap_render` **14.41 GiB** · composite **11.02 GiB**',
+        needle='- Earth at z8: `cap_render` **14.41 GiB** · tile cut **3.74 GiB**',
+        replacement='- Earth at z8: `cap_render` **13.02 GiB** · tile cut **3.74 GiB**',
         guard='test_every_figure_the_module_argues_from_is_one_PROCESS_still_carries',
     ),
     # `set -u` does NOT catch this: a failed command substitution assigns the EMPTY STRING rather

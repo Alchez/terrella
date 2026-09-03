@@ -27,8 +27,9 @@ whole-batch run can fan out across processes with --jobs. The work is pixel-boun
 scipy/gdal are single-threaded per call, so N workers use N idle cores near-linearly —
 but the ceiling is memory, and it sits lower than the arithmetic suggests: the largest
 countries hold several float arrays over a native (~42 MP) grid and peak near 8 GB each,
-so the full 203-set OOMs at --jobs>1 under the standing 12 G cgroup cap. Serial is the
-default for that reason; budget ~8 GB per job before raising it.
+so two workers meet the heavy-job cgroup cap on their own and the full 203-set OOMs at
+--jobs>1. Serial is the default for that reason; budget ~8 GB per job before raising it.
+The cap itself is `pass_memory.HEAVY_JOB_GIB` and is deliberately not retyped here.
 
 Usage:
   gen_spotlight.py --only saintlucia            # one (or a comma list)
@@ -325,9 +326,9 @@ def main() -> int:
                     help="dark keyline alpha under the white line (0 = none)")
     ap.add_argument("--jobs", type=int, default=1,
                     help="parallel worker processes over countries. The largest countries "
-                         "peak at ~8 GB each at native res, so the full 203-set OOMs at "
-                         "--jobs>1 under the 12 G cgroup cap; raise it only with real headroom "
-                         "(budget ~8 GB per job).")
+                         "peak at ~8 GB each at native res, so two of them meet the heavy-job "
+                         "cgroup cap and the full 203-set OOMs at --jobs>1; raise it only with "
+                         "real headroom (budget ~8 GB per job).")
     args = ap.parse_args()
 
     if args.only:

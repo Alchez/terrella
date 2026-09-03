@@ -6,7 +6,7 @@ the pole. Cycles takes one sun direction per frame and cannot do that, so the di
 `CAP_AZIMUTH_PASSES` fixed bearings and every pixel is cross-faded between the two that bracket the
 one it wants. Same law, read from its owner rather than imitated at one remove.
 
-WHY EACH PASS IS FOUR FRAMES. `CAP_PX` in a single frame is OOM-killed at the 16 G cap, so the plane
+WHY EACH PASS IS FOUR FRAMES. `CAP_PX` in a single frame is OOM-killed at the heavy-job cap, so the plane
 is photographed `CAP_QUADRANT_SPLIT` squared times. The neighbours are literally the same plane, so
 terrain outside a quadrant still casts into it and there is no context margin to buy.
 → HISTORY, *the cap edge goes to 82 and not 84*, for the stitch: geometry correlation 0.99327 against

@@ -381,3 +381,50 @@ class TestTheCapResolver:
         monkeypatch.setitem(bodies.BODIES, CAPLESS.name, CAPLESS)
         assert pass_memory.limit_for_argv(["--body", "capless", "--tiles", "--out", "/x"]) == 12
         assert pass_memory.limit_for_argv(["--body", "earth"]) == 16
+
+
+#: A cap spelled into prose: an integer, `G`, and the noun within reach. `GB`/`GiB` are excluded
+#: because those are MEASUREMENTS, which belong in prose and are checked against PROCESS elsewhere.
+CAP_IN_PROSE = re.compile(r"\b\d{1,2}\s?G\b(?!i?B)(?=[^.]{0,40}\b(?:cap|rule)\b)")
+
+
+class TestNoModuleSpellsTheHeavyJobCapItself:
+    """`HEAVY_JOB_GIB` is a RATIFIED POLICY with one owner, and prose that spells its value is a
+    second copy that nothing can make go red.
+
+    THIS WAS FOUND BY THE ROT, NOT BY THE RULE, WHICH IS THE POINT. Four comments still said `12 G`
+    long after the policy moved to 16, and were logged as a four-site cleanup. The scan says eight:
+    the other four say `16 G` and read as correct today, which is exactly the state the first four
+    were in before the policy moved. A list of the sites that have already rotted is not the set.
+
+    The fix is never to retype the number. A comment names `pass_memory.HEAVY_JOB_GIB`, which is
+    true whatever the policy is, and a measurement against the cap keeps its own measured figure.
+    """
+
+    def scanned(self) -> list[tuple[str, int, str]]:
+        found = []
+        for path in sorted(REPO.joinpath("pipeline").rglob("*")):
+            if path.suffix not in {".py", ".sh"} or path.relative_to(REPO).parts[1] == "profile":
+                continue
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                if CAP_IN_PROSE.search(line):
+                    found.append((str(path.relative_to(REPO)), number, line.strip()))
+        return found
+
+    def test_no_module_outside_the_owner_spells_the_cap(self):
+        spelled = self.scanned()
+        assert not spelled, "prose spelling the heavy-job cap instead of naming it:\n  " + "\n  ".join(
+            f"{path}:{number}: {line[:90]}" for path, number, line in spelled)
+
+    def test_the_scan_can_actually_find_one(self):
+        """The positive control, because a regex that matched nothing would pass the assertion above
+        for the wrong reason, and this scan has already been wrong once in exactly that way."""
+        assert CAP_IN_PROSE.search("OOM-killed at the 16 G cap, so the plane")
+        assert CAP_IN_PROSE.search("under the standing 12 G cgroup cap")
+
+    def test_the_scan_leaves_measurements_alone(self):
+        """A measured peak is not the policy, and `pass_memory`'s own figures are checked elsewhere
+        against PROCESS. Catching those here would push real numbers out of prose."""
+        assert not CAP_IN_PROSE.search("a quadrant peaks near 8 G. -> HISTORY")
+        assert not CAP_IN_PROSE.search("wants 17.0 GB, which dies loudly")
+        assert not CAP_IN_PROSE.search("RGI 7.0 G regional shapefiles, every published region")

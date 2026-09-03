@@ -224,7 +224,7 @@ def main() -> int:
     # Threads, not processes: every worker spends its time inside gdal_translate, so the GIL is
     # released and there is nothing to pickle. Parallel over HEROES rather than over (hero, rung)
     # so one master's six rungs stay on one worker and the decode locality above survives.
-    # Measured 523 MB peak per encode, so the ceiling is cores, not the 12 G cap — but the default
+    # Measured 523 MB peak per encode, so the ceiling is cores, not the heavy-job cap — but the default
     # stays 1, as gen_spotlight's does: fan-out is a decision the caller makes with a known box.
     with ThreadPoolExecutor(max_workers=args.jobs) as pool:
         counts = list(pool.map(encode_hero, heroes))

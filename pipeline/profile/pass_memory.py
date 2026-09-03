@@ -11,9 +11,14 @@ every cap Mars actually needs and misses the one it does not.
 
 THE FLOOR IS A SMALLER PLANET'S MEASUREMENT, NOT A SMALLER STAGE'S, and that distinction is the one
 thing to carry away from this file. 12 G is backed by Mars, whose heaviest non-cap stage peaks at
-5.91 GiB; it is NOT backed by Earth, whose composite alone peaks at 12.56 GiB. So "the pass was
-raised above 12 for the caps stage" is false as stated: Earth exceeds 12 before the caps are
-reached. See `STANDING_GIB` for what that costs, which today is nothing.
+5.91 GiB.
+
+THE WITNESS THAT SAID EARTH NEEDS MORE IS DELETED, AND NOTHING HAS REPLACED IT. That sentence read
+"it is NOT backed by Earth, whose composite alone peaks at 12.56 GiB", which made "the pass was
+raised above 12 for the caps stage" false as stated. The compositor is gone and the raytraced
+`block_render` that replaced it has NO memory figure in PROCESS on either body, so the claim is
+unsupported rather than either true or false. **Read that as a measurement nobody has taken, never
+as room to lower a cap.** See `STANDING_GIB`, which is inert today whichever way it resolves.
 
 WHAT THE MEASUREMENTS SAY, so the two numbers are traceable rather than chosen. PROCESS.md § Memory
 is the authority and holds the method; these are its figures, not a second reading:
@@ -23,8 +28,10 @@ is the authority and holds the method; these are its figures, not a second readi
   `VmHWM` adds lifetime high-water marks across children that never coexisted (a Mars pass sums to
   19.03 GiB under a 16 G cap that never fired). Two figures this module used to carry were taken
   the wrong way and are retired there: Earth's composite at 10.55 GiB, and Mars at 4.01 GiB.
-- Earth at z8: `cap_render` **14.41 GiB** · composite **12.56 GiB** · tile cut **3.74 GiB**.
-- Mars at z7: caps **8.85 GiB** · ice alpha **5.91 GiB** · composite **4.37 GiB** · cut **2.95 GiB**.
+- Earth at z8: `cap_render` **14.41 GiB** · tile cut **3.74 GiB**, and the raytraced producer
+  between them is unmeasured. The composite that stood at **12.56 GiB** here no longer runs.
+- Mars at z7: caps **8.85 GiB** · ice alpha **5.91 GiB** · cut **2.95 GiB**, the deleted composite
+  having been **4.37 GiB**.
 
 THE CAPS ARE THE PEAK ON BOTH BODIES, which is what makes one field enough to size this. They are
 also the only stage a body can decline entirely, so the field that says whether they run is the
@@ -55,8 +62,9 @@ CAP_RENDERING_GIB = 16
 #: The cap a pass needs when it will not, in GiB, and it is a MEASURED PLANET rather than a measured
 #: stage: Mars's heaviest non-cap stage is the ice alpha at 5.91 GiB, so 12 G leaves 2.0x there.
 #:
-#: **IT WOULD NOT BACK A CAPLESS BODY AT EARTH'S SCALE**, whose composite peaks 12.56 GiB, and the
-#: field this branch turns on carries nothing about scale. That is inert today, because both
+#: **IT MAY NOT BACK A CAPLESS BODY AT EARTH'S SCALE**, and the field this branch turns on carries
+#: nothing about scale. The stage that once settled this was the composite at 12.56 GiB and it is
+#: deleted, so the answer is now unmeasured rather than known. That is inert today, because both
 #: registered bodies render caps and no run takes this branch, and it is the question to answer
 #: before one does rather than a number to guess at now. `MEMORY_CAP_OVERRIDE_GIB` is the escape
 #: hatch in the meantime, and it announces itself.
@@ -91,7 +99,7 @@ def limit_gib(body: bodies.Body) -> int:
       8.85 GiB on Mars). So a capped body wants 16 either way, and adding a producer branch would
       be a branch whose arms are equal.
     - **A capless RAYTRACED body is genuinely unmeasured**, and would be the first case where the
-      producer could matter: the composite's footprint is this process's, while the raytrace's sits
+      producer could matter: the composite's footprint was this process's, while the raytrace's sits
       in a Blender subprocess with a mosaic writer beside it. Nothing has run one. That is a gap in
       the measurements rather than a missing branch, and `STANDING_GIB` records the other half of
       the same gap.

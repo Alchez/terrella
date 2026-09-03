@@ -255,7 +255,7 @@ def main() -> int:
     # THE CEILING IS A POLICY AND MUST NOT BE DERIVED FROM THE HOST. This read `0.85 *
     # MemTotal`, which scales the blast radius with the machine rather than bounding it, and it is
     # the one place in the tree that sized a cap that way. It also hid a real fault: the largest
-    # hero under a base grid wants 17.0 GB, which dies loudly at the ratified 16 G here and would
+    # hero under a base grid wants 17.0 GB, which dies loudly at the ratified cap below and would
     # have passed silently on a bigger box, shipping a hero lane that only works on big machines.
     cap_gib = pass_memory.HEAVY_JOB_GIB
     print(f"batch: {len(slugs)} countries, through={args.through}, "
