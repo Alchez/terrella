@@ -5081,14 +5081,24 @@ SABOTAGES: list[Sabotage] = [
     # --- the inline-literal scan, which had a positive control and no mutation case -------------
     Sabotage(
         suite='python',
-        # A pinned value CHANGES. This is the whole reason the pin records the value rather than the
-        # attribute: subdivision levels are geometry, `rig_recipe` cannot see them, and every
-        # rendered block would go on reading fresh at a different mesh density.
-        label='a pinned look value changes and the pin still lists the old one',
+        # A value goes BACK to being spelled inline, which is the state the sweep took this module
+        # out of. The old case here mutated the literal itself and was retired with it: `rig_recipe`
+        # reads these from `Rig` now, so changing one restages honestly and is no longer a defect.
+        label='a look value returns to an inline literal the recipe cannot see',
         path='pipeline/render/scene_build.py',
-        needle='    mod.levels = 1',
+        needle='    mod.levels = RIG.subdivision_levels',
         replacement='    mod.levels = 3',
         guard='test_every_inline_literal_in_the_builder_is_one_somebody_ruled_on',
+    ),
+    Sabotage(
+        suite='python',
+        # The other direction, which had no case because it had no guard: a field recorded in the
+        # recipe that the builder never applies restages every block for a pixel that cannot move.
+        label='a rig field is recorded in the recipe and never read by the builder',
+        path='pipeline/render/scene_build.py',
+        needle='    cam.clip_end = RIG.camera_clip_end',
+        replacement='    cam.clip_end = 100.0',
+        guard='test_every_rig_field_is_actually_read_by_the_builder',
     ),
     Sabotage(
         suite='python',
@@ -5097,8 +5107,8 @@ SABOTAGES: list[Sabotage] = [
         # this list for a description of a module it no longer matches.
         label='a ruling names a site the builder does not have',
         path='tests/test_scene_build_sync.py',
-        needle='        ".denoising_quality = \'HIGH\'",',
-        replacement='        ".denoising_quality = \'HIGH\'",\n        ".made_up = \'NOTHING\'",',
+        needle='        ".data_type = \'RGBA\'",',
+        replacement='        ".data_type = \'RGBA\'",\n        ".made_up = \'NOTHING\'",',
         guard='test_every_inline_literal_in_the_builder_is_one_somebody_ruled_on',
     ),
     Sabotage(
@@ -5160,8 +5170,9 @@ SABOTAGES: list[Sabotage] = [
         # arrives as an auto-name that no literal in the module spells either.
         label='a directly created node is left unnamed',
         path='pipeline/render/scene_build.py',
-        needle='        rowscale.name = "Row Scale Multiply"\n        rowscale.operation = "MULTIPLY"',
-        replacement='        rowscale.operation = "MULTIPLY"',
+        needle='        rowscale.name = "Row Scale Multiply"\n'
+               '        rowscale.operation = RIG.rowscale_operation',
+        replacement='        rowscale.operation = RIG.rowscale_operation',
         guard='test_every_node_the_builder_creates_is_given_a_name',
     ),
     Sabotage(
