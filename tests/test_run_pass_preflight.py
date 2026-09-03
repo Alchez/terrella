@@ -21,6 +21,7 @@ MAPS_DATA points at a tmp dir on every call, which is a correctness requirement 
 that is the real store's `_profile_pass/pass.log` being rotated by the test suite.
 """
 
+import ast
 import dataclasses
 import re
 import subprocess
@@ -28,7 +29,7 @@ from pathlib import Path
 
 import pytest
 
-from pipeline import bodies
+from pipeline import block_plan, bodies
 from pipeline.profile import pass_memory
 
 REPO = Path(__file__).resolve().parents[1]
@@ -44,8 +45,16 @@ GIB_IN_KIB = 1024 * 1024
 #: took the branch away with them, which is the failure mode worth naming — a guard whose only
 #: negative instance is a live registry field stops testing anything the day that field changes, and
 #: says nothing while it happens. Built off Earth so every unrelated field is a real planet's.
+#:
+#: BUILT OFF EARTH MEANS BUILT AT EARTH'S GRID, and that is the half this fixture never said out
+#: loud. `STANDING_GIB` is measured on Mars's z7, so an Earth-scale capless body is the one case the
+#: module's own docstring calls unbacked -- and the test below pinned it as the correct answer.
 CAPLESS = dataclasses.replace(bodies.EARTH, name="capless", path_prefix="capless",
                               renders_polar_caps=False)
+#: The same branch at the grid the standing cap was actually measured on, so the pair separates
+#: "renders no caps" from "renders no caps AND is small enough for the number that assumes it".
+CAPLESS_SMALL = dataclasses.replace(CAPLESS, name="capless-small", path_prefix="capless-small",
+                                    tile_max_zoom=bodies.MARS.tile_max_zoom)
 
 
 def write_meminfo(path: Path, available_kib: int) -> Path:
@@ -307,8 +316,98 @@ class TestTheCapResolver:
     def test_earth_gets_the_cap_render_headroom(self):
         assert pass_memory.limit_gib(bodies.EARTH) == pass_memory.CAP_RENDERING_GIB
 
-    def test_a_capless_body_gets_the_standing_cap(self):
-        assert pass_memory.limit_gib(CAPLESS) == pass_memory.STANDING_GIB
+    def test_a_capless_body_at_the_measured_grid_gets_the_standing_cap(self):
+        assert pass_memory.limit_gib(CAPLESS_SMALL) == pass_memory.STANDING_GIB
+
+    def test_a_capless_body_larger_than_the_measurement_does_not_get_the_standing_cap(self):
+        """THE CASE THE MODULE DOCSTRING CALLS UNBACKED, WHICH THIS FILE USED TO PIN AS CORRECT.
+
+        `STANDING_GIB` is 12 because Mars's heaviest non-cap stage peaks at 5.91 GiB on a 65536 grid.
+        Earth's grid is 131072 -- four times the area -- and the stage that once witnessed a capless
+        body at that scale was the composite, which is deleted. So 12 is not a number that is
+        probably fine here; it is a number whose measurement never covered this body.
+
+        WHAT IT GETS INSTEAD IS A POLICY AND NOT A GUESS. `HEAVY_JOB_GIB` is Rohan's ratified
+        ceiling, so handing it over says "nobody measured this, take the most the box allows" -- and
+        the `MemAvailable` preflight downstream then refuses honestly, where at 12 it would wave the
+        pass through to be killed inside its own cgroup with no cause anyone could read.
+        """
+        assert pass_memory.limit_gib(CAPLESS) == pass_memory.HEAVY_JOB_GIB
+        assert pass_memory.limit_gib(CAPLESS) != pass_memory.STANDING_GIB
+
+    def test_the_unbacked_branch_announces_itself_on_stderr(self, capsys):
+        """A cap nobody measured must not be silent, which is the rule `batch.py` already follows.
+
+        STDERR AND NOT STDOUT, because `run_pass.sh` reads this module's stdout as the number: a
+        note printed there would be captured into `MEMORY_CAP_GIB` and the scope would fail to open.
+        """
+        pass_memory.limit_gib(CAPLESS)
+        captured = capsys.readouterr()
+        assert captured.out == "", "the resolver's stdout is the cap; nothing else may go there"
+        assert "unmeasured" in captured.err.lower()
+        assert str(pass_memory.STANDING_GIB) in captured.err
+
+    def test_the_quiet_branch_stays_quiet(self, capsys):
+        """The announcement's own control: a note printed on every capless body would satisfy the
+        test above while telling an operator nothing about which case they are in.
+
+        Both registered bodies are checked too, because those are the ones a real run resolves and a
+        warning on every pass is how a warning stops being read.
+        """
+        for body in [CAPLESS_SMALL, bodies.EARTH, bodies.MARS]:
+            pass_memory.limit_gib(body)
+        assert capsys.readouterr() == ("", "")
+
+    def test_the_zoom_the_branch_reads_orders_bodies_the_way_their_grids_do(self, subtests):
+        """The discriminator is `tile_max_zoom`; the thing it stands for is the raster's size.
+
+        `grid_px` is `CELL_PX << tile_max_zoom`, so the two orderings are identical -- but that is a
+        fact about another module, and `pass_memory` cannot import it: this runs as the preflight
+        subprocess, before any scope opens, and `block_plan` pulls numpy in behind it. So the
+        equivalence is asserted here instead of assumed there, and goes red if `grid_px` stops being
+        monotonic in the field this branch reads.
+        """
+        registry = [bodies.MARS, bodies.EARTH, CAPLESS, CAPLESS_SMALL]
+        for left in registry:
+            for right in registry:
+                with subtests.test(left=left.name, right=right.name):
+                    assert ((left.tile_max_zoom > right.tile_max_zoom)
+                            == (block_plan.grid_px(left) > block_plan.grid_px(right)))
+
+    def test_the_measured_zoom_is_still_the_one_mars_actually_runs(self):
+        """A LITERAL PINNED RELATIONALLY, rather than `STANDING_MEASURED_MAX_ZOOM = MARS.tile_max_zoom`.
+
+        Read off the registry the constant would follow Mars wherever it went, so deepening Mars to
+        z8 would silently re-declare 12 GiB as backing a 131072 grid nobody has ever measured -- the
+        number moving because a different body moved. That is the exact failure `CAPLESS`'s own note
+        names one level up. Written as a literal, the same change lands here instead, and what it
+        asks for is a re-measure.
+        """
+        assert bodies.MARS.tile_max_zoom == pass_memory.STANDING_MEASURED_MAX_ZOOM
+
+    def test_the_measured_zoom_is_written_as_a_literal_and_not_read_from_the_registry(self):
+        """THE ASSERTION ABOVE CANNOT MAKE THIS CLAIM, AND MUTATION IS WHAT SAID SO.
+
+        Written `STANDING_MEASURED_MAX_ZOOM = bodies.MARS.tile_max_zoom`, that test compares the
+        field to itself and passes for the same reason `1 == 1` does -- so the one mutation it exists
+        to catch was the one mutation invisible to it. The claim is about PROVENANCE, which is a fact
+        about the source rather than about any value the module holds at runtime, so it is read off
+        the AST. A `Constant` is a decision someone typed; an `Attribute` is a number that follows
+        whatever it points at.
+        """
+        assignments = [node for node in ast.walk(ast.parse(PASS_MEMORY_SOURCE.read_text()))
+                       if isinstance(node, ast.Assign)
+                       and any(isinstance(target, ast.Name)
+                               and target.id == "STANDING_MEASURED_MAX_ZOOM"
+                               for target in node.targets)]
+        assert len(assignments) == 1, (
+            "expected exactly one assignment to STANDING_MEASURED_MAX_ZOOM, found "
+            f"{len(assignments)} — a second one makes this scan read the wrong site")
+        value = assignments[0].value
+        assert isinstance(value, ast.Constant) and isinstance(value.value, int), (
+            f"STANDING_MEASURED_MAX_ZOOM is `{ast.unparse(value)}`, which follows another body "
+            "wherever it goes. It records where a measurement was TAKEN, so it is a literal, and "
+            "the test above holds it to the registry.")
 
     def test_the_two_numbers_actually_differ(self):
         """Anti-vacuity: both assertions above pass if the constants collapse to one value, and so
@@ -378,8 +477,9 @@ class TestTheCapResolver:
         name: `limit_for_argv` parses argv and resolves through `bodies.get`, so a capless body only
         reaches the resolver if the registry can answer for it.
         """
-        monkeypatch.setitem(bodies.BODIES, CAPLESS.name, CAPLESS)
-        assert pass_memory.limit_for_argv(["--body", "capless", "--tiles", "--out", "/x"]) == 12
+        monkeypatch.setitem(bodies.BODIES, CAPLESS_SMALL.name, CAPLESS_SMALL)
+        assert pass_memory.limit_for_argv(
+            ["--body", "capless-small", "--tiles", "--out", "/x"]) == 12
         assert pass_memory.limit_for_argv(["--body", "earth"]) == 16
 
 

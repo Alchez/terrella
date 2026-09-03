@@ -8172,9 +8172,20 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the resolver stops reading the body and answers Earth for every planet',
         path='pipeline/profile/pass_memory.py',
-        needle='    return CAP_RENDERING_GIB if body.renders_polar_caps else STANDING_GIB',
-        replacement='    return CAP_RENDERING_GIB',
-        guard='test_a_capless_body_gets_the_standing_cap',
+        needle='    if body.renders_polar_caps:\n        return CAP_RENDERING_GIB',
+        replacement='    if True:\n        return CAP_RENDERING_GIB',
+        guard='test_a_capless_body_at_the_measured_grid_gets_the_standing_cap',
+    ),
+    # The scale half of the same resolver, which the case above cannot reach: it collapses the two
+    # capless arms rather than the capped one, so every assertion about "a capless body" still holds
+    # and only the body nobody has measured is answered wrongly.
+    Sabotage(
+        suite='python',
+        label='an unmeasured capless body silently takes the cap measured on a quarter its area',
+        path='pipeline/profile/pass_memory.py',
+        needle='    if body.tile_max_zoom > STANDING_MEASURED_MAX_ZOOM:',
+        replacement='    if False:',
+        guard='test_a_capless_body_larger_than_the_measurement_does_not_get_the_standing_cap',
     ),
     # The tidiest-looking of the four: two constants that agree are one constant, and collapsing them
     # leaves a resolver that still branches, still reads the body, and still answers.
