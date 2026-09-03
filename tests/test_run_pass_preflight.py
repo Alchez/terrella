@@ -401,11 +401,22 @@ class TestNoModuleSpellsTheHeavyJobCapItself:
     true whatever the policy is, and a measurement against the cap keeps its own measured figure.
     """
 
+    def candidates(self):
+        """Every file that could spell the cap: the pipeline outside its owner, plus CLAUDE.md.
+
+        CLAUDE.md IS IN SCOPE AND IS THE COPY THAT MATTERS MOST. It is the standing brief every
+        session and every contributor reads, so a number spelled there outranks the same number in
+        a module nobody opens — and it drifted exactly the way the eight code sites did, still
+        claiming "no exemptions" against a lane that exempts five of its seven stages by design.
+        """
+        for path in sorted(REPO.joinpath("pipeline").rglob("*")):
+            if path.suffix in {".py", ".sh"} and path.relative_to(REPO).parts[1] != "profile":
+                yield path
+        yield REPO / "CLAUDE.md"
+
     def scanned(self) -> list[tuple[str, int, str]]:
         found = []
-        for path in sorted(REPO.joinpath("pipeline").rglob("*")):
-            if path.suffix not in {".py", ".sh"} or path.relative_to(REPO).parts[1] == "profile":
-                continue
+        for path in self.candidates():
             for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
                 if CAP_IN_PROSE.search(line):
                     found.append((str(path.relative_to(REPO)), number, line.strip()))
