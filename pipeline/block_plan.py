@@ -34,8 +34,6 @@ It sits at the root of `pipeline/` rather than in `tile/` because it is a law th
 the cost model both read, in the sense the package note sets out, not a stage that runs.
 """
 
-from __future__ import annotations
-
 import math
 import warnings
 from dataclasses import dataclass

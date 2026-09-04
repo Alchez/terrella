@@ -23,8 +23,6 @@ guarding only NaN once packed that as a real elevation and drew a line from pole
 live site. See HISTORY, *the column the warp could not fill*.
 """
 
-from __future__ import annotations
-
 import argparse
 import contextlib
 import json

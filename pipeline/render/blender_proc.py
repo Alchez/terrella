@@ -17,8 +17,6 @@ memory limit cannot see it, and the space is reclaimed only by deleting the file
 this module, because this module is what starts Blender.
 """
 
-from __future__ import annotations
-
 import os
 import subprocess
 from pathlib import Path

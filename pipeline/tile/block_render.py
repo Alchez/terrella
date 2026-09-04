@@ -29,8 +29,6 @@ Per-block freshness answers "did this block finish", never "is this block still 
     python -m pipeline.tile.block_render --body earth --only r00c00,r31c40   # named blocks
 """
 
-from __future__ import annotations
-
 import argparse
 import json
 import shutil
