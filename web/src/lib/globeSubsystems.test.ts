@@ -1,8 +1,13 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { globeSubsystems, globeTileAddresses, type GlobeSubsystems } from "./globeSubsystems";
-import { BODIES, type BodySlug } from "./bodies";
-import { PUBLISHED } from "./tileAddress";
+import {
+  globeSubsystems,
+  globeTileAddresses,
+  hasHoverHighlight,
+  type GlobeSubsystems,
+} from "./globeSubsystems";
+import { BODIES, type BodyDescriptor, type BodySlug } from "./bodies";
+import { PUBLISHED, type PublishedArchives } from "./tileAddress";
 import { VECTOR_PRODUCT, sourceLayer, type VectorProduct } from "./sourceLayers";
 
 /**
@@ -14,6 +19,25 @@ import { VECTOR_PRODUCT, sourceLayer, type VectorProduct } from "./sourceLayers"
  */
 const ALL_BODIES = Object.keys(BODIES) as BodySlug[];
 const NO_FLAGS = new URLSearchParams();
+
+/** What a REGISTERED body's globe draws, with the three records gathered the way `Globe.astro`
+ *  gathers them. The tests that write a body the registry does not contain call `globeSubsystems`
+ *  directly, which is the whole reason it takes records rather than a slug. */
+const drawnFor = (slug: BodySlug, flags: URLSearchParams) =>
+  globeSubsystems(BODIES[slug], PUBLISHED[slug], VECTOR_PRODUCT[slug], flags);
+
+/** A body the registry does not contain, which is the only thing that can tell a derivation from a
+ *  constant. Every registered body publishes every layer and renders caps, so an answer written as
+ *  a literal agrees with the registry on all of them; only a record belonging to no planet
+ *  disagrees. `tests/test_bodies.py` and its neighbours have built these with `dataclasses.replace`
+ *  on the pipeline side for as long as there have been two bodies.
+ *
+ *  Every case below is an assertion and its control: the second half switches the field back on and
+ *  expects the answer to move, so a function that hardcoded either answer fails one of the two. */
+const publishing = (overrides: Partial<PublishedArchives>): PublishedArchives =>
+  ({ ...PUBLISHED.earth, ...overrides });
+const describing = (overrides: Partial<BodyDescriptor>): BodyDescriptor =>
+  ({ ...BODIES.earth, ...overrides });
 const OVERLAYS = ["polarCaps", "borders", "heroes"] as const;
 
 /** Flag combinations a visitor can actually produce, including the nonsense ones. */
@@ -21,7 +45,7 @@ const FLAG_SETS = ["", "bare", "nocaps", "bare&nocaps", "terrain=2", "bare&terra
 
 describe("what a body's globe draws", () => {
   it("gives Earth all five, because Earth is the body every one of them was built for", () => {
-    expect(globeSubsystems("earth", NO_FLAGS)).toEqual({
+    expect(drawnFor("earth", NO_FLAGS)).toEqual({
       polarCaps: true,
       terrain: true,
       vectorProduct: "countries",
@@ -32,14 +56,14 @@ describe("what a body's globe draws", () => {
 
   it("gives a body its own vector product rather than the one Earth publishes", () => {
     // The caps are not an exception — they are the projection's repair rather than a layer over it.
-    // Web Mercator carries no data past ~85°, so a globe without them draws `shade_planet.CAP_RGB`
+    // Web Mercator carries no data past ~85°, so a globe without them draws the polar plug
     // at both poles: a flat pale disc, tested on Earth and rejected.
     //
     // `vectorProduct` is the field this case exists for now that Mars publishes vectors. It read
     // `countries: false` while Mars published nothing, which was true and proved nothing about the
     // question — whether a second body's overlay can be told apart from Earth's. It can, and a
     // boolean could not have said so.
-    expect(globeSubsystems("mars", NO_FLAGS)).toEqual({
+    expect(drawnFor("mars", NO_FLAGS)).toEqual({
       polarCaps: true,
       terrain: true,
       vectorProduct: "features",
@@ -63,7 +87,7 @@ describe("what a body's globe draws", () => {
     // here would be asking Mars to stay flat to satisfy a test. The list is what still separates
     // the bodies, and it shrinks as the second planet catches up — when it empties, the two cases
     // above stop proving anything and this assertion is what will say so.
-    const answers = ALL_BODIES.map((body) => globeSubsystems(body, NO_FLAGS));
+    const answers = ALL_BODIES.map((body) => drawnFor(body, NO_FLAGS));
     for (const subsystem of ["borders", "heroes"] as const) {
       const given = new Set(answers.map((answer) => answer[subsystem]));
       expect(given, `every body answers the same for ${subsystem}`).toEqual(new Set([true, false]));
@@ -87,7 +111,7 @@ describe("?bare strips a globe to the raster baseline, on every body", () => {
     // it, and terrain is the raster in three dimensions rather than a thing on top of it — so
     // `?bare&terrain=2` stays a combination worth asking for.
     for (const body of ALL_BODIES) {
-      const bare = globeSubsystems(body, new URLSearchParams("bare"));
+      const bare = drawnFor(body, new URLSearchParams("bare"));
       for (const overlay of OVERLAYS) {
         expect(bare[overlay], `?bare ${body} still draws ${overlay}`).toBe(false);
       }
@@ -101,7 +125,7 @@ describe("?bare strips a globe to the raster baseline, on every body", () => {
   it("keeps terrain on a bare Earth, so the flag cannot silently delete a diagnostic", () => {
     // The one field the case above deliberately does not compare, asserted rather than assumed —
     // otherwise "compared on the overlays only" would be a comment with nothing behind it.
-    expect(globeSubsystems("earth", new URLSearchParams("bare")).terrain).toBe(true);
+    expect(drawnFor("earth", new URLSearchParams("bare")).terrain).toBe(true);
   });
 });
 
@@ -130,14 +154,14 @@ describe("the tile addresses a globe draws from", () => {
     // Mars's archive holds features and its URL still says `vector`, which is the whole point of
     // the segment naming a role. A path spelling `mars/features` would mean the address grammar had
     // grown a per-body case. Split out of the case above when that one stopped using a real body.
-    const addresses = globeTileAddresses("mars", globeSubsystems("mars", NO_FLAGS));
+    const addresses = globeTileAddresses("mars", drawnFor("mars", NO_FLAGS));
     expect(addresses.vector).toContain("mars/vector");
     expect(addresses.vector).not.toContain("features");
     expect(addresses.terrain).toContain("mars/terrain");
   });
 
   it("gives Earth all three, so the case above is not passing on a body with nothing to build", () => {
-    const addresses = globeTileAddresses("earth", globeSubsystems("earth", NO_FLAGS));
+    const addresses = globeTileAddresses("earth", drawnFor("earth", NO_FLAGS));
     expect(addresses.relief).toContain("earth/relief");
     expect(addresses.terrain).toContain("earth/terrain");
     expect(addresses.vector).toContain("earth/vector");
@@ -147,7 +171,7 @@ describe("the tile addresses a globe draws from", () => {
     // `?bare` is not only a "do not draw" — it is a "do not address". A template built anyway is a
     // live URL sitting in scope, one careless line away from a source that fetches the pyramid the
     // visitor asked not to see.
-    const bare = globeTileAddresses("earth", globeSubsystems("earth", new URLSearchParams("bare")));
+    const bare = globeTileAddresses("earth", drawnFor("earth", new URLSearchParams("bare")));
     expect(bare.vector).toBeNull();
     expect(bare.relief, "?bare is the raster BASELINE, so relief must survive it").toContain(
       "earth/relief",
@@ -162,32 +186,85 @@ describe("the registry is the only thing that can switch a subsystem ON", () => 
     // throws at module scope — before a map exists — so the globe is a blank page.
     for (const body of ALL_BODIES) {
       for (const flags of FLAG_SETS) {
-        const drawn = globeSubsystems(body, new URLSearchParams(flags));
+        const drawn = drawnFor(body, new URLSearchParams(flags));
         const where = `${body} ?${flags}`;
         if (drawn.terrain) expect(PUBLISHED[body].terrain, where).not.toBeNull();
         if (drawn.vectorProduct !== null) expect(PUBLISHED[body].vector, where).not.toBeNull();
       }
     }
-    // THE LOOP ABOVE CANNOT FAIL TODAY, AND SAYING SO IS THE POINT. Both implications are
-    // conditional on a body publishing nothing, and since Mars's DEM landed every body publishes
-    // every layer — so `terrain: true` hardcoded would satisfy every iteration. The invariant is
-    // still real (a flag may only take away, and advertising an unpublished pyramid throws at
-    // module scope, before a map exists, leaving a blank page), but the registry no longer contains
-    // a case that exercises it.
-    //
-    // So the derivation is pinned in the source instead. This is a spelling check and is worth
-    // exactly what a spelling check is worth: it catches the tidy that reads as a simplification
-    // (`!== null` collapsing to a literal) and nothing subtler. THE REAL FIX IS TO PARAMETERISE
-    // `globeSubsystems` ON A REGISTRY, the way `terrainDemSource` and `featureTilesSource` already
-    // take an archive — then a record belonging to no body can tell a constant from a derivation.
-    // Left undone here on purpose: it is a production signature change, not a registry entry.
-    const source = readFileSync(new URL("./globeSubsystems.ts", import.meta.url), "utf8");
-    expect(source, "terrain stopped being derived from the registry").toContain(
-      "terrain: published.terrain !== null,",
-    );
-    expect(source, "the vector product stopped being derived from the registry").toContain(
-      "published.vector !== null",
-    );
+    // THE LOOP ABOVE CANNOT FAIL ON THE REGISTERED BODIES, AND SAYING SO IS THE POINT. Both
+    // implications are conditional on a body publishing nothing, and since Mars's DEM landed every
+    // body publishes every layer — so `terrain: true` hardcoded satisfies every iteration here.
+    // What discriminates is the block below, which writes the body the registry does not contain.
+  });
+
+  it("draws no terrain for a body publishing no terrain pyramid, and terrain for one that does",
+     () => {
+       const bare = globeSubsystems(describing({}), publishing({ terrain: null }), "countries",
+                                    NO_FLAGS);
+       const full = globeSubsystems(describing({}), publishing({}), "countries", NO_FLAGS);
+       expect(bare.terrain, "terrain stopped being derived from the archives").toBe(false);
+       expect(full.terrain, "the control: terrain never comes on at all").toBe(true);
+     });
+
+  it("draws no vector product for a body publishing no vector archive, and one for a body that does",
+     () => {
+       const bare = globeSubsystems(describing({}), publishing({ vector: null }), "features",
+                                    NO_FLAGS);
+       const full = globeSubsystems(describing({}), publishing({}), "features", NO_FLAGS);
+       expect(bare.vectorProduct, "the product stopped being derived from the archives").toBeNull();
+       expect(full.vectorProduct, "the control: the product never arrives at all").toBe("features");
+     });
+
+  it("draws no polar caps for a body that renders none, and caps for one that does", () => {
+    // The registry cannot express this today and `bodies.test.ts` says so in its own header:
+    // `rendersPolarCaps` is outside EARTH_ONLY_FLAGS because both bodies answer true, so it is the
+    // one descriptor flag no registered pair can falsify.
+    const capless = globeSubsystems(describing({ rendersPolarCaps: false }), publishing({}),
+                                    "countries", NO_FLAGS);
+    const capped = globeSubsystems(describing({ rendersPolarCaps: true }), publishing({}),
+                                   "countries", NO_FLAGS);
+    expect(capless.polarCaps, "the caps stopped being the descriptor's answer").toBe(false);
+    expect(capped.polarCaps, "the control: the caps never come on at all").toBe(true);
+  });
+
+  it("lights nothing under the pointer for a body publishing no vectors, and does for one that does",
+     () => {
+       // `hasHoverHighlight`'s own docstring records that it reads `true` twice on the registered
+       // bodies. This is the case that makes it a predicate rather than a constant.
+       expect(hasHoverHighlight(publishing({ vector: null }))).toBe(false);
+       expect(hasHoverHighlight(publishing({})), "the control").toBe(true);
+     });
+
+  it("is handed each planet's OWN records by the globe, which is what taking them costs", () => {
+    // WITH THE LOOKUPS INSIDE, A WRONG BODY HERE WAS IMPOSSIBLE. Moving them to the call site buys
+    // the four assertions above and opens one failure that did not exist: a globe handed another
+    // planet's archives draws layers its own tiles do not hold, and MapLibre paints an unmatched
+    // `source-layer` as EMPTY — no error, no warning, no network difference.
+    const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
+    const call = /globeSubsystems\(([^;]*?)\);/s.exec(globe);
+    expect(call, "Globe.astro no longer calls globeSubsystems; everything below is vacuous")
+      .not.toBeNull();
+    const args = call![1];
+    expect(args, "the descriptor is not the page's own body").toMatch(/(^|\W)body,/);
+    expect(args, "the archives are not this body's").toContain("PUBLISHED[body.slug]");
+    expect(args, "the product is not this body's").toContain("VECTOR_PRODUCT[body.slug]");
+    for (const slug of ALL_BODIES) {
+      expect(args, `the call names ${slug} outright instead of the body the page resolved`)
+        .not.toContain(`"${slug}"`);
+    }
+  });
+
+  it("is handed this body's archives by every page that asks about the pointer", () => {
+    // The same cost on the other exported predicate. `viewBar.browser.test.ts` evaluates these
+    // expressions for real and throws on one it cannot resolve, so this is the cheaper half: it
+    // says WHICH spelling, where that one says the spelling still answers correctly.
+    for (const slug of ALL_BODIES) {
+      const page = readFileSync(
+        new URL(`../pages/${slug}/index.astro`, import.meta.url), "utf8");
+      expect(page, `${slug}/index.astro stopped asking about its own body`)
+        .toContain("hasHoverHighlight(PUBLISHED[body.slug])");
+    }
   });
 
   it("names a product the body's own archive holds, never another planet's", () => {
@@ -206,7 +283,7 @@ describe("the registry is the only thing that can switch a subsystem ON", () => 
     };
     for (const body of ALL_BODIES) {
       for (const flags of FLAG_SETS) {
-        const product = globeSubsystems(body, new URLSearchParams(flags)).vectorProduct;
+        const product = drawnFor(body, new URLSearchParams(flags)).vectorProduct;
         if (product === null) continue;
         expect(sourceLayer(body, "fill"), `${body} ?${flags}`).toBe(fillFor[product]);
       }
@@ -273,7 +350,7 @@ describe("the registry is the only thing that can switch a subsystem ON", () => 
     // this holds it after the flags have had their say, which is where it could still come apart.
     for (const body of ALL_BODIES) {
       for (const flags of FLAG_SETS) {
-        const drawn = globeSubsystems(body, new URLSearchParams(flags));
+        const drawn = drawnFor(body, new URLSearchParams(flags));
         if (drawn.heroes) expect(drawn.vectorProduct, `${body} ?${flags}`).toBe("countries");
       }
     }
@@ -295,7 +372,7 @@ describe("the registry is the only thing that can switch a subsystem ON", () => 
     // everything about what a mutation proves — a gate whose deletion must fail loudly needs its
     // own pin at its own site, and the heroes one lives in `detailPanel.test.ts`.
     const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
-    for (const subsystem of Object.keys(globeSubsystems("earth", NO_FLAGS))) {
+    for (const subsystem of Object.keys(drawnFor("earth", NO_FLAGS))) {
       expect(globe, `nothing in the globe reads subsystems.${subsystem}`).toContain(
         `subsystems.${subsystem}`,
       );
@@ -317,8 +394,8 @@ describe("the registry is the only thing that can switch a subsystem ON", () => 
   it("leaves ?nocaps isolating the caps and nothing else", () => {
     // It predates ?bare and keeps its own meaning: it is what cornered the black-disc-on-restore
     // bug, and a flag that quietly took more than its name says would have made that hunt useless.
-    const plain = globeSubsystems("earth", NO_FLAGS);
-    const nocaps = globeSubsystems("earth", new URLSearchParams("nocaps"));
+    const plain = drawnFor("earth", NO_FLAGS);
+    const nocaps = drawnFor("earth", new URLSearchParams("nocaps"));
     expect(nocaps.polarCaps).toBe(false);
     for (const subsystem of ["terrain", "vectorProduct", "borders", "heroes"] as const) {
       expect(nocaps[subsystem], `?nocaps changed ${subsystem}`).toBe(plain[subsystem]);

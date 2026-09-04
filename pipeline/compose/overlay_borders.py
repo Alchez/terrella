@@ -52,7 +52,8 @@ from pipeline import datasets, naturalearth
 
 PLANE_WIDTH_UNITS = 2.0
 
-# Art levers (see ART.md): width in render pixels at 8K, dash = [on, off] px.
+# Art levers, argued where the look is decided rather than here (ART.md
+# § Borders): width in render pixels at 8K, dash = [on, off] px.
 # casing = wider dark stroke drawn beneath the white ink so lines keep contrast
 # over pale high terrain; dashed lines get identically-dashed casing.
 # Widths are sized for fit-to-screen viewing of the 8K (≈ quarter scale): a line

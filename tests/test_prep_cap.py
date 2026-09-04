@@ -237,10 +237,15 @@ class TestTheDisplacementIsMeasuredInGroundMetres:
         assert self._scale(mars, tmp_path) == pytest.approx(uncorrected / 0.5330701616700675)
         assert self._scale(mars, tmp_path) > 1.8 * uncorrected
 
-    def test_both_producers_of_one_disc_agree_on_the_relief(self, tmp_path, subtests):
-        """THE CLAIM THAT MATTERS, and neither arm alone can make it. The composite's z-factor and
-        this scale are the same physical statement expressed in different units, so their ratio must
-        be the pixel size and nothing else — on every body that renders caps."""
+    def test_the_disc_displaces_at_the_body_s_own_relief(self, tmp_path, subtests):
+        """THE CLAIM THAT MATTERS, and Earth cannot make it: its AEQD ratio is 1.0011, so dropping
+        or inverting the conversion is a 0.11% error there and 1.88x on Mars.
+
+        The right-hand side used to be the COMPOSITE's z-factor, read off the arm that has since
+        been deleted; it is the same physical statement in different units, so it is written out
+        here instead. That makes this a transcribed oracle rather than a cross-check between two
+        producers, which is what one producer leaves available.
+        """
         for name in sorted(bodies.BODIES):
             body = bodies.BODIES[name]
             if not body.renders_polar_caps:

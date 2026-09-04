@@ -20,6 +20,11 @@
 # clone cannot do is render. Data-bound tests skip themselves and name the artifact they wanted,
 # which `uv run pytest -rs` prints.
 #
+# SO NO GATE HERE CAN SEE A PIXEL, and that is a standing limit rather than a gap to close. Green
+# says the code is consistent, never that the render is right; the only evidence for a look is an
+# arm's own render, judged. In particular there is no byte-identity gate on Earth's output and never
+# has been, so do not cite one.
+#
 # Runs every gate even after one fails, because the first failure is rarely the only one, and
 # reports them together with the command to re-run each. Exit status is 0 only if all passed.
 

@@ -76,7 +76,7 @@ describe("describeTileTypeMismatch", () => {
     const message = describeTileTypeMismatch(".png");
     expect(message).toContain(".png");
     expect(message).toContain("reliefTiles.ts");
-    expect(message).toContain("shade_planet.py");
+    expect(message).toContain("cut_tiles.py");
   });
 
   it("still reports when pmtiles cannot name the encoding at all", () => {

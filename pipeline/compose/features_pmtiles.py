@@ -56,15 +56,15 @@ def outlines_path() -> Path:
     the archive it feeds — the geojsons are one stage's output and belong together.
 
     Call time for `countries_pmtiles.borders_dir`'s reason. It still resolves through
-    `features_geojson.OUT_DIR`, which is bound at import, so the remaining freeze has ONE owner
-    rather than a copy here as well.
+    `features_geojson.out_dir()`, which resolves at call time as well, so the directory has ONE
+    owner rather than a copy here too.
     """
-    return features_geojson.OUT_DIR / "feature_outlines.geojson"
+    return features_geojson.out_dir() / "feature_outlines.geojson"
 
 
 def outlines_recipe_path() -> Path:
     """What the file above was derived UNDER — see `countries_pmtiles.outlines_recipe_path`."""
-    return features_geojson.OUT_DIR / "feature_outlines_params.json"
+    return features_geojson.out_dir() / "feature_outlines_params.json"
 
 
 # Layer names inside the archive. The frontend reads these as MapLibre `source-layer` values, and a
@@ -103,16 +103,16 @@ def sources() -> dict[str, Path]:
     this module owns instead of reading from `features_geojson`.
     """
     return {
-        FILL_LAYER: features_geojson.POLYGONS,
+        FILL_LAYER: features_geojson.polygons(),
         OUTLINE_LAYER: outlines_path(),
-        LINE_LAYER: features_geojson.LINES,
-        LABEL_LAYER: features_geojson.LABELS,
+        LINE_LAYER: features_geojson.lines(),
+        LABEL_LAYER: features_geojson.labels(),
     }
 
 
 def derivation() -> dict[Path, dict[str, Any]]:
     """The outline layer, from the polygons it strokes."""
-    collection = json.loads(features_geojson.POLYGONS.read_text(encoding="utf-8"))
+    collection = json.loads(features_geojson.polygons().read_text(encoding="utf-8"))
     return {outlines_path():
             vector_layers.outlines_from(collection, features_geojson.CARRIED_FIELDS)}
 
@@ -122,7 +122,7 @@ CUT = VectorCut(
     name="features",
     sources=sources,
     derived_layers=(OUTLINE_LAYER,),
-    derived_from=lambda: features_geojson.POLYGONS,
+    derived_from=features_geojson.polygons,
     derivation=derivation,
     derivation_stamp=outlines_recipe_path,
     prerequisite="pipeline.compose.features_geojson",

@@ -492,6 +492,10 @@ import { REPO_URL } from "../lib/siteLinks";
   // cut to, which its source has to declare so MapLibre overzooms rather than requesting tiles
   // nobody packed. Earth's equivalent still reads constants — see featureOverlay.ts.
   import { PUBLISHED, archiveFor } from "../lib/tileAddress";
+  // Which product this planet cuts, handed to `globeSubsystems` rather than looked up inside it —
+  // see that module for why. Not new vocabulary here: the layer gates below already branch on
+  // `subsystems.vectorProduct` being `countries` or `features`.
+  import { VECTOR_PRODUCT } from "../lib/sourceLayers";
   import { reliefBaseTilesSource, reliefTilesSource } from "../lib/reliefSources";
   // The ONE static exemption for the instrument, and it is fifteen lines: the entry buffer has to be
   // raised ahead of `new maplibregl.Map`, which no dynamic import can promise. Everything else that
@@ -767,7 +771,8 @@ import { REPO_URL } from "../lib/siteLinks";
   // What this globe draws beyond the relief raster. Resolved ONCE, from the registry and then the
   // flags, and every gate below reads this record instead of spelling its own condition — see
   // globeSubsystems.ts for why that is a module rather than five inline `&&`s.
-  const subsystems = globeSubsystems(body.slug, urlFlags);
+  const subsystems = globeSubsystems(body, PUBLISHED[body.slug], VECTOR_PRODUCT[body.slug],
+                                     urlFlags);
 
   // The tile addresses this page draws from, built HERE rather than read as module constants — the
   // template needs a body, and there is no such thing as a bodyless tile URL. Relief stays eager
@@ -1063,8 +1068,8 @@ import { REPO_URL } from "../lib/siteLinks";
    *
    * A LITERAL ON BOTH SIDES OF A SEAM NOTHING CAN CLOSE: a stylesheet cannot import a constant, so
    * `globe.css` spells the class out and this spells it out again — the same shape `QUIET_CLASS`
-   * and `borders-on` already live with. `pageStyles.test.ts` reads both and refuses a disagreement,
-   * which is the only thing that can, since a class that matches nothing is valid CSS.
+   * already lives with. `pageStyles.test.ts` reads both and refuses a disagreement, which is the
+   * only thing that can, since a class that matches nothing is valid CSS.
    */
   const PANEL_OPEN_CLASS = "panel-open";
   function reflectQuiet(next: boolean): void {

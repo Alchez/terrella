@@ -1,6 +1,6 @@
 """Web-Mercator geometry, in one home and parameterised by the sphere it is projected on.
 
-WHY THIS MODULE EXISTS. `look/hillshade.py` and `look/snow.py` each carried their own
+WHY THIS MODULE EXISTS. The since-deleted `look/hillshade.py` and `look/snow.py` each carried their own
 `EARTH_RADIUS = 6378137.0` and their own transcription of the inverse projection. Two copies of a
 constant is the drift this project has already paid for; two copies of the FORMULA is the same
 hazard with more surface, and nothing related them — a fix applied to one would have looked
@@ -42,6 +42,10 @@ WEB_MERCATOR_RADIUS_M = 6378137.0
 #: any test of globalness has to be written against a pixel size rather than against these decimals —
 #: which is a judgement a caller can only make if the exact value has one owner.
 MERCATOR_HALF_M = math.pi * WEB_MERCATOR_RADIUS_M
+
+#: Ground metres per pixel of a 512px WebMercatorQuad tile at zoom 8, AT THE EQUATOR. Every other
+#: latitude is this times `cos(lat)`, which is what `ground_metres_per_pixel` above is for.
+Z8_MERC_RES = 305.7483
 
 
 def latitude_at(mercator_y, radius_m: float):

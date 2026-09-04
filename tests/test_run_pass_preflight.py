@@ -8,7 +8,7 @@ to the most expensive possible moment, hours in, after every completed stage has
 **The cap is the BODY's**, which is what makes the two halves interact. 16 G is Earth's number,
 set by the polar cap render the pass ends with; a body that renders no caps never reaches that
 stage, so on it the 16 G is unbacked and the preflight would refuse a pass the box could have run.
-`pipeline/profile/pass_cap.py` derives it and holds the measurements; these tests drive the real
+`pipeline/profile/pass_memory.py` derives it and holds the measurements; these tests drive the real
 script, so what they pin is the WIRING — that the shell asks, and that the answer reaches the
 cgroup argument and the refusal message rather than a constant reaching them.
 
@@ -29,11 +29,11 @@ from pathlib import Path
 import pytest
 
 from pipeline import bodies
-from pipeline.profile import pass_cap
+from pipeline.profile import pass_memory
 
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "pipeline" / "profile" / "run_pass.sh"
-PASS_CAP_SOURCE = REPO / "pipeline" / "profile" / "pass_cap.py"
+PASS_MEMORY_SOURCE = REPO / "pipeline" / "profile" / "pass_memory.py"
 PROCESS = REPO / "PROCESS.md"
 GIB_IN_KIB = 1024 * 1024
 
@@ -134,14 +134,14 @@ class TestBothRunLabelsAreGuarded:
 
 
 class TestTheCapReachesTheCgroup:
-    """The WIRING, driven through the real script rather than asserted about `pass_cap` alone.
+    """The WIRING, driven through the real script rather than asserted about `pass_memory` alone.
 
     A unit test on the resolver cannot see the failure this closes: the shell used to hold the
     number itself, so a correct resolver that nothing called would leave every pass at Earth's 16 G
     and every assertion in the class below would still pass.
 
     THE SECOND NUMBER COMES FROM `MEMORY_CAP_OVERRIDE_GIB` RATHER THAN FROM A SECOND BODY, and that
-    is forced rather than chosen. `pass_cap` runs in a SUBPROCESS, so `CAPLESS` cannot reach it and
+    is forced rather than chosen. `pass_memory` runs in a SUBPROCESS, so `CAPLESS` cannot reach it and
     a registry monkeypatch is invisible here; once both registered bodies rendered caps, the
     resolver answered 16 for every planet and no invocation could distinguish "the shell used the
     number it was handed" from "the shell holds a 16". The override makes the number an input, which
@@ -173,7 +173,7 @@ class TestTheCapReachesTheCgroup:
         assert "capped at 12 G" in refusal.stderr
 
     def test_the_override_is_announced_rather_than_silent(self, tmp_path):
-        """A cap nobody named is the failure `pass_cap`'s own note refuses, so the branch that can
+        """A cap nobody named is the failure `pass_memory`'s own note refuses, so the branch that can
         produce one has to say it did. The body's own number is printed beside it, because "12 G"
         alone cannot tell a reader whether the override changed anything."""
         meminfo = write_meminfo(tmp_path / "meminfo", 20 * GIB_IN_KIB)
@@ -183,7 +183,7 @@ class TestTheCapReachesTheCgroup:
     def test_the_shell_and_the_resolver_name_the_same_module(self):
         """The one coupling in this harness that nothing checked, and it is silent when it breaks.
 
-        `run_pass.sh` forwards its argv to a module, and `pass_cap` parses that SAME argv with that
+        `run_pass.sh` forwards its argv to a module, and `pass_memory` parses that SAME argv with that
         module's parser to size the cap. Point them at different modules and nothing raises: the cap
         is resolved from one grammar and the pass run under another, so a flag one accepts and the
         other does not either aborts the wrapper on a valid invocation or resolves a cap for a body
@@ -191,14 +191,15 @@ class TestTheCapReachesTheCgroup:
         invoking, which is how long a prose-only version of this claim survives.
         """
         invoked = set(re.findall(r"-m (pipeline\.[a-z_.]+)", SCRIPT.read_text()))
-        assert pass_cap.__name__ in invoked, "the script stopped asking the resolver; re-read it"
-        assert invoked - {pass_cap.__name__} == {pass_cap.planet_pass.__name__}, (
-            f"run_pass.sh forwards its argv to {sorted(invoked - {pass_cap.__name__})}, and "
-            f"pass_cap sizes the cap by parsing that same argv with {pass_cap.planet_pass.__name__}"
+        assert pass_memory.__name__ in invoked, "the script stopped asking the resolver; re-read it"
+        assert invoked - {pass_memory.__name__} == {pass_memory.planet_pass.__name__}, (
+            f"run_pass.sh forwards its argv to {sorted(invoked - {pass_memory.__name__})}, and "
+            f"pass_memory sizes it by parsing that same argv with "
+            f"{pass_memory.planet_pass.__name__}"
         )
 
     def test_the_resolver_still_runs_when_the_override_is_set(self, tmp_path):
-        """The ordering, asserted rather than trusted. Read as `${OVERRIDE:-$(pass_cap ...)}` the
+        """The ordering, asserted rather than trusted. Read as `${OVERRIDE:-$(pass_memory ...)}` the
         override would skip the resolver, and with it the `--body` contract the wrapper enforces —
         so an operator with the variable exported would quietly get a pass that never named a body.
         """
@@ -304,15 +305,15 @@ class TestTheCapResolver:
     """
 
     def test_earth_gets_the_cap_render_headroom(self):
-        assert pass_cap.pass_memory_cap_gib(bodies.EARTH) == pass_cap.CAP_RENDERING_GIB
+        assert pass_memory.limit_gib(bodies.EARTH) == pass_memory.CAP_RENDERING_GIB
 
     def test_a_capless_body_gets_the_standing_cap(self):
-        assert pass_cap.pass_memory_cap_gib(CAPLESS) == pass_cap.STANDING_GIB
+        assert pass_memory.limit_gib(CAPLESS) == pass_memory.STANDING_GIB
 
     def test_the_two_numbers_actually_differ(self):
         """Anti-vacuity: both assertions above pass if the constants collapse to one value, and so
         does the script — every pass would just run at whichever number survived."""
-        assert pass_cap.CAP_RENDERING_GIB > pass_cap.STANDING_GIB
+        assert pass_memory.CAP_RENDERING_GIB > pass_memory.STANDING_GIB
 
     def test_no_pass_is_capped_above_the_ratified_ceiling(self):
         """The one relationship between these constants that is a POLICY rather than a measurement.
@@ -323,8 +324,8 @@ class TestTheCapResolver:
         checked it, and `CAP_RENDERING_GIB` has sat exactly at the ceiling since the caps stage
         pushed it there, so the next body to need headroom would take it silently.
         """
-        assert pass_cap.CAP_RENDERING_GIB <= pass_cap.HEAVY_JOB_GIB
-        assert pass_cap.STANDING_GIB <= pass_cap.HEAVY_JOB_GIB
+        assert pass_memory.CAP_RENDERING_GIB <= pass_memory.HEAVY_JOB_GIB
+        assert pass_memory.STANDING_GIB <= pass_memory.HEAVY_JOB_GIB
 
     def test_the_standing_cap_is_not_the_projects_own_number(self):
         """WRITTEN AS THE INVERSE OF THE CLAIM IT REPLACES, because that claim read as settled.
@@ -335,10 +336,10 @@ class TestTheCapResolver:
         off Mars's own stages. Pinning a real constant to a justification that has moved is worse
         than pinning nothing, because the number then looks derived when it is orphaned.
         """
-        assert pass_cap.STANDING_GIB != pass_cap.HEAVY_JOB_GIB
+        assert pass_memory.STANDING_GIB != pass_memory.HEAVY_JOB_GIB
 
     def test_every_figure_the_module_argues_from_is_one_PROCESS_still_carries(self, subtests):
-        """`pass_cap`'s docstring is a SECOND COPY of PROCESS.md's measurements, and this is what
+        """`pass_memory`'s docstring is a SECOND COPY of PROCESS.md's measurements, and this is what
         makes the copy go red instead of quietly aging.
 
         The copy has to exist: the module is where someone reads why the cap is 16, and a pointer
@@ -350,13 +351,13 @@ class TestTheCapResolver:
         Retired figures stay in scope on purpose: naming one as retired is exactly as much a claim
         about PROCESS as citing it, and the retraction is the sentence most likely to be dropped.
         """
-        figures = set(re.findall(r"\d+\.\d+ Gi?B", PASS_CAP_SOURCE.read_text()))
+        figures = set(re.findall(r"\d+\.\d+ Gi?B", PASS_MEMORY_SOURCE.read_text()))
         assert len(figures) >= 8, f"only {figures} found; this scan is broken, not the module"
         process = PROCESS.read_text()
         for figure in sorted(figures):
             with subtests.test(figure):
                 assert figure in process, (
-                    f"pass_cap argues from {figure}, which PROCESS.md no longer carries anywhere"
+                    f"pass_memory argues from {figure}, which PROCESS.md no longer carries anywhere"
                 )
 
     def test_that_scan_can_actually_miss_one(self):
@@ -367,16 +368,63 @@ class TestTheCapResolver:
 
     @pytest.mark.parametrize("slug", sorted(bodies.BODIES))
     def test_every_registered_body_resolves(self, slug):
-        assert pass_cap.pass_memory_cap_gib(bodies.get(slug)) > 0
+        assert pass_memory.limit_gib(bodies.get(slug)) > 0
 
     def test_the_argv_path_reads_the_body_through_the_passs_own_parser(self, monkeypatch):
         """`--out` is accepted here only because the pass accepts it; a parser private to this
         module would have to grow every flag separately, which is the drift sharing one avoids.
 
         `CAPLESS` is put in the registry rather than passed as an object because THIS path takes a
-        name: `cap_for_argv` parses argv and resolves through `bodies.get`, so a capless body only
+        name: `limit_for_argv` parses argv and resolves through `bodies.get`, so a capless body only
         reaches the resolver if the registry can answer for it.
         """
         monkeypatch.setitem(bodies.BODIES, CAPLESS.name, CAPLESS)
-        assert pass_cap.cap_for_argv(["--body", "capless", "--tiles", "--out", "/x"]) == 12
-        assert pass_cap.cap_for_argv(["--body", "earth"]) == 16
+        assert pass_memory.limit_for_argv(["--body", "capless", "--tiles", "--out", "/x"]) == 12
+        assert pass_memory.limit_for_argv(["--body", "earth"]) == 16
+
+
+#: A cap spelled into prose: an integer, `G`, and the noun within reach. `GB`/`GiB` are excluded
+#: because those are MEASUREMENTS, which belong in prose and are checked against PROCESS elsewhere.
+CAP_IN_PROSE = re.compile(r"\b\d{1,2}\s?G\b(?!i?B)(?=[^.]{0,40}\b(?:cap|rule)\b)")
+
+
+class TestNoModuleSpellsTheHeavyJobCapItself:
+    """`HEAVY_JOB_GIB` is a RATIFIED POLICY with one owner, and prose that spells its value is a
+    second copy that nothing can make go red.
+
+    THIS WAS FOUND BY THE ROT, NOT BY THE RULE, WHICH IS THE POINT. Four comments still said `12 G`
+    long after the policy moved to 16, and were logged as a four-site cleanup. The scan says eight:
+    the other four say `16 G` and read as correct today, which is exactly the state the first four
+    were in before the policy moved. A list of the sites that have already rotted is not the set.
+
+    The fix is never to retype the number. A comment names `pass_memory.HEAVY_JOB_GIB`, which is
+    true whatever the policy is, and a measurement against the cap keeps its own measured figure.
+    """
+
+    def scanned(self) -> list[tuple[str, int, str]]:
+        found = []
+        for path in sorted(REPO.joinpath("pipeline").rglob("*")):
+            if path.suffix not in {".py", ".sh"} or path.relative_to(REPO).parts[1] == "profile":
+                continue
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                if CAP_IN_PROSE.search(line):
+                    found.append((str(path.relative_to(REPO)), number, line.strip()))
+        return found
+
+    def test_no_module_outside_the_owner_spells_the_cap(self):
+        spelled = self.scanned()
+        assert not spelled, "prose spelling the heavy-job cap instead of naming it:\n  " + "\n  ".join(
+            f"{path}:{number}: {line[:90]}" for path, number, line in spelled)
+
+    def test_the_scan_can_actually_find_one(self):
+        """The positive control, because a regex that matched nothing would pass the assertion above
+        for the wrong reason, and this scan has already been wrong once in exactly that way."""
+        assert CAP_IN_PROSE.search("OOM-killed at the 16 G cap, so the plane")
+        assert CAP_IN_PROSE.search("under the standing 12 G cgroup cap")
+
+    def test_the_scan_leaves_measurements_alone(self):
+        """A measured peak is not the policy, and `pass_memory`'s own figures are checked elsewhere
+        against PROCESS. Catching those here would push real numbers out of prose."""
+        assert not CAP_IN_PROSE.search("a quadrant peaks near 8 G. -> HISTORY")
+        assert not CAP_IN_PROSE.search("wants 17.0 GB, which dies loudly")
+        assert not CAP_IN_PROSE.search("RGI 7.0 G regional shapefiles, every published region")

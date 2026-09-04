@@ -412,3 +412,39 @@ class TestTheAgreementProbeSamplesInsideTheDiscItReads:
         """The poleward end is the Mercator limit, not the pole: past it there is no tile to compare
         against, so a sample there would read the cap against nothing and call it agreement."""
         assert max(agreement.sample_latitudes(_grid())) < cap_render.feather_hi_deg()
+
+
+class TestTheOracleAlarmsOnTheICEMovingRatherThanOnTheWHITEDeparting:
+    """`compare` used to hold the pinned white to the ice's measured hue, which is the one thing it
+    disclaims one function down: "a re-pin is a look decision -- the eye ratified these, and a ratio
+    has no standing to overrule it". It said that about the DERIVED pair while asserting exactly that
+    overrule against the PINNED one.
+
+    IT BECAME LOAD-BEARING WHEN THE WHITE STOPPED BEING MEASURED. The ratified white is authored to a
+    look target and departs from the ice's hue on purpose: its red:violet is 0.893 against a measured
+    1.042 north and 1.292 south, so the old assertion fires at 7x and 20x tolerance on a value Rohan
+    ratified by eye. An oracle that cries DRIFT at a deliberate decision gets ignored, and then it is
+    not there for the case it exists for.
+
+    WHAT STILL HAS TO ALARM is the SUBJECT moving. A ratification is about ice that was measured at a
+    moment; if the ice's own hue drifts, the frame Rohan judged no longer describes the planet and
+    the decision needs re-taking. That is the question this class pins.
+    """
+
+    def test_an_authored_white_departing_from_the_ice_is_not_drift(self):
+        """The ratified white against today's ice is 0.149 and 0.399 off, both far outside
+        RATIO_TOLERANCE, and that is a look decision rather than a defect."""
+        assert ice_white.compare(dict(ice_white.ICE_RATIO_AT_RATIFICATION), {}) == 0
+
+    def test_the_ice_moving_away_from_the_ratified_measurement_IS_drift(self):
+        """The alarm that has to survive: the frame that was judged stops describing the planet."""
+        moved = {pole: ratio + 5 * ice_white.RATIO_TOLERANCE
+                 for pole, ratio in ice_white.ICE_RATIO_AT_RATIFICATION.items()}
+        assert ice_white.compare(moved, {}) == 1
+
+    def test_the_pinned_baseline_is_not_vacuous(self):
+        """Anti-vacuity: an empty baseline can never be asked, and one that collapsed the two poles
+        would hide whichever of them moved."""
+        assert set(ice_white.ICE_RATIO_AT_RATIFICATION) == {"north", "south"}
+        assert all(0.5 < ratio < 2.0 for ratio in ice_white.ICE_RATIO_AT_RATIFICATION.values())
+        assert len(set(ice_white.ICE_RATIO_AT_RATIFICATION.values())) == 2

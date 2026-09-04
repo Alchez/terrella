@@ -48,7 +48,7 @@ flowchart TD
     B["Blender 3D scene:<br/>heights become sculpted terrain,<br/>a low sun casts soft real shadows,<br/>color from height on land, depth at sea,<br/>lakes shaded by their real depth, rivers flat teal"]
     H8["8K portrait of each country"]
     OV["Borders drawn onto the finished image:<br/>solid white between countries, dashed for<br/>disputed and sea boundaries; positions<br/>double-checked against the coastline"]
-    HF[("Final bordered portrait, plus a<br/>separate border-only layer so the<br/>website can toggle borders off")]
+    HF[("Final bordered portrait, plus a separate<br/>dimming layer so the website can highlight<br/>just this country and fade its neighbours")]
   end
 
   O1 --> P
@@ -64,32 +64,24 @@ flowchart TD
     T3["Snow, latitude-aware:<br/>white where MODIS says snow persists,<br/>fading softly; glaciers crisp on top"]
     T4["Lake depth:<br/>deep lakes shade like the sea instead of<br/>reading as flat plates"]
     T6["Sea ice:<br/>translucent white where the sea is often frozen,<br/>the seafloor glowing through"]
-    T1["Fast shading that imitates the Blender look<br/>without ray tracing: hillshade + sky-view shadows<br/>+ the same land/sea colors + snow + sea ice + lake depth"]
-    TP{"Which of the two ways to draw it? The planet chooses,<br/>and the tiles cannot tell afterwards: same file, same name.<br/>Both planets still choose the fast way today"}
-    TR["The slow way: the real Blender look, ray-traced<br/>one block of the world at a time rather than imitated,<br/>so the tiles finally carry the cast shadows the<br/>country pictures have. A night's work for Earth"]
+    TR["The real Blender look, ray-traced one block of the world at a time,<br/>so the tiles carry the same cast shadows the country pictures do.<br/>Both planets are drawn this way; a fast imitation used to exist<br/>beside it and was deleted once nothing chose it.<br/>A night's work for Earth, an afternoon for Mars"]
     T2["512 px map tiles, pole to pole, up to the body's own ceiling<br/>(Earth zoom 0-8, ~87,000 tiles; Mars stops at 7)"]
     T5["Packed into one PMTiles file:<br/>a small server reads the byte range for one tile<br/>and hands back just that tile, so the browser<br/>never downloads the whole archive"]
-    T7["Polar caps: the two poles Mercator can't reach,<br/>drawn as separate circular images<br/>(sea ice over real seafloor). Shaded the fast way whichever<br/>way the tiles were drawn, from the heights rather than from them"]
+    T7["Polar caps: the two poles Mercator can't reach,<br/>drawn as separate circular images (sea ice over real seafloor).<br/>Ray-traced off the same scene as the tiles, from the heights rather<br/>than from the finished tiles, so the two meet without a visible step"]
     T8["A second pyramid of raw heights, colour-coded,<br/>so the globe can push the terrain into real 3D<br/>(read from the height map, never from the shaded picture)"]
     T9["A third pyramid, of shapes rather than pictures:<br/>country outlines on Earth, named features on Mars.<br/>This is what makes a click land on something"]
   end
 
-  O1 --> TP
-  O2 --> TP
-  O3 --> TP
-  TP --> T1
-  TP --> TR
+  O1 --> TR
+  O2 --> TR
+  O3 --> TR
   S4 --> T3
   S5 --> T3
   S6 --> T4
   S7 --> T6
-  T3 --> T1
-  T4 --> T1
-  T6 --> T1
   T3 --> TR
   T4 --> TR
   T6 --> TR
-  T1 --> T2
   TR --> T2
   O1 --> T7
   O1 --> T8
@@ -106,7 +98,7 @@ flowchart TD
   M1 --> M5
   M2 --> M5
   M3 --> M5
-  M5 --> T1
+  M5 --> TR
   M4 --> T9
 
   subgraph SITE["The website: all three tiers are live, on both bodies"]
@@ -127,7 +119,7 @@ flowchart TD
   class D1,R1,R2,R3 done
   class F,O1,O2,O3 done
   class P,B,H8,OV,HF done
-  class T1,T2,T3,T4,T5,T6,T7,T8,T9 done
+  class TR,T2,T3,T4,T5,T6,T7,T8,T9 done
   class M1,M2,M3,M4 ext
   class M5 done
   class W done

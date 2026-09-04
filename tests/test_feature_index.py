@@ -190,7 +190,7 @@ class TestTheCommittedFileIsStillWhatTheProducerEmits:
         return out.read_text(encoding="utf-8")
 
     def test_regenerating_reproduces_the_committed_bytes(self, tmp_path):
-        if not features_geojson.LABELS.exists():
+        if not features_geojson.labels().exists():
             pytest.skip("gazetteer not composed on this machine")
         committed = COMMITTED.read_text(encoding="utf-8")
         assert len(json.loads(committed)) == 1919, (
@@ -205,7 +205,7 @@ class TestTheCommittedFileIsStillWhatTheProducerEmits:
     def test_the_comparison_can_fail(self, tmp_path):
         """The control. Byte-identity between two generated things is the kind of assertion that
         passes for the wrong reason, so one perturbed row must be seen to break it."""
-        if not features_geojson.LABELS.exists():
+        if not features_geojson.labels().exists():
             pytest.skip("gazetteer not composed on this machine")
         perturbed = json.loads(self.fresh(tmp_path))
         perturbed[0]["longitude"] += 0.001
@@ -237,10 +237,10 @@ class TestEveryNameInTheTilesHasARowToFlyTo:
         }
 
     def _tile_names(self) -> set[str]:
-        return self._named(features_geojson.POLYGONS) | self._named(features_geojson.LINES)
+        return self._named(features_geojson.polygons()) | self._named(features_geojson.lines())
 
     def _require_composed(self) -> tuple[set[str], set[str]]:
-        if not features_geojson.POLYGONS.exists() or not features_geojson.LINES.exists():
+        if not features_geojson.polygons().exists() or not features_geojson.lines().exists():
             pytest.skip("gazetteer not composed on this machine")
         indexed = {row["name"] for row in json.loads(COMMITTED.read_text(encoding="utf-8"))}
         tiled = self._tile_names()

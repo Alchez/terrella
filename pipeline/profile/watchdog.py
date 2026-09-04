@@ -31,7 +31,7 @@ Fires on:
   * HEARTBEAT -- HEARTBEAT_S elapsed with none of the above, so silence is never ambiguous
 
 The cap this runs under is the BODY's and this module does not know it: `pipeline/profile/
-pass_cap.py` derives it and holds every measurement behind it.
+pass_memory.py` derives it and holds every measurement behind it.
 
 Exit code is always 0; the REASON is on stdout. Usage:
   watchdog.py --unit terrella-pass.scope --log pass.log --samples samples.jsonl \
@@ -50,7 +50,8 @@ from pipeline import progress
 POLL_S = 10.0
 HEARTBEAT_S = 1200.0     # 20 min: quiet enough not to nag, often enough that silence is not scary
 STALL_S = 420.0          # 7 min of zero CPU AND zero disk anywhere in the cgroup
-ANON_WARN_MB = 10_000    # composite peaks at 6.24 GiB of anon (re-measured 07-16)
+ANON_WARN_MB = 10_000    # UNCALIBRATED: sized off the composite's 6.24 GiB of anon, and that
+                         # stage is deleted. `--anon-warn`'s help carries what stands in its place.
 #: System-wide swap before warning, in MB. **IT IS THE BOX'S NUMBER AND NOT THE RUN'S**, which is
 #: the one memory term here that does not come from the cgroup: `sample_tree` reads SwapTotal minus
 #: SwapFree out of `/proc/meminfo`, and a pass scoped `MemorySwapMax=0` cannot contribute a byte to
@@ -130,8 +131,8 @@ def read_status(status: Path | None) -> tuple[dict | None, str | None]:
     """The producer's own progress document, or None when there is none to read.
 
     Absence is THREE different things and a caller that cannot tell them apart is why this returns
-    the reason: no `--status` given (the composite has no sidecar, and a raytraced run wired without
-    the flag looks identical), the path given but not yet written, or written and unreadable.
+    the reason: no `--status` given (a raytraced run wired without the flag looks exactly like a
+    stage that writes no sidecar), the path given but not yet written, or written and unreadable.
     """
     if status is None:
         return None, "no --status given"
@@ -217,8 +218,8 @@ def main() -> int:
                              "POLICY rather than a display setting: each report exits the "
                              "watchdog and wakes the reader.")
     parser.add_argument("--anon-warn", type=float, default=ANON_WARN_MB,
-                        help="anon MB before warning. Anon sawtooths high on the composite's "
-                             "windowed stages by design, so this is a coarse net and oom_kill is "
+                        help="anon MB before warning. A coarse net rather than a threshold: it was "
+                             "sized off the deleted composite's windowed sawtooth, and oom_kill is "
                              "the real signal. Unmeasured on the raytrace producer, whose memory "
                              "sits in a Blender subprocess rather than in this one.")
     parser.add_argument("--swap-warn", type=float, default=SWAP_WARN_MB,

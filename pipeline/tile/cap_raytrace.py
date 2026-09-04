@@ -6,7 +6,7 @@ the pole. Cycles takes one sun direction per frame and cannot do that, so the di
 `CAP_AZIMUTH_PASSES` fixed bearings and every pixel is cross-faded between the two that bracket the
 one it wants. Same law, read from its owner rather than imitated at one remove.
 
-WHY EACH PASS IS FOUR FRAMES. `CAP_PX` in a single frame is OOM-killed at the 16 G cap, so the plane
+WHY EACH PASS IS FOUR FRAMES. `CAP_PX` in a single frame is OOM-killed at the heavy-job cap, so the plane
 is photographed `CAP_QUADRANT_SPLIT` squared times. The neighbours are literally the same plane, so
 terrain outside a quadrant still casts into it and there is no context margin to buy.
 → HISTORY, *the cap edge goes to 82 and not 84*, for the stitch: geometry correlation 0.99327 against
@@ -58,7 +58,15 @@ def azimuth_step() -> float:
 
 
 def frames_dir(grid: cap_render.CapGrid) -> Path:
-    """Where this pole's rendered ring lives. Kept across a run, which is what makes it resumable."""
+    """Where this pole's rendered ring lives. Kept across a run, which is what makes it resumable.
+
+    NAMED FOR THE POLE ALONE, WHICH IS WHAT MAKES A REDUCED-`px` PREVIEW UNSAFE IN THE LIVE STORE.
+    `grid.px` is a field, so a disc renders at any side and a 1024 px one costs about a minute
+    against the shipped disc's twenty. But this path does not vary with it while `params` DOES
+    record it, so a preview writes its frames over the shipped disc's own and then moves the recipe
+    that declares them stale. Give a preview its own `MAPS_DATA`, and its own checkout too, since
+    `cap_render.caps_public_dir` follows `paths.ROOT` rather than the store.
+    """
     return cap_render.cap_work_dir(grid.body) / f"frames_{grid.name}"
 
 
@@ -240,16 +248,15 @@ def blend_disc(grid: cap_render.CapGrid) -> np.ndarray:
 def params(grid: cap_render.CapGrid, rasters: frozenset[str]) -> str:
     """Everything that can move a raytraced cap pixel and is not a file with an mtime.
 
-    `block_render.params`' SPLIT RATHER THAN A NEW IDEA, and deliberately not `cap_recipe`'s.
-    `composite_params` describes a numpy shading pass that does not run here; recorded, it would
-    put a 41-minute render behind knobs no raytraced pixel reads. What replaces it is the three
-    tiers a rendered frame actually passes through: this module's geometry, the rig's constants
-    through `rig_recipe`, and the producers' through `constants_for` and `white_law`.
+    `block_render.params`' SPLIT RATHER THAN A NEW IDEA. The composite cap's recipe described a
+    numpy shading pass that never ran here; recorded, it would have put a 41-minute render behind
+    knobs no raytraced pixel reads. What this carries instead is the three tiers a rendered frame
+    actually passes through: this module's geometry, the rig's constants through `rig_recipe`, and
+    the producers' through `constants_for` and `white_law`.
 
-    NO `planet_producer` KEY, unlike the composite's. That key exists there to make a producer
-    switch visible from a recipe that would otherwise be identical across it; here the switch
-    changes which function writes the recipe at all, so the sidecar differs wholesale in both
-    directions and `"producer"` says which side it is on.
+    `"producer"` IS A LITERAL HERE AND NOT READ FROM A REGISTRY. No body chooses a cap producer any
+    more, so the key does not exist to make a switch visible; it exists so a sidecar written by this
+    module can never be mistaken for one written by anything else.
 
     `mask_full_scale` IS `prep_block`'s AND NOT THIS MODULE'S, and nothing else can carry it: the
     render directory is not an mtime dependency of the disc, so a re-cut mask would otherwise reach

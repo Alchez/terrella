@@ -4,7 +4,7 @@
 // reaching ±90° with no hole.
 //
 // The pipeline is the single author of every value it renders into the textures: this layer
-// FETCHES this body's caps.json (edge_lat, the ±84 feather ceiling = shade_planet's Mercator plug
+// FETCHES this body's caps.json (edge_lat, the ±84 feather ceiling = the Mercator plug
 // boundary, texture URLs) instead of hand-copying them as literals — the copy-drift species that
 // bit the hero/tile colour constants four times. Only frontend aesthetics stay here (FEATHER_LO,
 // mesh extent, tessellation).
@@ -81,7 +81,7 @@ export interface CapRung {
 export interface CapManifestEntry {
   rungs: CapRung[]; // ascending by px; every rung is the same picture, downsampled
   edge_lat: number; // texture inscribed-circle latitude, signed (cap_render CapGrid.edge_lat)
-  feather_hi: number; // signed |lat| where the cap goes opaque (shade_planet CAP_NORTH/CAP_SOUTH)
+  feather_hi: number; // signed |lat| where the cap goes opaque (cap_render.feather_hi_deg)
   elev_url: string; // terrain-RGB displacement texture (cap_render cap_elev_asset)
   elev_px: number; // its side in pixels (cap_render CAP_ELEV_PX); the mesh is checked against it
   elev_step: number; // metres per encoded level (cap_render reads terrain_rgb.QUANTISATION_M)

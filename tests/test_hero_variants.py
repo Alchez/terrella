@@ -11,6 +11,7 @@ deleting what it has already produced.
 GDAL is stubbed throughout: this is about the staleness decision, not about WebP encoding.
 """
 
+import ast
 import re
 import subprocess
 import sys
@@ -102,6 +103,35 @@ class TestPolicy:
             "track an aspect-dependent rung")
         portrait = (round(NATIVE * 0.465), NATIVE)   # Albania: needs a fill rung
         assert hero_variants.fill_rung(*portrait) in hero_variants.rungs_for(*portrait)
+
+    def test_the_overlay_ASKS_for_the_ladder_rather_than_restating_it(self):
+        """The identity check above proves the name is IMPORTED, not that the caller uses it: a
+        restated ladder at the call site leaves it green.
+
+        `render_one` opens rasters and drives cairo, so it cannot be called here; this pins the
+        shape of its ladder decision instead.
+        """
+        from pipeline.compose import gen_spotlight
+        module = ast.parse(Path(gen_spotlight.__file__).read_text())
+        render_one = next(node for node in ast.walk(module)
+                          if isinstance(node, ast.FunctionDef) and node.name == "render_one")
+        decisions = [node.value for node in ast.walk(render_one)
+                     if isinstance(node, ast.Assign)
+                     and any(isinstance(target, ast.Name) and target.id == "sizes"
+                             for target in node.targets)]
+        # The extractor's own control: none or several must fail rather than assert over an empty
+        # list or over whichever `ast.walk` reached first.
+        assert len(decisions) == 1, (
+            f"`render_one` assigns `sizes` {len(decisions)} times, so this guard cannot say which "
+            f"expression decides the shipped ladder")
+        decision = decisions[0]
+        assert isinstance(decision, ast.Call) and isinstance(decision.func, ast.Name), (
+            "`sizes` is no longer a bare call, so the overlay is COMPUTING its ladder rather than "
+            "asking for it, and the import identity above cannot see that")
+        assert decision.func.id == "rungs_for", (
+            f"`render_one` builds its ladder with `{decision.func.id}(...)` instead of asking "
+            f"`rungs_for` — a restated ladder cannot carry the per-hero portrait fill rung, which "
+            f"is computed from each country's aspect and is not in any tuple")
 
 
 class TestFirstRun:
@@ -249,17 +279,10 @@ class TestLadderServesTheLayout:
         ("components/Gallery.astro", "SIZES", ("hero", "spotlight")),
     )
 
-    #: Ladders still produced that NO surface draws, with the reason each is still generated.
-    #: Named here rather than dropped from `ladders()`: an orphan costs render time and storage,
-    #: and dropping it would make this file pass by having nothing left to compare.
-    ORPHANED_LADDERS: ClassVar[dict[str, str]] = {
-        "border": (
-            "The globe's detail card was its last consumer and is now text-only; `.hp-border`, "
-            "which the mobile exemption above still describes, had already stopped existing. "
-            "gen_borders writes 1,010 PNGs nothing draws. Whether to keep writing them is a "
-            "product call, carried in FUTURE."
-        ),
-    }
+    # A ladder that no surface draws fails the equality below. The tempting fix is a dict of known
+    # orphans subtracted from it: that existed, and the border ladder sat in it, reason and all,
+    # while its 1,010 PNGs stayed in the served store for a surface that had stopped drawing them.
+    # Delete the producer instead.
 
     # The viewports the `vw` arm of `sizes` actually serves, as (CSS px, device pixel ratio).
     # This guard used to read ONLY the fixed-px arm — its regex skips `640px` inside `(max-width:
@@ -289,22 +312,15 @@ class TestLadderServesTheLayout:
     # _load_bearing` asserts each one would FAIL without the exemption, so the day a gap is closed
     # this list fails loudly rather than quietly covering nothing — the failure mode of every
     # skip-list ever written.
-    MOBILE_EXEMPT_LADDERS: ClassVar[dict[str, str]] = {
-        "border": (
-            "gen_borders tops out at 1920, so a portrait border jumps straight to the country's "
-            "native rung — a lossless PNG at ~3x the width the panel draws. It is off the cold "
-            "path: `.hp-border` is display:none unless the visitor turns Borders on, and a lazy "
-            "image with no layout box is never fetched. Closed by the width-keyed ladder in FUTURE."
-        ),
-    }
+    # Empty: every ladder still produced holds the mobile contract outright.
+    MOBILE_EXEMPT_LADDERS: ClassVar[dict[str, str]] = {}
 
     @staticmethod
     def ladders() -> dict[str, tuple[int, ...]]:
         """Every rung ladder the pipeline produces, by the name the surfaces know it as."""
-        from pipeline.compose import gen_borders, gen_spotlight
+        from pipeline.compose import gen_spotlight
         return {"hero": hero_variants.TARGETS,
-                "spotlight": gen_spotlight.TARGETS,
-                "border": gen_borders.TARGETS}
+                "spotlight": gen_spotlight.TARGETS}
 
     def declarations(self):
         """(page, constant, [fixed CSS px], [ladder names]) for each `sizes` the site declares."""
@@ -325,13 +341,21 @@ class TestLadderServesTheLayout:
     def test_every_ladder_is_actually_checked(self):
         """Stops a ladder being added to the pipeline and quietly escaping this guard."""
         covered = {name for _f, _c, _w, names, _d in self.declarations() for name in names}
-        assert covered.isdisjoint(self.ORPHANED_LADDERS), (
-            f"{covered & set(self.ORPHANED_LADDERS)} is drawn by a surface again — delete its "
-            f"ORPHANED_LADDERS entry, since the reason recorded there is now false")
-        assert covered == set(self.ladders()) - set(self.ORPHANED_LADDERS), (
-            f"ladders {set(self.ladders()) - covered - set(self.ORPHANED_LADDERS)} are produced "
-            f"but no surface claims them — either wire them into PAGES, record why they are "
-            f"orphaned, or they are unreachable and should not be generated")
+        assert covered == set(self.ladders()), (
+            f"ladders {set(self.ladders()) - covered} are produced but no surface claims them, and "
+            f"{covered - set(self.ladders())} are claimed but not produced. Wire the ladder into "
+            f"PAGES or delete its producer; there is deliberately no third option here")
+
+    def test_the_border_ladders_producer_cannot_return(self):
+        """`gen_borders.py` is deleted; only reinstate it with a surface that draws its ladder.
+
+        Not the site's borders: the globe's toggle draws vector geometry from `BORDERS_BASE` and
+        every hero's are composited by `overlay_borders`. Neither ever read this ladder.
+        """
+        root = Path(__file__).resolve().parents[1]
+        assert not (root / "pipeline/compose/gen_borders.py").exists(), (
+            "gen_borders.py is back. Its ladder is only worth writing if a surface draws it, so "
+            "add that surface to PAGES in the same change")
 
     @staticmethod
     def picked_rung(ladder: tuple[int, ...], needed_px: int, aspect: float = 1.0) -> int:
@@ -352,6 +376,21 @@ class TestLadderServesTheLayout:
     @staticmethod
     def delivered_width(rung: int, aspect: float) -> float:
         return rung * min(1.0, aspect)
+
+    @classmethod
+    def mobile_failures(cls, ladder: tuple[int, ...]):
+        """Every (aspect, viewport, dpr) this ladder under-serves; empty means it holds the contract.
+
+        Shared by the exemption guard and its control so both drive the same comparison.
+        """
+        return [
+            (aspect, viewport, dpr)
+            for aspect in cls.ASPECTS if aspect not in cls.UNSERVEABLE_ASPECTS
+            for viewport, dpr in cls.MOBILE_VIEWPORTS
+            if cls.delivered_width(
+                cls.picked_rung(ladder, round(viewport * 0.92 * dpr), aspect), aspect
+            ) < round(viewport * 0.92 * dpr)
+        ]
 
     @staticmethod
     def ladder_at(ladder_name: str, aspect: float, ladders: dict[str, tuple[int, ...]]):
@@ -473,18 +512,19 @@ class TestLadderServesTheLayout:
         for ladder_name, reason in self.MOBILE_EXEMPT_LADDERS.items():
             assert ladder_name in ladders, f"exemption names {ladder_name!r}, which is not a ladder"
             assert reason.strip(), f"{ladder_name} is exempt with no reason recorded"
-            ladder = ladders[ladder_name]
-            failures = [
-                (aspect, viewport, dpr)
-                for aspect in self.ASPECTS if aspect not in self.UNSERVEABLE_ASPECTS
-                for viewport, dpr in self.MOBILE_VIEWPORTS
-                if self.delivered_width(
-                    self.picked_rung(ladder, round(viewport * 0.92 * dpr), aspect), aspect
-                ) < round(viewport * 0.92 * dpr)
-            ]
-            assert failures, (
+            assert self.mobile_failures(ladders[ladder_name]), (
                 f"{ladder_name} is on the exemption list but now SERVES every mobile case — the "
                 f"gap it was exempted for is closed, so delete the entry and let the guard cover it")
+
+    def test_the_load_bearing_check_still_discriminates(self):
+        """The control the empty exemption list owes: with no entries, the loop above asserts
+        nothing. Drives the same comparison with a synthetic ladder in both directions."""
+        assert self.mobile_failures((640, 960, 1280, 1920)), (
+            "a ladder stopping at 1920 under-serves a portrait country on a real phone, which is "
+            "what the exemption above was FOR — reading it as fine means the check is broken")
+        assert not self.mobile_failures(hero_variants.TARGETS), (
+            "the hero ladder holds the mobile contract, so a failure here is the check crying wolf "
+            "and would make any exemption look load-bearing")
 
 
 class TestSubsetRuns:

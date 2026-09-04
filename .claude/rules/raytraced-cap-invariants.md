@@ -8,40 +8,37 @@ paths:
 
 # The raytraced cap: what spans files, and what is silent when broken
 
-The polar disc has two producers and the facts that keep them the same picture are spread across
-five modules. None of these is visible from any single file, and none of them fails loudly.
+The polar disc is raytraced, and the facts that keep it one picture are spread across four modules.
+None of these is visible from any single file, and none of them fails loudly.
 
 ## Four modules, and which one owns what
 
-- **`cap_pass`** is the CLI, the freshness loop and `CAP_PRODUCERS`. It is the entry point:
+- **`cap_pass`** is the CLI and the freshness loop. It is the entry point:
   `python -m pipeline.tile.cap_pass --body earth`, invoked at the planet pass's tail.
-- **`cap_render`** is the COMPOSITE arm plus everything both arms share — `CapGrid`, the warps,
-  `azimuth_delta`, `_lonlat_grid`, `finish_disc`, `write_cap_rungs`, `cap_sources`, `cap_is_fresh`.
-- **`cap_raytrace`** is the Cycles arm. It imports `cap_render`, which is why the registry cannot
-  live there: a registry inside either arm is an import cycle. That is the whole reason `cap_pass`
-  is a separate module rather than tidiness.
+- **`cap_render`** is everything the disc is built FROM — `CapGrid`, the warps, `BASE_AZIMUTH` and
+  `azimuth_delta`, `_lonlat_grid`, the masks, `_bake_coastline`, `finish_disc`, `write_cap_rungs`,
+  `cap_sources`, `cap_is_fresh`. It held a second, composited arm until that was deleted, so its
+  name describes what it no longer does.
+- **`cap_raytrace`** is the Cycles arm and the only producer. It imports `cap_render`.
 - **`prep_cap`** fills one render directory per pole. Its output is NOT an mtime dependency of the
   disc, so anything it decides has to reach `cap_raytrace.params` or it restages nothing.
 
-## The arm is keyed on `planet_producer` and both halves ride in one record
+## One recipe, and it must move whenever anything it names does
 
-A disc is built to match the tiles it feathers into, and the two producers of `planet_rgb` do not
-agree on colour. `CapProducer` carries the render AND the recipe together because `cap_is_fresh`
-asks them as one question — one sidecar per pole, compared against whichever arm is current. Two
-registries could hold a pair that disagrees, and that is silent in the worst direction: a disc
-painted by one arm and declared fresh under the other's recipe, forever.
-
-**The raytrace recipe deliberately has no `planet_producer` key.** The composite's needs one because
-a switch would otherwise leave its recipe identical across it. Here the switch changes which
-function writes the sidecar at all, so both directions restage and `"producer"` says which side a
-sidecar is on. Verified in production: the first raytraced run restaged without `--force`.
+`cap_is_fresh` compares one sidecar per pole against `cap_raytrace.params`. A constant that reaches
+a rendered pixel and reaches no recipe leaves a disc fresh forever — the whole class of defect this
+tier keeps hitting. `params` records `"producer": "raytrace"` as a literal, so a future second
+producer writing the same sidecar is visible; the disc has no other way to say who drew it, and the
+`producer_seam` that answered this question one tier up went with the composite.
 
 ## The units: heights are GROUND metres and the grid is not
 
 `edge_m` is map metres on `aeqd_radius_m`, the sphere PROJ forces every body onto. Heights are
-ground metres on the body itself. **Both arms must divide by `bodies.ground_metres_per_aeqd_unit`** —
-the composite in `_shade`'s z-factor, the raytraced one in the extent `prep_cap.write_frame` hands
-`scene_numbers`. Skipping it renders a plausible disc at the wrong relief.
+ground metres on the body itself. **The extent `prep_cap.write_frame` hands `scene_numbers` must
+divide by `bodies.ground_metres_per_aeqd_unit`.** Skipping it renders a plausible disc at the wrong
+relief. The composite's z-factor was the second place this had to be right and is gone; what
+remains is `test_prep_cap.test_the_disc_displaces_at_the_body_s_own_relief`, which writes the
+expected value out as a formula rather than reading it off an arm that no longer exists.
 
 **Earth cannot show this class of defect**: its ratio is 1.0011, so the error is 0.11%. Mars's is
 0.5331. Any per-body constant near 1 on the body you test leaves its whole arithmetic untested, and

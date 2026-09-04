@@ -66,18 +66,8 @@ they do dispatch, which is why `look/perennial_ice.py` is a registry of function
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, get_args
 
 from pipeline import paths
-
-#: What may fill a body's planet raster. Both producers write the same file in the same directory,
-#: each with its own recipe beside it, so nothing downstream can tell which ran.
-PlanetProducer = Literal["composite", "raytrace"]
-
-#: The same vocabulary as a runtime value, DERIVED from the type rather than restated beside it.
-#: Widening the annotation to a bare `str` empties this instead of silently accepting anything,
-#: which is what `test_every_body_names_a_producer_the_vocabulary_knows` reads.
-PLANET_PRODUCERS: tuple[PlanetProducer, ...] = get_args(PlanetProducer)
 
 
 @dataclass(frozen=True)
@@ -92,9 +82,10 @@ class Body:
     name: str
     #: The tile grid's sphere, in metres — one of the three the module note sets out.
     #:
-    #: Consumers turn a Mercator y back into a latitude with it and size the per-row hillshade
-    #: z-factor from it, both of which must agree with the radius the raster was actually warped
-    #: with. Mixing two of the three yields a latitude-varying error that renders plausibly.
+    #: Consumers turn a Mercator y back into a latitude with it (`block_plan.row_latitude_deg`) and
+    #: size the per-row height scaling from it (`prep_block.row_scale`), both of which must agree
+    #: with the radius the raster was actually warped with. Mixing two of the three yields a
+    #: latitude-varying error that renders plausibly.
     mercator_radius_m: float
     #: The polar caps' azimuthal-equidistant sphere, in metres — NOT the Mercator radius above.
     #:
@@ -148,8 +139,8 @@ class Body:
     #: Which of `layers.SURFACE_LAYERS` this body actually has, by name. Empty is a real answer.
     #:
     #: NAMES AND NOT `Layer` OBJECTS, because this set is serialised: `layers.layers_off` turns it
-    #: into the `layers_off` list inside `composite_params.json`, and anything whose JSON differs
-    #: restages a 33-minute Earth composite for identical pixels.
+    #: into the `layers_off` list inside the planet tier's recipe sidecar, and anything whose JSON
+    #: differs restages a whole Earth planet raster for identical pixels.
     #:
     #: Spelled out per body rather than defaulting to "all of them", so adding a sixth layer is a
     #: decision for every planet including Earth. `tests/test_bodies.py` refuses a name outside the
@@ -172,7 +163,7 @@ class Body:
     #:
     #: SO `False` COSTS A VISIBLE HOLE, and that is the trade rather than a free saving. It is the
     #: right answer only while a body's ramps are unratified, because a cap is shaded by the same
-    #: `shade.composite` as the tiles: rendering one publishes a look decision. Measured on Mars,
+    #: look the tiles are: rendering one publishes a look decision. Measured on Mars,
     #: the cap pass runs happily today off the heightfield alone — one source, nothing missing, no
     #: refusal — so without this field a first tile run quietly spends ~14 GB per pole to ship two
     #: discs in a palette nobody has agreed to.
@@ -183,26 +174,8 @@ class Body:
     #: tell "this body publishes none" from "the render died", which is the distinction
     #: `planet_seam` exists to preserve one tier up.
     renders_polar_caps: bool
-    #: Which producer fills this body's planet raster: `composite` shades it window by window out of
-    #: numpy, `raytrace` renders it block by block through Cycles.
-    #:
-    #: A BEHAVIOUR CHOICE IN A REGISTRY OF FACTS, which the module note anticipated: producers
-    #: dispatch where bodies do not, so what a body answers here is which one runs, never what a
-    #: consumer then does with the result.
-    #:
-    #: NOT DERIVABLE FROM ANY OTHER FIELD, which is why it is asked rather than inferred. Radius,
-    #: exaggeration and surface layers say nothing about whether this planet's relief is worth a
-    #: night of GPU, and a body with no ratified look can still be composited.
-    #:
-    #: TRANSITIONAL BY CONSTRUCTION, said here because the declaration is where someone would
-    #: otherwise build on it. The field exists because two producers do, so it and the dispatcher
-    #: that reads it both end on the day the last body's planet raster stops being composited.
-    #:
-    #: THE CAPS DO NOT KEEP IT ALIVE, and they now dispatch on it TWICE — the two are not in
-    #: tension. A disc has to match the tiles it feathers into and the two producers disagree on
-    #: colour, so `cap_pass` picks the cap arm off this field and the arm records it as a freshness
-    #: dependency. Both ends the same day the tiles' dispatcher does, for the same reason.
-    planet_producer: PlanetProducer
+    #: No `planet_producer`: every planet raster is raytraced, and the composite is deleted rather
+    #: than parked. `test_bodies.TestTheCompositePlanetProducerIsDeletedAndCannotReturn` refuses it.
 
 
 EARTH = Body(
@@ -236,9 +209,6 @@ EARTH = Body(
     # The reference body, and the caps are a signature feature rather than a detail: both poles
     # ship a full rung ladder, feathered into the tiles at the seam.
     renders_polar_caps=True,
-    # Raytraced. Reverting this is a look change rather than a rollback: `planet_rgb.tif` is
-    # rewritten in place by whichever producer runs, and the two do not agree on colour.
-    planet_producer="raytrace",
 )
 
 
@@ -307,16 +277,10 @@ MARS = Body(
     # discs would exist as bare relief in the same ramps even with nothing white to paint on them.
     #
     # Held False until the M2a ramp was ratified, per the field note. What the False cost meanwhile
-    # was not a hole but something worse — `shade_planet.CAP_RGB`, the flat pale plug the cap
+    # was not a hole but something worse — a flat pale plug, since deleted, that the cap
     # textures exist to be drawn over, which MapLibre stretched across the pole and which was tested
     # on Earth's globe and rejected. Do not reach for False again as a cheap way to skip a render.
     renders_polar_caps=True,
-    # Raytraced. The block margin law this waited on is calibrated on Mars now: its own context
-    # census is measured off the relief cache and `check_fits` clears the whole grid, so a pass is a
-    # product rather than the instrument that measures one. Earth's note above holds here too --
-    # `planet_rgb.tif` is rewritten in place by whichever producer runs and the two disagree on
-    # colour, so reverting is a look change rather than a rollback.
-    planet_producer="raytrace",
 )
 
 
@@ -405,8 +369,8 @@ def work_dir(body: Body, stage: str) -> Path:
     """Where one body's `stage` intermediates live, under `data/work/`.
 
     THE BODY GOES IN THE PATH, NOT IN THE FRESHNESS RECIPE, and that is the load-bearing decision
-    here. Every stage of the tile pipeline is gated on a recipe sidecar — `composite_params.json`,
-    `hs_params.json`, `tile_params.json` — whose *contents* are its dependency: change a byte and the
+    here. Every stage of the tile pipeline is gated on a recipe sidecar — `raytrace_params.json`,
+    `tile_params.json`, each cap's own — whose *contents* are its dependency: change a byte and the
     stage restages. Adding a body field to those recipes would therefore invalidate Earth's entire
     correct output the moment a second body existed, for no pixel change at all. Giving each body its
     own directory makes every one of those sidecars body-specific for free, because they are

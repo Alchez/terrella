@@ -2,8 +2,8 @@
 
 THE SEAM EVERY BODY ENTERS THROUGH. Earth's planet rasters come out of a 648-cell fusion; Mars's
 come out of a CRS relabel of one published file. Both write the same three-named set into
-`data/work/<body>/planet/`, and everything downstream — the 3857 warps, the composite, both polar
-caps — reads them from there without caring which producer ran.
+`data/work/<body>/planet/`, and everything downstream — the 3857 warps, the block raytrace, both
+polar caps — reads them from there without caring which producer ran.
 
 WHY A DECLARATION AND NOT A DIRECTORY LISTING, which is the whole reason this module exists.
 Downstream stages need to know whether this body HAS an ocean mask, and the tempting answer is
@@ -161,7 +161,7 @@ def _require_nested_grids(body: bodies.Body, rasters: Iterable[str]) -> None:
     choice and only the alignment is a correctness claim.
 
     THE HEIGHTFIELD IS THE REFERENCE because `_require_coherent` has already refused a set without
-    one, and because it is what `shade_planet` measures the 3857 reference grid from.
+    one, and because it is what `planet_warp` measures the 3857 reference grid from.
 
     WRITE-SIDE ONLY, unlike `_require_coherent` next door, and the asymmetry is the point. That one
     is re-checked on read because the LAYER REGISTRY can gain an entry months after a declaration is
@@ -199,9 +199,9 @@ def write_vrt_if_changed(vrt: Path, build: Callable[[Path], None]) -> bool:
 
     NOT AN OPTIMISATION — it is what makes a producer safe to re-run at all. Every 3857 warp
     downstream is gated on the VRT's mtime, so an unconditional overwrite restages the whole planet:
-    on Earth that is a 44 GB re-warp, an 8:28 hillshade, a 53.8 min composite and a 3:44 cut, to
-    reproduce pixels that were already correct. Re-indexing is the natural thing to do after touching
-    a producer, so that cost sat one command away from anyone who tried.
+    on Earth that is a 44 GB re-warp and then every block back through Cycles, to reproduce pixels
+    that were already correct. Re-indexing is the natural thing to do after touching a producer, so
+    that cost sat one command away from anyone who tried. PROCESS.md holds the figure.
 
     Byte-identity is what makes the comparison mean anything, and it was measured rather than
     assumed: rebuilding all three of Earth's planet VRTs from the same 648 chunks, into the same

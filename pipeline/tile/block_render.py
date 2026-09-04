@@ -1,12 +1,12 @@
 """Render a body's whole Mercator grid as Cycles blocks, into the one raster the tile cut reads.
 
-`composite_planet`'s SIBLING AND ITS ALTERNATIVE. That one shades `planet_rgb.tif` window by
-window out of numpy; this one renders it block by block out of Blender, and everything downstream —
-the pyramid, the freshness marker, the publish — cannot tell which produced it. Only the recipe
-beside it can, which is why this writes its own rather than borrowing the composite's: a raytraced
-planet reads none of the composite's knobs and none of its hillshade, and gains the rig, the look
-and the margin law instead. A body switched between producers against one shared dependency list
-would leave the old pixels looking perfectly fresh.
+THE ONLY PRODUCER OF `planet_rgb.tif`, and it renders it block by block out of Blender. It replaced
+a numpy compositor that shaded the same raster window by window, and it kept that arrangement's one
+load-bearing property: everything downstream — the pyramid, the freshness marker, the publish —
+cannot tell what produced the raster, and only the recipe beside it can. So this writes its own
+recipe rather than inheriting one, carrying the rig, the look and the margin law and no hillshade
+at all. That mattered most while a body could be switched between producers against one shared
+dependency list, which would have left the old pixels looking perfectly fresh.
 
 It sits in `tile/` beside the producer it replaces rather than in `render/` beside the rig it
 drives, because what it emits is a planet raster the pyramid is cut from — `render/` is one scene
@@ -54,13 +54,14 @@ from pipeline import (
     mercator,
     paths,
     planet_seam,
+    planet_warp,
     progress,
 )
 from pipeline.block_plan import Block
 from pipeline.look import layer_producers, palette
 from pipeline.raster_io import GTIFF_CREATE
 from pipeline.render import blender_proc, prep_block
-from pipeline.tile import producer_seam, relief_scan, shade_planet
+from pipeline.tile import cut_tiles, relief_scan
 
 #: Consecutive block failures that stop the run. A single block can fail for its own reasons — a
 #: transient OptiX fault, a bad frame — and throwing away the hours still queued behind it would be
@@ -90,7 +91,7 @@ GENERATION_NAME = "generation.stamp"
 
 def mosaic_in(work: Path) -> Path:
     """The colour raster this producer fills, which is the one the tile cut reads."""
-    return work / shade_planet.PLANET_RGB
+    return work / cut_tiles.PLANET_RGB
 
 
 def markers_in(mosaic: Path) -> Path:
@@ -128,8 +129,8 @@ def sidecars_for(work: Path, mosaic: Path) -> Sidecars:
     False and `start_generation` clears a finished planet's entire marker set — a night of Cycles
     to emit the pixels already on disk, logged as a line that reads like ordinary operation.
 
-    THE CANONICAL RASTER'S SIDECARS KEEP THEIR BARE NAMES, the same elision `composite_planet`
-    makes for its default variant. Prefixing every mosaic's alike is the tidier rule and renames two
+    THE CANONICAL RASTER'S SIDECARS KEEP THEIR BARE NAMES, the same elision the compositor made for
+    its default variant. Prefixing every mosaic's alike is the tidier rule and renames two
     files a finished pass left on disk, which moves an mtime: the same night, paid on the way in.
 
     RESOLVED FIRST, so a canonical raster spelled through a symlink or a `..` is still canonical —
@@ -185,9 +186,9 @@ def params(body: bodies.Body, rasters: frozenset[str], look: palette.Look,
            rig: dict[str, Any], blocks: list[Block]) -> str:
     """Everything that can move a raytraced pixel and is not a file with an mtime.
 
-    THE SPLIT IS `composite_params`', for the same reason stated there: a warped source moves an
-    mtime and `raytrace_deps` tracks it; a constant moves nothing at all and only a recipe can see
-    it. A look constant that reaches neither leaves a stale planet reading fresh forever.
+    THE SPLIT IS RECIPE AGAINST DEPS: a warped source moves an mtime and `raytrace_deps` tracks it;
+    a constant moves nothing at all and only a recipe can see it. A look constant that reaches
+    neither leaves a stale planet reading fresh forever.
 
     `layers_off` and `rasters_off` follow the conditional-record idiom: they are what tracks a layer
     going OFF, which the dependency mtimes structurally cannot — a path that is not there scores
@@ -196,6 +197,12 @@ def params(body: bodies.Body, rasters: frozenset[str], look: palette.Look,
 
     THREE TIERS REACH A BLOCK, each declared by the code that reads it: this module's own, the
     rig's through `rig_recipe`, and the producers' through `layer_producers.constants_for`.
+
+    EVERY BLOCK-TIER CONSTANT HAS BEEN PERTURBED and the ones that move no recipe are accounted for
+    rather than open: `TRACED_CEILING_PX` is a refusal bound, and `CONTEXT_RATIO`,
+    `CONTEXT_QUANTUM_PX`, `CONTEXT_CEILING_PX` and `MERCATOR_LATITUDE_LIMIT_DEG` all reach this
+    recipe through `contexts`. A probe holding `blocks` fixed reads all four as silent, which is the
+    probe's artifact and not a gap.
 
     The rig arrives as an argument because `scene_build` owns its own constants; see `rig_recipe`.
     """
@@ -276,23 +283,22 @@ def rig_recipe(body: bodies.Body) -> dict[str, Any]:
 def raytrace_deps(work: Path, recipe: Path) -> tuple[Path, ...]:
     """Everything the raytraced mosaic must be newer than.
 
-    DELIBERATELY NOT `composite_deps`, and the difference is exactly the switch: no hillshade, since
-    Cycles computes its own light, and no composite recipe. What stays is the warped input set the
-    block prep actually cuts from — the heightfield, the two masks, and every optional surface layer
-    — plus this producer's own recipe.
+    NO HILLSHADE AND NO SHADING RECIPE, which is exactly what the switch away from the compositor
+    removed: Cycles computes its own light. What stays is the warped input set the block prep
+    actually cuts from — the heightfield, the two masks, and every optional surface layer — plus
+    this producer's own recipe.
 
     Over-inclusive in the same way and for the same reason: `is_stale` takes the newest mtime, so
     naming a raster this body does not have costs nothing, while missing one is silent.
 
-    THE PRODUCER STAMP IS SHARED WITH `composite_deps` AND IS THE ONLY ENTRY THAT IS. It is what
-    makes a producer switch visible from this side: the mosaic left by the composite is newer than
-    every warp and newer than this recipe, so without the stamp this producer would report it fresh
-    and skip the render, publishing composited pixels under a raytrace recipe.
+    NO PRODUCER STAMP, and its absence is the deletion of the second producer rather than an
+    oversight. `producer_seam` existed because two producers wrote one raster and shared one `.done`
+    marker, so each read the other's work as its own; one producer cannot be confused about who
+    filled the mosaic. A second one arriving needs that seam back before it writes a pixel.
     """
-    return (work / shade_planet.HEIGHT_3857, work / shade_planet.OCEAN_3857,
-            work / shade_planet.WATER_3857,
-            *(layer.warped_in(work) for layer in layers.warped_for(layers.BLOCK_LAYERS)), recipe,
-            producer_seam.stamp_path(work))
+    return (work / planet_warp.HEIGHT_3857, work / planet_warp.OCEAN_3857,
+            work / planet_warp.WATER_3857,
+            *(layer.warped_in(work) for layer in layers.warped_for(layers.BLOCK_LAYERS)), recipe)
 
 
 def generation_is_current(markers: Path, deps: tuple[Path, ...]) -> bool:
@@ -345,11 +351,11 @@ def check_inputs(work: Path, body: bodies.Body, rasters: frozenset[str]) -> None
 
     The warp itself is still the pass's, which is the seam this names rather than papers over.
     """
-    required = [work / shade_planet.HEIGHT_3857]
+    required = [work / planet_warp.HEIGHT_3857]
     if "oceanmask" in rasters:
-        required.append(work / shade_planet.OCEAN_3857)
+        required.append(work / planet_warp.OCEAN_3857)
     if "watermask" in rasters:
-        required.append(work / shade_planet.WATER_3857)
+        required.append(work / planet_warp.WATER_3857)
     missing = [path.name for path in required if not path.exists()]
     if missing:
         raise SystemExit(
@@ -489,7 +495,7 @@ def cropped(png: Path, block: Block) -> np.ndarray:
 
 
 def render_block(body: bodies.Body, block: Block, mosaic: Path, scratch: Path,
-                 markers: Path, work: Path) -> None:
+                 markers: Path, work: Path, *, keep_intermediates: bool = False) -> None:
     """One block, end to end: prep, render, crop, write into the mosaic, mark.
 
     THE MARKER IS LAST AND THE MOSAIC IS CLOSED BEFORE IT. Only a flushed write is a block that
@@ -498,6 +504,12 @@ def render_block(body: bodies.Body, block: Block, mosaic: Path, scratch: Path,
     `work` IS CARRIED RATHER THAN RE-DERIVED so that every raster this run reads comes from the one
     directory `run` validated. The prep used to resolve the body's default itself, which made
     `--work` a flag that moved the checks and left the pixels behind.
+
+    `keep_intermediates` LEAVES THE FRAME, THE SCENE AND THE PREP DIRECTORY where this block wrote
+    them, for a question about the render itself: the crop is a pure slice and the mosaic write is
+    lossless, so the frame is the one thing that can place an artifact before or after them. The
+    frame is unlinked HERE and not inside the render directory, so suppressing that directory's
+    removal on its own keeps the inputs and loses the pixels.
     """
     name = block_name(block)
     render_dir = scratch / name
@@ -542,9 +554,10 @@ def render_block(body: bodies.Body, block: Block, mosaic: Path, scratch: Path,
     (markers / name).write_text(
         f"context {block.context_px} traced {block.traced_edge_px} "
         f"plane {block.plane_edge_px} {reported}\n")
-    shutil.rmtree(render_dir, ignore_errors=True)
-    png.unlink(missing_ok=True)
-    (scratch / f"{name}.blend").unlink(missing_ok=True)
+    if not keep_intermediates:
+        shutil.rmtree(render_dir, ignore_errors=True)
+        png.unlink(missing_ok=True)
+        (scratch / f"{name}.blend").unlink(missing_ok=True)
 
 
 def disk_floor_bytes(body: bodies.Body, remaining: int, total: int) -> float:
@@ -622,12 +635,15 @@ def log(message: str, *, stage: bool = False) -> None:
 
 
 def run(body: bodies.Body, work: Path, mosaic: Path, *, limit: int | None = None,
-        only: frozenset[str] | None = None) -> int:
+        only: frozenset[str] | None = None, keep_intermediates: bool = False) -> int:
     """Render every block this body still owes, and stamp the mosaic when none are left.
 
     Returns the number of blocks rendered by this call. `only` renders a named subset and, like
     `limit`, therefore never completes the planet — neither stamps the mosaic, because a marker on
     a partly rendered raster is exactly the state the whole freshness scheme exists to refuse.
+
+    `keep_intermediates` reaches every block AND holds the scratch tree below, so that what is kept
+    does not depend on whether this run happened to be the one that finished the planet.
     """
     # THE PLAN COMES BEFORE THE RECIPE, because the recipe records what the plan produced. The
     # repo's ordering rule — write the recipe, THEN ask the freshness question — is unchanged and
@@ -635,13 +651,13 @@ def run(body: bodies.Body, work: Path, mosaic: Path, *, limit: int | None = None
     # recipe's content. Inputs are checked first of all, so a missing warp fails in a second
     # rather than after a whole-grid plan.
     # THIS PRODUCER NAMES ITSELF, before the freshness question below that depends on it and before
-    # any block is prepped. It names the RAYTRACE rather than `body.planet_producer`, and the
-    # difference is the whole point: this module is a shipped entry point of its own (`--only` is
-    # how one block is re-rendered for judging), so it can put raytraced bytes into the raster of a
-    # body the registry still calls `"composite"`. Recording the body's answer here would leave the
-    # stamp agreeing with a registry the pixels disagree with, and the composite would then find
-    # nothing moved and republish them under its own recipe.
-    # ONLY FOR THE CANONICAL RASTER, which is `composite_planet`'s guard for the same reason: the
+    # any block is prepped. It names the RAYTRACE as a LITERAL and reads it from no registry, which
+    # is what kept the stamp honest while a body could still ask for the other producer: this module
+    # is a shipped entry point of its own (`--only` is how one block is re-rendered for judging), so
+    # it could put raytraced bytes into the raster of a body whose registry entry disagreed. No such
+    # entry exists now, and the literal stays, because a stamp that describes what ran is the only
+    # kind that survives a second producer arriving.
+    # ONLY FOR THE CANONICAL RASTER, the guard the compositor made for the same reason: the
     # declaration's subject is the raster the tile cut reads, so a run pointed elsewhere claiming it
     # would name a producer for bytes it never wrote. A second mosaic needs no declaration at all —
     # the stamp exists because two producers share ONE output, and that one has a single producer.
@@ -653,8 +669,6 @@ def run(body: bodies.Body, work: Path, mosaic: Path, *, limit: int | None = None
     # so addressing the raster itself by the caller's would leave one run holding two names for one
     # file — which is what the progress document then reports and a reader compares against.
     mosaic = sidecars.mosaic
-    if sidecars.canonical:
-        producer_seam.declare(work, "raytrace")
     blocks = plan_blocks(body, work)
     recipe = freshness.write_if_changed(sidecars.recipe,
                                         params(body, rasters, look, rig_recipe(body), blocks))
@@ -708,7 +722,8 @@ def run(body: bodies.Body, work: Path, mosaic: Path, *, limit: int | None = None
         name = block_name(block)
         started = time.monotonic()
         try:
-            render_block(body, block, mosaic, scratch, markers, work)
+            render_block(body, block, mosaic, scratch, markers, work,
+                         keep_intermediates=keep_intermediates)
         except Exception as failure:            # noqa: BLE001 — one block must not end the night
             consecutive += 1
             status.failures.append(name)
@@ -742,7 +757,8 @@ def run(body: bodies.Body, work: Path, mosaic: Path, *, limit: int | None = None
     complete = all((markers / block_name(block)).exists() for block in blocks)
     if complete and status.state == "rendering":
         freshness.mark_done(mosaic)
-        shutil.rmtree(scratch, ignore_errors=True)
+        if not keep_intermediates:
+            shutil.rmtree(scratch, ignore_errors=True)
         status.state = "complete"
         log(f"PLANET COMPLETE: {len(blocks)} blocks, {len(status.failures)} failures -> {mosaic}",
             stage=True)
@@ -777,6 +793,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--only", default=None,
                         help="comma-separated block names (rNNcNN) to render instead of the whole "
                              "grid; never stamps the mosaic complete")
+    parser.add_argument("--keep-intermediates", action="store_true",
+                        help="leave each block's Cycles frame, scene and prep directory on disk "
+                             "instead of deleting them, and keep the scratch tree at the end: the "
+                             "frame is the only thing that can place an artifact before or after "
+                             "the crop. A diagnosis flag — pair it with --only")
     return parser
 
 
@@ -786,7 +807,8 @@ def main(argv: list[str] | None = None) -> None:
     work = args.work if args.work is not None else relief_scan.work_dir(body)
     mosaic = args.mosaic if args.mosaic is not None else mosaic_in(work)
     only = frozenset(name.strip() for name in args.only.split(",")) if args.only else None
-    run(body, work, mosaic, limit=args.limit, only=only)
+    run(body, work, mosaic, limit=args.limit, only=only,
+        keep_intermediates=args.keep_intermediates)
 
 
 if __name__ == "__main__":

@@ -124,7 +124,7 @@ built before a deploy keeps drawing while the two halves roll. That branch is fe
 `tileAddress.ts` and goes once production has served no legacy request for a day.
 
 The extension follows the archive's declared tile type, which is set by the pipeline
-(`TILE_CUT` in `pipeline/tile/shade_planet.py`) and carried through by `pack_pmtiles`. A PMTiles
+(`tile_cut` in `pipeline/tile/cut_tiles.py`) and carried through by `pack_pmtiles`. A PMTiles
 archive stores **one** encoding for every tile, so this is a single global fact, not a per-tile one.
 
 The cache-bust is the **token**, not the extension. A re-cut that keeps the same codec leaves every

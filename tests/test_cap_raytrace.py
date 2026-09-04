@@ -270,27 +270,23 @@ class TestTheRaytraceRecipeIsNotTheCompositesWearingAnotherName:
     def _recipe(self):
         return json.loads(cap_raytrace.params(cap_render.north_grid(EARTH), WHOLE_PLANET))
 
-    def test_the_two_producers_of_one_disc_write_different_recipes(self):
-        grid = cap_render.north_grid(EARTH)
-        assert cap_raytrace.params(grid, WHOLE_PLANET) != cap_render.cap_recipe(grid, WHOLE_PLANET)
-
     def test_it_names_the_producer_that_wrote_it(self):
         assert self._recipe()["producer"] == "raytrace"
 
     def test_it_carries_the_rig_rather_than_the_composites_knobs(self, subtests):
         """The three tiers `block_render.params` names, arriving on the cap: this module's own
-        geometry, the rig's constants, and the producers' — none of which the composite recipe has
-        any way to record, since Cycles applies them and `composite_params` describes numpy."""
+        geometry, the rig's constants, and the producers' — none of which the deleted compositor's
+        recipe had any way to record, since Cycles applies them and that recipe described numpy."""
         recipe = self._recipe()
         for key in ("rig", "azimuth_passes", "quadrant_split", "denoise_device", "base_grid",
                     "snow_rgb", "ice_rgb", "white_union", "white_exclusions", "mask_full_scale"):
             with subtests.test(key=key):
                 assert key in recipe
 
-    def test_it_does_not_carry_the_composites_own_block(self):
-        """`composite_params` describes a numpy shading pass that never runs here. Recorded, it
-        would put a 41-minute render behind knobs no raytraced pixel reads."""
-        assert "composite" not in self._recipe()
+    # A test stood here asserting `"composite" not in self._recipe()`. It guarded against inheriting
+    # the compositor's knob block, and once that producer was deleted no edit could put the key
+    # back: it passed for a reason unrelated to its claim. The live half of the same question is the
+    # test above, which names the keys this recipe MUST carry rather than one it must not.
 
     def test_the_rig_is_read_from_the_rig_rather_than_restated(self):
         """Through JSON on both sides: `rig_recipe` holds tuples where the serialised recipe holds

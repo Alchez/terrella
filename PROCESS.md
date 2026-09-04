@@ -12,12 +12,13 @@
 - Every pipeline stage is guarded by `is_stale(output, *inputs)`: it rebuilds only if its output
   is missing, never completed (`.done` marker), or older than any input. A re-run costs
   **~0 s per stage** until something upstream actually changes.
-- Tunables that never reach a file of their own (`KNOBS`, palette colours) are materialised into
-  `composite_params.json` / `hs_params.json` / `tile_params.json`, whose mtime moves **only when a
-  value really changes** — that is what makes the guard trustworthy against a `git checkout`.
-- One stage is the exception, and it is the interesting one: **`global_occlusion` (sky-view) has
-  no file to stamp**, so it is guarded by *laziness* — passed to the composite unevaluated, it
-  runs only if the composite is stale.
+- Tunables that never reach a file of their own (palette colours, the rig's fields) are materialised
+  into `raytrace_params.json` / `tile_params.json` / each cap's own sidecar, whose mtime moves
+  **only when a value really changes**, which is what makes the guard trustworthy against a
+  `git checkout`. `composite_params.json` and `hs_params.json` are orphans on disk: nothing writes
+  or reads them, and INVENTORY records them as reclaimable.
+- The lazy sky-view stage that used to be the exception here is gone with the compositor. Cycles
+  computes its own light, so nothing in the planet chain is guarded by laziness any more.
 - `build_tiles` carries a `tiles.done` sentinel + a `tiles_are_fresh` guard, and **cuts clean
   each time** (no `--resume`, so a truncated tile can't survive).
 - **`tile_params.json` is part of that guard**: the cut's own settings (format, quality, tile size,
@@ -29,13 +30,15 @@
 `python -m pipeline.tile.planet_pass --body earth [--tiles]` — or instrumented:
 `bash pipeline/profile/run_pass.sh --body earth [--tiles]`
 
-**It is ONE global streaming pass, and the shape is the cost model:** warp → per-row-z hillshade
-(full-width, with a 1-row halo, which is what makes it seamless) → globally-normalised SVF →
-per-window composite. Nothing here is per-country.
+**The shape is the cost model:** warp the inputs onto the 3857 grid, then render every block through
+Cycles, then cut. Nothing here is per-country. It used to be one global streaming pass instead,
+warp → per-row-z hillshade (full-width, 1-row halo, which is what made it seamless) →
+globally-normalised SVF → per-window composite; seamlessness now comes from each block's own haloed
+context rather than from full-width rows.
 
-**The two shade paths have opposite staleness exposure, deliberately.** `shade.py` (region) re-warps
-on every run, so it is always current and is the right pre-flight before a re-fuse. `shade_planet.py`
-caches its warps — exposed by design, and covered by `is_stale`.
+**`planet_warp.py` caches its warps**: exposed by design, and covered by `is_stale`. The region
+path that re-warped on every run and was the right pre-flight before a re-fuse went with the
+compositor, so there is no always-current path left to check a fuse against.
 
 **RAM: the region path is NOT windowed, so cell count is a direct multiplier.** Four cells is roughly
 **14.5 GiB** and gets OOM-killed under the 12 G cap, so scale the cell count to the cap rather than to
@@ -45,6 +48,11 @@ the area you want. The planet path *is* windowed and does not have this failure 
 master. And never tile a many-source VRT: materialise a tiled GTiff with overviews first.
 
 The whole cost model in one picture — where a look change enters is what it costs:
+
+**THE TWO-TIER COST MODEL BELOW IS SUPERSEDED AND IS KEPT AS A RECORD OF THE COMPOSITED PIPELINE.**
+There is one tier now: every look value that reaches a recipe restages every block through Cycles,
+so read § the raytraced pass for what a change actually costs. Nothing in the picture below is
+reachable, because the hillshade, the sky-view stage and the compositor are all deleted.
 
 ```mermaid
 flowchart LR
@@ -59,11 +67,25 @@ flowchart LR
   CK -. "≈ 29 min to live tiles" .-> T
 ```
 
+**The live model, same picture:** the warps still run and still cost what they cost, and everything
+downstream of them is one stage.
+
+```mermaid
+flowchart LR
+  LK(["ANY look value that reaches a recipe<br/>rig · ramps · snow · sea ice · exaggeration"]) --> R
+
+  W2["warps → 3857 grid<br/>(one-time per grid change)"] --> R["block_render, 1024 blocks through Cycles<br/>11:41:33 on Earth"] --> T2["tile cut z0–8 → WebP q95<br/>4:19"] --> PK2["pack + convert<br/>→ 2.50 GB planet.pmtiles"]
+  R -. auto .-> CAP2["polar caps, raytraced<br/>→ web/public/caps/"]
+
+  LK -. "a whole pass, then a re-cut, an upload and a Worker deploy" .-> T2
+```
+
 The hero pipeline is the other lane (separate table below): per-country prep walk **1.25 s warm**
 (six guarded stages) → Blender render **1:29–3:36** → full 203-country sweep **~10.5 h**, GPU-bound.
 
-All stage numbers below are at the **131072² grid** (the full Mercator square) with the composite
-**threaded 128-row/4-worker**:
+All stage numbers below are at the **131072² grid** (the full Mercator square). Rows 4, 5 and 6 are
+the deleted compositor's, measured with it **threaded 128-row/4-worker**; row 6r replaced all three
+and is the only one that runs:
 
 | # | Stage | First run | Re-run (fresh) | Output | Guard |
 |---|---|---|---|---|---|
@@ -74,10 +96,10 @@ All stage numbers below are at the **131072² grid** (the full Mercator square) 
 | 2 | warp ocean + water masks → 3857 *(row 0a's 1″ latitude × 10″ longitude masks. The 3857 grid is FIXED at 131072², so a finer source changes the bytes and never the pixel count, which is why this stage grew by half and not by ten)* | **5:03** (ocean **2:30** + water **2:32**, still near-equal as they were at 10″) | ~0 s | **94 MB** (35 + 59), against 69 MB at 10″: same pixels, more resolved coastline, so deflate has less to squeeze | `warp_needs_rebuild` |
 | 3 | warp GLOBathy lake depth → 3857 | **1:01:44** (nodata-masker-bound, 102% CPU; no lakes south of −60°, the cost lives in the 50–70°N belt) | ~0 s | `lakedepth_3857.tif` 310 MB | `warp_needs_rebuild` |
 | 3b | warp snow persistence (banded) + rasterize glaciers + rasterize Antarctic rock + warp sea ice (banded) → 3857 | **snow 15:16, glaciers 0:19, rock 0:27, sea-ice 14:42** | ~0 s | `snow_persistence_3857.tif`, `glacier_3857.tif`, `addrock_3857.tif`, `seaice_3857.tif` | `warp_needs_rebuild` |
-| 4 | `look/hillshade.py` — per-row z-factor **+ fill sun** | **16:20** | ~0 s | `hs_3857.tif` | `is_stale` |
-| 5 | `global_occlusion` — sky-view factor | **3:23** (I/O-bound) | ~0 s | in-memory only | **lazy** |
-| 6 | `composite_planet` — ramps × hillshade × SVF + snow + sea ice + lake depth | **57:23** (1024 windows at 0.30 win/s; the Antarctic windows are all snow+ice work) | ~0 s | `planet_rgb.tif` 11 GB | `is_stale` |
-| 6r | `tile/block_render.py`, the raytraced producer: 1024 blocks through Cycles, one at a time *(it REPLACES stages 4, 5 and 6 rather than adding to them, because every block lights itself, so no hillshade and no SVF are built at all. `Body.planet_producer` chooses it and BOTH bodies now answer `"raytrace"`, so no registered body composites its planet raster any more; the header's composite threading does not apply to it)* | **11:41:33** at 1.46 blk/min, 1024 blocks, 0 failures, on the RTX 4070 Super. Per block **23.8 s min, 34.5 s median, 41.1 s mean, 76.8 s p95, 194.3 s max**. Median does rise with context size (27.9 s at 128 px against 60 to 140 s above 1536 px) but only 25 of 1024 blocks sit that high, and **context explains little of the block-to-block spread, r = 0.39**: the slowest block is `r02c09` at 194.3 s on a mid-range 896 px context, so the tail is not polar and what drives it is not established. | **~0 s**, but ALL OR NOTHING: blocks skip on per-block markers, and if any input or the recipe moved, `start_generation` clears the entire marker set and all 1024 re-render | `planet_rgb.tif` **30 GB** (the composite writes 11 GB to the same path) | `raytrace_deps` + `raytrace_params.json`, checked by `generation_is_current` against the generation stamp |
+| 4 | **SUPERSEDED, module deleted:** `look/hillshade.py`, per-row z-factor **+ fill sun** | **16:20** | ~0 s | `hs_3857.tif` | `is_stale` |
+| 5 | **SUPERSEDED, function deleted:** `global_occlusion`, sky-view factor | **3:23** (I/O-bound) | ~0 s | in-memory only | **lazy** |
+| 6 | **SUPERSEDED, function deleted:** `composite_planet`, ramps × hillshade × SVF + snow + sea ice + lake depth | **57:23** (1024 windows at 0.30 win/s; the Antarctic windows are all snow+ice work) | ~0 s | `planet_rgb.tif` 11 GB | `is_stale` |
+| 6r | `tile/block_render.py`, the raytraced producer: 1024 blocks through Cycles, one at a time *(it REPLACED stages 4, 5 and 6 rather than adding to them, because every block lights itself, so no hillshade and no SVF are built at all. It is now the ONLY producer on every body: the field that used to choose between it and the compositor is deleted along with the compositor, so the header's composite threading describes nothing that runs)* | **11:41:33** at 1.46 blk/min, 1024 blocks, 0 failures, on the RTX 4070 Super. Per block **23.8 s min, 34.5 s median, 41.1 s mean, 76.8 s p95, 194.3 s max**. Median does rise with context size (27.9 s at 128 px against 60 to 140 s above 1536 px) but only 25 of 1024 blocks sit that high, and **context explains little of the block-to-block spread, r = 0.39**: the slowest block is `r02c09` at 194.3 s on a mid-range 896 px context, so the tail is not polar and what drives it is not established. | **~0 s**, but ALL OR NOTHING: blocks skip on per-block markers, and if any input or the recipe moved, `start_generation` clears the entire marker set and all 1024 re-render | `planet_rgb.tif` **30 GB** (the composite writes 11 GB to the same path) | `raytrace_deps` + `raytrace_params.json`, checked by `generation_is_current` against the generation stamp |
 | 7 | `build_tiles` — `gdal raster tile` z0–8, WebP q95 | **4:19** | **skip** | `tiles/` **3.1 GB**, 87,381 tiles | `tiles.done` + `tile_params.json` |
 | T | `tile/terrain_rgb.py` — terrain-RGB encode + cut **z0–8**, 8 m, lossless WebP *(separate lane: reads `height_3857.tif` directly, never the composite, and is not part of the planet pass)* | **30:14** cold, whole `elev_z*` chain built, of which cutting is 8:08 (z8 alone 5:31). The **41:00** this replaced was measured before the latitude ramp was deleted from the encode, which removed a per-row inverse-Mercator projection and a smoothstep multiply from every window. A z0–6 variant is **~4 min** once the chain exists. | **skip** | `work/planet_terrain/bathy_s8_webp/tiles/` **2.72 GB**, 87,381 tiles | `tiles.done` + `terrain_params.json`; chain on `elev_z*.done` |
 | R | `tile/relief_scan.py`, the block partition's per-cell cache *(separate lane: streams `height_3857.tif` + the ocean mask once and feeds `block_plan`; not part of the planet pass)* | **3:07**, 1.5 GB peak (Mars measured **0:41** at its 65536² z7 grid) | ~0 s | `relief_cells.tif` + `ocean_cells.tif` | `is_stale` + `relief_params.json` |
@@ -113,7 +135,7 @@ which is where a Mars pass peaks, did not run.
 | `global_occlusion` | 3:23 | **0:52** | |
 | `composite_planet` | 21:37 | **2:58** | 512 windows, 2.88 win/s, threaded ×4 |
 | `build_tiles` z0–7 | 4:19 | **1:21** | 21,845 tiles, 1.4 GB |
-| `cap_pass` | **3:11** | **~1:15** *(isolated)* | Both discs, warping all three planet rasters. **BOTH FIGURES ARE THE COMPOSITE ARM**, which is what ran on both bodies when they were taken; `cap_pass` now picks the arm off `planet_producer`, and the raytraced one is a different order of cost: **45:35 standalone** on Earth, against the 3:11 here, per § Polar cap render. It has not yet been measured **at a pass tail**, which is what this column is, so do not scale it by this row's own ratio. **THE TWO COLUMNS ARE TWO PROGRAMS**: Earth's is the stage at a pass tail (north 1:44, south 1:27, both elevation textures fresh and skipped), Mars's is a standalone rig, because Mars's pass printed fresh and skipped and has no in-pass reading. § The cap stage costs about twice at a pass tail |
+| `cap_pass` | **3:11** | **~1:15** *(isolated)* | Both discs, warping all three planet rasters. **BOTH FIGURES ARE THE COMPOSITED ARM**, which is what ran on both bodies when they were taken; that arm is deleted and every disc is raytraced now, at a different order of cost: **45:35 standalone** on Earth, against the 3:11 here, per § Polar cap render. It has not yet been measured **at a pass tail**, which is what this column is, so do not scale it by this row's own ratio. **THE TWO COLUMNS ARE TWO PROGRAMS**: Earth's is the stage at a pass tail (north 1:44, south 1:27, both elevation textures fresh and skipped), Mars's is a standalone rig, because Mars's pass printed fresh and skipped and has no in-pass reading. § The cap stage costs about twice at a pass tail |
 | pack + convert | 0:16 | **~4 s** | `planet.pmtiles` **1.40 GB**, **20,950 unique tile bodies of 21,845** — counted over the cut directory, which is what the archive dedupes on |
 | T · `tile/terrain_rgb.py` z0–7 | 41:00 | **8:15** | the separate lane, cut cold from the master. z7 alone is **1:36** and the whole `elev_z*` descent beneath it **1:03**, so the ceiling is most of the cost. **21,845 tiles, 0.77 GB** |
 | T · `tile/terrain_rgb.py` z0–7, re-cut | — | **6:03** | the same cut with the elevation chain already on disk. `elev_z*` is gated on the master's mtime and NOT on `terrain_params.json`, so a recipe change re-encodes and re-cuts every zoom while re-descending none — z7 1:41, z6 0:27 |
@@ -127,7 +149,7 @@ ice sources, never `height_3857.tif`, so rebuilding the master cannot restage a 
 
 ### Memory: what a cap has to back, and which of the three readings says so
 
-This block is the authority for both cgroup caps, and `pipeline/profile/pass_cap.py` argues from its
+This block is the authority for both cgroup caps, and `pipeline/profile/pass_memory.py` argues from its
 figures by name. A heading rather than a bold lead-in because code cites it: a load-bearing block
 nothing can point at is one nobody re-reads before changing a number.
 
@@ -169,7 +191,7 @@ was meant to leave it conservative never happened. The same live pass reads 12.6
 the 4.43 GiB above live RSS being exactly the page cache the rule at the top of this section
 describes.
 
-**WHICH STAGE BINDS DEPENDS ON THE BODY'S PRODUCER AND ITS CAPS' FRESHNESS, AND `pass_cap.py`'s
+**WHICH STAGE BINDS DEPENDS ON THE BODY'S PRODUCER AND ITS CAPS' FRESHNESS, AND `pass_memory.py`'s
 FIELD SEES NEITHER.** On a raytraced Earth pass whose caps are already current, the composite never
 runs (that is the fork) and `cap_render` never runs (`cap_sources` does not name `planet_rgb.tif`,
 so a block pass cannot make a cap stale), which leaves the block producer and the cut. Both peaks
@@ -220,7 +242,7 @@ rows/s, flat from pole to pole), so something uniform is absorbing the compute v
 it means instrumenting the REAL pass for per-window read against compute, not building another arm.
 
 **`pipeline/profile/run_pass.sh` sizes its cgroup cap from the body, and both bodies now want 16 G.**
-`pipeline/profile/pass_cap.py` derives it from `renders_polar_caps` and holds both measurements. 16 G
+`pipeline/profile/pass_memory.py` derives it from `renders_polar_caps` and holds both measurements. 16 G
 is the cap-rendering number because the pass ends by invoking `cap_pass` as a subprocess that
 inherits the scope's cgroup and peaks near 14 GB; a body that renders no caps never reaches that
 stage, so on it 16 G is unbacked rather than protective and the harness's own `MemAvailable`
@@ -233,7 +255,7 @@ refused at the wrapper instead of after a cgroup scope has already been opened.
 *after* the resolver, never instead of it, so `--body` stays enforced; a non-numeric value aborts,
 because bash would otherwise evaluate it as 0 and every box would clear every cap. It exists because
 with no body on the 12 G branch nothing else can show that the shell uses the number it is handed
-rather than a constant — `pass_cap` runs in a subprocess, so no test fixture can reach its registry.
+rather than a constant: `pass_memory` runs in a subprocess, so no test fixture can reach its registry.
 
 ### The cap stage costs about twice at a pass tail
 
@@ -261,7 +283,8 @@ for read against compute, which is the instrument § THE COMPOSITE ROW SAYS 57:2
 
 **Which number to quote is decided by how the caps were reached.** Invoked directly, as a look loop
 does, they cost the standalone **1:36**. Reached through a pass, which is every auto-restage behind a
-hillshade or composite knob, they cost about **3:05**.
+look change, they cost about **3:05**. Both figures are the composited arm's; the raytraced arm
+renders 56 Cycles frames instead and is measured in its own row.
 
 ### Mars's ice band takes ONE direct warp, and here is the measurement that settled it
 
@@ -304,7 +327,12 @@ at 20×, under the 12 G cap Mars had at the time — so the SHAPE below is curre
 are one grid behind. Scale them by the composite's own measured ratio, **0:46 → 2:58, i.e. 3.9× for
 4× the pixels**, rather than re-deriving a factor from the pixel count:
 
-| Change | What restages | Wall clock |
+**THE WHOLE TABLE BELOW IS SUPERSEDED AND MARS NO LONGER HAS A WARM LOOP OF THIS SHAPE.** Mars
+raytraces, so a ramp and the exaggeration cost the same thing: every block through Cycles, measured
+at **2:49:57** for 256 blocks in the Mars row above. The rows are kept because the SHAPE of the
+argument still holds, which is that the cheapest judgeable iteration is worth finding.
+
+| Change | What restaged | Wall clock |
 |---|---|---|
 | a ramp, **judged from the composite** (no `--tiles`) | sky-view + composite | **~1:03** |
 | a ramp, judged on the globe (`--tiles`) | the above + the tile cut | **1:36** |
@@ -317,17 +345,18 @@ iteration is no longer ~1:03. Not skippable by a flag, deliberately: skipping th
 tiles moved is what produced the −6.7 DN cap-vs-tile seam drift, and the look is ratified, so the
 loop is now rare enough to pay for correctness.
 
-**Drop `--tiles` while iterating and take the frames off `planet_rgb.tif` directly.** Measured over five
+**Drop `--tiles` while iterating and take the frames off `planet_rgb.tif` directly.** This part still
+holds, and it is now the only cheap half of a look loop. Measured over five
 consecutive z6 candidates: 62–64 s each against 1:35 with the cut. Nothing about the colour is decided
-by the tiler, so cropping the composite with `gdal_translate -srcwin` shows the ratified pixels with no
+by the tiler, so cropping the master with `gdal_translate -srcwin` shows the ratified pixels with no
 browser resampling, no globe projection and no atmosphere in the way — and it is the same raster the
 tiles are cut from, so it cannot disagree with them. Run `--tiles` once, at the end, on the variant
 that won.
 
-- **A ramp change must not restage the hillshade, and does not**: the exaggeration is in `hs_params`
-  and the ramps are not, so a ramp-only pass skips straight to the sky-view. Watch for that skip —
-  a hillshade line appearing on a ramp-only change means a composite knob has leaked into
-  `hs_params`, which is a 46-minute mistake on Earth.
+- **The two-tier skip this described is gone with the compositor**, which had the exaggeration in
+  `hs_params` and the ramps outside it, so a ramp-only pass skipped straight to the sky-view. There
+  is one recipe now and every look value in it restages the same whole pass, so there is no cheaper
+  tier to leak out of and nothing to watch the log for.
 - **The height warp never re-runs for either.** Both levers are downstream of it, so the 2:12 that
   dominates a cold pass is paid once.
 
@@ -399,14 +428,15 @@ Why the numbers are what they are (current-state explanations, not history):
 
 | Scenario | Wall | Notes |
 |---|---|---|
-| **A hillshade-stage re-tune** (`fill_strength` → live tiles) | **~46 min** | hillshade 16:20 + SVF 3:23 + composite 21:37 + tile cut 4:19. Warps all skip. |
-| **A composite-stage re-tune** (`snow_curve`, `ICE_LO`, ramp colours → live tiles) | **~29 min** | SVF 3:23 + composite 21:37 + tile cut 4:19. |
+| **ANY look re-tune that reaches a recipe** (`ICE_LO`, a ramp colour, an exaggeration, a rig field → live tiles) | **11:41:33 + 4:19** on Earth | Every block re-renders: `write_if_changed` moves the sidecar only on a real change, and a moved value clears all 1,024 markers. Warps all skip. Then a re-cut, an upload and a Worker deploy. **Batch look changes rather than landing them one at a time.** |
+| ~~A hillshade-stage re-tune~~ (`fill_strength` → live tiles) | ~~**~46 min**~~ | SUPERSEDED: hillshade 16:20 + SVF 3:23 + composite 21:37 + tile cut 4:19. All three stages are deleted; the row records the composited pipeline. |
+| ~~A composite-stage re-tune~~ (`snow_curve`, ramp colours → live tiles) | ~~**~29 min**~~ | SUPERSEDED, same reason. `ICE_LO` moved to the row above, which is the only live one. |
 | Everything cold, shade only | **~41 min** (+ the cut → ~46) | excludes the one-time lake warp + fuse |
 | `--tiles`, everything fresh | **~0.4 s** | the cut is guarded; it runs only when `planet_rgb` actually changed |
 | No `--tiles`, everything fresh | **0.29 s** | every stage skips; this is the guard working |
 | Lake-depth warp (stage 3) | **1:01:44** | one-time; its `.done` is what stops a pass paying that hour again |
 | **Cast shadows** (`shadow_strength` > 0 — currently 0.0, rejected) | **+0.625 s/Mpx** measured; est. **+2.1 h** on the planet hillshade at `shadow_reach=300` | Iran region A/B (32.4 Mpx): 16.73 s control → 37.01 s, **+121%**, peak RSS unchanged (the wide halo costs time, not memory). The march is `reach_px` full-raster passes — cost is **linear in `shadow_reach`** (300 px ≈ 2.6 h, covers 6,115 m of relief). Hillshade-stage, so ~46 min + the shadow march to see it. |
-| **Polar cap render** (`tile/cap_pass.py`, composite arm) | **~1:36** both caps at the production 8192² (54 + 42 s), peak **14.3 GB north / 13.9 GB south** (measured under `systemd-run`, anon RSS). **THE ARM IS PART OF THE MEASUREMENT**: the raytraced arm renders 56 Cycles frames instead and measures **45:35** in production, north 22:44 and south 22:50. It decomposes as 28 frames a pole at **44.1 s** (north) and **45.3 s** (south), a **57 s** blend to the disc at each pole, and a prep of about **1:42** and **1:27** that each include their own first frame. **The 41 min predicted off the arm's own two circles was a prediction about the FRAMES ALONE**, and it holds: 56 frames at 44.7 s is 41:43. What it omitted was the two stages either side, which is where the whole 3:52 of the miss sits, so the lesson is the scope of the quantity rather than its accuracy. **Peak memory for this arm is NOT measured**: the run's scope is gone and nothing in the log recorded RSS, so the 16 G cap it ran under is a bound and not a reading. **STANDALONE, which is what this table is for**: through a pass the same stage costs about 3:05, per § The cap stage costs about twice at a pass tail | AEQD warps + the shared `shade.composite` + baked coastline → `web/public/caps/cap_{north,south}_{1024,2048,4096,8192}.webp` (both caps together, **composite arm at edge 80**: **155 KB · 559 KB · 1.7 MB · 5.1 MB**, WebP q85; **raytraced arm at edge 82**: **76.5 KB · 254 KB · 740 KB · 1.97 MB**. The arm and the edge both moved between those two readings, so the ratio belongs to neither alone) + `caps.json`. Every rung is downsampled from the one render, so the whole rung set costs ~1 s, not a second pass, and adding the 1024/2048 rungs did not move this row's runtime (re-measured 1:39). The web layer picks one by the cap's projected on-screen size, so a default visit fetches only the 1024s. The fast browser-free pole-look loop. **Freshness-guarded** by a recipe sidecar carrying every input that can move a cap pixel, plus source mtimes; the planet pass's tail invokes it (`tile/planet_pass.py`), so the caps restage whenever the look does — a fresh check is ~2 s. |
+| **Polar cap render** (`tile/cap_pass.py`, the SUPERSEDED composited arm) | **~1:36** both caps at the production 8192² (54 + 42 s), peak **14.3 GB north / 13.9 GB south** (measured under `systemd-run`, anon RSS). **THE ARM IS PART OF THE MEASUREMENT**: the raytraced arm renders 56 Cycles frames instead and measures **45:35** in production, north 22:44 and south 22:50. It decomposes as 28 frames a pole at **44.1 s** (north) and **45.3 s** (south), a **57 s** blend to the disc at each pole, and a prep of about **1:42** and **1:27** that each include their own first frame. **The 41 min predicted off the arm's own two circles was a prediction about the FRAMES ALONE**, and it holds: 56 frames at 44.7 s is 41:43. What it omitted was the two stages either side, which is where the whole 3:52 of the miss sits, so the lesson is the scope of the quantity rather than its accuracy. **Peak memory for this arm is NOT measured**: the run's scope is gone and nothing in the log recorded RSS, so the 16 G cap it ran under is a bound and not a reading. **STANDALONE, which is what this table is for**: through a pass the same stage costs about 3:05, per § The cap stage costs about twice at a pass tail | AEQD warps + the shared `shade.composite` + baked coastline → `web/public/caps/cap_{north,south}_{1024,2048,4096,8192}.webp` (both caps together, **composite arm at edge 80**: **155 KB · 559 KB · 1.7 MB · 5.1 MB**, WebP q85; **raytraced arm at edge 82**: **76.5 KB · 254 KB · 740 KB · 1.97 MB**. The arm and the edge both moved between those two readings, so the ratio belongs to neither alone) + `caps.json`. Every rung is downsampled from the one render, so the whole rung set costs ~1 s, not a second pass, and adding the 1024/2048 rungs did not move this row's runtime (re-measured 1:39). The web layer picks one by the cap's projected on-screen size, so a default visit fetches only the 1024s. The fast browser-free pole-look loop. **Freshness-guarded** by a recipe sidecar carrying every input that can move a cap pixel, plus source mtimes; the planet pass's tail invokes it (`tile/planet_pass.py`), so the caps restage whenever the look does, and a fresh check is ~2 s. |
 
 > ⚠ **The cap render does NOT fit under the old 12 G cap** — it OOM-killed twice at a 12.5 GB
 > anon-RSS peak before being measured at ~14 GB (this row previously claimed ~4 GiB, which was
@@ -414,11 +444,32 @@ Why the numbers are what they are (current-state explanations, not history):
 > invokes `cap_pass` as a subprocess at the tail of the planet pass, inheriting the pass's cgroup —
 > so a pass at `MEMORY_CAP=12G` completed every tile stage and then died at the last one.
 > **Resolved:** `run_pass.sh`'s shade cap is now **16 G**, matching the tiling run, and
-> `pass_cap.py` derives it per body. `COMPOSITE_ROWS=128` is a hardcoded constant rather than a
+> `pass_memory.py` derives it per body. `COMPOSITE_ROWS=128` is a hardcoded constant rather than a
 > function of the cap, so a bigger cap cannot let the composite grow into it. Accepted cost: 12 G
 > was also an accidental tripwire on composite footprint, and a regression there now hides until
 > 16 G. **That tripwire had already fired by the time anyone looked**: the composite is measured at
 > **12.56 GiB** in § EARTH, PER STAGE above, so it no longer fits under 12 G at all.
+
+**A cap is priced PER POLE PER BODY, and 45:35 is neither.** That figure is Earth's BOTH discs; one
+Earth pole is 22:50. **Mars's south is 22:12**, and it decomposes as **68.7 s** prep, 28 frames in
+**19.9 min** at 42.6 s each, a **58.1 s** blend and **12.6 s** of rungs. Same order as Earth's,
+which follows once the grid is 8192 squared whatever the planet. Provenance, because it differs from
+every other row here: this was recovered from the shipped artifact's own mtimes rather than from a
+timed run, so the stage boundaries are file writes and not instrumented spans.
+
+**A cap can be PREVIEWED at reduced resolution for a minute, which is the cheap loop for any look
+question about a disc.** `CapGrid.px` is a field and `frame_plan` is derived from longitudes, so a
+disc renders at any side. Measured on Mars, 1024 px: **28 frames at 1.6 s each, 54 s end to end**
+including prep and blend. That is 1/64 the pixels of the shipped 8192 and the traced part scales
+with them, so the ladder from the 42.6 s production frame is arithmetic: expect roughly 4.5 s a
+frame at 2048 and 11.5 s at 4096, neither measured.
+
+- **It needs an isolated store and it is not optional.** `frames_dir` and `cap_render_dir` key on the
+  POLE alone while `px` rides in `cap_raytrace.params`, so a preview run through `cap_pass` writes
+  over the shipped disc's own frames and marks them stale leaving. Redirect `MAPS_DATA` for the
+  intermediates and run from an arm worktree for the served rungs, which follow `paths.ROOT`.
+- The harness, its refuse-to-render guard and that guard's positive control are in
+  `~/terrella-scratch/mars-south-preview/`, which carries a KEEP.md.
 
 **Memory preflight (both run labels).** `run_pass.sh` reads `MemAvailable` and **refuses to start**
 when it is below the cap, because a cap the box cannot back protects nothing — it relocates the OOM
@@ -430,16 +481,16 @@ line** — ~16.7 GiB available against the 16 G cap with a browser and editor op
 preflight to be a real gate, not a formality.
 
 **What a knob actually restages** (measured, not inferred): all warps skip, including the 1:01:44
-lake warp. A **hillshade-stage** knob (tracked in `hs_params.json`) restages hillshade → SVF →
-composite → tiles — **~46 min**. A **composite-stage** knob (tracked in `composite_params.json`)
-restages SVF + composite → tiles — **~29 min**. The composite is the bulk of any art iteration
-(§ the composite is threaded is the 3.5× that made iterating viable), and the caps auto-restage
-(~3:05) behind either knob.
+lake warp. Everything after them is one stage now, so **any** look value that reaches
+`raytrace_params.json` restages the whole planet through Cycles, and the caps restage behind it.
+The two-tier split below it describes the composited pipeline and is kept only as a record: a
+hillshade-stage knob restaged hillshade, SVF and the composite for ~46 min, a composite-stage knob
+restaged SVF and the composite for ~29 min, and the composite was the bulk of any art iteration.
 
 Peak RSS is **12.56 GiB** for the threaded composite, measured as peak live RSS in § EARTH, PER
 STAGE above; the **10.55 GiB** this line used to give was taken by a retired method, and the 1.14x
 headroom it claimed under a 12 G cap was never available. The pass runs under **16 G** whichever run
-label it takes, sized per body by `pass_cap.py`, and the cut is the lightest of the three stages
+label it takes, sized per body by `pass_memory.py`, and the cut is the lightest of the three stages
 rather than the reason for the cap. **`memory.current` is not RSS**: during tiling the cgroup sits at
 ~16 GiB, but that is reclaimable page cache (`anon` 0.58 GiB), so watch **anon**, not the total.
 
@@ -462,7 +513,7 @@ rather than the reason for the cap. **`memory.current` is not RSS**: during tili
   **21M** and is comfortable, Nepal at **41.8M** renders but takes **177% longer**, and Australia at
   **67M** fails outright with `Failed to build OptiX acceleration structure`, having wanted
   **17.0 GB** of host against the ratified 16 G. Which frame sizes sit on which side is unmeasured:
-  Nepal clears it at 36.8 Mpx and Australia does not at 58.8. `pipeline/profile/pass_cap.py`,
+  Nepal clears it at 36.8 Mpx and Australia does not at 58.8. `pipeline/profile/pass_memory.py`,
   `pipeline/batch.py` and `render/scene_build.py` all argue from the 17.0 GB figure, and this row is
   where it is measured.
 - The warm walk is near-free because the two expensive per-country redundancies are guarded:
@@ -501,8 +552,8 @@ Run once; all are resumable and verify against a pinned size/md5, so a re-run is
 | Hero variants — the srcset ladder | `hero_variants.py --jobs 8` | **6 min** (203 heroes × 6 rungs); **~49 min at the default `--jobs 1`**. Adding the portrait fill rung to an otherwise-current store is **4.1 s** (25 written, 1,218 skipped) — an unrecorded rung reads as q85, which equals the new rungs' policy, so nothing existing is retired | One `gdal_translate` peaks at **523 MB**, so the ceiling is cores, not the memory cap — but the default stays 1, as `gen_spotlight`'s does. Quality is a policy (`quality_for`): q85 to 1920, q95 at 3840/native. `hero_variants_recipe.json` records what each rung was written at, so a quality change restages exactly that rung and nothing else |
 | Spotlight overlays — small rungs only | `gen_spotlight.py --only <slugs> --jobs 6` | **1m45s** (203 slugs × 3 new rungs). The portrait fill rung is **1.9 s and 615 MB peak for one slug**, so 25 slugs at `--jobs 4` took **10.7 s** | **The "~8 GB per job" in its docstring is a NATIVE-rung figure.** Generating only 640/960/1280 measured **0.49 GB per job**, ~16× lighter, so a high `--jobs` is safe for a small-rung pass and reckless for a full one. Time one slug before choosing |
 | Country vector tiles | `compose/countries_pmtiles.py` | **17 s** (258 features, 413k vertices → 10.2 MB, z0–8) | Derives the outline and hit-point layers, stages a GeoPackage, then ONE `ogr2ogr -f PMTiles`. The GPKG exists only because the PMTiles driver cannot append a layer to an archive it already wrote. No tippecanoe and no `pmtiles convert` — GDAL 3.12 writes PMTiles directly, so the tool that once OOM'd the box is not in this path |
-| Border layers — all rungs | `gen_borders.py` | **7m21s** (201 countries × 5 rungs, serial; no `--jobs` flag) | Redraws the full-res cairo layer per country and writes every rung from that one surface, so adding a rung costs a full regeneration. ~3 s per country |
-| R2 upload — heroes + borders | `aws … s3 sync … --exclude "*.aux.xml" --exclude "*_recipe.json"` | ~2 min (1,622 files, 2.13 GB) | **Both excludes are mandatory** — GDAL PAM sidecars are the bulk of them, and `hero_variants_recipe.json` is pipeline-internal freshness state that must not be published (the deploy preflight caught it as an unreferenced object). 609 of the variants store's 2,231 files are GDAL sidecars. GeoJSON needs `--content-type application/json` or the edge will not compress it |
+| ~~Border layers — all rungs~~ | ~~`gen_borders.py`~~ | ~~**7m21s**~~ (201 countries × 5 rungs, serial; no `--jobs` flag) | **SUPERSEDED, module deleted:** nothing draws a separate border layer. Heroes get their borders from `overlay_borders`, priced with the hero render |
+| R2 upload — heroes + overlays | `aws … s3 sync … --exclude "*.aux.xml" --exclude "*_recipe.json"` | ~2 min (1,622 files, 2.13 GB), **measured while the store still held the border PNGs**: expect a smaller sync now that the 1,010 of them are not produced, and re-measure rather than deriving it | **Both excludes are mandatory** — GDAL PAM sidecars are the bulk of them, and `hero_variants_recipe.json` is pipeline-internal freshness state that must not be published (the deploy preflight caught it as an unreferenced object). 609 of the variants store's 2,231 files are GDAL sidecars. GeoJSON needs `--content-type application/json` or the edge will not compress it |
 | PMTiles packaging | `pack_pmtiles.py` → `pmtiles convert` | **Raytraced WebP q95 pyramid:** dir→MBTiles **3 to 10 s** (87,381 tiles, 2.57 GB); convert **4.9 to 7.2 s** → **2.50 GB** `planet.pmtiles`, 87,366 distinct contents. *(The composite pyramid it replaced: 3.19 GB → **3.1 GB**, so the raytraced archive is **0.80×** it. The PNG pyramid before that: 33 s and 1m11s → 15 GB.)* **The archive prediction is scored**: 2.3 to 2.5 GB predicted against 2.50 GB actual, landing exactly on the upper edge, and 0.747× predicted against 0.801× actual, optimistic by 7% | Always run convert **capped and with `--tmpdir` on ext4**, since uncapped it stages ~12 GB through tmpfs `/tmp` (= RAM). **Tile count and cut time do not follow master size**: a 30 GB raytraced master and an 11 GB composite both cut in ~4:20, because the grid is 131072² either way and the size difference is compression, not pixels |
 | PMTiles packaging — terrain | `pack_pmtiles.py --body earth --tiles …/bathy_s8_webp/tiles --name terrella-terrain` → `pmtiles convert` | dir→MBTiles **12 s** (87,381 tiles, 2.69 GB); convert **6.1 s** → **2.63 GB** `terrain.pmtiles`. Same shape as the relief pack because the pyramids are the same size | `pack_pmtiles.py` needed no changes for a second *pyramid* — it reads the encoding off the directory, so the arguments are the body, the paths and the archive name. Dedupe is much lower than relief's (86,120 of 87,381 unique = **1.4%**, against ~5%): elevation tiles repeat only where the sea is flat, and the polar feather makes even those differ. **Index is 196,747 B** — under `INDEX_PREFETCH_BYTES` (262,144), which the Worker's test asserts. Verify the same way: `pmtiles show` reads `tile type: webp`, then byte-compare addresses against the tiles on disk (6 checked identical incl. `z8/128/255`, the TMS-flip-sensitive row) |
 | PMTiles packaging — terrain, Mars | same with `--body mars --out …/planet_terrain/terrain.mbtiles` | dir→MBTiles **1 s** (21,845 tiles, 0.82 GB); convert **1.5 s** → **0.806 GB** `terrain.pmtiles` | **Dedupe is exactly zero here — 21,845 unique of 21,845** — against Earth's 1.4%, whose repeats are flat ocean. It was 5 tiles before the polar feather went: those were the only identical bodies on a planet with no sea, and they were identical because the feather had flattened them. **Index is 51,473 B**, a quarter of Earth's, well under `INDEX_PREFETCH_BYTES`. The flip-sensitive pair to byte-compare is `z7/64/0` against `z7/64/127` — same column, opposite poles, and each now carries its own relief rather than a shared flat plate |

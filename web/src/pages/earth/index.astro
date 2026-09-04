@@ -7,6 +7,7 @@ import MapStylesheet from "../../components/MapStylesheet.astro";
 import { BODIES } from "../../lib/bodies";
 import { hasHoverHighlight } from "../../lib/globeSubsystems";
 import { pageTitle } from "../../lib/pageTitle";
+import { PUBLISHED } from "../../lib/tileAddress";
 
 // The chrome this route wears, taken from the registry rather than written as literals.
 //
@@ -26,7 +27,7 @@ const body = BODIES.earth;
   description="An interactive globe of ray-traced relief, every country."
   body={body.slug}
   borders={body.hasBorders}
-  highlight={hasHoverHighlight(body.slug)}
+  highlight={hasHoverHighlight(PUBLISHED[body.slug])}
   quality={true}
   pageRole="globe"
 >

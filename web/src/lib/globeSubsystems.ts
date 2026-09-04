@@ -1,7 +1,7 @@
-import { BODIES, type BodySlug } from "./bodies";
-import { PUBLISHED } from "./tileAddress";
+import { type BodyDescriptor, type BodySlug } from "./bodies";
+import { type PublishedArchives } from "./tileAddress";
 import { tileUrlTemplate } from "./assetBase";
-import { VECTOR_PRODUCT, type VectorProduct } from "./sourceLayers";
+import { type VectorProduct } from "./sourceLayers";
 
 /**
  * What one body's globe draws, beyond the relief raster every globe draws.
@@ -29,7 +29,7 @@ import { VECTOR_PRODUCT, type VectorProduct } from "./sourceLayers";
 export interface GlobeSubsystems {
   /** The two azimuthal-equidistant polar textures that repair the Mercator projection above ~85°.
    *  Off does NOT leave a hole: MapLibre stretches the top tile row over the gap, so the pole
-   *  becomes `shade_planet.CAP_RGB`, a flat pale disc that reads as a decision rather than a
+   *  becomes the polar plug, a flat pale disc that reads as a decision rather than a
    *  defect. That is why this is a repair every body wants and not a layer only Earth needs. */
   polarCaps: boolean;
   /** The terrain-RGB displacement layer. Publishing the pyramid is necessary but not sufficient —
@@ -57,20 +57,26 @@ export interface GlobeSubsystems {
 /**
  * Resolve what this globe draws, from the registry and then the URL.
  *
- * `flags` is the page's own `URLSearchParams`, taken as an argument rather than read from
- * `location` so this is a pure function of its inputs — which is what lets a test ask what Mars
- * draws without a Mars page existing yet.
+ * THE REGISTRY RECORDS ARRIVE AS ARGUMENTS RATHER THAN BEING LOOKED UP HERE, the way
+ * `terrainDemSource` and `featureTilesSource` already take an archive. Three of the answers below
+ * are DERIVED from those records, and every registered body publishes every layer and renders
+ * caps — so with the lookups inside, `terrain: true` written as a literal agrees with the registry
+ * on every body that exists and no test can tell the two apart. Taking the records lets a test
+ * write a body belonging to no planet, which is the only thing that discriminates.
+ *
+ * `flags` is the page's own `URLSearchParams`, taken as an argument for the same reason and not
+ * read from `location`, so the whole function is a pure function of its inputs.
  */
-export function globeSubsystems(body: BodySlug, flags: URLSearchParams): GlobeSubsystems {
-  const descriptor = BODIES[body];
-  const published = PUBLISHED[body];
+export function globeSubsystems(descriptor: BodyDescriptor, published: PublishedArchives,
+                                vectorProduct: VectorProduct,
+                                flags: URLSearchParams): GlobeSubsystems {
   const bare = flags.has("bare");
   return {
     // `?nocaps` predates `?bare` and stays its own flag: it isolates the caps alone, which is how
     // the black-disc-on-context-restore bug was cornered.
     polarCaps: descriptor.rendersPolarCaps && !bare && !flags.has("nocaps"),
     terrain: published.terrain !== null,
-    vectorProduct: published.vector !== null && !bare ? VECTOR_PRODUCT[body] : null,
+    vectorProduct: published.vector !== null && !bare ? vectorProduct : null,
     borders: descriptor.hasBorders && !bare,
     heroes: descriptor.hasHeroes && !bare,
   };
@@ -84,13 +90,15 @@ export function globeSubsystems(body: BodySlug, flags: URLSearchParams): GlobeSu
  * depend on a diagnostic query string. The hover paint hangs off the vector overlay on both bodies,
  * so publishing a vector archive is exactly the condition.
  *
- * A BUTTON FOR SOMETHING A BODY DOES NOT HAVE IS THE FAILURE THIS PREVENTS, and the registry is the
- * only thing that can see it. Both bodies publish vectors today, so this reads `true` twice — the
- * point is that a third body publishing only relief gets no dead control rather than one that
- * toggles nothing and reports nothing. Same rule the borders button follows.
+ * A BUTTON FOR SOMETHING A BODY DOES NOT HAVE IS THE FAILURE THIS PREVENTS, and the archives are
+ * the only thing that can see it. Both registered bodies publish vectors, so this reads `true`
+ * twice on them — the point is that a body publishing only relief gets no dead control rather than
+ * one that toggles nothing and reports nothing. Same rule the borders button follows, and the
+ * archives arrive as an argument for the reason {@link globeSubsystems} gives: a predicate whose
+ * every real input answers the same way cannot be told from a constant.
  */
-export function hasHoverHighlight(body: BodySlug): boolean {
-  return PUBLISHED[body].vector !== null;
+export function hasHoverHighlight(published: PublishedArchives): boolean {
+  return published.vector !== null;
 }
 
 /** The tile URL templates a globe draws from. `null` where this body publishes no such pyramid. */

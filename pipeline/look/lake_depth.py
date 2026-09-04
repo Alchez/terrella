@@ -22,23 +22,53 @@ field off watermask class 2, which both keeps rivers flat (river depth was rejec
 gracefully to today's flat tint wherever they disagree with the WBM.
 """
 
+import math
 import subprocess
 
 import numpy as np
 import rasterio
 
-from pipeline import paths
+from pipeline.acquire.extract_globathy import lake_vrt
+from pipeline.look import palette
 
-DATA = paths.DATA
-LAKE_VRT = DATA / "work/globathy/lakedepth.vrt"
 GLOBATHY_NODATA = -9999.0
+
+#: Depth-to-ramp-position mapping for inland water, and the one survivor of the deleted shader's
+#: knobs. It outlived them because the HERO reads it: `render/lake_mask.py` bakes this curve into
+#: the mask Blender displaces from, so hero and tile cannot disagree about it.
+LAKE_CURVE = "log1p"
 
 
 def _run(cmd):
     subprocess.run([str(part) for part in cmd], check=True, capture_output=True)
 
 
-def warp_depth(bounds, width, height, out_path, vrt=LAKE_VRT):
+def lake_position(depth, curve):
+    """Lake depth (m below surface) -> 0..1 along the lake ramp.
+
+    This curve is the honesty/legibility dial, and the two pull against each other. The median
+    lake is 11.2 m deep while Baikal is 1642 -- three orders of magnitude -- so a LINEAR axis
+    parks 99% of lakes in the first 2% of the ramp and shows nothing. LOG1P spreads them
+    (median -> 0.34) but hands most of the ramp to shallow water, which is exactly where
+    GLOBathy's cone is least trustworthy (on the Caspian it claims 155 m where the truth is
+    under 20 m, measured), so it also maximises the visibility of the layer's worst
+    error. SQRT (median -> 0.08) is the conservative middle. Judge on renders, not in the
+    abstract.
+    """
+    if curve == "log1p":
+        # Clamped like the others: LAKE_MAX_M is Baikal, so nothing should exceed it today,
+        # but an unclamped log1p returns >1 for anything that does -- one re-tune of
+        # LAKE_MAX_M to a shallower cap away from indexing off the end of the ramp.
+        return (np.log1p(np.clip(depth, 0.0, palette.LAKE_MAX_M))
+                / math.log1p(palette.LAKE_MAX_M))
+    if curve == "sqrt":
+        return np.sqrt(np.clip(depth, 0.0, palette.LAKE_MAX_M) / palette.LAKE_MAX_M)
+    if curve == "linear":
+        return np.clip(depth, 0.0, palette.LAKE_MAX_M) / palette.LAKE_MAX_M
+    raise ValueError(f"unknown LAKE_CURVE {curve!r} (log1p | sqrt | linear)")
+
+
+def warp_depth(bounds, width, height, out_path, vrt=None):
     """Warp GLOBathy onto a Web-Mercator grid; return depth in metres, 0 where there is none.
 
     bounds = (left, bottom, right, top) in EPSG:3857. Bilinear, not nearest: depth is a
@@ -49,6 +79,7 @@ def warp_depth(bounds, width, height, out_path, vrt=LAKE_VRT):
     Returns None when the VRT has not been built, so shading still runs flat-water-only --
     the same contract as snow.rasterize_glaciers when RGI is missing.
     """
+    vrt = vrt or lake_vrt()
     if not vrt.exists():
         return None
     left, bottom, right, top = bounds
@@ -62,7 +93,7 @@ def warp_depth(bounds, width, height, out_path, vrt=LAKE_VRT):
     return np.where(np.isfinite(depth) & (depth > 0.0), depth, 0.0).astype("float32")
 
 
-def warp_depth_raster(bounds, width, height, out_path, vrt=LAKE_VRT):
+def warp_depth_raster(bounds, width, height, out_path, vrt=None):
     """Warp GLOBathy onto a whole Web-Mercator grid, leaving the result on disk.
 
     The planet-tier twin of `warp_depth` above, which hands the array back for the region path.
@@ -70,6 +101,7 @@ def warp_depth_raster(bounds, width, height, out_path, vrt=LAKE_VRT):
     warps beside it: the VRT carries its own. Tiled/DEFLATE/BIGTIFF because the target is a global
     grid, which is the whole difference between the two.
     """
+    vrt = vrt or lake_vrt()
     left, bottom, right, top = bounds
     _run(["gdalwarp", "-q", "-t_srs", "EPSG:3857",
           "-te", repr(left), repr(bottom), repr(right), repr(top),

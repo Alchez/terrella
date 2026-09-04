@@ -146,7 +146,7 @@ class TestTheMasksOnlyPassDrivesTheRightCell:
 
     @pytest.fixture
     def spy(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(fuse_planet, "CHUNKS_DIR", tmp_path)
+        monkeypatch.setattr(fuse_planet, "chunks_dir", lambda: tmp_path)
         seen = {}
 
         class _Result:
@@ -197,18 +197,16 @@ class TestBuildVrtsDeclaresWhatItBuilt:
     @pytest.fixture
     def store(self, tmp_path, monkeypatch):
         monkeypatch.setattr(paths, "DATA", tmp_path)
-        monkeypatch.setattr(fuse_planet, "CHUNKS_DIR",
-                            planet_seam.planet_dir(bodies.EARTH) / "chunks")
         return tmp_path
 
     def test_a_full_sweep_declares_all_three(self, store):
-        _cell(fuse_planet.CHUNKS_DIR, "e000_n00", planet_seam.PLANET_RASTERS)
+        _cell(fuse_planet.chunks_dir(), "e000_n00", planet_seam.PLANET_RASTERS)
         fuse_planet.build_vrts()
         assert planet_seam.declared(bodies.EARTH) == planet_seam.KNOWN_RASTERS
 
     def test_the_declaration_is_written_after_the_vrts_it_names(self, store):
         """Its presence is the completion stamp, so it must never predate what it promises."""
-        _cell(fuse_planet.CHUNKS_DIR, "e000_n00", planet_seam.PLANET_RASTERS)
+        _cell(fuse_planet.chunks_dir(), "e000_n00", planet_seam.PLANET_RASTERS)
         fuse_planet.build_vrts()
         declaration = planet_seam.declaration_path(bodies.EARTH).stat().st_mtime
         for raster in planet_seam.PLANET_RASTERS:
@@ -221,8 +219,8 @@ class TestBuildVrtsDeclaresWhatItBuilt:
         `planet_seam.declare` — the guard there refuses grids that do not nest, so this is the test
         that the intended arrangement is legal rather than merely untested.
         """
-        _cell(fuse_planet.CHUNKS_DIR, "e000_n00", ["heightfield"])
-        _cell(fuse_planet.CHUNKS_DIR, "e000_n00", ["oceanmask", "watermask"],
+        _cell(fuse_planet.chunks_dir(), "e000_n00", ["heightfield"])
+        _cell(fuse_planet.chunks_dir(), "e000_n00", ["oceanmask", "watermask"],
               tag=fuse_planet.MASK_TAG, rows=10)
         fuse_planet.build_vrts(fuse_planet.MASK_TAG)
         assert planet_seam.declared(bodies.EARTH) == planet_seam.KNOWN_RASTERS
@@ -238,8 +236,8 @@ class TestBuildVrtsDeclaresWhatItBuilt:
         what it found, that state would silently publish a partial planet. Default call, fine chunks
         present: it must still index the square masks.
         """
-        _cell(fuse_planet.CHUNKS_DIR, "e000_n00", planet_seam.PLANET_RASTERS)
-        _cell(fuse_planet.CHUNKS_DIR, "e000_n00", ["oceanmask", "watermask"],
+        _cell(fuse_planet.chunks_dir(), "e000_n00", planet_seam.PLANET_RASTERS)
+        _cell(fuse_planet.chunks_dir(), "e000_n00", ["oceanmask", "watermask"],
               tag=fuse_planet.MASK_TAG, rows=10)
         fuse_planet.build_vrts()
         with rasterio.open(planet_seam.vrt_path(bodies.EARTH, "oceanmask")) as mask:
@@ -249,7 +247,7 @@ class TestBuildVrtsDeclaresWhatItBuilt:
         """Earth declares the lake-depth layer, which is computed off watermask class 2. A planet
         stage that emitted no watermask cannot supply it, and saying so here beats discovering it
         as a `None` class code inside a composite worker thread."""
-        _cell(fuse_planet.CHUNKS_DIR, "e000_n00", ["heightfield", "oceanmask"])
+        _cell(fuse_planet.chunks_dir(), "e000_n00", ["heightfield", "oceanmask"])
         with pytest.raises(ValueError, match="lake_depth"):
             fuse_planet.build_vrts()
         assert not planet_seam.declaration_path(bodies.EARTH).exists()

@@ -4,6 +4,7 @@ import { page } from "vitest/browser";
 import "../styles/global.css";
 import { BODIES, type BodySlug } from "./bodies";
 import { hasHoverHighlight } from "./globeSubsystems";
+import { PUBLISHED } from "./tileAddress";
 import type { Country } from "./manifest";
 import baseLayout from "../layouts/Base.astro?raw";
 
@@ -144,12 +145,12 @@ function resolveFlag(
   // publish a vector overlay — is already answered by `PUBLISHED` and copying it onto the body
   // descriptor would be that answer written twice. Evaluated here for real, against the same
   // function the page calls, so this cannot drift from what ships.
-  if (/^hasHoverHighlight\(body\.slug\)$/.test(expression)) {
+  if (/^hasHoverHighlight\(PUBLISHED\[body\.slug\]\)$/.test(expression)) {
     const slug = /\bBODIES\.(\w+)\b/.exec(source)?.[1];
     if (slug === undefined || !(slug in BODIES)) {
       throw new Error(`${pageName}: ${flag}={${expression}} on a page that names no body`);
     }
-    return hasHoverHighlight(slug as BodySlug);
+    return hasHoverHighlight(PUBLISHED[slug as BodySlug]);
   }
   const countryField = /^country\.(\w+)$/.exec(expression)?.[1];
   if (countryField !== undefined) {

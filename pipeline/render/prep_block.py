@@ -38,12 +38,12 @@ from numpy.typing import NDArray
 from rasterio.transform import from_origin
 from rasterio.windows import Window
 
-from pipeline import block_plan, bodies, freshness, layers, planet_seam
+from pipeline import block_plan, bodies, freshness, layers, planet_seam, planet_warp
 from pipeline.block_plan import Block
 from pipeline.look import lake_depth, layer_producers, snow
 from pipeline.raster_io import GTIFF_CREATE
 from pipeline.render import render_prep, render_seam
-from pipeline.tile import relief_scan, shade_planet
+from pipeline.tile import relief_scan
 
 #: The recipe this stage bakes into its outputs, beside them, as every writer in the pipeline does.
 RECIPE_NAME = "block_recipe.json"
@@ -111,7 +111,7 @@ def row_scale(window: Window, body: bodies.Body) -> NDArray[np.float64]:
     cosine cancelling completely.
 
     IT IS NOT THE COMPOSITE'S LAW, AND AN EARLIER VERSION OF THIS DOCSTRING CLAIMED IT WAS.
-    `hillshade.per_row_zfactor_hillshade` scales the GRADIENT per row; this scales the HEIGHT. A
+    The composited shading's z-factor scaled the GRADIENT per row; this scales the HEIGHT. A
     height field whose gradient is the composite's cannot exist: matching it needs
     `K'(row) * de/dcol == 0` everywhere, so no scalar displacement reproduces it and the difference
     is a spurious row-ward tilt of `K'(row) * elevation`. That term is proportional to ELEVATION and
@@ -304,7 +304,7 @@ def build(body: bodies.Body, window: Window, outdir: Path, *, work: Path) -> lis
     outdir.mkdir(parents=True, exist_ok=True)
     written = [render_seam.HEIGHTFIELD]
 
-    with rasterio.open(work / shade_planet.HEIGHT_3857) as height:  # pyright: ignore[reportCallIssue]
+    with rasterio.open(work / planet_warp.HEIGHT_3857) as height:  # pyright: ignore[reportCallIssue]
         elevation = _read_cyclic(height, window)
         transform = height.window_transform(window)
     with rasterio.open(outdir / render_seam.HEIGHTFIELD, "w", driver="GTiff",  # pyright: ignore[reportCallIssue]
@@ -318,9 +318,9 @@ def build(body: bodies.Body, window: Window, outdir: Path, *, work: Path) -> lis
     written.append(render_seam.ROWSCALE)
 
     shape = elevation.shape
-    ocean = (_read(work / shade_planet.OCEAN_3857, window).astype(bool)
+    ocean = (_read(work / planet_warp.OCEAN_3857, window).astype(bool)
              if "oceanmask" in rasters else np.zeros(shape, bool))
-    watercode = _read(work / shade_planet.WATER_3857, window) if "watermask" in rasters else None
+    watercode = _read(work / planet_warp.WATER_3857, window) if "watermask" in rasters else None
     if "oceanmask" in rasters:
         write_mask(outdir / render_seam.OCEANMASK, ocean.astype(float))
         written.append(render_seam.OCEANMASK)

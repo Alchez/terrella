@@ -5,15 +5,15 @@
 #   pipeline/profile/run_pass.sh --body earth           # the planet raster only
 #   pipeline/profile/run_pass.sh --body earth --tiles   # the raster (skipped when fresh) + the cut
 #
-# "the planet raster" rather than "shade", because which producer fills it is the BODY's answer
-# (Body.planet_producer) and this wrapper never learns it; and the cut runs to that body's own
-# ceiling, z8 on Earth and z7 on Mars, rather than to a number spelled here.
+# "the planet raster" rather than "shade", because this wrapper names the PRODUCT and never the
+# stage that fills it; and the cut runs to that body's own ceiling, z8 on Earth and z7 on Mars,
+# rather than to a number spelled here.
 #
 # `--body` is REQUIRED and this wrapper deliberately does not supply one: injecting a default here
 # would reintroduce, one layer up, exactly the silent Earth assumption planet_pass refuses to make.
 #
 # Args are passed through to pipeline.tile.planet_pass, which is the pass's entry point and the
-# module that chooses the body's producer; --tiles additionally picks its own output dir, scope name
+# module that sequences its stages; --tiles additionally picks its own output dir, scope name
 # and memory cap, so a tiling run never overwrites a shade run's profile.
 #
 # Four instruments, chosen because each answers something the others cannot:
@@ -24,20 +24,20 @@
 #   3. stamp.py      -> per-stage wall clock from the pass's own existing stage prints, free.
 #   4. the cgroup    -> memory.peak for the whole scope, and the body's own cap, which kills the job
 #                       rather than the box (proven: a 4-cell region render hit it and died alone).
-#                       The number is pass_cap.py's, never this script's -- see the block below.
+#                       The number is pass_memory.py's, never this script's -- see the block below.
 #
-# THE CAP IS THE BODY'S AND THIS SCRIPT DOES NOT KNOW IT -- pipeline/profile/pass_cap.py derives
+# THE CAP IS THE BODY'S AND THIS SCRIPT DOES NOT KNOW IT -- pipeline/profile/pass_memory.py derives
 # it from the registry, and holds the whole argument plus the measurements behind both numbers.
 # MEMORY_CAP_OVERRIDE_GIB substitutes the number afterwards and says so on stdout when it does; the
 # registry is still asked either way, and the branch itself carries why that ordering matters.
 # The short version: 16 G is the CAP-RENDERING number, because the pass ENDS by invoking cap_render
 # as a subprocess that inherits this scope's cgroup; a body rendering no caps never reaches that
 # stage, so on it the 16 G is unbacked rather than protective and the preflight below then refuses
-# a pass the box could have run. The composite is NOT why either number is what it is, and
-# COMPOSITE_ROWS=128 is a hardcoded constant rather than a function of this cap, so a larger cap
-# cannot let it grow. The per-stage peaks are measured in PROCESS.md, not restated here.
+# a pass the box could have run. Neither number was ever sized off the composite, which is worth
+# saying because that stage and the COMPOSITE_ROWS constant this note used to cite are both deleted.
+# The per-stage peaks are measured in PROCESS.md, not restated here.
 #
-# What this script still owns is GDAL_CACHEMAX=512 (per shade_planet.py's own launch note), which
+# What this script still owns is GDAL_CACHEMAX=512 (per planet_warp.py's own launch note), which
 # `gdal raster tile` multiplies: it spawns -j ALL_CPUS workers that EACH inherit it. That product is
 # an UPPER BOUND the cut never reaches -- the block cache fills lazily, and measured the cut is the
 # lightest stage of the pass, so it is not what sizes this cap. A worker killed mid-write still
@@ -67,7 +67,7 @@ UNIT=terrella-$RUN_LABEL
 # a second thing to keep in step. It also makes this wrapper honour the contract its header states
 # -- until now a run that omitted --body cleared the preflight, opened a cgroup scope, and only
 # then died inside Python. argparse writes its own message to stderr, so nothing is restated here.
-MEMORY_CAP_GIB=$("$VENV" -m pipeline.profile.pass_cap "$@") || exit 1
+MEMORY_CAP_GIB=$("$VENV" -m pipeline.profile.pass_memory "$@") || exit 1
 
 # A DELIBERATE OVERRIDE, READ AFTER THE RESOLVER AND NEVER INSTEAD OF IT, which is the whole design
 # of this branch. Written `${MEMORY_CAP_OVERRIDE_GIB:-$(...)}` it would let an exported variable skip
@@ -77,10 +77,10 @@ MEMORY_CAP_GIB=$("$VENV" -m pipeline.profile.pass_cap "$@") || exit 1
 # It exists because the alternative is an untestable wiring. Both bodies render caps now, so the
 # resolver answers 16 for every planet in the registry and no real invocation can tell "the shell
 # used the number it was given" from "the shell holds a 16" -- a distinction sabotage.py has a case
-# for. A synthetic body cannot help: pass_cap runs in a SUBPROCESS, so a monkeypatched registry
+# for. A synthetic body cannot help: pass_memory runs in a SUBPROCESS, so a monkeypatched registry
 # never reaches it. This makes the number a controllable input, which is what a wiring test needs.
 #
-# ANNOUNCED, BECAUSE A SILENT ONE WOULD BE THE THING pass_cap's "NO FALLBACK" NOTE REFUSES. A pass
+# ANNOUNCED, BECAUSE A SILENT ONE WOULD BE THE THING pass_memory's "NO FALLBACK" NOTE REFUSES. A pass
 # capped at an arbitrary number that nothing names is exactly the failure that module is written to
 # prevent; a pass capped at a number it prints is an operator decision, like ALLOW_LOW_MEMORY.
 if [[ -n "${MEMORY_CAP_OVERRIDE_GIB:-}" ]]; then
@@ -153,13 +153,15 @@ fi
 [[ "${STOP_AFTER:-}" == logs ]] && exit 0
 
 # Sampler first: it polls for the cgroup, so it is already watching when the scope appears.
-# 0.5 s, not 1 s, AND THE REASON IS THE COMPOSITE PRODUCER'S ALONE: it forks ~728 short-lived snow
-# subprocesses (gdalwarp + gdal_rasterize per window x 364 windows) and a 1 s interval races their
-# exit. perf catches their CPU regardless, but only the sampler sees their RSS and disk bytes.
-# The raytrace producer forks one long-lived Blender per block instead, which nothing can race, so
-# on that producer the rate buys accuracy nobody needs and costs ~158k samples over a night. It is
-# left at 0.5 s rather than made per-producer because this script does not know which one runs --
-# the body does, and asking would be a second reader of pass_cap's question for a sampling rate.
+# 0.5 s, not 1 s, AND THE REASON IT WAS CHOSEN IS GONE: it was the composite producer's, which
+# forked ~728 short-lived snow subprocesses (gdalwarp + gdal_rasterize per window x 364 windows)
+# that a 1 s interval races. The raytrace is the only producer now and forks one long-lived Blender
+# per block, which nothing can race, so the rate buys accuracy nobody needs and costs ~158k samples
+# over a night.
+#
+# IT STAYS AT 0.5 s ANYWAY, AND THIS IS A DECISION RATHER THAN AN OVERSIGHT. Every per-stage figure
+# in PROCESS.md was sampled at this rate, and a pass profiled at 1 s would be compared against them
+# as though the instrument had not moved. Change it with a re-measure, not on its own.
 "$VENV" "$HARNESS/sample_tree.py" --unit "${UNIT}.scope" --out "$PROF/samples.jsonl" \
     --interval 0.5 2> "$PROF/sampler.log" &
 SAMPLER_PID=$!

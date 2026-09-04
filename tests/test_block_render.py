@@ -17,17 +17,15 @@ import numpy as np
 import pytest
 from conftest import declare_planet_rasters
 
-from pipeline import block_plan, bodies, freshness, layers, planet_seam
+from pipeline import block_plan, bodies, freshness, layers, planet_seam, planet_warp
 from pipeline.block_plan import Block
 from pipeline.look import layer_producers, palette, seaice, snow
 from pipeline.raster_io import GTIFF_CREATE
 from pipeline.render import prep_block
 from pipeline.tile import (
     block_render,
-    planet_pass,
-    producer_seam,
+    cut_tiles,
     relief_scan,
-    shade_planet,
 )
 
 
@@ -202,24 +200,6 @@ class TestASecondMosaicOwnsEverySidecarThatDescribesIt:
         _drive_planet(tmp_path, monkeypatch, mosaic=self._ab(tmp_path), blocks=4)
         assert (recipe.read_text(), recipe.stat().st_mtime) == before
 
-    def test_an_ab_does_not_claim_the_raster_it_did_not_write(self, tmp_path, monkeypatch):
-        """The declaration's subject is the work directory's CANONICAL raster, and an A/B does not
-        produce it. `composite_planet` already guards its own on exactly this question, writing one
-        only when `planet_rgb.tif` is among its outputs.
-
-        THE BODY THAT WILL BE IN THIS STATE IS MARS, whose canonical raster is composited and
-        shipping while the raytrace is being judged against it. Earth stands in because Mars's seam
-        is refused before any block until the rig reads `render_seam.declared`; the assertion is
-        about the declaration, which is the same on either body.
-
-        NOTHING DECLARES THE A/B'S OWN RASTER AND NOTHING SHOULD. The stamp exists because two
-        producers share one output; a second mosaic has one producer, and its own recipe beside it
-        names which.
-        """
-        producer_seam.declare(tmp_path, "composite")
-        _drive_planet(tmp_path, monkeypatch, mosaic=self._ab(tmp_path), blocks=3)
-        assert producer_seam.declared(tmp_path) == "composite"
-
     def test_each_run_reports_its_own_progress(self, tmp_path, monkeypatch):
         """`raytrace_status.json` is the point of contact for a night's watcher, and two runs
         sharing one leaves the second answering for the first. Nothing gates on its mtime, so this
@@ -249,7 +229,7 @@ class TestASecondMosaicOwnsEverySidecarThatDescribesIt:
         failure as the tests above, arriving from the opposite direction.
         """
         (tmp_path / "sub").mkdir()
-        spelled = tmp_path / "sub" / ".." / shade_planet.PLANET_RGB
+        spelled = tmp_path / "sub" / ".." / cut_tiles.PLANET_RGB
         sidecars = block_render.sidecars_for(tmp_path, spelled)
         assert sidecars.canonical
         assert sidecars.recipe == tmp_path.resolve() / block_render.PARAMS_NAME
@@ -261,7 +241,7 @@ class TestASecondMosaicOwnsEverySidecarThatDescribesIt:
         Naming every mosaic's sidecar after its stem is the tidier rule and renames the two files
         the finished Earth pass left on disk, which moves an mtime — the same night this class
         exists to prevent, paid once on the way in. So the canonical raster's name elides, as
-        `composite_planet`'s default variant and `capsManifestUrl`'s empty prefix both already do.
+        the compositor's default variant and `capsManifestUrl`'s empty prefix both already did.
         """
         _drive_planet(tmp_path, monkeypatch, blocks=2)
         assert (tmp_path / block_render.PARAMS_NAME).exists()
@@ -295,25 +275,26 @@ class TestTheWorkDirectoryReachesTheBlocksAndNotJustTheChecks:
         assert captured["work"] == relief_scan.work_dir(bodies.EARTH)
 
 
-class TestTheDependencySetIsTheRaytracesAndNotTheComposites:
-    """The switch replaces one raster's producer, so the two producers' dependency lists must
-    differ in exactly the terms the switch removes. Sharing `composite_deps` would leave a body
-    moved between producers with its old pixels looking fresh against inputs it no longer reads."""
+class TestTheDependencySetIsExactlyWhatTheRaytraceReads:
+    """The list must name what Cycles actually consumes and nothing it merely inherited.
+
+    A SIBLING TEST WAS DELETED HERE AND ITS ABSENCE IS THE POINT. It asserted that
+    `composite_params.json` was not a dependency, which no longer distinguishes anything: the
+    compositor is gone, so nothing can put that name in the list and the assertion passes for a
+    reason that has nothing to do with the claim. The hillshade test below survives it because a
+    mutation case still plants `hs_3857` back into this set and this is what catches it.
+    """
 
     def test_the_hillshade_is_not_a_raytrace_dependency(self, tmp_path):
         """Cycles computes its own light; `hs_3857` reaches no raytraced pixel."""
         deps = block_render.raytrace_deps(tmp_path, tmp_path / block_render.PARAMS_NAME)
         assert not any("hs" == path.stem or path.name.startswith("hs_") for path in deps)
 
-    def test_the_composites_recipe_is_not_a_raytrace_dependency(self, tmp_path):
-        deps = block_render.raytrace_deps(tmp_path, tmp_path / block_render.PARAMS_NAME)
-        assert not any(path.name == "composite_params.json" for path in deps)
-
     def test_the_warped_inputs_the_prep_cuts_from_are_all_tracked(self, tmp_path):
         """The block prep reads exactly these, so a re-warp — a re-fuse, a new NSIDC or RGI —
         has to restage the planet."""
         deps = set(block_render.raytrace_deps(tmp_path, tmp_path / block_render.PARAMS_NAME))
-        for name in (shade_planet.HEIGHT_3857, shade_planet.OCEAN_3857, shade_planet.WATER_3857):
+        for name in (planet_warp.HEIGHT_3857, planet_warp.OCEAN_3857, planet_warp.WATER_3857):
             assert tmp_path / name in deps
         for layer in layers.warped_for(layers.BLOCK_LAYERS):
             assert layer.warped_in(tmp_path) in deps
@@ -555,13 +536,15 @@ class TestTheCropTakesTheBandAndNeverTheContext:
 
 
 class _FakeRasterio:
-    """Stands in for the module, so the crop is provable without a PNG on disk."""
+    """Stands in for the module, so a frame and the mosaic it is written into are both provable
+    without a raster on disk. `written` collects the crops, in call order."""
 
     def __init__(self, frame):
         self._frame = frame
+        self.written = []
 
     def open(self, *args, **kwargs):
-        frame = self._frame
+        frame, written = self._frame, self.written
 
         class _Reader:
             def __enter__(self):
@@ -573,7 +556,95 @@ class _FakeRasterio:
             def read(self):
                 return frame
 
+            def write(self, data, window=None):
+                written.append((data, window))
+
         return _Reader()
+
+
+def _render_one_block(tmp_path, monkeypatch, **kwargs):
+    """`render_block` end to end with Blender and the rasters stood in for.
+
+    Everything it does on disk still happens: the prep fills a render directory, the stand-in
+    Blender writes the frame and the scene beside it, and the cleanup at the end is what is under
+    test. The block is small because the frame is allocated for real and nothing here reads ground.
+    """
+    block = Block(col0=0, row0=0, size_px=64, context_px=block_plan.DENOISE_BAND_PX)
+    name = block_render.block_name(block)
+    scratch, markers = tmp_path / "scratch", tmp_path / "blocks"
+    scratch.mkdir(parents=True)
+    markers.mkdir(parents=True)
+    frame, scene = scratch / f"{name}.png", scratch / f"{name}.blend"
+
+    def _cut(body, block, render_dir, *, work):
+        render_dir.mkdir(parents=True, exist_ok=True)
+        (render_dir / "heightfield.tif").write_bytes(b"")
+
+    def _blender(command):
+        frame.write_bytes(b"")
+        scene.write_bytes(b"")
+        return SimpleNamespace(
+            returncode=0, stderr="",
+            stdout=f"DENOISE_DEVICE {block_render.BLOCK_DENOISE_DEVICE}\n"
+                   f"BASE_GRID {block_render.BLOCK_BASE_GRID} BASE_PATCHES 1\n")
+
+    edge = block.traced_edge_px
+    monkeypatch.setattr(prep_block, "cut", _cut)
+    monkeypatch.setattr(block_render.blender_proc, "run", _blender)
+    monkeypatch.setattr(block_render, "rasterio",
+                        _FakeRasterio(np.zeros((4, edge, edge), dtype=np.uint8)))
+    block_render.render_block(bodies.EARTH, block, tmp_path / "planet_rgb.tif", scratch, markers,
+                              tmp_path, **kwargs)
+    return SimpleNamespace(frame=frame, scene=scene, render_dir=scratch / name,
+                           marker=markers / name)
+
+
+class TestTheFrameCanBeKeptForADiagnosis:
+    """The Cycles frame is the only thing that can say whether an artifact is in the render or
+    arrived after it, and every block deletes its own.
+
+    THE FRAME IS UNLINKED SEPARATELY FROM THE DIRECTORY BESIDE IT, so keeping one is not keeping
+    the other: a diagnosis that suppresses only `shutil.rmtree` gets the prep inputs and loses the
+    pixels it was run for. Both are asserted, and in both directions, because a `render_block` that
+    stopped cleaning up at all would satisfy the keeping half on its own.
+    """
+
+    def test_a_kept_render_leaves_the_frame_where_it_was_written(self, tmp_path, monkeypatch):
+        kept = _render_one_block(tmp_path, monkeypatch, keep_intermediates=True)
+        assert kept.frame.exists(), "the frame is what a render diagnosis reads"
+        assert kept.scene.exists() and kept.render_dir.is_dir()
+
+    def test_the_default_deletes_all_three_so_the_pin_above_can_fail(self, tmp_path, monkeypatch):
+        """The control. A pass leaves 4,096 of these behind, so keeping them is the exception and
+        the flag has to be what makes the difference rather than a cleanup that stopped running."""
+        swept = _render_one_block(tmp_path, monkeypatch)
+        assert not swept.frame.exists()
+        assert not swept.scene.exists() and not swept.render_dir.exists()
+
+    def test_the_block_is_rendered_and_marked_either_way(self, tmp_path, monkeypatch):
+        """Keeping is a cleanup decision and nothing else. A flag that also skipped the write would
+        leave the mosaic short with a marker claiming otherwise, which no later run re-renders."""
+        for keep in (True, False):
+            done = _render_one_block(tmp_path / f"k{keep}", monkeypatch, keep_intermediates=keep)
+            assert done.marker.exists()
+
+    def test_the_run_hands_its_answer_to_every_block(self, tmp_path, monkeypatch):
+        """The flag arrives at the CLI and the deletion happens per block, so the two are joined by
+        an argument that nothing else asserts: the tests above call the block directly."""
+        kept = _drive_planet(tmp_path, monkeypatch, blocks=3, keep_intermediates=True)
+        assert kept.handed == [{"keep_intermediates": True}] * 3
+
+    def test_a_finished_planet_does_not_sweep_away_what_it_was_asked_to_keep(
+            self, tmp_path, monkeypatch):
+        """`run` empties the scratch tree on the pass that completes the planet, so without this
+        the flag would hold or not hold depending on which block a diagnosis happened to ask for."""
+        kept = _drive_planet(tmp_path, monkeypatch, blocks=2, keep_intermediates=True)
+        assert kept.rendered == 2 and all(scratch.is_dir() for scratch in kept.scratches)
+
+    def test_a_finished_planet_sweeps_it_by_default(self, tmp_path, monkeypatch):
+        """The control for the test above, and the behaviour a night's pass depends on."""
+        swept = _drive_planet(tmp_path, monkeypatch, blocks=2)
+        assert swept.rendered == 2 and not any(scratch.exists() for scratch in swept.scratches)
 
 
 class TestTheDiskFloorIsSizedForWhatIsLeft:
@@ -626,12 +697,7 @@ class TestTheRunnerStopsWhenTheMosaicIsAlreadyCurrent:
 
     def test_a_fresh_mosaic_renders_nothing(self, tmp_path, monkeypatch):
         """The recipe is already on disk holding exactly what this run would write, which is the
-        second-run state: `write_if_changed` moves no mtime, so the stamp stays the newest thing.
-
-        THE PRODUCER DECLARATION IS PART OF THAT STATE and has to be staged with the rest of it.
-        `run` declares the raytrace before asking its freshness question, so a work directory that
-        has never been declared is a FIRST run however fresh everything else looks — the declaration
-        lands newer than the marker and every block correctly re-renders."""
+        second-run state: `write_if_changed` moves no mtime, so the stamp stays the newest thing."""
         declare_planet_rasters(monkeypatch)
         planned = [_block(0, column) for column in range(3)]
         monkeypatch.setattr(block_render, "plan_blocks", lambda body, work: planned)
@@ -639,28 +705,10 @@ class TestTheRunnerStopsWhenTheMosaicIsAlreadyCurrent:
         (tmp_path / block_render.PARAMS_NAME).write_text(block_render.params(
             bodies.EARTH, planet_seam.declared(bodies.EARTH), palette.look_for("earth"),
             block_render.rig_recipe(bodies.EARTH), planned))
-        producer_seam.declare(tmp_path, "raytrace")
         mosaic = tmp_path / "planet_rgb.tif"
         mosaic.write_bytes(b"")
         freshness.mark_done(mosaic)
         assert block_render.run(bodies.EARTH, tmp_path, mosaic) == 0
-
-    def test_a_mosaic_the_other_producer_made_is_not_fresh(self, tmp_path, monkeypatch):
-        """The switch, from this side, and the reason the declaration is a dependency at all.
-
-        Everything is identical to the test above except who last claimed the raster. A composited
-        planet is newer than every warp source and newer than this producer's recipe, so without the
-        stamp this run would report it fresh and publish composited pixels under a raytrace recipe.
-        """
-        declare_planet_rasters(monkeypatch)
-        monkeypatch.setattr(block_render, "plan_blocks", _stop_here)
-        _stage_warped_inputs(tmp_path)
-        producer_seam.declare(tmp_path, "composite")
-        mosaic = tmp_path / "planet_rgb.tif"
-        mosaic.write_bytes(b"")
-        freshness.mark_done(mosaic)
-        with pytest.raises(SystemExit, match="reached the plan"):
-            block_render.run(bodies.EARTH, tmp_path, mosaic)
 
     def test_a_moved_input_is_not_fresh(self, tmp_path, monkeypatch):
         """The other direction, so the test above cannot pass by the predicate always saying yes."""
@@ -726,7 +774,7 @@ class TestARunRefusesToStartWithoutItsInputs:
     FEEDS_THE_RIG = frozenset({"heightfield", "watermask"})
 
     def test_a_missing_heightfield_stops_the_run_by_name(self, tmp_path):
-        with pytest.raises(SystemExit, match=shade_planet.HEIGHT_3857):
+        with pytest.raises(SystemExit, match=planet_warp.HEIGHT_3857):
             block_render.check_inputs(tmp_path, bodies.EARTH, self.FEEDS_THE_RIG)
 
     def test_the_error_names_the_stage_that_builds_them(self, tmp_path):
@@ -742,13 +790,13 @@ class TestARunRefusesToStartWithoutItsInputs:
         `scene_build.textures_for` loads what the render directory declared, so a block missing any
         of them is a scene the rig will build rather than one it refuses.
         """
-        (tmp_path / shade_planet.HEIGHT_3857).write_bytes(b"")
-        (tmp_path / shade_planet.WATER_3857).write_bytes(b"")
+        (tmp_path / planet_warp.HEIGHT_3857).write_bytes(b"")
+        (tmp_path / planet_warp.WATER_3857).write_bytes(b"")
         block_render.check_inputs(tmp_path, bodies.EARTH, self.FEEDS_THE_RIG)
 
     def test_a_body_that_does_declare_one_may_not_start_without_it(self, tmp_path):
-        (tmp_path / shade_planet.HEIGHT_3857).write_bytes(b"")
-        with pytest.raises(SystemExit, match=shade_planet.WATER_3857):
+        (tmp_path / planet_warp.HEIGHT_3857).write_bytes(b"")
+        with pytest.raises(SystemExit, match=planet_warp.WATER_3857):
             block_render.check_inputs(tmp_path, bodies.EARTH, self.FEEDS_THE_RIG)
 
 
@@ -780,14 +828,8 @@ class TestATHinSeamNoLongerStopsTheProducer:
     def test_a_thin_seam_is_asked_for_no_water_raster(self, tmp_path):
         """The other half of that control: refusing Mars for a missing `water_3857.tif` would be
         the same defect wearing the other hat, since its seam declares no watermask."""
-        (tmp_path / shade_planet.HEIGHT_3857).write_bytes(b"")
+        (tmp_path / planet_warp.HEIGHT_3857).write_bytes(b"")
         block_render.check_inputs(tmp_path, bodies.MARS, frozenset({"heightfield"}))
-
-    def test_the_registry_sweep_lives_where_the_registry_does(self):
-        """A pointer rather than a second copy: `test_planet_pass` owns the claim that no producer
-        refuses a seam, because `PRODUCERS` is that module's. Asserting it here too would be two
-        guards to update the day a third producer arrives."""
-        assert "refusals_for" in planet_pass.Producer.__dataclass_fields__
 
 
 def _stage_warped_inputs(tmp_path):
@@ -798,7 +840,7 @@ def _stage_warped_inputs(tmp_path):
     directory would otherwise move an input's mtime between them and restage the second by its own
     setup — which reads exactly like the defect such a test is looking for.
     """
-    for name in (shade_planet.HEIGHT_3857, shade_planet.OCEAN_3857, shade_planet.WATER_3857):
+    for name in (planet_warp.HEIGHT_3857, planet_warp.OCEAN_3857, planet_warp.WATER_3857):
         if not (tmp_path / name).exists():
             (tmp_path / name).write_bytes(b"")
 
@@ -837,11 +879,13 @@ def _drive_planet(tmp_path, monkeypatch, *, mosaic=None, blocks=3, **kwargs):
     attempted: list[str] = []
     scratches: set[Path] = set()
     cut_from: set[Path] = set()
+    handed: list[dict] = []
 
-    def _fake_render(body, block, mosaic, scratch, markers, work):
+    def _fake_render(body, block, mosaic, scratch, markers, work, **passed):
         attempted.append(block_render.block_name(block))
         scratches.add(scratch)
         cut_from.add(work)
+        handed.append(passed)
         (markers / block_render.block_name(block)).write_text("margin 0\n")
 
     monkeypatch.setattr(block_render, "plan_blocks", lambda body, work: planned)
@@ -855,7 +899,7 @@ def _drive_planet(tmp_path, monkeypatch, *, mosaic=None, blocks=3, **kwargs):
     mosaic = mosaic.resolve()          # the spelling `run` itself uses, so a caller can compare
     rendered = block_render.run(bodies.EARTH, tmp_path, mosaic, **kwargs)
     return SimpleNamespace(attempted=attempted, mosaic=mosaic, rendered=rendered,
-                           scratches=scratches, cut_from=cut_from)
+                           scratches=scratches, cut_from=cut_from, handed=handed)
 
 
 def _stop_here(*args, **kwargs):
@@ -1023,15 +1067,21 @@ class TestTheRecipeRecordsWhatThePrepGradesWith:
     def test_a_body_whose_producers_grade_nothing_still_records_its_white(self):
         """Mars: nothing to GRADE and a white to PAINT, which are separate halves of the recipe.
 
-        Its `contribution_recipe` is empty on the conditional-record idiom, while its paint is two
-        measured pairs — one per pole, since the deposits are different colours. A raytraced Mars
-        that recorded Earth's shape here would be recording a white no Martian pixel is painted in.
+        Its `contribution_recipe` is empty on the conditional-record idiom, while its paint is a
+        pair per pole. A raytraced Mars that recorded Earth's shape here would be recording a white
+        no Martian pixel is painted in.
+
+        BOTH KEYS STAY REQUIRED NOW THAT THE TWO VALUES AGREE, and that is the whole point of this
+        assertion rather than a leftover. The ratified white is one white on both poles, so an
+        implementation that collapsed the pair to a single `snow_rgb` key would record every pixel
+        it paints today and still be wrong: the day either pole is re-split, half the planet's
+        restage would go untracked and the pass would call stale blocks fresh. The previous version
+        of this test asserted the two values DIFFER, which pinned a look decision that has since
+        been re-taken.
         """
         graded = {key for _layer, producer in self._in_block_producers(bodies.MARS)
                   for key in producer.contribution_recipe()}
         assert not graded, f"Mars grades with {graded}; this test's premise has moved"
         recorded = json.loads(self._params(bodies.MARS))
         assert "snow_rgb_north" in recorded and "snow_rgb_south" in recorded, \
-            "Mars paints its polar ice from its own registry, so both whites must be tracked"
-        assert recorded["snow_rgb_north"] != recorded["snow_rgb_south"], \
-            "the two poles were measured separately; one value here means the pair collapsed"
+            "Mars paints its polar ice per pole, so both keys must be tracked even while they agree"

@@ -4,12 +4,17 @@
   safe to play with. The target is the Ramspott "Neutral" reference: soft raytraced shadows,
   heavy vertical exaggeration, warm sand/rose land, desaturated teal sea with visible shelf
   bathymetry, data-driven snow.
-- The system of record is code: shared constants in `pipeline/look/palette.py`, hero-only
-  constants in `pipeline/render/scene_build.py`, tile levers in `pipeline/tile/shade.py`
-  (`KNOBS`). The ramp constants below are Earth's unless a row says otherwise, and they are
-  assembled into a named `Look` that the shading path resolves **per body** — every lever's cost in
-  this file is Earth's cost. `KNOBS` is the exception that is NOT per body: tone, saturation and the
-  highlight ceiling apply to every planet alike, which is a shared house style rather than an
+- The system of record is code: shared constants in `pipeline/look/palette.py` and the rig in
+  `pipeline/render/scene_build.py`, which is now the only thing that shades a Terrella pixel. The
+  ramp constants below are Earth's unless a row says otherwise, and they are
+  assembled into a named `Look` the rig resolves **per body**, so every lever's cost in
+  this file is Earth's cost.
+- **`shade.KNOBS` IS DELETED AND THIS FILE IS THE ONLY RECORD OF IT.** Every `KNOBS["..."]` spelling
+  below names a value the deleted numpy compositor read; the sections are kept because each records
+  how a ratified look was chosen and that reasoning transfers, but none of them is a lever and none
+  can be edited in code. `shade.py` holds `LAKE_CURVE` alone, which the HERO reads. What follows was
+  the exception that was NOT per body: tone, saturation and the
+  highlight ceiling applied to every planet alike, which is a shared house style rather than an
   oversight, but it means a body cannot soften its own highlights without that changing first. Canonical renders: `blender/renders/heroes/<country>.png` (203 posters — 204 countries are in scope, Kiribati deferred).
 - The A/Bs and rationale behind every value live in HISTORY (cited by § heading); this file is
   the operational view.
@@ -18,7 +23,7 @@
 
 - **`pipeline/look/palette.py`** — the shared look constants (ramps, flat colours, ranges, sun
   altitude). Heroes consume them **by import** (scene_build derives, never copies); tiles via
-  `shade.KNOBS` and the composite LUT. One edit moves every surface.
+  the rig's own material ramps, which `scene_build` derives from the same constants. One edit moves every surface.
 - **`pipeline/render/scene_build.py` constants** — the hero-only look (light rig, render
   quality). The .blend is *generated* from these; editing one means rebuild scene + re-render,
   for every country (that's the point: one look, one series). A change here is an amendment to
@@ -84,30 +89,32 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 | `ramp_interpolation` | EASE | § Land color ramp |
 | render-quality block (`samples` 4096, `adaptive_threshold` 0.01, `bounces`, `clamp_indirect` 10) | quality/cost, not look | § View transform |
 
-### Tiles + caps — `shade.KNOBS` (+ `look/seaice.py`), caps restage automatically
+### Tiles + caps: which levers still reach a pixel
 
-- Two cost tiers by pipeline stage (PROCESS.md): **hillshade-stage ~46 min**, **composite-stage
-  ~29 min**.
-- `--knob KEY=VALUE` overrides any KNOBS entry for an A/B without touching code.
+**`shade.KNOBS` IS DELETED AND THE SECTIONS BELOW ARE ITS RECORD, NOT ITS CONTROLS.** Those values
+belonged to the numpy compositor, and their only recorder was its recipe, so once that went they
+reached no pixel and no freshness gate. A constant in that state is worse than an absent one, since
+it reads as a lever a re-tune could move. `LAKE_CURVE` survived because the HERO reads it.
+`test_bodies` refuses `Knobs`, `KNOBS` and `SHADOW_TINT` coming back.
 
-| Lever | Value | Stage / cost | Section |
+**There is no `--knob KEY=VALUE` any more.** It went with the compositor, so no flag overrides a
+look value for an A/B. An arm is now a checkout plus a scratch mosaic
+(`~/terrella-scratch/look-arms/run_arm.sh`).
+
+**One cost tier, and it is a whole body.** Every tile pixel comes off Cycles, so any look change
+reaching a recipe restages every block, plus a re-cut, an upload and a Worker deploy. PROCESS.md
+carries the measured row; never price one from this table.
+
+| Lever | Value | Reaches a pixel? | Section |
 |---|---|---|---|
-| `fill_strength` | 0.15 | hillshade ~46 min | § Fill sun — TILES |
-| `shadow_strength` / `shadow_reach` | 0.0 (off; +~2.1 h when on) / 300 px | hillshade | § Fill sun — TILES |
-| `exaggeration` (bodies.py) | 15 on Earth — a per-body field; tiles AND caps read it, pinned equal to `palette.EXAGGERATION` | hillshade | § Vertical exaggeration |
-| `ambient` / `ambient_knee` | 0.50 / 0.30 | composite ~29 min | § Ambient floor |
-| `hi` / `exposure` / `saturation` / `warmth` | 1.12 / 1.05 / 1.18 / 0.06 | composite | § Ambient floor |
-| `shadow_warmth` | 0.55 | composite | § Hero → tile parameter map |
-| `svf_strength` / `svf_threshold` | 0.20 / 0.45 | composite | § Sky-view shading |
-| sea quartet `sea_shade`/`sea_lift`/`sea_saturation`/`sea_svf` | 0.55 / 1.00 / 0.90 / 0.5 | composite | § Sea color ramp |
-| `snow_lo` / `snow_hi_pt` / `snow_curve` | 0.55 / 1.05 / gamma8 | composite | § Snow curve — TILES |
-| `ice_relief_damp` | 0.75 | composite | § Sea ice |
-| NH ice trio `ICE_LO`/`ICE_BAND`/`ICE_MAX_ALPHA` (seaice.py) | 0.55 / 0.40 / 0.85 | composite | § Sea ice |
-| SH ice pair `SH_ICE_LO`/`SH_ICE_MAX_ALPHA` (seaice.py) | 0.62 / 0.55 | composite | § Sea ice |
-| `lake_curve` | log1p | composite | § Inland water |
-| `OCCLUSION_TARGET_M_PER_PX` (look/sky_view.py) | 9784 — resolution, not hue; region A/Bs must match it | SVF + composite | § Sky-view shading |
+| `exaggeration` (bodies.py) | 15 on Earth, a per-body field; tiles AND caps read it, pinned equal to `palette.EXAGGERATION` | Yes, through the rig | § Vertical exaggeration |
+| NH ice trio `ICE_LO`/`ICE_BAND`/`ICE_MAX_ALPHA` (seaice.py) | 0.55 / 0.40 / 0.85 | Yes: the ice alpha, recorded in the producers' recipe | § Sea ice |
+| SH ice pair `SH_ICE_LO`/`SH_ICE_MAX_ALPHA` (seaice.py) | 0.62 / 0.55 | Yes, same path, and the south cap's own overrides read them | § Sea ice |
+| `lake_depth.LAKE_CURVE` | log1p | HERO only, through `render/lake_mask.py`; the one knob that survived the prune | § Inland water |
+| `OCCLUSION_TARGET_M_PER_PX` (look/sky_view.py) | 9784, a resolution and not a hue | HERO only; `batch.py` shells into `sky_view` | § Sky-view shading |
+| the rest of the old `KNOBS` | `ambient`, `ambient_knee`, `hi`, `exposure`, `saturation`, `warmth`, `shadow_warmth`, `svf_strength`, `svf_threshold`, the sea quartet, `snow_lo`/`snow_hi_pt`/`snow_curve`, `ice_relief_damp`, `fill_strength`, `shadow_strength`, `shadow_reach`, and `SHADOW_TINT` | **No, and they no longer exist in code.** The sections below are the only record | each section records how the value was chosen |
 
-### Caps only (`tile/cap_pass.py`) — ~1:35 both poles on the composite arm
+### Caps only (`tile/cap_pass.py`), raytraced; PROCESS.md carries the timing
 
 | Lever | Value | Section |
 |---|---|---|
@@ -217,8 +224,10 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 - **The floor is asymptotic**: darkest reachable light 0.5519, just above `snow_lo` 0.55 — shaded
   snow survives on a 0.9%-of-ramp margin, pinned by test. A future knee raise bleaches snow
   first.
-- **Adjust:** `--knob ambient_knee=…`; composite-stage, ~29 min. Judge on `/earth` at planet
-  scale — region crops and contrast metrics both got this one wrong.
+- **Not adjustable any more.** `ambient_knee` was the compositor's and reaches no pixel; there is no
+  `--knob` flag left either. The record below is why 0.30 was chosen, kept because the reasoning
+  transfers to whatever term next plays this role. Judge any successor on `/earth` at planet scale:
+  region crops and contrast metrics both got this one wrong.
 
 ### Hero → tile parameter map
 
@@ -241,11 +250,11 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
   - **Cast shadows — built and REJECTED TWICE; stays 0.0.** The mechanism is the problem, not
     the strength: `shaded *= (1 − strength · shadow)` scales the main sun, and fine detail is
     proportional to light amplitude, so shadowed nooks keep only 55–68% of their modeling. **Do
-    not re-open with a new strength value.** Also ~8× the cost of the composite knobs that
-    shipped.
+    not re-open with a new strength value.** It was also ~8× the cost of the compositor's other
+    knobs, and `shadow_mask` has had no caller at all since that producer was deleted.
   - **Warm shadow floor — SHIPPED as `KNOBS["shadow_warmth"] = 0.55`.** The hero fills shadow
     with warm sky + GI bounce, so its shadows are warmer in *hue* at matched elevation (measured
-    +61…98% linear R/B); our composite's shift was exactly 0% by construction. `SHADOW_TINT` is
+    +61…98% linear R/B); the compositor's shift was exactly 0% by construction. `SHADOW_TINT` is
     luminance-normalised so the knob moves **hue only** — it structurally cannot re-create the
     rejected brightness wash. Self-regulating (bright quartile +0.0% on four test terrains); the
     ice margin does not seam. 1.0 = the hero's measured warmth (rejected as too copper), so 0.55
@@ -289,8 +298,8 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 
 ### Snow curve — TILES (`KNOBS["snow_curve"]`, tile/shade.py)
 
-- **The one thing to understand:** over full snow the composite multiplies `base_rgb` by zero —
-  all hillshade and SVF modelling discarded. Relief reaches an ice sheet through **one** channel
+- **The one thing to understand, as the compositor did it:** over full snow it multiplied `base_rgb`
+  by zero, discarding all hillshade and SVF modelling. Relief reached an ice sheet through **one** channel
   (`snow_t`), and the whole contrast budget is the luminance gap `SNOW_SHADOW_RGB → SNOW_RGB`:
   **43.9 DN. That is all there is.**
 - **Why a curve and not the window:** Greenland's interior light span sits *nested inside* the
@@ -321,8 +330,8 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 
 - The sea-side mirror of the snow layer: an OSI SAF annual ice-frequency climatology ("how often
   is this sea frozen", reference period 1991–2020) drives a translucent white overlay over the
-  bathymetry, **gated on `ocean`** in `shade.composite`. It lands on the Mercator tiles and both
-  caps through the one shared composite; the region path (`--cells`) passes no ice. The dataset
+  bathymetry, **gated on `ocean`** where the alpha is built. It lands on the Mercator tiles and both
+  caps through one shared producer, so the two cannot disagree at the seam. The dataset
   is pinned provenance — not a lever.
 - **`ICE_LO` / `ICE_BAND` (0.55 / 0.40) — the alpha ramp.** Smoothstep on frequency, no latitude
   term (the field already encodes where ice is). `ICE_LO` is the *"how much seasonal fringe do I
@@ -344,11 +353,12 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 - **Not a lever — the dataset/period.** The climatology is winter-weighted; a recent-data check
   moved the rendered extent by −4.2% — invisible. Reflecting the September-minimum decline would
   take a different reduction in `download_seaice`, not a knob.
-- **Adjust:** the `ICE_*` constants (ramp) + palette colours — all tracked in `composite_params`,
-  so a change restages composite → tiles (~29 min). The climatology itself rebuilds via
-  `download_seaice.py --build-only --force` (~40 s, no re-download), then a recomposite.
+- **Adjust:** the `ICE_*` constants (ramp) + palette colours. These are live: the producers' recipe
+  records them, so a change restages every block and both caps. PROCESS.md carries the price. The
+  climatology itself rebuilds via `download_seaice.py --build-only --force` (~40 s, no re-download),
+  and then the planet re-renders.
 
-### Polar caps — the pole look (`tile/cap_pass.py`, composite arm)
+### Polar caps: the pole look (`tile/cap_pass.py`, raytraced)
 
 - Web Mercator can't reach the poles, and **no flat cap colour works** — dark reads as a hole,
   pale as a plug; the problem is flatness, not hue.
@@ -373,7 +383,7 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
   fetches `caps.json` (edge_lat, feather ceiling, URLs) instead of hand-copying pipeline
   constants. Default-on; `?nocaps` disables (kept for layer-on/off artifact diagnosis);
   constrained GPUs clamp to `MAX_TEXTURE_SIZE`, so mobile effectively ships 4096.
-- `CAP_RGB` in `shade_planet.py` is only the flat fill on Mercator tiles under the caps — not a
+- The polar flat fill is only the plug on Mercator tiles under the caps — not a
   lever.
 
 ### Sky-view shading — heroes post-render (`pipeline/look/sky_view.py`)
@@ -431,8 +441,8 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 - **`Khronos PBR Neutral`.** It is a `Rig` field, so a change of tone map restages; it was spelled inline until snow was measured clipping under the transform it replaced.
 - **It rolls highlights off instead of clipping them.** On the Iceland arm that took snow from 21.59% of pixels clipped to 0.00%, and cost about 9 DN of global darkening.
 - **AgX's rejection does not transfer, and this is not a re-litigation of it.** AgX was refused for desaturating the sand and teal. PBR Neutral moved snow hue by 1 DN in the same arm, so it buys the rolloff without the wash.
-- **What it breaks, and no gate can see: the composite and the rig no longer encode alike.** The composite reaches 8-bit through a plain sRGB transfer and the rig through this tone map. They agreed while it was `Standard`, which is the premise the frozen ramp hexes in `test_palette.py` were locked against, so that oracle now pins the composite to hexes describing a hero that is no longer rendered.
-- The divergence lands on the surfaces still composited, which is both caps and all of Mars. Sign is favourable at the polar seam, where the raytraced tiles read brighter than the cap, but nothing has measured it there.
+- **The producer-to-producer divergence this used to break is CLOSED, and by deletion rather than by measurement.** A numpy compositor reached 8-bit through a plain sRGB transfer while the rig reached it through this tone map, so the two encoded differently and the difference landed on every composited surface: both caps and all of Mars. Nothing composites now, so there is one encoder and no seam between two of them.
+- **What that does NOT settle is the frozen ramp hexes in `test_palette.py`.** They were locked while the transform was `Standard`, so they still describe a hero rendered under a tone map this rig no longer uses. That is a hero-against-tile question and it is open; do not read the paragraph above as having closed it.
 
 ### Borders (composited overlay — heroes)
 
@@ -492,7 +502,6 @@ below is *delivery only* and regenerable, so a wrong call here costs an encode p
 | relief tiles (all zooms) | **q95** | 512 px served into a 256 px slot; fine shading detail is the whole look |
 | polar caps | **q85** | foreshortened background texture at the limb; the shipped rung is chosen by camera, below |
 | spotlight overlay | **q88** | only ever covers the *dimmed surroundings* — alpha is 0 across the subject |
-| border layers | lossless PNG | flat colour + alpha; PNG is both smaller and exact here |
 
 - **q95, not q98 and not lossless.** Measured on a native 7680 hero: the whole climb from q85 to q98
   costs 2.1×, and the last step to mathematical identity costs **another 2.4× on top** — you pay more
@@ -534,9 +543,8 @@ below is *delivery only* and regenerable, so a wrong call here costs an encode p
   `sizes` defeats the ladder on precisely the largest screens.
 - **Hero and spotlight share one ladder by IMPORT, not by a copied constant** — the gallery stacks
   them under one `sizes`, and a rung present in one and missing from the other makes the browser
-  fetch mismatched files (which is how an 85 kB border once landed on a 48 kB hero). The border
-  ladder does **not** share it: `gen_borders` stops at 1920, so a portrait border jumps to native.
-  That is a real gap, off the cold path only because the layer is hidden until Borders is turned on.
+  fetch mismatched files (which is how an 85 kB border once landed on a 48 kB hero). **Those two
+  are the whole set**: no other ladder is produced.
 - **Never under-declare.** Rounding down shows as blur; rounding up shows only as bytes — which is
   why the rejected alternative here was `sizes` 92vw → 80vw: it buys the same rung by lying about
   the layout.
@@ -574,5 +582,5 @@ from the cap's **projected size on the globe**, which is the same idea arrived a
 - Watch for scroll-wheel drift in the GUI: hovering a value field and scrolling silently edits
   it. After a GUI session, audit against scene_build.py — the constants are the record, the
   .blend is disposable.
-- When it looks right: promote the value into palette.py / scene_build.py / KNOBS, rebuild +
+- When it looks right: promote the value into palette.py or scene_build.py, rebuild +
   re-render the reference countries, and record the amendment beside the constant it changed.

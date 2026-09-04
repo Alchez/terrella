@@ -137,8 +137,9 @@ def assert_grid(path: Path) -> None:
     seam, the zoom ceiling and the registry were all written against.
 
     The sphere check is the load-bearing one. `bodies.MARS.ground_radius_m` is what converts this
-    pipeline's map units back into Martian ground metres — the hillshade z-factor, the sky-view
-    search radius, the cap relief all divide by it — and it was taken FROM this product. Holding the
+    pipeline's map units back into Martian ground metres, through `ground_metres_per_mercator_unit`
+    and `ground_metres_per_aeqd_unit`, which own the conversion. It was taken FROM this product.
+    Holding the
     two together here means a source published on the 3,389,500 m mean sphere instead of the
     3,396,190 m IAU sphere is an error at acquisition rather than a 0.2% relief error nobody sees.
     """

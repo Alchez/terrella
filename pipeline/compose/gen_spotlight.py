@@ -1,10 +1,12 @@
 """Per-country subject-spotlight overlay for the hero gallery (toggle asset).
 
-Parallel to gen_borders.py: emits a standalone transparent overlay that, laid
-over the plain hero, dims + desaturates everything OUTSIDE the subject country
-and strokes its boundary — so a viewer can read the country's extent at a glance
-without turning on the all-borders layer. Toggled on the web (body.spotlight-on),
-never baked into the hero.
+Emits a standalone transparent overlay that, laid over the plain hero, dims +
+desaturates everything OUTSIDE the subject country and strokes its boundary — so
+a viewer can read the country's extent at a glance. Toggled on the web
+(body.spotlight-on), never baked into the hero.
+
+The only toggle asset: every hero's borders are composited in by `overlay_borders`
+and are baked, not toggleable.
 
 The subject region is DEM-land MINUS the neighbours' Natural Earth polygons:
   - its seaward edge is therefore the *rendered* 30 m coastline (pixel-exact
@@ -25,8 +27,9 @@ whole-batch run can fan out across processes with --jobs. The work is pixel-boun
 scipy/gdal are single-threaded per call, so N workers use N idle cores near-linearly —
 but the ceiling is memory, and it sits lower than the arithmetic suggests: the largest
 countries hold several float arrays over a native (~42 MP) grid and peak near 8 GB each,
-so the full 203-set OOMs at --jobs>1 under the standing 12 G cgroup cap. Serial is the
-default for that reason; budget ~8 GB per job before raising it.
+so two workers meet the heavy-job cgroup cap on their own and the full 203-set OOMs at
+--jobs>1. Serial is the default for that reason; budget ~8 GB per job before raising it.
+The cap itself is `pass_memory.HEAVY_JOB_GIB` and is deliberately not retyped here.
 
 Usage:
   gen_spotlight.py --only saintlucia            # one (or a comma list)
@@ -68,7 +71,7 @@ from pipeline.render import render_seam
 
 warnings.filterwarnings("ignore", category=NotGeoreferencedWarning)  # hero PNGs
 
-# Both roots, as in `gen_borders`: the shapefile and the per-country work tree move with
+# Both roots: the shapefile and the per-country work tree move with
 # `MAPS_DATA`, the rendered layers stay in the checkout beside the heroes they dim.
 HEROES = paths.ROOT / "blender/renders/heroes"
 VARIANTS = paths.ROOT / "blender/renders/variants"
@@ -262,7 +265,7 @@ def render_one(slug, dim, desat, force, outline_div=OUTLINE_DIV_DEFAULT, halo=HA
         rgb = np.transpose(bands[:3].astype(np.float32) / 255.0, (1, 2, 0))
         hero_alpha = (bands[3] / 255.0) if bands.shape[0] >= 4 else np.ones((height, width), np.float32)
 
-        # AEA->hero-pixel mapping (margin-aware, the SAME one gen_borders uses),
+        # AEA->hero-pixel mapping (margin-aware, the SAME one `overlay_borders` uses),
         # and the hero grid's own AEA affine so the oceanmask lands in register.
         to_px, m_per_px, _crs, hf_bounds = render_mapping(heightfield_path, width, height)
         center_x = (hf_bounds.left + hf_bounds.right) / 2.0
@@ -323,9 +326,9 @@ def main() -> int:
                     help="dark keyline alpha under the white line (0 = none)")
     ap.add_argument("--jobs", type=int, default=1,
                     help="parallel worker processes over countries. The largest countries "
-                         "peak at ~8 GB each at native res, so the full 203-set OOMs at "
-                         "--jobs>1 under the 12 G cgroup cap; raise it only with real headroom "
-                         "(budget ~8 GB per job).")
+                         "peak at ~8 GB each at native res, so two of them meet the heavy-job "
+                         "cgroup cap and the full 203-set OOMs at --jobs>1; raise it only with "
+                         "real headroom (budget ~8 GB per job).")
     args = ap.parse_args()
 
     if args.only:

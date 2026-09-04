@@ -1,49 +1,30 @@
-"""Tests for the directional cast-shadow term, against an ANALYTIC oracle.
+"""Tests for the shadow-reach oracle, against geometry computable by hand.
 
-A shadow map is exactly the kind of output that looks plausible while being wrong — it is grey
-where you expect grey, and a 90-degree azimuth error or a dropped exaggeration still produces a
-convincing-looking picture. So nothing here compares against a stored raster or an eyeballed
-crop. Every assertion is checked against geometry computable by hand:
+MOST OF THIS FILE WENT WITH `shadow_mask`, AND WHAT IT COVERED IS WORTH NAMING so nobody reads the
+survivor as the whole subject. Four classes tested the deleted numpy shadow renderer: the sun's
+direction convention, an analytic wall's shadow length and penumbra, the levers that must actually
+move it (altitude, exaggeration, per-row z-factor, reach truncation), and its output contract. All
+of them drove `shadow_mask`, whose only caller was the compositor's hillshade, and none of them can
+be repointed at anything: Cycles computes its own shadows and exposes no equivalent to assert on.
 
-    relief of h metres, exaggerated by z, standing on a grid of m metres per pixel, lit from
-    altitude a, casts its shadow z*h / tan(a) / m pixels along the ground
+`TestTheDiscsWidthHasOneOwner` went too, and that one was half of a live law. The penumbra had to
+read `palette.SUN_ANGULAR_DIAMETER_DEG` rather than hold a local copy, which is the 46-vs-45
+altitude split's exact shape. The rig is the other reader and keeps its own guard and its own
+mutation case, so the law survives with one arm.
 
-and the penumbra spans exactly SUN_ANGULAR_DIAMETER degrees about a, because that is how long
-the horizon takes to cross the sun's disc.
-
-Per the recurring-bug rule (PLAN, "the one recurring bug is testing a PROXY"), each property has
-a companion that shows the check can FAIL: a sun that never moves, an exaggeration that is
-ignored, or a reach that never truncates would all produce a shadow map that passes a naive
-"is it shadowed near the wall" test.
+What is left is the oracle `block_plan` actually calls. It is not a shading term: it sizes every
+block's context ring, so an error in it narrows what Cycles can see, silently and with no edge.
 """
 
 import math
 
-import numpy as np
 import pytest
 
-from pipeline.look import palette
-from pipeline.look.cast_shadow import (
-    shadow_mask,
-    shadow_reach_px,
-    sun_offsets,
-)
-
-#: The shared disc, spelled once here so the oracles below read the same width the code does.
-SUN_ANGULAR_DIAMETER = palette.SUN_ANGULAR_DIAMETER_DEG
+from pipeline.look.cast_shadow import shadow_reach_px
 
 M_PER_PX = 305.7483   # the z8 grid, so the numbers here are production-scale
 ZFACTOR = 15.0        # the locked hero exaggeration
-WALL_HEIGHT = 2000.0  # casts ~98 px at a 45-degree sun — long enough to resolve a penumbra
-WALL_COLUMN = 150
-WIDTH = 600           # > WALL_COLUMN + reach, so np.roll's wrap never reaches the wall
-
-
-def wall_grid(rows: int = 1) -> np.ndarray:
-    """Flat ground with one infinitely long wall — the geometry the oracle is written for."""
-    heights = np.zeros((rows, WIDTH), dtype=np.float32)
-    heights[:, WALL_COLUMN] = WALL_HEIGHT
-    return heights
+WALL_HEIGHT = 2000.0  # casts ~98 px at a 45-degree sun
 
 
 def oracle_shadow_px(altitude_deg: float, zfactor: float = ZFACTOR) -> float:
@@ -51,169 +32,26 @@ def oracle_shadow_px(altitude_deg: float, zfactor: float = ZFACTOR) -> float:
     return zfactor * WALL_HEIGHT / math.tan(math.radians(altitude_deg)) / M_PER_PX
 
 
-def lit_distance(mask: np.ndarray) -> int:
-    """Distance in pixels from the wall to the first fully-lit pixel east of it."""
-    east = mask[0, WALL_COLUMN + 1:]
-    lit = np.flatnonzero(east == 0.0)
-    return int(lit[0]) + 1
+class TestTheSizingOracle:
+    """The formula `block_plan` sizes every block's context from.
 
-
-class TestSunDirection:
-    """The compass convention is the one thing a plausible-looking output cannot reveal."""
-
-    @pytest.mark.parametrize("azimuth, expected", [
-        (0.0, (-1.0, 0.0)),     # light from the north -> march up the raster
-        (90.0, (0.0, 1.0)),     # from the east -> march right
-        (180.0, (1.0, 0.0)),    # from the south -> march down
-        (270.0, (0.0, -1.0)),   # from the west -> march left
-    ])
-    def test_cardinal_offsets(self, azimuth: float, expected: tuple[float, float]):
-        row_step, column_step = sun_offsets(azimuth)
-        assert row_step == pytest.approx(expected[0], abs=1e-12)
-        assert column_step == pytest.approx(expected[1], abs=1e-12)
-
-    def test_production_azimuth_marches_northwest(self):
-        row_step, column_step = sun_offsets(315.0)
-        assert row_step < 0 and column_step < 0          # up and to the left
-        assert row_step == pytest.approx(column_step)    # exactly diagonal
-
-    def test_shadow_falls_away_from_the_sun(self):
-        """Can-fail companion: a sign error puts the shadow on the sunward side of the wall."""
-        mask = shadow_mask(wall_grid(), ZFACTOR, M_PER_PX, azimuth=270.0)
-        assert mask[0, WALL_COLUMN + 5] == 1.0   # east of the wall, away from a western sun
-        assert mask[0, WALL_COLUMN - 5] == 0.0   # west of it, facing the sun
-
-
-class TestAnalyticWall:
-    """Shadow extent and penumbra against hand-computed geometry."""
-
-    def test_umbra_reaches_the_predicted_distance(self):
-        mask = shadow_mask(wall_grid(), ZFACTOR, M_PER_PX, altitude=45.0, azimuth=270.0)
-        # Fully occluded while the horizon sits a half-disc ABOVE the sun.
-        umbra = int(oracle_shadow_px(45.0 + SUN_ANGULAR_DIAMETER / 2.0))
-        assert np.all(mask[0, WALL_COLUMN + 1:WALL_COLUMN + 1 + umbra] == 1.0)
-
-    def test_fully_lit_beyond_the_predicted_penumbra(self):
-        mask = shadow_mask(wall_grid(), ZFACTOR, M_PER_PX, altitude=45.0, azimuth=270.0)
-        # Fully lit once the horizon has dropped a half-disc BELOW the sun.
-        penumbra_end = math.ceil(oracle_shadow_px(45.0 - SUN_ANGULAR_DIAMETER / 2.0))
-        assert np.all(mask[0, WALL_COLUMN + 1 + penumbra_end:] == 0.0)
-
-    def test_penumbra_is_soft_and_monotonic(self):
-        mask = shadow_mask(wall_grid(), ZFACTOR, M_PER_PX, altitude=45.0, azimuth=270.0)
-        umbra = int(oracle_shadow_px(45.0 + SUN_ANGULAR_DIAMETER / 2.0))
-        penumbra_end = math.ceil(oracle_shadow_px(45.0 - SUN_ANGULAR_DIAMETER / 2.0))
-        band = mask[0, WALL_COLUMN + 1 + umbra:WALL_COLUMN + 1 + penumbra_end]
-        assert np.all(np.diff(band) <= 0)              # never brightens back up
-        assert np.any((band > 0.0) & (band < 1.0))     # a real gradient, not a hard step
-
-    def test_rows_do_not_wrap(self):
-        """The north pole must not shadow the south pole — rows edge-replicate, columns wrap.
-
-        Can-fail companion for the axis-0 `np.roll` this replaced: with a tall wall on the LAST
-        row and a sun from the north, a vertical wrap would shadow the FIRST rows from below.
-        """
-        heights = np.zeros((60, WIDTH), dtype=np.float32)
-        heights[-1, :] = WALL_HEIGHT
-        mask = shadow_mask(heights, ZFACTOR, M_PER_PX, azimuth=180.0, reach_px=40)
-        assert np.all(mask[:5] == 0.0)
-
-    def test_columns_still_wrap(self):
-        """The planet IS cyclic in longitude, so the column wrap is a feature, not an oversight."""
-        heights = np.zeros((1, WIDTH), dtype=np.float32)
-        heights[0, -1] = WALL_HEIGHT
-        mask = shadow_mask(heights, ZFACTOR, M_PER_PX, azimuth=270.0, reach_px=40)
-        # Column 0 marches west, off the raster, and must land on the last column's wall.
-        assert mask[0, 0] == 1.0
-
-    def test_flat_ground_casts_nothing(self):
-        """Can-fail companion: an off-by-one that compared a pixel with itself would shadow here."""
-        mask = shadow_mask(np.zeros((4, WIDTH), dtype=np.float32), ZFACTOR, M_PER_PX,
-                           azimuth=270.0)
-        assert np.all(mask == 0.0)
-
-
-class TestLeversActuallyMove:
-    """Each production lever, shown to change the output in the direction geometry demands."""
-
-    # These ratios stay inside the default `reach_px`. Geometry that overruns it is tested
-    # deliberately in `test_reach_truncates_the_march`, not stumbled into here — a truncated
-    # shadow would otherwise read as a broken lever rather than a working one.
-
-    def test_a_higher_sun_shortens_the_shadow(self):
-        low = shadow_mask(wall_grid(), ZFACTOR, M_PER_PX, altitude=40.0, azimuth=270.0)
-        high = shadow_mask(wall_grid(), ZFACTOR, M_PER_PX, altitude=60.0, azimuth=270.0)
-        assert lit_distance(high) < lit_distance(low)
-        # and by the predicted RATIO, not merely in the right direction
-        assert lit_distance(low) / lit_distance(high) == pytest.approx(
-            oracle_shadow_px(40.0 - SUN_ANGULAR_DIAMETER / 2.0)
-            / oracle_shadow_px(60.0 - SUN_ANGULAR_DIAMETER / 2.0), rel=0.05)
-
-    def test_exaggeration_lengthens_the_shadow_proportionally(self):
-        gentle = shadow_mask(wall_grid(), ZFACTOR / 3.0, M_PER_PX, azimuth=270.0)
-        exaggerated = shadow_mask(wall_grid(), ZFACTOR, M_PER_PX, azimuth=270.0)
-        assert lit_distance(exaggerated) / lit_distance(gentle) == pytest.approx(3.0, rel=0.05)
-
-    def test_per_row_zfactor_broadcasts(self):
-        """The Mercator correction is a column vector; each row must shadow by its own z."""
-        zfactor = np.array([[ZFACTOR / 2.0], [ZFACTOR]], dtype=np.float32)
-        mask = shadow_mask(wall_grid(rows=2), zfactor, M_PER_PX, azimuth=270.0)
-        near = np.flatnonzero(mask[0, WALL_COLUMN + 1:] == 0.0)[0] + 1
-        far = np.flatnonzero(mask[1, WALL_COLUMN + 1:] == 0.0)[0] + 1
-        assert far / near == pytest.approx(2.0, rel=0.05)
-
-    def test_reach_truncates_the_march(self):
-        """Can-fail companion: `reach_px` is a real cost lever, so it must really cut shadows off."""
-        truncated = shadow_mask(wall_grid(), ZFACTOR, M_PER_PX, azimuth=270.0, reach_px=20)
-        assert np.all(truncated[0, WALL_COLUMN + 21:] == 0.0)
-        assert truncated[0, WALL_COLUMN + 20] == 1.0     # still shadowed right up to the cut
-        assert shadow_mask(wall_grid(), ZFACTOR, M_PER_PX, azimuth=270.0, reach_px=0).max() == 0.0
+    Written against an independent transcription of the geometry rather than against the function's
+    own arithmetic, so a sign or a reciprocal flipping in the source goes red here.
+    """
 
     def test_default_reach_covers_the_production_case(self):
-        """The default must not silently truncate the terrain it will actually meet."""
+        """The tallest terrain the planet actually contains, so no block is silently narrowed."""
         everest_exaggerated = shadow_reach_px(8849.0, ZFACTOR, M_PER_PX, altitude=45.0)
         assert everest_exaggerated == pytest.approx(434.0, abs=1.0)
-        # 200 is deliberately below that: the sizing helper exists so the truncation is a CHOICE.
         assert shadow_reach_px(WALL_HEIGHT, ZFACTOR, M_PER_PX, 45.0) == pytest.approx(
             oracle_shadow_px(45.0), rel=1e-6)
 
+    def test_a_lower_sun_throws_a_longer_shadow(self):
+        """The direction, so the equality above cannot pass on a constant."""
+        assert (shadow_reach_px(WALL_HEIGHT, ZFACTOR, M_PER_PX, altitude=30.0)
+                > shadow_reach_px(WALL_HEIGHT, ZFACTOR, M_PER_PX, altitude=60.0))
 
-class TestOutputContract:
-    """Shape and dtype, so this stays a drop-in multiplier for the main hillshade."""
-
-    def test_shape_and_dtype_preserved(self):
-        mask = shadow_mask(wall_grid(rows=3), ZFACTOR, M_PER_PX)
-        assert mask.shape == (3, WIDTH)
-        assert mask.dtype == np.float32
-
-    def test_range_is_a_fraction(self):
-        mask = shadow_mask(wall_grid(rows=3), ZFACTOR, M_PER_PX)
-        assert mask.min() >= 0.0 and mask.max() <= 1.0
-
-
-class TestTheDiscsWidthHasOneOwner:
-    """The penumbra's width is a LOOK constant shared with the rig, not this module's own.
-
-    It carried its own 12.0 beside a comment naming the rig's, which is the 46-vs-45 altitude
-    split's exact shape. The context law reads the same width to size every block's ring, so a
-    drift between the two copies silently mis-sizes the whole planet.
-    """
-
-    def test_the_ramp_follows_the_shared_width_rather_than_a_local_copy(self, monkeypatch):
-        """Read at CALL time, so widening the disc widens the penumbra with nothing restated."""
-        narrow = shadow_mask(wall_grid(), ZFACTOR, M_PER_PX)
-        monkeypatch.setattr(palette, "SUN_ANGULAR_DIAMETER_DEG",
-                            palette.SUN_ANGULAR_DIAMETER_DEG * 2.0)
-        widened = shadow_mask(wall_grid(), ZFACTOR, M_PER_PX)
-        assert not np.array_equal(narrow, widened), (
-            "doubling the shared disc changed no pixel, so this module is reading its own copy")
-
-    def test_a_wider_disc_makes_a_longer_penumbra(self, monkeypatch):
-        """The direction, so the guard above cannot pass on any change at all."""
-        def lit_span(mask):
-            return int((mask[mask.shape[0] // 2] < 1.0).sum())
-
-        narrow = lit_span(shadow_mask(wall_grid(), ZFACTOR, M_PER_PX))
-        monkeypatch.setattr(palette, "SUN_ANGULAR_DIAMETER_DEG",
-                            palette.SUN_ANGULAR_DIAMETER_DEG * 2.0)
-        assert lit_span(shadow_mask(wall_grid(), ZFACTOR, M_PER_PX)) > narrow
+    def test_exaggeration_scales_it_linearly(self):
+        """`zfactor` is the term a second body corrects through, so it must not be inert here."""
+        assert shadow_reach_px(WALL_HEIGHT, ZFACTOR * 2.0, M_PER_PX, 45.0) == pytest.approx(
+            2.0 * shadow_reach_px(WALL_HEIGHT, ZFACTOR, M_PER_PX, 45.0), rel=1e-9)

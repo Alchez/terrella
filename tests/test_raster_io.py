@@ -62,13 +62,29 @@ class TestGtiffCreate:
 
 
 class TestAdoption:
-    """Source-scan drift guards: the three tile writers carry the shared core,
-    and fusion's writers never gain the threading flag."""
+    """Source-scan drift guards: every tile writer carries the shared core, and fusion's writers
+    never gain the threading flag.
 
-    @pytest.mark.parametrize("relative", ["look/hillshade.py", "tile/shade.py",
-                                          "tile/shade_planet.py"])
+    The planet shader and its compositor both left this list when the composite did. Neither
+    wrote a raster afterwards — one warps and cuts through GDAL subprocesses, the other had become a
+    constants module — so requiring the core of either would have pinned a string no call site can
+    carry. `tile/shade.py` has since been deleted too, its lake ramp moving to `look/lake_depth.py`
+    and its Mercator constant to `mercator.py`. `look/hillshade.py` left the list by being deleted,
+    as the composite's last unimported leaf.
+
+    IT HAD DRIFTED TO ONE MEMBER AND THAT ONE WAS THE DELETED MODULE, so five real tile writers were
+    unwatched while the guard read as live. THE LIST IS CURATED RATHER THAN DERIVED, deliberately: a
+    scan for `rasterio.open(..., "w")` across the package returns eighteen modules, and ten of them
+    — the acquirers, the fusers, the hero-path masks — correctly carry no creation core, because the
+    subject here is the tile pyramid's own writers and not every raster writer. Adding a tile writer
+    means adding it here; that is the cost of a subject the code cannot name.
+    """
+
+    @pytest.mark.parametrize("relative", ["render/prep_block.py", "render/prep_cap.py",
+                                          "tile/block_render.py", "tile/relief_scan.py",
+                                          "tile/terrain_rgb.py"])
     def test_tile_writers_use_the_shared_core(self, relative):
-        assert "**GTIFF_CREATE" in (PIPELINE / relative).read_text()
+        assert "GTIFF_CREATE" in (PIPELINE / relative).read_text()
 
     @pytest.mark.parametrize("relative", ["fuse/fuse_planet.py", "fuse/fuse_heightfield.py"])
     def test_fusion_writers_stay_unthreaded(self, relative):

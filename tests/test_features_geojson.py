@@ -26,7 +26,7 @@ class TestTheSrsIsDeclaredNotTransformed:
     def test_source_and_target_are_the_same_frame(self, subtests):
         """Naming EPSG:4326 on BOTH sides is what makes the pass a relabelling rather than a datum
         shift. The refusal it avoids is `bodies.py`'s to state, not this file's."""
-        command = fold.ogr_command(fold.POLYGONS, fold.LINES)
+        command = fold.ogr_command(fold.polygons(), fold.lines())
         for flag in ("-s_srs", "-t_srs"):
             with subtests.test(flag=flag):
                 assert command[command.index(flag) + 1] == "EPSG:4326"
@@ -85,12 +85,12 @@ class TestDeclaringIsOnlyTheCureForAGeographicSource:
 
 class TestTheFoldFlag:
     def test_wrapdateline_does_the_fold(self):
-        assert "-wrapdateline" in fold.ogr_command(fold.POLYGONS, fold.LINES)
+        assert "-wrapdateline" in fold.ogr_command(fold.polygons(), fold.lines())
 
     def test_destination_precedes_source(self):
         """ogr2ogr's argument order, which reads backwards."""
-        command = fold.ogr_command(fold.LINES, fold.POLYGONS)
-        assert command.index(str(fold.POLYGONS)) < command.index(str(fold.LINES))
+        command = fold.ogr_command(fold.lines(), fold.polygons())
+        assert command.index(str(fold.polygons())) < command.index(str(fold.lines()))
 
 
 class TestFoldLongitude:
@@ -155,9 +155,9 @@ class TestFreshnessAnswersRatherThanRaises:
 
         outputs = tmp_path / "out"
         outputs.mkdir()
-        produced = {name: outputs / f"{name}.geojson" for name in fold.GEOMETRY_OUTPUTS}
-        labels = outputs / "labels.geojson"
-        for path in (*produced.values(), labels):
+        produced = {name: outputs / f"{name}.geojson" for name in fold.geometry_outputs()}
+        label_file = outputs / "labels.geojson"
+        for path in (*produced.values(), label_file):
             path.write_text('{"type": "FeatureCollection", "features": []}\n')
         recipe = outputs / "recipe.json"
         recipe.write_text(json.dumps(fold.recipe()))
@@ -167,11 +167,11 @@ class TestFreshnessAnswersRatherThanRaises:
             source = download_nomenclature.layer_path(layer)
             if source.exists():
                 os.utime(source, (now - 100, now - 100))
-        for path in (*produced.values(), labels, recipe):
+        for path in (*produced.values(), label_file, recipe):
             os.utime(path, (now, now))
 
-        monkeypatch.setattr(fold, "GEOMETRY_OUTPUTS", produced)
-        monkeypatch.setattr(fold, "LABELS", labels)
+        monkeypatch.setattr(fold, "geometry_outputs", lambda: produced)
+        monkeypatch.setattr(fold, "labels", lambda: label_file)
         monkeypatch.setattr(fold, "recipe_path", lambda: recipe)
         return recipe
 
@@ -204,7 +204,7 @@ class TestNothingIsSimplifiedHere:
         """The Earth sibling simplifies because its output is fetched and stroked directly. Nothing
         fetches this file — so simplifying would permanently discard detail the tile cut's own
         per-zoom knobs can spend or keep reversibly."""
-        assert "-simplify" not in fold.ogr_command(fold.POLYGONS, fold.LINES)
+        assert "-simplify" not in fold.ogr_command(fold.polygons(), fold.lines())
 
     def test_the_recipe_says_so_where_a_reader_will_look(self):
         assert fold.recipe()["simplified"] is False

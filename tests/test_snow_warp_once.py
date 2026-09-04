@@ -40,7 +40,7 @@ def _merc(lat, lon):
 
 def _alps_grid(width=400, rows=384):
     """A small 3857 target grid over the Alps, snapped to the z8 pixel lattice so per-window
-    bounds derived from its transform land on exact pixel edges (as composite_planet does)."""
+    bounds derived from its transform land on exact pixel edges (as the planet warp does)."""
     left, top = _merc(48.0, 6.0)
     # snap the origin to the Z8_RES lattice so the grid is WMQ-consistent
     left = math.floor(left / Z8_RES) * Z8_RES
@@ -51,7 +51,7 @@ def _alps_grid(width=400, rows=384):
 
 
 def _window_bounds(transform, width, row0, row1):
-    """Exactly composite_planet's per-window bounds derivation (shade_planet.py)."""
+    """Exactly the planet warp's per-window bounds derivation (planet_warp.py)."""
     win_top = transform.f + row0 * transform.e
     win_bottom = transform.f + row1 * transform.e
     return (transform.c, win_bottom, transform.c + width * transform.a, win_top)

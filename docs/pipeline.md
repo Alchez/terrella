@@ -109,7 +109,7 @@ pipeline/profile/run_pass.sh --body earth            # shade only
 pipeline/profile/run_pass.sh --body earth --tiles    # shade (skipped when fresh), then cut tiles
 ```
 
-It runs the pass inside a systemd scope with a memory cap derived per body by `pipeline/profile/pass_cap.py`, so an overrun kills the job rather than the box, and it sets `GDAL_CACHEMAX=512`. Run **one heavy job at a time**: the cap is sized for a single pass, and the planet pass ends by invoking `cap_render` as a subprocess inside the same cgroup.
+It runs the pass inside a systemd scope with a memory cap derived per body by `pipeline/profile/pass_memory.py`, so an overrun kills the job rather than the box, and it sets `GDAL_CACHEMAX=512`. Run **one heavy job at a time**: the cap is sized for a single pass, and the planet pass ends by invoking `cap_render` as a subprocess inside the same cgroup.
 
 | Module | Produces |
 |---|---|
@@ -124,11 +124,12 @@ It runs the pass inside a systemd scope with a memory cap derived per body by `p
 | `pipeline.look.snow` | tile snow: persistence → latitude-ramped soft alpha, unioned with RGI glaciers |
 | `pipeline.look.seaice` | sea-ice alpha over the ocean (translucent white, seafloor glows through) |
 | `pipeline.look.lake_depth` | GLOBathy lake depth on the tile grid (depth-keyed lake tint) |
-| `pipeline.tile.planet_pass` | the production planet pass: warp everything to one Web-Mercator grid, then whichever producer the body names → `planet_rgb.tif`, then `gdal raster tile` → the z0–8 pyramid, then the polar caps |
-| `pipeline.tile.shade_planet` | the pass's shared stages and its COMPOSITE producer: hillshade + fill sun, sky-view, windowed composite (`pipeline.tile.shade` is the region-sized A/B path) |
+| `pipeline.tile.planet_pass` | the production planet pass: warp everything to one Web-Mercator grid, then raytrace it block by block → `planet_rgb.tif`, then `gdal raster tile` → the z0–8 pyramid, then the polar caps. Four stages in order, sequenced from outside whichever one fills the raster |
+| `pipeline.planet_warp` | the first planet stage: warp the 4326 height and masks onto the WMQ-aligned 3857 grid every block's context is cut from |
+| `pipeline.tile.cut_tiles` | the last planet stage: cut 512px tiles out of the finished raster, to this body's own ceiling. What fills the raster between the two is `pipeline.tile.block_render` |
 | `pipeline.tile.block_render` | the pass's RAYTRACE producer: the same raster rendered block by block through Cycles, resumable per block |
-| `pipeline.tile.cap_pass` | both polar caps (AEQD) → `web/public/caps/` for Earth, whose URLs are a frontend contract, with a second body nesting one level in. Picks the cap arm off the body's `planet_producer`, so a disc always matches the tiles it feathers into: `pipeline.tile.cap_render` is the composite arm plus everything the two share, `pipeline.tile.cap_raytrace` the Cycles one. Takes the same required `--body` the planet pass does, and is invoked with it automatically at that pass's tail. The cap assets are gitignored, so a fresh clone regenerates them here; `--elev-only` rebuilds just the per-pole terrain-RGB textures, which have their own freshness gate and do not require the ~14 GB colour render |
-| `pipeline.tile.terrain_rgb` | the terrain-RGB elevation pyramid for the globe's Tier-3 displacement, read straight off `height_3857.tif`, never the composite, so it is a separate lane rather than a stage of the planet pass. Takes the same required `--body` the shade and cap passes do, which picks the master, the ceiling and the descent's factor together; `--out` stays required, because the variant directory under the stage is operator-named and is checked to be under that body's tree rather than derived |
+| `pipeline.tile.cap_pass` | both polar caps (AEQD) → `web/public/caps/` for Earth, whose URLs are a frontend contract, with a second body nesting one level in. Every disc is raytraced, so it matches the tiles it feathers into by construction: `pipeline.tile.cap_render` is everything a disc is built from and `pipeline.tile.cap_raytrace` is the only producer. The arm was picked off a per-body field until that field and the composited arm were deleted. Takes the same required `--body` the planet pass does, and is invoked with it automatically at that pass's tail. The cap assets are gitignored, so a fresh clone regenerates them here; `--elev-only` rebuilds just the per-pole terrain-RGB textures, which have their own freshness gate and do not require the ~14 GB colour render |
+| `pipeline.tile.terrain_rgb` | the terrain-RGB elevation pyramid for the globe's Tier-3 displacement, read straight off `height_3857.tif`, never the colour raster, so it is a separate lane rather than a stage of the planet pass. Takes the same required `--body` the shade and cap passes do, which picks the master, the ceiling and the descent's factor together; `--out` stays required, because the variant directory under the stage is operator-named and is checked to be under that body's tree rather than derived |
 | `pipeline.compose.countries_geojson` → `pipeline.compose.countries_pmtiles` | Earth's vector pyramid: Natural Earth admin-0 polygons simplified to one WGS84 GeoJSON, then cut to `vector.pmtiles`. Three layers (fill, outline, and a fat invisible hit target), because a 176-atoll nation is otherwise unclickable |
 | `pipeline.compose.features_geojson` → `pipeline.compose.features_pmtiles` | Mars's vector pyramid: the IAU gazetteer folded to GeoJSON, then cut to its own `vector.pmtiles`. Four layers, including the IAU's label anchors. Both cuts are driven by `pipeline.compose.vector_cut`, which owns the freshness gate, the staging loop and the conversion; the two stages above only declare what is in them |
 | `pipeline.tile.pack_pmtiles` + `tools/pmtiles convert` | `planet.pmtiles`, `terrain.pmtiles` and `vector.pmtiles`: the range-request-servable archives, one per pyramid. The packer reads the tile encoding off the directory, so the same command packs any of them |
@@ -137,24 +138,26 @@ Snow here is **not** the hero's WorldCover class-70 mask (permanent ice only, wh
 
 ## From heroes to the website
 
-Once heroes exist, three compose steps and a manifest regeneration turn them into what the site serves:
+Once heroes exist, two compose steps and a manifest regeneration turn them into what the site serves:
 
 ```bash
 python -m pipeline.compose.hero_variants --jobs 8   # 6 srcset rungs per hero (downscale-only, idempotent)
-python -m pipeline.compose.gen_borders      # transparent white border layer per country
 python -m pipeline.compose.gen_spotlight    # transparent Focus layer: dims everything outside the country
 ```
 
-All three take `--only <slug,slug>` to process a subset, and all three now take `--force`. They share
-one rung ladder, **640/960/1280/1920/3840/native**, because the gallery and the globe panel stack
-their outputs under a single `sizes`; a rung in one ladder and not another makes the browser fetch
-mismatched files (`tests/test_hero_variants.py` guards this against what the pages declare).
+Both take `--only <slug,slug>` to process a subset, and both take `--force`. They share one rung
+ladder, **640/960/1280/1920/3840/native**, because the gallery stacks their outputs under a single
+`sizes`; a rung in one ladder and not another makes the browser fetch mismatched files
+(`tests/test_hero_variants.py` guards this against what the pages declare).
+
+Each hero's borders are composited in by `overlay_borders` during the render, not toggled: there is
+no separate border layer.
 
 Parallelism is per-script and is a MEMORY question, not a core one. `hero_variants` peaks at ~525 MB
 per encode, so `--jobs 8` is comfortable and takes the 203-hero pass from ~49 min to ~6 min.
 `gen_spotlight` defaults to serial because its **native** rung peaks near 8 GB, but a small-rung
 pass (640/960/1280 only) measures ~0.5 GB per job, so that constraint does not apply to it; time one
-slug before choosing. `gen_borders` has no `--jobs` and takes ~3 s per country.
+slug before choosing.
 
 `hero_variants` also records `hero_variants_recipe.json` (rung → the WebP quality it was written at).
 Existence alone cannot tell a q95 file from the q85 one it replaced, so **changing `quality_for()` is

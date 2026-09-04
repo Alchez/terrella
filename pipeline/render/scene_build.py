@@ -271,6 +271,7 @@ RIG = Rig(
     water_rgba=(*palette.srgb8_to_linear(palette.WATER_RGB), 1.0),
     lake_stops=_rgba(palette.LAKE_STOPS),
     ramp_interpolation="EASE",
+    # A Cycles SAMPLE COUNT, not a pixel edge. Never search-and-replace it alongside resolutions.
     samples=4096,
     adaptive_threshold=0.01,
     dicing_rate=1.0,
@@ -514,7 +515,7 @@ def base_patches(span_px):
     sees while a hero's plane is entirely in frame. Measured on this box's 12 GB card: a block lands
     near 21M and is comfortable; Nepal at 41.8M renders but takes 177% longer; Australia at 67M
     fails outright with `Failed to build OptiX acceleration structure`, having also wanted 17.0 GB
-    of host against a 16 G rule. So the hero lane keeps the single quad -- knowingly under-diced,
+    of host against the heavy-job cap. So the hero lane keeps the single quad -- knowingly under-diced,
     and the alternative is not a slower hero but no hero at all. Which frame sizes sit on which side
     of that wall is unmeasured; Nepal at 36.8 Mpx clears it and Australia at 58.8 does not.
     """

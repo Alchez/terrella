@@ -179,7 +179,7 @@ def hemisphere_frequency(hemisphere: str) -> Path:
     # often sit in a cell OSI calls land (frequency 0) -- without this they render as blocky bare-sea
     # patches inside the pack (the open-water edge itself is already smooth). The nearest-fill lets the
     # adjacent real ice reach the coast, and lets a plain Gaussian feather the edge without a masked
-    # normalization. Extending frequency over land is harmless: shade.composite gates ice on `ocean`,
+    # normalization. Extending frequency over land is harmless: the ice alpha is gated on `ocean`,
     # so a land pixel never reads the value.
     # fillnodata spreads the nearest valid ocean frequency into the land/no-obs cells (GDAL IDW,
     # mask=0 is filled), so a coarse-land coastal cell inherits the adjacent real ice.

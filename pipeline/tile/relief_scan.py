@@ -37,7 +37,15 @@ import rasterio
 from numpy.typing import NDArray
 from rasterio.transform import from_bounds
 
-from pipeline import block_plan, bodies, freshness, mercator, planet_seam, raster_io
+from pipeline import (
+    block_plan,
+    bodies,
+    freshness,
+    mercator,
+    planet_seam,
+    planet_warp,
+    raster_io,
+)
 
 #: Rows read per pass. Must be a whole number of cells, because the reduce reshapes the strip by
 #: cell; one cell's worth is 268 MB of float32 on Earth, which is what sizes this rather than speed.
@@ -64,16 +72,12 @@ def work_dir(body: bodies.Body) -> Path:
 
 def master_path(work: Path) -> Path:
     """The heightfield this cache summarises."""
-    return work / "height_3857.tif"
+    return work / planet_warp.HEIGHT_3857
 
 
 def ocean_master_path(work: Path) -> Path:
-    """The ocean mask, for bodies whose seam declares one.
-
-    The basename is spelled at two more sites in `shade_planet` and has no owner; when unit 6
-    moves the warp set to the planet tier, that owner is what the three should import.
-    """
-    return work / "ocean_3857.tif"
+    """The ocean mask, for bodies whose seam declares one."""
+    return work / planet_warp.OCEAN_3857
 
 
 def relief_path(work: Path) -> Path:
@@ -115,7 +119,7 @@ def _write_cells(out: Path, bands: NDArray[np.float64]) -> None:
     """Write one cell-grid raster and stamp it, via `.part` so a file at its final path is whole.
 
     There is no finer resume than this and that is the repo's settled position, not an omission:
-    `terrain_rgb` deletes a partial rather than resuming over it, and `shade_planet` removed its
+    `terrain_rgb` deletes a partial rather than resuming over it, and `cut_tiles` removed its
     `--resume` because existence cannot tell a complete tile from a truncated one. A whole-planet
     scan is minutes, so a crash costs minutes.
     """

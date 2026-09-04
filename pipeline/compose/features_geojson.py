@@ -49,15 +49,38 @@ from typing import Any
 from pipeline import bodies, freshness
 from pipeline.acquire import download_nomenclature
 
-OUT_DIR = bodies.work_dir(bodies.MARS, "features")
 
-POLYGONS = OUT_DIR / "features.geojson"
-LINES = OUT_DIR / "feature_lines.geojson"
-LABELS = OUT_DIR / "feature_labels.geojson"
+def out_dir() -> Path:
+    """This stage's directory under Mars's work tree.
 
-#: Which gazetteer layer lands in which file. `labels` is derived from both and has no source of
-#: its own, so it is deliberately absent here.
-GEOMETRY_OUTPUTS = {"poly": POLYGONS, "line": LINES}
+    RESOLVED AT CALL TIME rather than joined at import, which is `pipeline/paths.py`'s rule: a
+    module-level join binds the store before a test fixture or a `MAPS_DATA` override can move it,
+    and the writes then land in the real tree while every assertion reads the redirected one.
+    """
+    return bodies.work_dir(bodies.MARS, "features")
+
+
+def polygons() -> Path:
+    return out_dir() / "features.geojson"
+
+
+def lines() -> Path:
+    return out_dir() / "feature_lines.geojson"
+
+
+def labels() -> Path:
+    return out_dir() / "feature_labels.geojson"
+
+
+def geometry_outputs() -> dict[str, Path]:
+    """Which gazetteer layer lands in which file. `labels` is derived from both and has no source
+    of its own, so it is deliberately absent here.
+
+    A FUNCTION FOR THE SAME REASON THE PATHS ABOVE ARE, and it is the case the freeze guard could
+    not have caught: `tests/test_paths.py`'s probe tests `isinstance(value, Path)` per module
+    attribute, so a dict of Paths bound at import is invisible to it.
+    """
+    return {"poly": polygons(), "line": lines()}
 
 #: What every layer carries into the tiles. `name` first, because it is the identity every derived
 #: layer is keyed on — see `vector_layers.carried`.
@@ -211,7 +234,7 @@ def recipe() -> dict[str, Any]:
 
 
 def recipe_path() -> Path:
-    return OUT_DIR / "features_params.json"
+    return out_dir() / "features_params.json"
 
 
 def is_fresh() -> bool:
@@ -227,7 +250,7 @@ def is_fresh() -> bool:
     """
     newest_source = freshness.newest_mtime(
         *(download_nomenclature.layer_path(layer) for layer in download_nomenclature.LAYERS))
-    for path in (*GEOMETRY_OUTPUTS.values(), LABELS):
+    for path in (*geometry_outputs().values(), labels()):
         if not path.exists() or path.stat().st_size == 0:
             return False
         if path.stat().st_mtime <= newest_source:
@@ -241,7 +264,7 @@ def translate(force: bool) -> None:
         print("features are current -> skip (use --force to regenerate)")
         return
 
-    for layer, destination in GEOMETRY_OUTPUTS.items():
+    for layer, destination in geometry_outputs().items():
         source = download_nomenclature.layer_path(layer)
         if not source.exists():
             sys.exit(f"missing {source} — run pipeline.acquire.download_nomenclature first")
@@ -256,11 +279,12 @@ def translate(force: bool) -> None:
         print(f"wrote {destination} ({destination.stat().st_size / 1e6:.2f} MB)")
 
     anchors = label_points()
-    temporary = LABELS.with_suffix(".geojson.tmp")
+    label_path = labels()
+    temporary = label_path.with_suffix(".geojson.tmp")
     temporary.write_text(json.dumps(anchors), encoding="utf-8")
-    temporary.replace(LABELS)
-    print(f"wrote {LABELS} ({len(anchors['features'])} anchors, "
-          f"{LABELS.stat().st_size / 1e6:.2f} MB)")
+    temporary.replace(label_path)
+    print(f"wrote {label_path} ({len(anchors['features'])} anchors, "
+          f"{label_path.stat().st_size / 1e6:.2f} MB)")
 
     recipe_path().write_text(json.dumps(recipe(), indent=2) + "\n", encoding="utf-8")
     print(f"wrote {recipe_path()}")
@@ -270,7 +294,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n")[0])
     parser.add_argument("--force", action="store_true", help="regenerate even if present")
     args = parser.parse_args()
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    out_dir().mkdir(parents=True, exist_ok=True)
     translate(args.force)
     return 0
 

@@ -11,8 +11,8 @@ point of listing them together is that they are separate questions, not one. The
 fourth. `write_if_changed` is here because it is what lets a VALUE be a source at all, so a tunable
 can be an input to `is_stale` without every `git checkout` restaging the planet.
 
-These are general and belong to no stage. They lived in `tile/shade_planet.py`, which two sibling
-stages already imported them from — do not fold them back into a stage.
+These are general and belong to no stage. They lived in a stage module that sibling stages already
+imported them from — do not fold them back into one.
 """
 
 import json

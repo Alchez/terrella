@@ -1,6 +1,6 @@
 """Terrain-RGB elevation tiles — the Tier-3 displacement source.
 
-Sibling of `shade_planet.py`, and deliberately NOT part of it: that module cuts *colour*, this
+Sibling of `cut_tiles.py`, and deliberately NOT part of it: that module cuts *colour*, this
 one cuts *elevation*. They share one input (`height_3857.tif`), one tiling scheme, and the
 stage-freshness primitives, which live in `pipeline/freshness.py` and belong to neither stage.
 Nothing about the LOOK crosses over. MapLibre consumes this as a second `raster-dem` source with
@@ -11,7 +11,7 @@ THE ONE TRAP THIS MODULE EXISTS TO AVOID
 Elevation packed into RGB is not an image. The value is `R*256 + G - 32768`, so the green byte
 WRAPS every 256 metres — and interpolating across a wrap invents a 256 m cliff. That makes every
 smooth resampler wrong on this data: `average`, `cubic`, `bilinear`, `lanczos` all mix bytes.
-`shade_planet.tile_cut` uses `cubic` for both the cut and its overviews, which is correct for
+`cut_tiles.tile_cut` uses `cubic` for both the cut and its overviews, which is correct for
 colour and catastrophic here.
 
 So the pyramid is built **per zoom, from elevation downsampled in elevation space**, and each
@@ -64,6 +64,12 @@ from pipeline.tile import relief_scan
 
 TILE_SIZE = 512
 
+#: This module's stage directory under a body's work tree, the same role `relief_scan.STAGE` plays
+#: for the colour pyramid. Declared here because this is the module that names the stage's contents,
+#: and read across the language boundary by `devStores.ts`, which resolves the dev server's archive
+#: under its own copy of the string. `tests/test_paths.py` refuses a second spelling on either side.
+STAGE = "planet_terrain"
+
 #: Terrarium's zero point. Elevation `e` at quantisation `step` stores as `(e + 32768) / step`.
 BASE_SHIFT = 32768.0
 
@@ -114,7 +120,7 @@ def master_zoom_for(body: bodies.Body) -> int:
     terrain zoom there is to cut.
 
     DERIVED RATHER THAN STORED, because the chain that makes deriving safe already has two owners
-    and a third copy of the number is exactly the drift they exist to prevent. `shade_planet` warps
+    and a third copy of the number is exactly the drift they exist to prevent. `planet_warp` warps
     the master at `body.map_units_per_pixel` and rebuilds it whenever the raster's own pixel size
     disagrees, so the file matches the field; `test_bodies` then pins that field against
     `tile_max_zoom` relationally, at a tolerance that admits Earth's rounded value and cannot admit
@@ -142,7 +148,7 @@ def out_under_body(body: bodies.Body, out: Path) -> Path:
     for both bodies and guard nothing. `data/work/planet_terrain` and `data/work/mars/planet_terrain`
     contain neither the other.
     """
-    stage = bodies.work_dir(body, "planet_terrain").resolve()
+    stage = bodies.work_dir(body, STAGE).resolve()
     resolved = out.resolve()
     if resolved != stage and stage not in resolved.parents:
         raise SystemExit(f"--out {out} is not under {body.name}'s terrain stage ({stage}) — a cut "
@@ -175,7 +181,7 @@ def master_grid_mismatch(master: Path, master_zoom: int) -> str | None:
 #: Source rows held in memory at once by `downsample_elevation`. Budgeted on the SOURCE side, not
 #: the output side: a band of N output rows reads `N * factor` source rows, so a fixed output band
 #: silently scales peak RAM with the downsample factor — at the master's width, 256 output rows at
-#: factor 64 would be 8.6 GB, against a 12 G cap. 2048 master rows is ~1.07 GB.
+#: factor 64 would be 8.6 GB, against the heavy-job cap. 2048 master rows is ~1.07 GB.
 SOURCE_ROW_BUDGET = 2048
 
 
@@ -407,12 +413,12 @@ def build(out: Path, max_zoom: int, step: float, sea_clamp: bool,
 def build_parser() -> argparse.ArgumentParser:
     """The CLI, separable from `main` so its defaults are assertable without running a cut.
 
-    `cap_ladder` and `pack_pmtiles` split theirs for the same reason: the interesting properties
-    here are what happens when a flag is OMITTED, and that is unreachable through a function whose
-    next statement reads a 46 GB raster.
+    `pack_pmtiles` splits its own for the same reason: the interesting properties here are what
+    happens when a flag is OMITTED, and that is unreachable through a function whose next statement
+    reads a 46 GB raster.
     """
     ap = argparse.ArgumentParser(description=__doc__)
-    # REQUIRED, WITH NO DEFAULT, exactly as shade_planet's is and for the same reason: a pass that
+    # REQUIRED, WITH NO DEFAULT, exactly as the planet pass's is and for the same reason: a pass that
     # assumes Earth because nobody said otherwise does not fail, it emits a complete and plausible
     # pyramid for the wrong planet. Here it decides four things at once — the master, where the
     # output lands, the ceiling cut to, and the descent's factor.

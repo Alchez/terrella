@@ -75,7 +75,9 @@ Not a lower tier. Nobody has written down what would make them worth doing, and 
 - [Brotli sidecars for the text-like assets](#brotli-sidecars-for-the-text-like-assets-analysed-2026-07-25-blocked) · an R2 `Content-Encoding` probe nobody has run
 - [The polar caps are a texture](#the-polar-caps-are-a-texture-because-maplibre-allows-nothing-else-and-the-ceiling-is-webps-analysed-2026-08-07) · MapLibre gaining a TileMatrixSet source
 - [MapLibre's WebGPU backend](#maplibres-webgpu-backend-irrelevant-to-our-memory-problem-and-not-the-no-op-we-recorded-analysed-2026-07-29) · MapLibre publishing a timeline
+- [A quadtree block partition](#a-quadtree-block-partition-instead-of-the-uniform-grid-analysed-2026-09-03) · a uniform partition shipping a full planet first, as the baseline
 - [GDAL 3.13](#gdal-313-assessed-and-skipped-analysed-2026-07-23) · a full-restage boundary, and rasterio bundling 3.13
+- [The layer-rename alias cannot be deleted yet](#the-layer-rename-alias-cannot-be-deleted-yet-and-the-clock-is-longer-than-it-reads-analysed-2026-08-31) · a year of `immutable` URLs expiring, then a production log read
 
 ### OBSERVED, NOT ANALYSED, so the next action is a measurement
 
@@ -119,8 +121,9 @@ The globe's detail card carries a country's name, its continent and a link, and 
 - **The principled fix is to key the ladder to WIDTH.** Generate variants at target widths, so every country, portrait or landscape, has rungs exactly where `srcset` selects. It **deletes** code: `variantWidth()` in `index.astro` exists only to translate long-edge keys into widths, and under a width ladder the descriptor is just the rung.
 - **It is the only thing that can serve Chile (0.307) and Maldives (0.234)**, which need long edges of 3,867 and 5,064, above the inspection floor, so no fill rung below 3840 can reach them, and one above it would be a q95 file delivered as a thumbnail.
 - **It would also let `quality_for` key on the right quantity.** Today it takes the long edge, which for a portrait file is its HEIGHT, so a 3840-long-edge hero only 1,786 px wide is charged inspection quality for a thumbnail. Under a width ladder the discriminator is the same number `srcset` selects on. Note the tension to resolve first: the *same file* also serves the country page full-screen, where q95 is right.
-- **Compute is not the obstacle, storage might be.** Measured: hero variants **6 min** at `--jobs 8`, spotlight **1m45s**, borders **7m21s** (and a border rung costs a full regeneration). But a portrait country gets TALLER files for the same width, so the served store grows, and **there is no R2 headroom left to grow into**; the free tier is spent, so any growth is overage from the first byte. It rounds up to whole GB-months at $0.015, which makes this cheap rather than free: measure the growth before committing, and price it, rather than treating storage as headroom.
-- **It would close the border gap too**, which is real and currently exempted in the ladder guard: `gen_borders` stops at 1920, so a portrait border jumps to native: a lossless PNG at ~3× the width the panel draws. Off the cold path only because the layer is hidden until Borders is on.
+- **Compute is not the obstacle, storage might be.** Measured: hero variants **6 min** at `--jobs 8`, spotlight **1m45s**. But a portrait country gets TALLER files for the same width, so the served store grows, and the free tier is spent, so any growth is overage from the first byte. It rounds up to whole GB-months at $0.015, which makes this cheap rather than free: measure the growth before committing, and price it, rather than treating storage as headroom.
+  - **The "no headroom left to grow into" half of that is now out of date by a measured 0.21 GB**, which is what the border ladder's 1,010 PNGs occupied in the served store before they were deleted. Treat it as room this work may spend, not as a reason to skip pricing it.
+- **The border gap it would have closed is GONE, so that is one motivation fewer.** The standalone border ladder stopped at 1920, which sent a portrait country to a lossless native PNG, and it was the ladder guard's only exemption. It closed by deleting the ladder rather than by adding a rung, once nothing on the site drew it. What still argues for this work is Chile and Maldives, and `quality_for` keying on the quantity `srcset` actually selects.
 
 ## `forced-colors` is unhandled, and the rail's icons are the thing it breaks (analysed 2026-08-02)
 
@@ -217,7 +220,7 @@ Rohan ratified the raytraced rig's look and named one reservation: slightly too 
 
 Zooming into Antarctica to judge the terrain feather showed it "basically washed out". Two independent causes, split by depth in the frame: the far field was the atmosphere, fixed by ramping `atmosphere-blend` on PITCH as well as on zoom, since an unpitched overview takes no damage while a pitched one takes it at every zoom, and **the near field is this**, which is unfixed.
 
-**Mechanism.** Over full snow (`alpha = 1`) the composite is `base_rgb * (1 - alpha) + snow_rgb * alpha`, so `base_rgb` is multiplied by zero and every bit of hillshade *and the entire elevation ramp* is discarded. Relief survives only through `snow_t`, a two-colour ramp. Antarctic land is forced to alpha 1 by `snow.antarctic_snow_mask` because **its snow dataset has holes**: NSIDC-0791 covers the continent and saturates over it, but 9 to 14% of that land arrives as clustered fill that RGI's peripheral region 19 does not reach, so without the mask those render on the tan LAND ramp, i.e. brown blotches inside the ice sheet. Flatness is a side effect of closing them, not its purpose.
+**Mechanism**, as the deleted compositor did it and as the rig's material still does: over full snow (`alpha = 1`) the blend is `base_rgb * (1 - alpha) + snow_rgb * alpha`, so `base_rgb` is multiplied by zero and every bit of shading *and the entire elevation ramp* is discarded. Relief survives only through `snow_t`, a two-colour ramp. Antarctic land is forced to alpha 1 by `snow.antarctic_snow_mask` because **its snow dataset has holes**: NSIDC-0791 covers the continent and saturates over it, but 9 to 14% of that land arrives as clustered fill that RGI's peripheral region 19 does not reach, so without the mask those render on the tan LAND ramp, i.e. brown blotches inside the ice sheet. Flatness is a side effect of closing them, not its purpose.
 
 **Then the ramp saturates.** Ice sheets have real elevation (the z6 plateau tile spans 2512–2944 m, a 432 m range) but almost no SLOPE: about 0.1° across a ~200 km tile, with a median neighbour step of 0.0 m, below the 8 m quantisation. Hillshade keys on slope, so the light lands at or above `snow_hi_pt = 1.05` and `snow_t` clips to exactly 1. **Elevation is therefore discarded twice:** once because hillshade cannot see it, once because the ramp clips.
 
@@ -238,7 +241,7 @@ Zooming into Antarctica to judge the terrain feather showed it "basically washed
 
 **`snow_hi_pt` is NOT the lever, and that is already settled**. The window was measured and rejected: Greenland uses 7% of it, the Alps overflow at 122%, and **the two ranges are nested rather than adjacent**, so a window fitted to flat ice turns Alpine snow into a binary blue/white cartoon. Do not re-argue it.
 
-**Candidates, none costed:** re-fit the gamma exponent with Antarctic sites in the sample (a composite-stage knob: no re-fuse, no new data, and `pipeline/tile/cap_ladder.py` is the ~21 s browser-free precedent); or give the snow ramp an ELEVATION term the way the land ramp has one, which is what would make a 432 m dome read as a dome. The second is a genuine look decision, not a bug fix.
+**Candidates, none costed:** re-fit the gamma exponent with Antarctic sites in the sample (no re-fuse and no new data, but it is now a rig change and prices as a whole planet render, since the ~21 s composite-stage ladder that made this cheap went with the compositor); or give the snow ramp an ELEVATION term the way the land ramp has one, which is what would make a 432 m dome read as a dome. The second is a genuine look decision, not a bug fix.
 
 **Consequence worth carrying:** while the plateau is pinned white, terrain displacement there is invisible: our shading is baked, so displacement reads as silhouette and parallax only, and a uniform white surface offers neither. The polar feather it once gated has since been deleted rather than re-cut (see ART § the tile pipeline, terrain polar encode), so this gates nothing now.
 
@@ -270,14 +273,14 @@ Presets decompose into **three kinds by where the variation lives**: costs diffe
 
 ### Kind 2: raster recolors (one PMTiles archive per look)
 
-- Green sea, sepia, dark relief: the look is baked into pixels, so each look = its own archive. **Per look: ~28 min compute** (SVF + composite + cut + pack/convert + caps) **and +3 GB storage**: the storage term was +15 GB before tiles became WebP q95, and that was the number that made this kind expensive; web swaps `PUBLIC_TILE_BASE` (or a per-look path the Worker routes on) + the cap pair. Now plausibly scales to several looks, not just a curated few.
-- **One-time prerequisite: look parameterization (~a day).** Today every guardrail treats a second look as drift: correctly: `test_palette` pins `WATER_RGB` relationally (+7% of sea surface), palette is shared by import so editing it in place marks the heroes stale. Looks must become first-class: named looks in palette, `composite_params`/freshness/output dirs/cap recipes keyed by look, relational pins per-look. Corollary to remember: `LAKE_STOPS[0]` derives from `WATER_RGB`, so a naive green sea also greens every lake and river: a choice, not an accident.
+- Green sea, sepia, dark relief: the look is baked into pixels, so each look = its own archive. **Per look: a whole planet render** (PROCESS.md carries the row; it was ~28 min when a look was an SVF pass plus a composite, and a look is now every block through Cycles) **and +3 GB storage**: the storage term was +15 GB before tiles became WebP q95, and that was the number that made this kind expensive; web swaps `PUBLIC_TILE_BASE` (or a per-look path the Worker routes on) + the cap pair. Now plausibly scales to several looks, not just a curated few.
+- **One-time prerequisite: look parameterization (~a day).** Today every guardrail treats a second look as drift: correctly: `test_palette` pins `WATER_RGB` relationally (+7% of sea surface), palette is shared by import so editing it in place marks the heroes stale. Looks must become first-class: named looks in palette, with the render recipes, freshness, output dirs and cap recipes keyed by look, and relational pins per look. Corollary to remember: `LAKE_STOPS[0]` derives from `WATER_RGB`, so a naive green sea also greens every lake and river: a choice, not an accident.
 - One-off stunt rungs, if a *single day* ever justifies a gag without the plumbing: `raster-hue-rotate` on the relief layer (free, but rotates land too, and our custom-layer caps ignore raster paint properties: they'd need a shader tint uniform), or a translucent green ocean `fill` veil (client-only, bathymetry shading survives underneath, reads as a veil not a repaint).
 
 ### Kind 3: client-side colorization (looks become shader LUTs)
 
 - Split colour from data: ship shading + masks as data channels (grayscale light, snow/ice/lake alphas: packable into one RGBA archive; elevation via the Phase 5 terrain-RGB archive) and apply ramps in a custom WebGL layer. Look N then costs a LUT, ~0 bytes.
-- **The counterweight:** it reimplements `shade.composite` in GLSL: a twin look engine, i.e. the copy-drift disease at engine scale, in a codebase whose architecture exists to forbid exactly that. Only worth opening if presets prove popular enough to be a headline feature; it is a Phase-5-sized decision and pairs naturally with the terrain-RGB work if that ships.
+- **The counterweight:** it reimplements the rig's material in GLSL: a twin look engine, i.e. the copy-drift disease at engine scale, in a codebase whose architecture exists to forbid exactly that. The counterweight got HEAVIER when the numpy compositor was deleted, because the look now has exactly one implementation and this would make it two again. Only worth opening if presets prove popular enough to be a headline feature; it is a Phase-5-sized decision and pairs naturally with the terrain-RGB work if that ships.
 
 ### The preset system itself (needed for any kind)
 
@@ -300,6 +303,15 @@ Presets decompose into **three kinds by where the variation lives**: costs diffe
   - ~360 GB of intermediates are compute-regenerable, and a remote read is a rejected shape for reading them: COG buys selective reads, while a pass is a full sequential scan two or three times over. HISTORY, *remote COG is the wrong shape for a full sequential scan*.
   - The **~56 GB worth putting in a cloud is the backup set, not an offload**: heroes+raws+variants (27 GB real bytes, hardlink archives ~free; Cycles isn't bit-deterministic so ratified pixels are irreplaceable), `planet.pmtiles` (**3 GB**: doubles as deploy transport), `planet/` fused cells (14 GB: the one expensive-to-rebuild intermediate), caps/geojson/frame pins. ≈ $1/mo on R2/B2 (ballpark; R2's zero egress is the differentiator: verify pricing at pickup).
 - **The big lever:** if Phase 5 goes no-go on a finer re-fuse, `glo30/` (551 GB) drops to per-country-on-demand like WorldCover: the upstream *is* the cloud store. Deferred the whole topic to after Phase 5.
+
+## A quadtree block partition, instead of the uniform grid (analysed 2026-09-03)
+
+> **BLOCKED** · needs-render-store · **reopens when** a uniform partition has shipped a full planet, which is the baseline a variable one has to be measured against.
+
+- **What it is:** the render grid is cut into equal 4096 px blocks, so a block of flat seabed is planned exactly like one holding 5,076 m of haloed relief. A quadtree would subdivide on the relief that `relief_scan` already records per cell.
+- **Why it would be cheap to try:** the relief cache is deliberately finer than the block. `block_plan.CELL_PX` is 512 and a block is `CELLS_PER_BLOCK` of them across, so a different partition re-folds the cache instead of re-reading a 46 GB master. `relief_scan.py`'s own docstring says this, and names this idea as the reason the fold lives in `block_plan` rather than in the scan.
+- **Why it is blocked rather than open:** a variable partition has to be compared against a uniform one that actually shipped a planet, or there is no control, and the failure mode is a partition that looks better only on the blocks someone chose to inspect.
+- **One term did not survive the move out of the raytrace arc's working doc:** that doc recorded the precondition as "until uniform 2048 has shipped a planet", and 2048 matches `CONTEXT_CEILING_PX` rather than any block size, blocks being 4096. Resolve which was meant before acting on this entry.
 
 ## A z9 / z10 pyramid: z10 is BLOCKED ON DISK, z9 is reachable (analysed 2026-07-26)
 
@@ -370,7 +382,7 @@ Not a look change in the locked-constants sense: the sun, ramps and exaggeration
 ### Viable option A: composited twin-panel hero (keeps Kiribati as one country)
 
 - One Kiribati entry, one hero image holding two framed insets (Gilberts | Line+Phoenix), each a normal non-crossing frame rendering like Maldives/Marshall. Preserves country integrity (one sovereign nation = one gallery card): the reason it beats sub-heroes (below).
-- **Effort: HIGH.** The single-frame pipeline has no seam for it: needs new code at ~every stage: a `panels=[...]` config key + list validation (`country_config.py`'s `COUNTRY_KEYS` and its `[W,S,E,N]` unpacks); per-panel work/render subdirs through `stage_commands` (each panel is a *different* AEA projection with its own `frame.json`/heightfield/masks); **a brand-new compositor stage** (the keystone: nothing composites two RGBA renders today); a batch loop over panels; and per-panel border/overlay mapping (`overlay_borders.py`/`gen_borders.py` assume one `ortho_scale`). The two lobes are at very different scales: panel sizing is a real design choice, not automatic.
+- **Effort: HIGH.** The single-frame pipeline has no seam for it: needs new code at ~every stage: a `panels=[...]` config key + list validation (`country_config.py`'s `COUNTRY_KEYS` and its `[W,S,E,N]` unpacks); per-panel work/render subdirs through `stage_commands` (each panel is a *different* AEA projection with its own `frame.json`/heightfield/masks); **a brand-new compositor stage** (the keystone: nothing composites two RGBA renders today); a batch loop over panels; and per-panel border/overlay mapping (`overlay_borders.py` and `gen_spotlight.py` assume one `ortho_scale`). The two lobes are at very different scales: panel sizing is a real design choice, not automatic.
 
 ### Viable option B: gallery card, no hero (the low-effort default)
 
@@ -454,6 +466,16 @@ Not a look change in the locked-constants sense: the sun, ramps and exaggeration
 - **Why it is parked and not done:** it is a **look change on DPR-1 screens** (supersampled → native 1:1, more aliasing), and look changes here get eyes on them at full scale before they ship. It is also small: tiles are ~2.6 MB of the cold window at q95, so it saves ~2 MB for desktop visitors: against the ~80 MB the hero rungs took off the gallery.
 - **Not proposed:** a 1024 px pyramid to serve DPR 3 at 1:1. That is 4× the tiles for the band that is merely soft, not broken.
 - **The polar caps solved this exact mechanism, and the tiles still have not** (2026-07-25). The cap now picks its texture from its projected on-screen size × the canvas backing ratio, so DPR is handled per-device with no look change reuse that: MapLibre's raster source has no DPR negotiation and `tileSize` is global, which is why the lever above is a one-line `tileSize` switch rather than a picker. Worth re-reading that implementation before picking this up: it settles what "demand" means here, and the `canvas.width / canvas.clientWidth` ratio is the right input for both.
+
+## The layer-rename alias cannot be deleted yet, and the clock is longer than it reads (analysed 2026-08-31)
+
+> **BLOCKED** on a year of `immutable` tile URLs expiring, and then on a production log actually being read. A deletion, not a design.
+
+- **What it is:** `RENAMED_LAYER_WORDS` in `web/src/lib/tileAddress.ts`, one entry mapping the word `countries` to the `vector` layer, so the tile Worker keeps serving requests spelled the way the site spelled them before the layer became a role.
+- **Why it cannot just go:** the layer token compiles into the SITE bundle while the Worker is a separate deploy, and every page a visitor already has open holds tile URLs marked `immutable` for a year. A Worker that refused the old spelling would blank the countries on a live globe rather than paint a stale name.
+- **The clock is longer than the calendar suggests, and the date is a floor rather than the signal.** A year from the rename puts the earliest possible removal around 2027-08, but expiry only stops NEW old-spelling requests being guaranteed; it does not say none arrive.
+- **The real signal is `addressedLayerWord` in production logs.** It reports the word a request SPELLED, and a server compares that against the layer the request resolved to. When that comparison stops finding a difference, the alias has no clients left. Nothing else can tell you, because an aliased request is served correctly and silently, which is exactly what makes it safe and exactly what makes it invisible.
+- **Carried here rather than on the plan's queue because it is not work.** It is a wait with a check at the end of it, and sitting in a numbered queue it reads as something someone could pick up.
 
 ## Brotli sidecars for the text-like assets (analysed 2026-07-25, BLOCKED)
 
@@ -550,7 +572,7 @@ The working plan had become the project's only backlog as well as its live state
 - **Open call: should `check.sh` run the suite a second time under an empty `MAPS_DATA`?** 17.5 s to reproduce CI exactly. Without it, a store-reading test is green locally and red only after a push.
   - **The trigger has now fired twice.** Five recipe tests in `test_block_render.py` went red in CI this way, and then a registry sweep in `test_planet_pass.py` did the same, in a module written after the first was fixed. Both were green on every local gate.
   - The second one is what settles the shape of the objection: the fix for the first was a per-file helper, so the next file could not inherit it. A gate is the only form of this that reaches a module nobody has written yet.
-- **An explicit env override on `pass_cap.HEAVY_JOB_GIB`** is the half of the ratified cap ruling `4f4daf8` that never landed. The two measured caps stay fixed either way.
+- **An explicit env override on `pass_memory.HEAVY_JOB_GIB`** is the half of the ratified cap ruling `4f4daf8` that never landed. The two measured caps stay fixed either way.
 - **Every planet fusion chunk is older than the mosaics it was fused from, and nothing can notice.** `fuse_planet.fuse_cell` skips a cell on `heightfield_10s.tif` EXISTENCE, so rebuilding `dem_mosaic.vrt` or `wbm_mosaic.vrt` after a tile download never restages one.
   - Measured on `e010_n70`: re-fusing today moves **928 px of 12.96 M, 0.0072%**, scattered and symmetric. Small per cell, systematic across all 648, and invisible from disk.
   - The module already guards the OPPOSITE direction, warning that a stale mosaic fuses new land as ocean. This is the same hazard with the arrow reversed and no guard at all.
@@ -583,11 +605,7 @@ The working plan had become the project's only backlog as well as its live state
   16. *gen_spotlight restates the ladder instead of importing it*, `test_the_ladder_matches_the_spotlight_overlay`.
   17. *the render dir drifts from the work dir*, `test_it_follows_a_relocated_store`.
 - **A freshness recipe could be derived from the built scene rather than enumerated by hand.** `scene_dump.py` already dumps the graph exhaustively, including sampled ramp evaluations, and it reads the BUILT graph rather than the source, so it sees values written inline. Hashing it would have caught all three instances of the enumeration going short. The obstacle is that it needs real Blender, where the freshness check today runs with `bpy` stubbed; the graph is body-shaped rather than block-shaped, so one invocation per pass would do.
-- **The composite and cap tiers still fold the white law without recording it.**
-  - `layer_producers.white_law` exists and `block_render.params` reads it; `shade_planet.composite_params` and `cap_render.cap_recipe`, which embeds it, do not.
-  - So a layer moving between `WHITE_UNION` and `WHITE_EXCLUSIONS` repaints the Antarctic outcrop on both and leaves both looking fresh. Measured on the recipe strings, with the block tier as the positive control.
-  - Deferred on cost rather than on doubt: adopting it restages whatever those tiers still produce, and both bodies are `planet_producer="composite"` today, so doing it before Earth flips would recompute a 57:23 composite that unit 9 replaces. After the flip it is Mars's composite plus both caps.
-  - It does not retire with the switch. `cap_render` calls `shade.composite` outright and reuses `composite_params`, so the caps keep both alive past units 9 and 10.
+- **CLOSED, and by deletion rather than by doing the work: every live tier now records the white law.** `block_render.params` and `cap_raytrace.params` both spread `layer_producers.white_law`. The two recipes that folded the law without recording it were the compositor's and the composited cap's, and both are deleted. Do not re-park this: the entry said it "does not retire with the switch", which was written while a second producer still existed and is the reason it is worth saying so here.
 - **No test pins that `PERENNIAL_ICE` and `GLACIERS` are IN `WHITE_UNION`.** Every membership assertion in the suite is negative, so a layer silently ceasing to be white is caught by nothing. Belongs with the guard repairs above rather than with the recipe work, since it changes no recipe.
 - **The RGI glacier path is spelled twice and its burn argv has no owner.**
   - `snow.RGI_GPKG` and `download_rgi.GPKG` are one path written in two places, and `rasterize_glaciers_raster` carries a copy of the argv `vector_raster.rasterize_argv` now owns.
@@ -619,5 +637,5 @@ The working plan had become the project's only backlog as well as its live state
 
 ### A colour call and a product question
 
-- **`MARS_MODAL_GROUND` is the authored stop and the tiles ship the composited one**, so the space floor behind a missing tile is cooler than its surroundings. Cosmetic, pre-existing, a colour call.
+- **`MARS_MODAL_GROUND` is the authored stop and the tiles ship the RENDERED one**, so the space floor behind a missing tile is cooler than its surroundings. The gap was measured against composited tiles and Mars raytraces now, so re-measure before acting; the defect's shape is unchanged but its size is unverified. Cosmetic, pre-existing, a colour call.
 - **Mars phase 4 is an open product question rather than queued work**: whether the body gets a curated landmark set or a hero per feature. Nothing downstream is waiting on the answer.

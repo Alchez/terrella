@@ -2,8 +2,8 @@
 the globe's vector border overlay (solid international + dashed disputed/LoC, split
 downstream by FEATURECLA).
 
-The per-country border PNGs (compose/gen_borders.py) are baked into each hero's
-Albers camera and cannot drape on the MapLibre globe, so the globe needs live vector
+Each hero's borders (compose/overlay_borders.py) are composited into its Albers
+camera and cannot drape on the MapLibre globe, so the globe needs live vector
 geometry MapLibre re-projects client-side. Natural Earth ships both layers as
 EPSG:4326 shapefiles, so this is a pure *format* translation -- not a reprojection.
 

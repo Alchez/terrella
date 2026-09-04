@@ -308,7 +308,7 @@ export const BODIES: Record<BodySlug, BodyDescriptor> = {
     // globe reaches; the honest rendering of that is no sky pass rather than a token haze. It
     // replaces something that was never declared at all — Earth's pale blue-grey haloing this
     // planet's limb. NOT the pale band at each pole, which reads as the same colour and is not:
-    // deleting the sky outright left that band untouched, because it is `shade_planet.CAP_RGB`
+    // deleting the sky outright left that band untouched, because it is the polar flat fill
     // baked into the tiles rather than air showing through.
     //
     // Reversible in one line if the look loop decides a wisp reads better, which is the point of
@@ -319,7 +319,7 @@ export const BODIES: Record<BodySlug, BodyDescriptor> = {
     // unratified; on now that they are.
     //
     // It buys a projection repair, not ice. Mars declares no surface layers, so the two discs are
-    // the same bare relief as the tiles; what they replace is `shade_planet.CAP_RGB`, the flat pale
+    // the same bare relief as the tiles; what they replace is the polar plug, the flat pale
     // plug above 84° that MapLibre stretched across the pole.
     rendersPolarCaps: true,
     // Mars has no nations. Whatever eventually divides this planet on screen — the geologic units

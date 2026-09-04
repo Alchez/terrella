@@ -1,9 +1,9 @@
 """Hero lake-depth stage: GLOBathy depth -> a log1p ramp-position raster for the scene.
 
 The hero twin of the tile pipeline's lake-depth layer (`look/lake_depth.py` +
-`shade.composite`'s lake branch), as `snow_mask.py` is the hero twin of `look/snow.py`.
+the tile side's lake branch), as `snow_mask.py` is the hero twin of `look/snow.py`.
 Emits `lakedepth.tif` on the exact `heightfield.tif` grid: Float32 storing the
-lake ramp POSITION 0..1 — `shade.lake_position`'s curve baked here, venv-side, where the
+lake ramp POSITION 0..1 — `lake_depth.lake_position`'s curve baked here, venv-side, where the
 tile implementation lives — so the scene just samples it into a ColorRamp over
 `palette.LAKE_STOPS`. Position 0 IS the flat `WATER_RGB` tint, so lakes without depth
 data degrade to exactly the pre-lake-depth look.
@@ -31,24 +31,24 @@ from typing import Any
 import numpy as np
 import rasterio
 
+from pipeline.acquire import extract_globathy
 from pipeline.look import lake_depth
 from pipeline.render import render_seam
-from pipeline.tile import shade
 
 
 def depth_to_position(depth: np.ndarray, watercode: np.ndarray) -> np.ndarray:
     """Depth metres + watermask codes -> lake ramp position 0..1 (the pure, testable core).
 
     `lakes_only` zeroes depth off watermask class 2 (rivers flat, ocean/Caspian keep
-    their own bathymetry); `lake_position` applies the tile's own depth->position curve
-    read from `shade.KNOBS["lake_curve"]` — hero and tile cannot disagree on it. "off"
-    (the tile's flat-water A/B control) carries over as an all-zero field.
+    their own bathymetry); `lake_position` applies the shared depth->position curve
+    read from `lake_depth.LAKE_CURVE` — hero and tile cannot disagree on it. "off"
+    (the flat-water A/B control) carries over as an all-zero field.
     """
     lakes = lake_depth.lakes_only(depth, watercode)
-    if shade.KNOBS["lake_curve"] == "off":
+    if lake_depth.LAKE_CURVE == "off":
         return np.zeros_like(lakes, dtype=np.float32)
-    return np.asarray(shade.lake_position(lakes, shade.KNOBS["lake_curve"]),
-                      dtype=np.float32)
+    return np.asarray(
+        lake_depth.lake_position(lakes, lake_depth.LAKE_CURVE), dtype=np.float32)
 
 
 def main():
@@ -68,8 +68,9 @@ def main():
     # The VRT is a local build product (pipeline.acquire.extract_globathy), so its
     # absence is a config error, not a data gap: exit loudly rather than write an
     # all-flat raster that batch resume would trust as the prep-complete marker.
-    if not lake_depth.LAKE_VRT.exists():
-        sys.exit(f"{lake_depth.LAKE_VRT} missing — run pipeline.acquire.extract_globathy")
+    lake_vrt = extract_globathy.lake_vrt()
+    if not lake_vrt.exists():
+        sys.exit(f"{lake_vrt} missing — run pipeline.acquire.extract_globathy")
 
     # grid + CRS from the existing heightfield (the snow_mask/render_prep pattern):
     # the raster must land pixel-for-pixel on the grid the render was made from
@@ -98,7 +99,7 @@ def main():
          "-srcnodata", str(lake_depth.GLOBATHY_NODATA), "-dstnodata", "0",
          "-wm", "512", "-multi", "-wo", "NUM_THREADS=ALL_CPUS",
          "-co", "TILED=YES", "-co", "COMPRESS=DEFLATE",
-         str(lake_depth.LAKE_VRT), str(tmp_depth)],
+         str(lake_vrt), str(tmp_depth)],
         check=True, capture_output=True)
     with rasterio.open(tmp_depth) as depth_dataset:
         depth_raw = depth_dataset.read(1)

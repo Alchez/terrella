@@ -24,10 +24,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from pipeline import bodies, layers, mercator, paths, planet_seam
+from pipeline import bodies, layers, mercator, paths, planet_seam, planet_warp
 from pipeline.compose import countries_pmtiles, features_pmtiles
 from pipeline.look import palette
-from pipeline.tile import cap_render, shade_planet, terrain_rgb
+from pipeline.tile import cap_render, cut_tiles, terrain_rgb
 
 #: A planet whose seam emitted all three rasters — what Earth declares, and the only
 #: shape these tests care about unless they say otherwise.
@@ -72,22 +72,100 @@ def test_no_field_carries_a_default_so_a_new_one_must_be_decided_per_body() -> N
     assert defaulted == [], f"these fields would be inherited unexamined by a new body: {defaulted}"
 
 
-def test_every_body_names_a_producer_the_vocabulary_knows() -> None:
-    """A body may only name a producer that exists.
+class TestTheCompositePlanetProducerIsDeletedAndCannotReturn:
+    """There is ONE way to fill a planet raster and a body cannot ask for another.
 
-    `PLANET_PRODUCERS` derives from the annotation through `get_args`, so widening it to a bare
-    `str` empties the tuple rather than accepting anything, and the first assertion names that
-    failure directly instead of leaving it to be read out of a list naming every body at once. The
-    second is the anti-vacuity one: with no bodies registered the membership test passes while
-    checking nothing.
+    The composite was a stopgap until raytraced tiles existed. Both bodies reached `"raytrace"`,
+    which is the condition `Body`'s own field docstring named for the field and its dispatcher to
+    end, and the arm was deleted rather than parked so no deprecated surface survives.
+
+    AN ABSENCE GUARD IS USUALLY THE WEAK SHAPE AND IS THE RIGHT ONE HERE, because what is being
+    prevented is a REINTRODUCTION: there is no positive behaviour left to assert once the choice is
+    gone. It is kept honest by naming the exact spellings that used to exist rather than asserting
+    vaguely that "nothing dispatches" — a reader can see precisely what it refuses, and a new
+    producer added under a different name would slip past it, which is stated here rather than
+    silently hoped against.
     """
-    assert bodies.PLANET_PRODUCERS, (
-        "the producer vocabulary is empty, so no body's answer can be checked against anything"
-    )
-    assert bodies.BODIES, "no bodies are registered, so the membership test below proves nothing"
-    unknown = {body.name: body.planet_producer for body in bodies.BODIES.values()
-               if body.planet_producer not in bodies.PLANET_PRODUCERS}
-    assert unknown == {}, f"these bodies name a producer nothing can dispatch: {unknown}"
+
+    def test_no_body_field_selects_a_planet_producer(self) -> None:
+        present = {field.name for field in dataclasses.fields(bodies.Body)}
+        assert "planet_producer" not in present, (
+            "`Body.planet_producer` is back, so a body can ask for a producer again; the composite "
+            "was deleted because a body having that choice is what let tiles and discs disagree"
+        )
+
+    def test_the_body_vocabulary_carries_no_producer_type(self, subtests) -> None:
+        for name in ("PlanetProducer", "PLANET_PRODUCERS"):
+            with subtests.test(name=name):
+                assert not hasattr(bodies, name), (
+                    f"`bodies.{name}` is back. The vocabulary is what a registry derives its "
+                    f"completeness from, so it returning means a dispatcher is about to"
+                )
+
+    def test_the_shaders_own_constants_went_with_it(self, subtests) -> None:
+        """The tunables of a deleted shader, pruned once their serialiser was gone.
+
+        `composite_params` was the only thing that recorded `KNOBS` and `SHADOW_TINT`, so with it
+        gone they reached no pixel and no recipe, and a value that reaches neither is a look
+        decision nobody can act on. ART.md holds what each was and how it was chosen; this refuses
+        the code copy coming back to be read as a live lever.
+
+        SCOPED TO THE PACKAGE RATHER THAN TO ONE MODULE, because `tile/shade.py` -- which used to
+        be the module this asked -- is itself gone now, its lake ramp having moved to
+        `look/lake_depth.py`. A guard naming one file cannot see the constant reappear in another,
+        and the file it named was the one most likely to be deleted.
+        """
+        sources = {
+            path: path.read_text(encoding="utf-8")
+            for path in (paths.ROOT / "pipeline").rglob("*.py")
+        }
+        for name in ("Knobs", "KNOBS", "SHADOW_TINT"):
+            with subtests.test(name=name):
+                defined = sorted(
+                    str(path.relative_to(paths.ROOT))
+                    for path, source in sources.items()
+                    if re.search(rf"^{name}\b *[:=]", source, re.MULTILINE)
+                )
+                assert not defined, (
+                    f"`{name}` is back, in {defined}. It records the deleted compositor's look, "
+                    f"reaches no recipe, and would read as a lever a re-tune could move"
+                )
+
+    def test_the_numpy_cast_shadow_went_with_it(self, subtests) -> None:
+        """Its only caller was the hillshade, which was the compositor's last leaf.
+
+        `shadow_reach_px` STAYS and is unrelated: it is arithmetic `block_plan` uses to size every
+        block's context, on a path Cycles never sees. The mechanism below is the REJECTED one, and
+        CLAUDE.md records that reopening needs a different mechanism rather than a different number.
+        """
+        from pipeline.look import cast_shadow
+
+        for name in ("shadow_mask", "sun_offsets"):
+            with subtests.test(name=name):
+                assert not hasattr(cast_shadow, name), (
+                    f"`cast_shadow.{name}` is back. Nothing renders a numpy shadow now, so it would "
+                    f"be a second shading path with no caller"
+                )
+        assert hasattr(cast_shadow, "shadow_reach_px"), (
+            "`shadow_reach_px` was taken with the rest; it is live in `block_plan` and its loss "
+            "silently truncates every block's context"
+        )
+
+    def test_neither_pass_dispatches_on_a_producer(self, subtests) -> None:
+        """Both passes, because the cap arm was keyed on the same field the tile arm was: a disc is
+        built to match the tiles it feathers into, so half a retirement is the mismatch itself."""
+        from pipeline.tile import cap_pass, planet_pass
+
+        for module, registry in ((planet_pass, "PRODUCERS"), (cap_pass, "CAP_PRODUCERS")):
+            with subtests.test(module=module.__name__):
+                assert not hasattr(module, registry), (
+                    f"`{module.__name__}.{registry}` is back, so the planet raster has two "
+                    f"producers again"
+                )
+                assert not hasattr(module, "producer_for"), (
+                    f"`{module.__name__}.producer_for` is back; with one producer there is nothing "
+                    f"to resolve and the call site should name it directly"
+                )
 
 
 def test_a_body_is_frozen() -> None:
@@ -195,7 +273,7 @@ def test_earth_carries_web_mercator_s_defining_sphere() -> None:
 def test_earth_s_grid_resolution_is_the_one_its_live_raster_was_built_at() -> None:
     """Pinned to the literal, like Web Mercator's sphere above and for a stronger reason.
 
-    THE BRIDGE THIS REPLACES IS GONE BECAUSE ITS COPY IS. `Z8_RES` briefly lived in `shade_planet`
+    THE BRIDGE THIS REPLACES IS GONE BECAUSE ITS COPY IS. `Z8_RES` briefly lived in the planet stage
     beside this field, held to it by an assertion; the constant has since been deleted and every
     caller reads the body. What survives it is the fact the bridge existed to protect, which is not
     derivable and not a tunable: **46 GB of `height_3857.tif` was warped at exactly this number**.
@@ -218,7 +296,7 @@ def test_every_body_s_grid_resolution_agrees_with_its_own_tile_ceiling() -> None
     body whose pixels already exist. A wrong ceiling, the error actually worth catching, is a factor
     of two. 1e-5 admits the first and cannot admit the second.
     """
-    tile_px = shade_planet.tile_cut(bodies.EARTH)["tile_size"]
+    tile_px = cut_tiles.tile_cut(bodies.EARTH)["tile_size"]
     for body in bodies.BODIES.values():
         exact = 2.0 * math.pi * body.mercator_radius_m / (tile_px * 2 ** body.tile_max_zoom)
         assert math.isclose(body.map_units_per_pixel, exact, rel_tol=1e-5), (
@@ -242,7 +320,7 @@ def test_the_cut_differs_between_bodies_in_exactly_one_setting() -> None:
     eight facts across every planet, and it lets two bodies' encodings drift apart while every test
     still passes. Nothing about a WebP quality is a property of Mars.
     """
-    earth, mars = shade_planet.tile_cut(bodies.EARTH), shade_planet.tile_cut(bodies.MARS)
+    earth, mars = cut_tiles.tile_cut(bodies.EARTH), cut_tiles.tile_cut(bodies.MARS)
     differing = {key for key in earth if earth[key] != mars[key]}  # pyright: ignore[reportTypedDictNotRequiredAccess]
     assert differing == {"max_zoom"}, (
         f"the cut differs between Earth and Mars in {sorted(differing)} — only the ceiling is a "
@@ -271,7 +349,7 @@ def test_another_body_nests_under_its_own_name() -> None:
     """Two bodies must never be able to write to one directory.
 
     This is also what keeps the body OUT of the freshness recipes: a second body writes its own
-    `composite_params.json` at its own path, so the params file is already body-specific and adding
+    `raytrace_params.json` at its own path, so the params file is already body-specific and adding
     a body key inside it would only invalidate Earth's correct output.
     """
     assert bodies.work_dir(bodies.MARS, "planet_tiles") == paths.DATA / "work/mars/planet_tiles"
@@ -304,14 +382,21 @@ def test_a_second_body_publishes_under_its_own_segment() -> None:
     assert bodies.public_dir(bodies.MARS, "caps") == paths.ROOT / "web/public/caps/mars"
 
 
-def test_served_assets_follow_the_checkout_not_the_data_store() -> None:
+def test_served_assets_follow_the_checkout_not_the_data_store(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """The two roots must not be collapsed.
 
     Intermediates are relocatable via MAPS_DATA; published assets are read by the site build from
     the checkout. One root for both means a relocated data store publishes nothing, silently.
+
+    THE REDIRECT IS WHAT MAKES THIS DISCRIMINATING and must stay: `paths.DATA` defaults to a
+    directory INSIDE the checkout, so without it "the served path is under `paths.ROOT`" is true of
+    the data store as well, and resolving served assets against the store passes.
     """
+    monkeypatch.setattr(paths, "DATA", tmp_path)
     assert paths.ROOT in bodies.public_dir(bodies.EARTH, "caps").parents
-    assert paths.DATA in bodies.work_dir(bodies.EARTH, "cap").parents
+    assert tmp_path not in bodies.public_dir(bodies.EARTH, "caps").parents
+    assert tmp_path in bodies.work_dir(bodies.EARTH, "cap").parents
 
 
 def test_both_roots_follow_a_redirect_so_a_fixture_can_isolate_every_write(
@@ -555,7 +640,7 @@ def _pipeline_zoom_range(layer: str, body: bodies.Body) -> tuple[int | None, int
     default would let a new layer's ceiling go unpinned while every suite stayed green.
     """
     if layer == "relief":
-        cut = shade_planet.tile_cut(body)
+        cut = cut_tiles.tile_cut(body)
         return cut["min_zoom"], cut["max_zoom"]
     if layer == "terrain":
         # PER BODY, like `vector` below and for the same reason: the elevation cut descends from
@@ -789,16 +874,21 @@ def test_the_shade_pass_no_longer_carries_its_own_grid_or_ceiling() -> None:
 
     Both spellings are checked because they fail differently. The resolution silently orphans the
     raster of any body whose ceiling is not z8; the ceiling silently cuts every planet to Earth's.
+
+    ONE SCAN PER MODULE, BECAUSE THE TWO CONSTANTS NOW LIVE IN DIFFERENT FILES. They shared one
+    when the warp and the cut shared one; scanning either alone would leave the other's needle
+    unwatched while still reading as a guard over both.
     """
-    source = Path(shade_planet.__file__).read_text(encoding="utf-8")  # pyright: ignore[reportArgumentType]
-    # The prose above the deleted constant explains WHY it left, and naming the number there would
-    # re-create this needle in a comment — so the note describes it and this stays a code scan.
-    assert "305.7483" not in source, (
-        "shade_planet has regrown a hard-coded grid resolution — it is Body.map_units_per_pixel, "
+    # The prose above each deleted constant explains WHY it left, and naming the number there would
+    # re-create these needles in a comment — so the notes describe them and these stay code scans.
+    warp = Path(planet_warp.__file__).read_text(encoding="utf-8")  # pyright: ignore[reportArgumentType]
+    cut = Path(cut_tiles.__file__).read_text(encoding="utf-8")  # pyright: ignore[reportArgumentType]
+    assert "305.7483" not in warp, (
+        "planet_warp has regrown a hard-coded grid resolution — it is Body.map_units_per_pixel, "
         "and a literal here warps every planet onto Earth's z8 lattice"
     )
-    assert "max_zoom=8" not in source, (
-        "shade_planet has regrown a hard-coded tile ceiling — it is Body.tile_max_zoom, and a "
+    assert "max_zoom=8" not in cut, (
+        "cut_tiles has regrown a hard-coded tile ceiling — it is Body.tile_max_zoom, and a "
         "literal here cuts every planet's pyramid to Earth's depth"
     )
 
@@ -806,7 +896,7 @@ def test_the_shade_pass_no_longer_carries_its_own_grid_or_ceiling() -> None:
 def test_neither_shading_module_carries_its_own_exaggeration() -> None:
     """Anti-regrowth over the third constant, and the one that reached furthest.
 
-    `EXAG` was a module constant in shade_planet and an IMPORT in cap_render, so the caps drew
+    `EXAG` was a module constant in the planet shader and an IMPORT in cap_render, so the caps drew
     every planet at Earth's relief however `--body` was set — and then feathered that into tiles
     shaded at the body's own. Both spellings are scanned because both are how it comes back: a
     local `EXAG = ...` reads as tidy, and re-importing it from the sibling reads as reuse.
@@ -814,35 +904,19 @@ def test_neither_shading_module_carries_its_own_exaggeration() -> None:
     The name is scanned rather than the number. A literal scan would miss `EXAG = 15` and
     `EXAGGERATION = palette.EXAGGERATION` alike, and both are the same bug: a look value pinned
     at module scope, where a body cannot reach it.
+
+    BOTH HALVES OF THE SPLIT PLANET STAGE ARE SCANNED, not just the one that shaded: the constant
+    reached the warp and the cut alike when they were one file, so dropping either from this loop
+    would reopen half the hole.
     """
     from pipeline.tile import cap_render
 
-    for module in (shade_planet, cap_render):
+    for module in (planet_warp, cut_tiles, cap_render):
         source = Path(module.__file__).read_text(encoding="utf-8")  # pyright: ignore[reportArgumentType]
         assert re.search(r"\bEXAG", source) is None, (
             f"{module.__name__} has regrown a module-scope exaggeration — it is Body.exaggeration, "
             "and a constant here draws every planet at whichever one happens to be written down"
         )
-
-
-def test_the_hillshade_recipe_records_the_body_s_own_exaggeration() -> None:
-    """The freshness half. Recording the exaggeration was always right; sourcing it from a
-    module constant meant the record could not MOVE, so re-tuning a body's relief would have left
-    its own sidecar unchanged and its hillshade reported fresh. Not a cross-body collision — each
-    body writes into its own work tree — but the quieter intra-body one: the recipe answers "would
-    a rerun produce different pixels?", and a frozen field always answers no."""
-    flatter = dataclasses.replace(bodies.EARTH, exaggeration=3.0)
-
-    earth = json.loads(shade_planet.hs_params(bodies.EARTH))
-    other = json.loads(shade_planet.hs_params(flatter))
-
-    assert earth["exag"] == bodies.EARTH.exaggeration
-    assert other["exag"] == 3.0
-    differing = {key for key in earth | other if earth.get(key) != other.get(key)}
-    assert differing == {"exag"}, (
-        f"changing only the exaggeration moved {sorted(differing)} in the hillshade recipe — "
-        "anything else here is a field that restages for a reason it does not have"
-    )
 
 
 def test_the_cap_recipe_records_the_body_s_own_exaggeration() -> None:
@@ -851,83 +925,21 @@ def test_the_cap_recipe_records_the_body_s_own_exaggeration() -> None:
     used — so the record was honest about a shader that was not. Now that the shader asks the body,
     a frozen record is the remaining way to be wrong: re-tune a body's exaggeration and the ~14 GB
     render reports fresh against a recipe that cannot see the change."""
-    from pipeline.tile import cap_render
+    from pipeline.tile import cap_raytrace, cap_render
 
     flatter = dataclasses.replace(bodies.EARTH, exaggeration=3.0)
 
-    earth = json.loads(cap_render.cap_recipe(cap_render.north_grid(bodies.EARTH), WHOLE_PLANET))
-    other = json.loads(cap_render.cap_recipe(cap_render.north_grid(flatter), WHOLE_PLANET))
+    earth = json.loads(cap_raytrace.params(cap_render.north_grid(bodies.EARTH), WHOLE_PLANET))
+    other = json.loads(cap_raytrace.params(cap_render.north_grid(flatter), WHOLE_PLANET))
 
-    assert earth["light"]["exag"] == bodies.EARTH.exaggeration
-    assert other["light"]["exag"] == 3.0
-    earth["light"].pop("exag")
-    other["light"].pop("exag")
+    assert earth["exaggeration"] == bodies.EARTH.exaggeration
+    assert other["exaggeration"] == 3.0
+    earth.pop("exaggeration")
+    other.pop("exaggeration")
     assert earth == other, (
         "changing only the exaggeration moved something else in the cap recipe — the body enters "
         "this record one named field at a time, and a whole-Body inline is how that stops holding"
     )
-
-
-def test_the_hillshade_is_driven_at_the_body_s_exaggeration(tmp_path, monkeypatch) -> None:
-    """The scan above cannot see a bare literal at a CALL SITE, and the recipe tests cannot see a
-    pixel path that disagrees with the recipe. This drives the real entry point with a synthetic
-    body and reads back the number the shader was actually handed.
-
-    A recipe that says one exaggeration while the shader draws another is the worst shape available:
-    the sidecar reports fresh, the pyramid is wrong, and re-running changes nothing.
-    """
-    flatter = dataclasses.replace(bodies.EARTH, exaggeration=3.0)
-    handed: list[float] = []
-
-    def fake(_height, out, exaggeration, *_args, **_kwargs):
-        handed.append(exaggeration)
-        Path(out).write_text("shaded")
-
-    monkeypatch.setattr(shade_planet.hillshade, "per_row_zfactor_hillshade", fake)
-    height = tmp_path / "height_3857.tif"
-    height.write_text("heights")
-
-    shade_planet.build_hillshade(tmp_path, height, flatter)
-
-    assert handed == [3.0], (
-        f"the hillshade was driven at {handed} for a body whose exaggeration is 3.0 — "
-        "the shader has stopped asking the body and gone back to knowing the answer"
-    )
-
-
-def test_the_caps_are_shaded_at_the_body_s_exaggeration(monkeypatch) -> None:
-    """The same probe on the module where this was genuinely broken: cap_render imported the
-    constant, so both suns lit every planet at Earth's relief. Both are checked because the fill is
-    a second call with its own argument list, and a fix applied to one line is how the pair drifts.
-
-    ASSERTED AS A RATIO BETWEEN TWO BODIES, not against a literal, because the z-factor stopped being
-    the bare exaggeration: the cap divides it by the body's AEQD ground scale, so an equality here
-    would only restate that arithmetic and would fail again at the next honest change to it. What
-    this test owns is narrower and does not move — that the number reaching the shader tracks THE
-    BODY'S exaggeration. A reimported module constant makes both bodies equal and the ratio 1.0;
-    `TestTheCapIsShadedInGroundMetres` in test_cap_render.py owns the scale itself.
-    """
-    from pipeline.tile import cap_render
-
-    handed: list[float] = []
-
-    def fake(heights, _cell, zfactor, *_args, **_kwargs):
-        handed.append(zfactor)
-        return np.zeros((heights.shape[0] - 2, heights.shape[1]), dtype=np.float32)
-
-    monkeypatch.setattr(cap_render.hillshade, "hillshade_array", fake)
-    for exaggeration in (3.0, 15.0):
-        body = dataclasses.replace(bodies.EARTH, exaggeration=exaggeration)
-        cap_render._shade(cap_render.north_grid(body), np.zeros((4, 4), dtype=np.float32),
-                          np.zeros((4, 4), dtype=np.float32))
-
-    main_at_3, fill_at_3, main_at_15, fill_at_15 = handed
-    assert (main_at_3, fill_at_3) == (pytest.approx(main_at_15 * 0.2),
-                                      pytest.approx(fill_at_15 * 0.2)), (
-        f"the caps' suns were driven at {handed} for bodies whose exaggerations are 3.0 and 15.0 — "
-        "a cap shaded at another planet's relief feathers into tiles shaded at this one's"
-    )
-    assert main_at_3 == fill_at_3  # one correction, applied to both lights
 
 
 def test_the_projection_s_sphere_and_earth_s_own_are_the_same_number_for_a_reason() -> None:
@@ -958,61 +970,6 @@ def test_every_body_rides_the_projection_s_sphere_because_proj_allows_no_other()
             f"{body.name} projects on a sphere that is not EPSG:3857's — PROJ will refuse to warp "
             "it, and `gdal raster tile` will refuse to cut it"
         )
-
-
-def test_the_hillshade_recipe_records_the_ground_scale_only_when_it_is_not_the_identity() -> None:
-    """The conditional-record idiom, third use in this recipe after the fill and the shadow.
-
-    Earth's scale is exactly 1.0, so writing the key would restage an 8:28 hillshade, a 53.8 min
-    composite and a 3:44 cut to reproduce identical bytes — and would report the LIVE pyramid stale.
-    Any other body's scale is a genuine input to every slope in the raster, and leaving it out would
-    let a re-shade at a corrected scale find a matching sidecar and skip.
-    """
-    earth = json.loads(shade_planet.hs_params(bodies.EARTH))
-    assert "ground_scale" not in earth, (
-        "Earth's hillshade recipe grew a key whose value is the identity — the live sidecar on disk "
-        "does not have it, so every existing tile just went stale for no pixel change"
-    )
-    mars = json.loads(shade_planet.hs_params(bodies.MARS))
-    assert mars["ground_scale"] == bodies.ground_metres_per_mercator_unit(bodies.MARS)
-
-
-def test_the_sky_view_is_sized_and_searched_in_ground_metres(monkeypatch, tmp_path) -> None:
-    """Both sky-view entry points document that they want a GROUND scale, and this function used to
-    hand them map units. The body half of that is fixed, so a smaller planet must search a
-    proportionally shorter horizon — otherwise its valleys read as open ground.
-
-    Captured at the boundary rather than compared as pixels: the quantity that was wrong is the
-    number crossing into `sky_view`, and asserting on it says which of the two errors is closed.
-    """
-    import rasterio
-    import rasterio.transform
-
-    handed: dict[str, float] = {}
-    monkeypatch.setattr(shade_planet, "occlusion_shape",
-                        lambda w, h, res: (handed.setdefault("shape_res", res), (8, 16))[1])
-    monkeypatch.setattr(shade_planet, "normalised_occlusion",
-                        lambda low, m_per_px: (handed.setdefault("search_res", m_per_px), low)[1])
-
-    height = tmp_path / "height_3857.tif"
-    transform = rasterio.transform.from_origin(0.0, 5_000_000.0, 305.7483, 305.7483)
-    with rasterio.open(height, "w", driver="GTiff", height=32, width=64, count=1,
-                       dtype="float32", crs="EPSG:3857", transform=transform) as dataset:
-        dataset.write(np.zeros((32, 64), dtype="float32"), 1)
-
-    shade_planet.global_occlusion(height, bodies.EARTH)
-    earth = dict(handed)
-    handed.clear()
-    shade_planet.global_occlusion(height, bodies.MARS)
-
-    assert earth["shape_res"] == bodies.EARTH.map_units_per_pixel, (
-        "Earth's sky-view sizing moved — its ground scale is exactly 1.0, so it must not"
-    )
-    ratio = bodies.ground_metres_per_mercator_unit(bodies.MARS)
-    assert handed["shape_res"] == pytest.approx(bodies.MARS.map_units_per_pixel * ratio)
-    assert handed["search_res"] == pytest.approx(earth["search_res"]
-                                                 * (bodies.MARS.map_units_per_pixel * ratio)
-                                                 / bodies.EARTH.map_units_per_pixel)
 
 
 def test_every_body_names_only_surface_layers_the_pipeline_knows() -> None:
@@ -1083,73 +1040,35 @@ def test_a_layer_is_refused_for_a_body_that_does_not_declare_it_even_though_the_
     assert "layerless declares no perennial_ice layer" in capsys.readouterr().out
 
 
-def test_the_composite_recipe_records_only_the_layers_that_are_off() -> None:
-    """The conditional-record idiom again, and here it is load-bearing rather than tidy.
+def _southern_white(body: bodies.Body, persistence: "np.ndarray | None"):
+    """The white union and the sea-ice alpha over land at ~70 degrees south, where the Antarctic
+    patch fires. All land, no ocean: the patch's other term is `land`, so a sea-less body is
+    exactly the case that would come out entirely white.
 
-    An unbuilt raster is SILENTLY not a dependency — `newest_mtime` scores a missing path 0.0 and
-    `composite_deps` lists all four unconditionally — so turning a layer off would otherwise leave
-    the old composite, painted with that layer, looking perfectly fresh. Earth has every layer, so
-    its list is empty and nothing is written: the live 46 GB composite cannot restage.
+    Calls `gather` and `fold_white` — the pair `prep_block` runs — rather than reaching through a
+    window struct owned by one producer, which is what made this go red when that producer left.
     """
-    earth = json.loads(shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET))
-    assert "layers_off" not in earth, (
-        "Earth's composite recipe grew a key for a body that omits nothing — the live sidecar on "
-        "disk does not have it, so the whole pyramid just went stale for no pixel change"
-    )
-    mars = json.loads(shade_planet.composite_params({None: None}, bodies.MARS, WHOLE_PLANET))
-    # THE COMPOSITE'S OWN VOCABULARY, not the whole one. `coastline` is a cap-only layer, and
-    # recording it here would make a decision about a polar texture restage the 46 GB planet.
-    assert mars["layers_off"] == sorted(layers.COMPOSITE_LAYERS - {layers.PERENNIAL_ICE.name})
-    assert "coastline" not in mars["layers_off"]
-    # The layer Mars DOES declare is absent from the off-list by being present in the render, which
-    # is the direction that would fail silently: an over-full list restages for nothing, an
-    # under-full one leaves a composite painted with a layer that has since been switched off.
-    assert layers.PERENNIAL_ICE.name not in mars["layers_off"]
-
-
-def test_the_grading_and_painting_split_leaves_the_composite_recording_BOTH_halves() -> None:
-    """This stage reads both halves, so a split dropping either would leave those constants
-    untracked and the live composite and both cap PNGs reading fresh, on a diff that looks like a
-    rename.
-
-    LITERALS RATHER THAN A SWEEP: asking the same functions the code asks agrees by construction,
-    so it cannot tell a dropped half from a legitimately empty one.
-    """
-    earth = json.loads(shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET))
-    for graded in ("snow_ramp_lat_lo", "snow_ramp_lat_hi", "snow_ramp_low_min",
-                   "snow_ramp_low_max", "snow_ramp_band", "snow_soften_fraction",
-                   "snow_source_cell_m", "ice_lo", "ice_band", "ice_max_alpha",
-                   "sh_ice_lo", "sh_ice_max_alpha"):
-        assert graded in earth, f"{graded} grades a composite pixel and left the recipe"
-    for painted in ("snow_rgb", "snow_shadow_rgb", "ice_rgb", "ice_shadow_rgb"):
-        assert painted in earth, f"{painted} paints a composite pixel and left the recipe"
-    # Mars is the body whose two halves differ: it grades nothing per window and paints four.
-    mars = json.loads(shade_planet.composite_params({None: None}, bodies.MARS, WHOLE_PLANET))
-    assert {"snow_rgb_north", "snow_shadow_rgb_north",
-            "snow_rgb_south", "snow_shadow_rgb_south"} <= set(mars)
-
-
-def _southern_window(body: bodies.Body, persistence: "np.ndarray | None"):
-    """One synthetic composite window over land at ~70 degrees south, where the Antarctic patch
-    fires. All land, no ocean: the patch's other term is `land`, so a sea-less body is exactly the
-    case that would come out entirely white."""
-    from rasterio.windows import Window
+    from pipeline.look import layer_producers, snow
 
     rows, cols = 8, 16
-    zeros = np.zeros((rows, cols), dtype=np.float32)
-    return shade_planet._WindowInputs(
-        win=Window(0, 0, cols, rows),  # pyright: ignore[reportCallIssue]
-        win_h=rows,
-        win_top=-11_000_000.0,   # ~ -68 deg; the whole window sits south of the patch's -60
-        win_bottom=-12_000_000.0,
-        height_win=zeros,
-        ocean_raw=np.zeros((rows, cols), dtype=np.uint8),   # all land
-        watercode=np.zeros((rows, cols), dtype=np.uint8),   # no inland water
-        hs_raw=np.full((rows, cols), 128, dtype=np.uint8),
-        layer_raw={layer.name: persistence if layer is layers.PERENNIAL_ICE else None
-                   for layer in layers.warped_for(layers.COMPOSITE_LAYERS)},
-        occ_win=zeros,
-        body=body)
+    top, bottom = -11_000_000.0, -12_000_000.0   # ~ -68 deg, south of the patch's -60
+    latitude = snow.latitude_per_row(top, bottom, rows)
+    raw = {layer.name: persistence if layer is layers.PERENNIAL_ICE else None
+           for layer in layers.warped_for(layers.PLANET_LAYERS)}
+    contributions, _paints, exclusions = layer_producers.gather(
+        body, raw,
+        layer_producers.LayerWindow(
+            raw=None, watercode=np.zeros((rows, cols), dtype=np.uint8),
+            land=np.ones((rows, cols), dtype=bool), ocean=np.zeros((rows, cols), dtype=bool),
+            latitude=latitude,
+            ground_metres_per_px=mercator.ground_metres_per_pixel(
+                latitude, body.map_units_per_pixel,
+                bodies.ground_metres_per_mercator_unit(body)),
+            top=top, bottom=bottom),
+        layers.PLANET_LAYERS)
+    white, _carried = layer_producers.fold_white(contributions, (rows, cols),
+                                                 exclusions=exclusions)
+    return white, contributions.get(layers.SEA_ICE.name)
 
 
 def test_a_body_without_the_perennial_ice_layer_composites_no_ice_at_all() -> None:
@@ -1161,12 +1080,12 @@ def test_a_body_without_the_perennial_ice_layer_composites_no_ice_at_all() -> No
     could ever switch it off — on a body with no sea, every pixel below 60 south is land, and the
     southern third of the planet would render solid white.
     """
-    shared = shade_planet._compute_shared(_southern_window(bodies.MARS, None))
-    assert shared.snow_a.max() == 0.0, (
-        f"a body with no snow layer painted snow (max alpha {shared.snow_a.max()}) — over all-land "
+    white, ice_a = _southern_white(bodies.MARS, None)
+    assert white.max() == 0.0, (
+        f"a body with no snow layer painted snow (max alpha {white.max()}) — over all-land "
         "high southern latitudes, which is the Antarctic patch firing on a planet that has none"
     )
-    assert shared.ice_a is None
+    assert ice_a is None
 
 
 def test_earth_still_forces_its_antarctic_land_white() -> None:
@@ -1175,8 +1094,8 @@ def test_earth_still_forces_its_antarctic_land_white() -> None:
     # All-zero, which is NSIDC's clustered fill rather than a hypothetical: the real raster
     # saturates over Antarctica and drops 9-14% of it to this, so the patch is the only source here.
     persistence = np.zeros((8, 16), dtype=np.float32)
-    shared = shade_planet._compute_shared(_southern_window(bodies.EARTH, persistence))
-    assert shared.snow_a.min() == 1.0, (
+    white, _ice = _southern_white(bodies.EARTH, persistence)
+    assert white.min() == 1.0, (
         "Earth stopped forcing its Antarctic land white — NSIDC-0791 saturates over most of the "
         "continent but leaves 9-14% of it as clustered fill that RGI's peripheral region 19 does "
         "not reach, so without this patch those holes render on the tan ramp"
@@ -1191,21 +1110,22 @@ def test_earths_antarctic_patch_survives_a_missing_persistence_raster() -> None:
     no file behind it. Under that tidy Earth's continent renders on the tan ramp the first time
     NSIDC-0791 is not where it was, with nothing missing that anyone would notice.
     """
-    shared = shade_planet._compute_shared(_southern_window(bodies.EARTH, None))
-    assert shared.snow_a.min() == 1.0, (
+    white, _ice = _southern_white(bodies.EARTH, None)
+    assert white.min() == 1.0, (
         "Earth's Antarctic land went unforced with no persistence raster — the patch reads no "
         "file, so no absent file should be able to switch it off"
     )
 
 
-def test_every_built_layer_names_the_raster_the_composite_reads(subtests) -> None:
+def test_every_built_layer_names_the_raster_the_planet_tier_reads(subtests) -> None:
     """Pinned against literals, because every consumer of these names now derives from this column.
 
     A dropped `warped_basename` takes its layer out of the warp, out of the window reads and out of
-    `composite_deps` in one edit — so the layer stops being painted AND stops being a dependency the
-    composite must be newer than, which is a stale pyramid that reports itself fresh forever.
+    the planet tier's dependency list in one edit — so the layer stops being painted AND stops being
+    a dependency the raster must be newer than, which is a stale pyramid that reports itself fresh
+    forever.
     """
-    assert {layer.name: layer.warped_basename for layer in layers.warped_for(layers.COMPOSITE_LAYERS)} == {
+    assert {layer.name: layer.warped_basename for layer in layers.warped_for(layers.PLANET_LAYERS)} == {
         "lake_depth": "lakedepth_3857.tif",
         "perennial_ice": "snow_persistence_3857.tif",
         "glaciers": "glacier_3857.tif",
@@ -1213,7 +1133,7 @@ def test_every_built_layer_names_the_raster_the_composite_reads(subtests) -> Non
         "antarctic_rock": "addrock_3857.tif",
     }
     with subtests.test("every composite layer builds a raster today"):
-        assert {layer.name for layer in layers.warped_for(layers.COMPOSITE_LAYERS)} == layers.COMPOSITE_LAYERS, (
+        assert {layer.name for layer in layers.warped_for(layers.PLANET_LAYERS)} == layers.PLANET_LAYERS, (
             "the two agree today but are set independently — a composite layer answered by pure "
             "arithmetic would carry no basename, so neither column may be derived from the other"
         )
@@ -1232,12 +1152,12 @@ def test_the_stage_vocabularies_together_cover_the_whole_one_and_nothing_else(su
     """
     for layer in layers.LAYERS:
         with subtests.test(layer.name):
-            assert layer.in_composite or layer.in_cap or layer.in_block, (
+            assert layer.in_planet or layer.in_cap or layer.in_block, (
                 f"{layer.name} is read by no stage — a body could declare it and nothing would "
                 f"ever build it, and `layers_off` would never mention it either"
             )
     with subtests.test("no stage is empty"):
-        assert layers.COMPOSITE_LAYERS and layers.CAP_LAYERS and layers.BLOCK_LAYERS
+        assert layers.PLANET_LAYERS and layers.CAP_LAYERS and layers.BLOCK_LAYERS
 
 
 def test_every_required_raster_is_one_the_planet_seam_can_emit(subtests) -> None:
@@ -1269,24 +1189,24 @@ def test_the_stages_disagree_about_which_layers_they_read(subtests) -> None:
     decision would restage a 46 GB planet. Over- and under-tracking are both silent.
 
     DERIVING THE VIEWS FROM ONE TABLE DID NOT MAKE THIS REDUNDANT — it is what keeps the table
-    honest. A wrong `in_composite` / `in_cap` / `in_block` column is exactly as silent as three
+    honest. A wrong `in_planet` / `in_cap` / `in_block` column is exactly as silent as three
     frozensets drifting apart was, so these literals are the hand-written expectation the derivation
     is checked against.
 
     THE BLOCK COLUMN NOW EQUALS THE COMPOSITE'S, AND THE PIN CHANGES JOBS RATHER THAN RETIRING.
     While the rig lacked an ice input the literals held `sea_ice` open as a stated gap; since it
     gained one, the equality is the hand-written expectation — and a NEW layer that copies
-    `in_composite` unexamined still fails here until its row is answered on purpose.
+    `in_planet` unexamined still fails here until its row is answered on purpose.
     """
     with subtests.test("cap only"):
-        assert layers.CAP_LAYERS - layers.COMPOSITE_LAYERS == {"coastline"}
+        assert layers.CAP_LAYERS - layers.PLANET_LAYERS == {"coastline"}
     with subtests.test("composite only"):
-        assert layers.COMPOSITE_LAYERS - layers.CAP_LAYERS == {"lake_depth", "glaciers"}
+        assert layers.PLANET_LAYERS - layers.CAP_LAYERS == {"lake_depth", "glaciers"}
     with subtests.test("block matches the composite exactly, and on purpose"):
         # The rig grew its ice input, so a raytraced Arctic paints pack instead of open teal
         # ocean; what remains block-versus-composite is agreement, pinned from both directions.
-        assert layers.COMPOSITE_LAYERS - layers.BLOCK_LAYERS == set()
-        assert layers.BLOCK_LAYERS - layers.COMPOSITE_LAYERS == set()
+        assert layers.PLANET_LAYERS - layers.BLOCK_LAYERS == set()
+        assert layers.BLOCK_LAYERS - layers.PLANET_LAYERS == set()
     with subtests.test("block against the caps"):
         assert layers.CAP_LAYERS - layers.BLOCK_LAYERS == {"coastline"}
         assert layers.BLOCK_LAYERS - layers.CAP_LAYERS == {"lake_depth", "glaciers"}
@@ -1306,7 +1226,7 @@ def test_the_rock_row_is_read_by_every_stage_that_forces_antarctic_white(subtest
     wrong, the differences would have moved and that test would have failed instead of this one.
     """
     with subtests.test("every stage"):
-        assert layers.ANTARCTIC_ROCK.in_composite
+        assert layers.ANTARCTIC_ROCK.in_planet
         assert layers.ANTARCTIC_ROCK.in_cap
         assert layers.ANTARCTIC_ROCK.in_block
     with subtests.test("no planet raster behind it"):
@@ -1322,7 +1242,7 @@ def test_layers_off_names_what_is_missing_and_stays_silent_when_nothing_is(subte
     """Off, never on. Earth answers with an empty list at every stage, which is what lets the
     callers' conditional record write nothing and leave a live 46 GB composite and a 14 GB cap
     render byte-identical."""
-    for name, vocabulary in (("composite", layers.COMPOSITE_LAYERS), ("cap", layers.CAP_LAYERS),
+    for name, vocabulary in (("composite", layers.PLANET_LAYERS), ("cap", layers.CAP_LAYERS),
                              ("block", layers.BLOCK_LAYERS)):
         with subtests.test(f"earth {name}"):
             assert layers.layers_off(bodies.EARTH, vocabulary) == []

@@ -31,16 +31,31 @@ import re
 import subprocess
 import sys
 import zipfile
+from pathlib import Path
 
 from pipeline import datasets, paths
-
-DATA = paths.DATA
-RASTER_DIR = DATA / "work/globathy/rasters"
-VRT_PATH = DATA / "work/globathy/lakedepth.vrt"
 
 MIN_BYTES = 10_000     # ~84% of all GLOBathy pixels in ~6% of its files (see docstring)
 CASPIAN_HYLAK_ID = 1   # handled by the ocean path via GEBCO -- never by the lake ramp
 NAME_RE = re.compile(r"/(\d+)_bathymetry\.tif$")
+
+
+def raster_dir() -> Path:
+    """Where the 83k per-lake extracts land.
+
+    RESOLVED AT CALL TIME rather than joined at import, which is `pipeline/paths.py`'s rule: a
+    module-level join binds the store before a test fixture or a `MAPS_DATA` override can move it,
+    and the writes then land in the real tree while every assertion reads the redirected one.
+    """
+    return paths.DATA / "work/globathy/rasters"
+
+
+def lake_vrt() -> Path:
+    """The mosaic VRT indexing every extracted lake, and the one place its location is spelled.
+
+    Read by `look/lake_depth.py` on the tile grid and `render/lake_mask.py` on the hero grid.
+    """
+    return paths.DATA / "work/globathy/lakedepth.vrt"
 
 
 def wanted(archive: zipfile.ZipFile) -> list[tuple[int, str]]:
@@ -54,11 +69,12 @@ def wanted(archive: zipfile.ZipFile) -> list[tuple[int, str]]:
 
 
 def extract(archive: zipfile.ZipFile, picks: list[tuple[int, str]]) -> int:
-    """Extract each pick to RASTER_DIR/<hylak_id>.tif via a .part + rename, so an
+    """Extract each pick to `raster_dir()`/<hylak_id>.tif via a .part + rename, so an
     interrupted run never leaves a truncated raster looking complete."""
     written = 0
+    rasters = raster_dir()
     for index, (hylak_id, member) in enumerate(picks, 1):
-        dest = RASTER_DIR / f"{hylak_id}.tif"
+        dest = rasters / f"{hylak_id}.tif"
         if dest.exists():
             continue
         part = dest.with_suffix(".part")
@@ -73,14 +89,16 @@ def extract(archive: zipfile.ZipFile, picks: list[tuple[int, str]]) -> int:
 
 def build_vrt(picks: list[tuple[int, str]]) -> None:
     """Index every extracted raster EXCEPT the Caspian into one mosaic VRT."""
-    sources = [str(RASTER_DIR / f"{hylak_id}.tif") for hylak_id, _ in picks
+    rasters = raster_dir()
+    sources = [str(rasters / f"{hylak_id}.tif") for hylak_id, _ in picks
                if hylak_id != CASPIAN_HYLAK_ID]
-    listing = VRT_PATH.parent / "vrt_sources.txt"
+    vrt_path = lake_vrt()
+    listing = vrt_path.parent / "vrt_sources.txt"
     listing.write_text("\n".join(sources) + "\n")
     print(f"gdalbuildvrt over {len(sources):,} rasters ...", flush=True)
     subprocess.run(["gdalbuildvrt", "-overwrite", "-input_file_list", str(listing),
-                    str(VRT_PATH)], check=True)
-    print(f"built {VRT_PATH}", flush=True)
+                    str(vrt_path)], check=True)
+    print(f"built {vrt_path}", flush=True)
 
 
 def main() -> int:
@@ -89,12 +107,13 @@ def main() -> int:
                         help="rebuild the VRT over already-extracted rasters")
     args = parser.parse_args()
 
-    RASTER_DIR.mkdir(parents=True, exist_ok=True)
+    rasters = raster_dir()
+    rasters.mkdir(parents=True, exist_ok=True)
     archive = zipfile.ZipFile(datasets.globathy_zip())
     picks = wanted(archive)
     total_gb = sum(info.file_size for info in archive.infolist()
                    if NAME_RE.search(info.filename) and info.file_size >= MIN_BYTES) / 1e9
-    print(f"{len(picks):,} rasters >= {MIN_BYTES:,} B ({total_gb:.2f} GB) -> {RASTER_DIR}",
+    print(f"{len(picks):,} rasters >= {MIN_BYTES:,} B ({total_gb:.2f} GB) -> {rasters}",
           flush=True)
 
     if not args.vrt_only:
