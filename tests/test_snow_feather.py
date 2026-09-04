@@ -25,7 +25,7 @@ EARTH = bodies.get("earth")
 GROUND_SCALE = bodies.ground_metres_per_mercator_unit(EARTH)
 
 #: Latitudes worth naming: the equator where the cell is square, 49N where the staircase is first
-#: measurable, and 79.5N where Rohan saw it on the globe.
+#: measurable, and 79.5N where it was first spotted on the live globe.
 EQUATOR, MID, POLAR = 0.0, 49.0, 79.5
 
 

@@ -346,7 +346,7 @@ EARTH_LOOK = Look(
 # domain's own.
 #
 # "NATURALIZED -7000" IS A DIFFERENT PROPOSAL AND IS NOT THIS: it restretches the whole ramp where
-# this only adds a tail. Rohan ratified this one on a rendered globe; that one is unrendered.
+# this only adds a tail. This one is ratified on a rendered globe; that one is unrendered.
 MARS_LAND_STOPS: list[Stop] = [
     (0.00000000, (0.108487, 0.045162, 0.026101)),  # -8600 m  below the measured floor
     (0.17687075, (0.187821, 0.078187, 0.045186)),  # -6000 m  p1, ships #804d35

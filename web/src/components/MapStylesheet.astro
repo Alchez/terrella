@@ -14,8 +14,8 @@
 // it into a render-blocking <link>, so **70 KB of widget CSS gated first paint** on a page where no
 // widget exists until the 265 KB globe chunk has downloaded and run. Measured: FCP 1,264 -> 629 ms.
 //
-// Imported from the package, never copied into public/ — the version is pinned and guarded
-// (vendoredPatches.test.ts), and a hand-copied stylesheet is the copy that silently stops matching.
+// Imported from the package, never copied into public/: the version is pinned exactly, and a
+// hand-copied stylesheet is the copy that silently stops matching the bundle it styles.
 import maplibreStylesheet from "maplibre-gl/dist/maplibre-gl.css?url";
 
 // The onload body lives here as a STRING rather than inline on the element. Written inline, Astro

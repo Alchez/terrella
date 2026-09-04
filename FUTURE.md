@@ -86,7 +86,7 @@ Not a lower tier. Nobody has written down what would make them worth doing, and 
 
 ## The detail card cannot state an elevation the DEM does not know (analysed 2026-08-27)
 
-The globe's detail card carries a country's name, its continent and a link, and nothing else. Elevation is the fact that would actually belong on a relief site, so it was scoped and then dropped, on Rohan's rule that a card reporting a wrong value for any country should not ship. What follows is the measurement, so nobody re-derives it.
+The globe's detail card carries a country's name, its continent and a link, and nothing else. Elevation is the fact that would actually belong on a relief site, so it was scoped and then dropped, on the rule that a card reporting a wrong value for any country should not ship. What follows is the measurement, so nobody re-derives it.
 
 **Two error sources, and they have OPPOSITE SIGNS, which is what makes this worse than either alone.**
 
@@ -197,7 +197,7 @@ Prompted by the graphics-modernization roadmap. Read it against the DEM-cache wo
 
 > **OPEN** · look-call · needs-gpu. Two of the three terms in the trade are measured. The third is the one that killed cast shadows twice, and nobody has priced it.
 
-Rohan ratified the raytraced rig's look and named one reservation: slightly too much saturation on the land, "mostly on the high-elev side of the colour ramp", explicitly not a dealbreaker. **The named axis is falsified and the ramp is not the lever.** Binned on hue so albedo is held fixed, with the luminance split inside each bin separating lit from shadowed, over 120 million pixels across twelve blocks spread from the Arctic to Antarctica:
+The raytraced rig's look was ratified with one reservation named: slightly too much saturation on the land, "mostly on the high-elev side of the colour ramp", explicitly not a dealbreaker. **The named axis is falsified and the ramp is not the lever.** Binned on hue so albedo is held fixed, with the luminance split inside each bin separating lit from shadowed, over 120 million pixels across twelve blocks spread from the Arctic to Antarctica:
 
 | surface | tone | pixels | saturation |
 |---|---|---:|---|
@@ -633,7 +633,7 @@ The working plan had become the project's only backlog as well as its live state
 - **The low-data path is unpriced at both ends.** Replacing `downlink` wants a pure `summariseTileTimings` over `PerformanceResourceTiming`, and `saveData` visitors are routed to a gallery that then serves everyone identically.
 - **The `Protocol` conversion for both ice registries**: no behaviour change, reversible, unscheduled.
 - **The next Mars pass rebuilds the ice caps and the ice tile layer.** The recovered units carry today's mtime and `_mars_sources` gates on mtimes, so the output is correct but not free.
-- **`data/raw` is written by `pipeline/acquire/*` alone**, so making it read-only on disk is the candidate that removes the target instead of detecting the write. Rohan's call, being 1.1 TB of his own data.
+- **`data/raw` is written by `pipeline/acquire/*` alone**, so making it read-only on disk is the candidate that removes the target instead of detecting the write. The maintainer's call, being 1.1 TB of their own data.
 
 ### A colour call and a product question
 

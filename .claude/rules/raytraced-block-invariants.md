@@ -31,9 +31,14 @@ the params recipe plus the planet rasters. So:
   - **Never assume a re-render is already owed.** Diff the on-disk sidecar against `params()` first.
     Equal means the next look change buys a whole pass on its own, so batch look changes rather than
     landing them one at a time.
-  - **What is spelled INLINE in the builder is invisible to all of this**, and is pinned instead by
-    `TestTheBuilderSpellsNoLookValueWhereTheRecipeCannotSeeIt`, which enumerates every such value.
-    Editing one of those is a red test, not a restage: that is a tripwire and not a fix.
+  - **The inline values are IN the structure now, so editing one restages like any other field.**
+    28 sites moved into `Rig`; the tripwire that pinned them by value is retired. What stays inline
+    is what a recipe should not carry: a Cycles sun lamp's position, which is a direction and not a
+    location, and the `use_nodes` and `data_type` settings that decide what a node factory builds
+    rather than how it looks. `TestTheBuilderSpellsNoLookValueWhereTheRecipeCannotSeeIt` holds that
+    line in both directions, and a field nothing reads is caught by
+    `test_every_rig_field_is_actually_read_by_the_builder`, since a recorded value the builder never
+    applies restages every block and moves no pixel.
   - It used to be a hand-written list policed by a scan for this module's ALL-CAPS names, and that
     scan was blind by construction to a value spelled inline in a function body. Three such values
     shipped. **Do not re-add the scan**: it is the mechanism the derivation replaced.
@@ -48,7 +53,7 @@ the params recipe plus the planet rasters. So:
     complete openable planet. Adding a raster read here means threading `work` to it.
 - **Every image node is built by `make_texture` from a `TextureSpec`**, and that is the only place
   one is configured. An interpolation or extension spelled at a call site is a look decision no
-  recipe can see; `test_no_pixel_moving_value_is_spelled_inline_in_the_builder` fails on it.
+  recipe can see; `test_every_inline_literal_in_the_builder_is_one_somebody_ruled_on` fails on it.
   - The table is recorded WHOLE rather than per look: the optional textures are declined by a body's
     planet seam, not by its look, so a planet that gained one would otherwise restage nothing.
   - **So WHICH textures a directory loads is free to change and WHAT THE TABLE CONTAINS is not**, and

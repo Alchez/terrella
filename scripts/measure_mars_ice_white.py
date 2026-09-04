@@ -87,7 +87,7 @@ RATIO_TOLERANCE = 0.02
 #:
 #: IT IS THE BASELINE BECAUSE THE WHITE STOPPED BEING DERIVED FROM IT. While a white was a function
 #: of the ice, holding the white to the ice tested both at once; an AUTHORED white departs on
-#: purpose, so the only question left for a machine is whether the ice Rohan judged is still the ice
+#: purpose, so the only question left for a machine is whether the ice that was judged is still the ice
 #: on disk. Re-measure and re-pin this only when a re-judged frame ratifies a new white, never to
 #: quiet an alarm — the alarm IS the finding that the judged frame has expired.
 ICE_RATIO_AT_RATIFICATION = {"north": 1.042, "south": 1.292}
@@ -299,8 +299,8 @@ def compare(measured, derived) -> int:
     tolerance on a value chosen deliberately, and an oracle that cries drift at a decision is an
     oracle nobody reads by the time it matters.
 
-    WHAT INVALIDATES A RATIFICATION IS THE SUBJECT MOVING, not the distance from it. Rohan judged a
-    frame of ice that measured `ICE_RATIO_AT_RATIFICATION`; if the ice's own hue drifts out of
+    WHAT INVALIDATES A RATIFICATION IS THE SUBJECT MOVING, not the distance from it. The ratified
+    frame of ice measured `ICE_RATIO_AT_RATIFICATION`; if the ice's own hue drifts out of
     tolerance, that frame has stopped describing the planet and the look decision needs re-taking.
     That is what this returns non-zero for.
 

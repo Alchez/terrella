@@ -17,7 +17,7 @@ A capability probe picks one pessimistically and upgrades from there; the visito
 ## How it's built
 
 - **Heroes**: Blender Cycles, from Copernicus GLO-30 land and GEBCO bathymetry fused into one heightfield. Low sun, coloured by elevation and depth, in an aesthetic Frank Ramspott's topographic renders helped define.
-- **Tiles**: a raster pyramid approximating that look without ray tracing, using hillshade, sky-view shading and the same ramps.
+- **Tiles**: the same rig again, ray traced block by block, so the globe and the heroes are lit by one renderer rather than by two that have to be kept agreeing.
 - **Mars is the same pipeline with a different body.** Exaggeration, zoom ceiling, ramp and radii all belong to the body. It arrives pre-fused, as the USGS MOLA/HRSC blend, so there is no fusion tier to run, and it has no ocean, borders or heroes.
 - **Delivery**: three PMTiles archives per body (relief, terrain-RGB, vectors), addressed `{body}/{layer}/{token}/{z}/{x}/{y}` so an address names its own archive. The browser never opens one; a tile server returns a single tile per request.
 

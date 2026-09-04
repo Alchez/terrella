@@ -620,6 +620,25 @@ SABOTAGES: list[Sabotage] = [
         replacement='    window.clearTimeout(restoreWatchdog);\n    glLostNotice?.setAttribute("hidden", "");\n    startRecoveryWatch(performance.now());',
         guard='NEVER hides the notice on the restore event alone — this is the whole bug',
     ),
+    # --- the constructor throw, after MapLibre moved GPUInitializationError out of `error` --------
+    Sabotage(
+        suite='web',
+        label='construction stops explaining a dead GPU, so the notice never goes up',
+        path='web/src/components/Globe.astro',
+        needle='      glLostNotice?.removeAttribute("hidden");\n    }\n    throw error;',
+        replacement='    }\n    throw error;',
+        guard='catches a GPUInitializationError thrown OUT of the constructor',
+    ),
+    Sabotage(
+        suite='web',
+        # The plausible wound, not a silly one: swallowing reads as "the notice already told them",
+        # and every line below the construction then runs against a map that was never built.
+        label='constructor failure is swallowed instead of re-raised',
+        path='web/src/components/Globe.astro',
+        needle='    throw error;\n  }\n\n  map.setVerticalFieldOfView(',
+        replacement='  }\n\n  map.setVerticalFieldOfView(',
+        guard='catches a GPUInitializationError thrown OUT of the constructor',
+    ),
     Sabotage(
         suite='web',
         label='amnesty window stops expiring old losses',
@@ -5081,14 +5100,24 @@ SABOTAGES: list[Sabotage] = [
     # --- the inline-literal scan, which had a positive control and no mutation case -------------
     Sabotage(
         suite='python',
-        # A pinned value CHANGES. This is the whole reason the pin records the value rather than the
-        # attribute: subdivision levels are geometry, `rig_recipe` cannot see them, and every
-        # rendered block would go on reading fresh at a different mesh density.
-        label='a pinned look value changes and the pin still lists the old one',
+        # A value goes BACK to being spelled inline, which is the state the sweep took this module
+        # out of. The old case here mutated the literal itself and was retired with it: `rig_recipe`
+        # reads these from `Rig` now, so changing one restages honestly and is no longer a defect.
+        label='a look value returns to an inline literal the recipe cannot see',
         path='pipeline/render/scene_build.py',
-        needle='    mod.levels = 1',
+        needle='    mod.levels = RIG.subdivision_levels',
         replacement='    mod.levels = 3',
         guard='test_every_inline_literal_in_the_builder_is_one_somebody_ruled_on',
+    ),
+    Sabotage(
+        suite='python',
+        # The other direction, which had no case because it had no guard: a field recorded in the
+        # recipe that the builder never applies restages every block for a pixel that cannot move.
+        label='a rig field is recorded in the recipe and never read by the builder',
+        path='pipeline/render/scene_build.py',
+        needle='    cam.clip_end = RIG.camera_clip_end',
+        replacement='    cam.clip_end = 100.0',
+        guard='test_every_rig_field_is_actually_read_by_the_builder',
     ),
     Sabotage(
         suite='python',
@@ -5097,8 +5126,8 @@ SABOTAGES: list[Sabotage] = [
         # this list for a description of a module it no longer matches.
         label='a ruling names a site the builder does not have',
         path='tests/test_scene_build_sync.py',
-        needle='        ".denoising_quality = \'HIGH\'",',
-        replacement='        ".denoising_quality = \'HIGH\'",\n        ".made_up = \'NOTHING\'",',
+        needle='        ".data_type = \'RGBA\'",',
+        replacement='        ".data_type = \'RGBA\'",\n        ".made_up = \'NOTHING\'",',
         guard='test_every_inline_literal_in_the_builder_is_one_somebody_ruled_on',
     ),
     Sabotage(
@@ -5160,8 +5189,9 @@ SABOTAGES: list[Sabotage] = [
         # arrives as an auto-name that no literal in the module spells either.
         label='a directly created node is left unnamed',
         path='pipeline/render/scene_build.py',
-        needle='        rowscale.name = "Row Scale Multiply"\n        rowscale.operation = "MULTIPLY"',
-        replacement='        rowscale.operation = "MULTIPLY"',
+        needle='        rowscale.name = "Row Scale Multiply"\n'
+               '        rowscale.operation = RIG.rowscale_operation',
+        replacement='        rowscale.operation = RIG.rowscale_operation',
         guard='test_every_node_the_builder_creates_is_given_a_name',
     ),
     Sabotage(
@@ -8172,9 +8202,20 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the resolver stops reading the body and answers Earth for every planet',
         path='pipeline/profile/pass_memory.py',
-        needle='    return CAP_RENDERING_GIB if body.renders_polar_caps else STANDING_GIB',
-        replacement='    return CAP_RENDERING_GIB',
-        guard='test_a_capless_body_gets_the_standing_cap',
+        needle='    if body.renders_polar_caps:\n        return CAP_RENDERING_GIB',
+        replacement='    if True:\n        return CAP_RENDERING_GIB',
+        guard='test_a_capless_body_at_the_measured_grid_gets_the_standing_cap',
+    ),
+    # The scale half of the same resolver, which the case above cannot reach: it collapses the two
+    # capless arms rather than the capped one, so every assertion about "a capless body" still holds
+    # and only the body nobody has measured is answered wrongly.
+    Sabotage(
+        suite='python',
+        label='an unmeasured capless body silently takes the cap measured on a quarter its area',
+        path='pipeline/profile/pass_memory.py',
+        needle='    if body.tile_max_zoom > STANDING_MEASURED_MAX_ZOOM:',
+        replacement='    if False:',
+        guard='test_a_capless_body_larger_than_the_measurement_does_not_get_the_standing_cap',
     ),
     # The tidiest-looking of the four: two constants that agree are one constant, and collapsing them
     # leaves a resolver that still branches, still reads the body, and still answers.
@@ -9007,7 +9048,7 @@ SABOTAGES: list[Sabotage] = [
         replacement='    searchToggle.setAvailable(true, `${searchLabel} (loading the catalogue)`);',
         guard='greys the button until the catalogue lands, rather than looking live and doing nothing',
     ),
-    # THE SECOND ROUND, ALL FOUR REPORTED BY ROHAN LOOKING AT THE PAGE. Each wound below leaves a
+    # THE SECOND ROUND, ALL FOUR FOUND BY LOOKING AT THE PAGE RATHER THAN THE CODE. Each wound below leaves a
     # panel that renders exactly as designed in a screenshot — what breaks is reachability, or what
     # is underneath, neither of which a still can carry.
     Sabotage(

@@ -437,9 +437,13 @@ describe("?skirt=auto|none — which seam artifact you get", () => {
     // ever moves to a post-construction call it will look like it works and change nothing.
     const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
     expect(globe).toContain("terrainSkirtLength: terrainSkirtMode");
-    const constructorAt = globe.indexOf("new maplibregl.Map({");
-    expect(constructorAt).toBeGreaterThan(-1);
-    expect(globe.indexOf("const terrainSkirtMode =")).toBeLessThan(constructorAt);
+    // Anchored on the OPTIONS rather than on `new Map(`: the options were hoisted out of the call
+    // so the construction could sit in a try that explains a GPU failure, and this guard broke
+    // silently on the literal `new maplibregl.Map({` it used to search for. What it is really
+    // asserting is that the mode is decided before the object carrying it is built.
+    const optionsAt = globe.indexOf("const mapOptions = {");
+    expect(optionsAt, "the constructor's options object must still be findable").toBeGreaterThan(-1);
+    expect(globe.indexOf("const terrainSkirtMode =")).toBeLessThan(optionsAt);
   });
 });
 

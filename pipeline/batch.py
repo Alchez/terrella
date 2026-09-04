@@ -263,6 +263,17 @@ def main() -> int:
           f"{f'{cap_gib:.0f} GiB' if use_cap else 'unavailable'}"
           f"{' [DRY-RUN]' if args.dry_run else ''}", flush=True)
 
+    # A CAP THAT SILENTLY BECOMES NO CAP IS THE ONE FAILURE THIS ANNOUNCEMENT EXISTS FOR. The status
+    # line above carries `cgroup-cap=unavailable` as one field among four, which is invisible at the
+    # head of a ten-hour run. Running on rather than refusing is deliberate and is about portability:
+    # a box without systemd user scopes should still be able to render heroes. What it must not do is
+    # let the operator believe the ratified ceiling is holding when nothing is enforcing it.
+    if not use_cap and not args.dry_run:
+        print(f"\n  !! NO CGROUP CAP IS IN FORCE. systemd --user scopes cannot enforce MemoryMax\n"
+              f"     here, so the render stage runs with nothing bounding it and a bad frame can\n"
+              f"     take the desktop with it. The ratified ceiling is {cap_gib:.0f} GiB\n"
+              f"     (`pass_memory.HEAVY_JOB_GIB`) and this run cannot honour it.\n", flush=True)
+
     outcomes: dict[str, list[str]] = {}
     for slug in slugs:
         resolved = resolve(slug, scope[slug], cfg)

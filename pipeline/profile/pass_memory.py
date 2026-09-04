@@ -68,11 +68,30 @@ CAP_RENDERING_GIB = 16
 #: registered bodies render caps and no run takes this branch, and it is the question to answer
 #: before one does rather than a number to guess at now. `MEMORY_CAP_OVERRIDE_GIB` is the escape
 #: hatch in the meantime, and it announces itself.
+#:
+#: THE BRANCH BELOW IS WHAT MAKES THAT PARAGRAPH ACT RATHER THAN WARN. It was a comment for as long
+#: as it took `tests/test_run_pass_preflight` to pin `limit_gib` on a capless body built off EARTH,
+#: which is precisely the case this paragraph calls unbacked -- so the file describing the gap and
+#: the file asserting there was none were the same pair of hands.
 STANDING_GIB = 12
+
+#: The deepest grid `STANDING_GIB` was measured on: Mars's z7, a 65536 square raster.
+#:
+#: A LITERAL, NOT `bodies.MARS.tile_max_zoom`, and the difference is the whole guard. Read off the
+#: registry it would follow Mars wherever it went, so cutting Mars one level deeper would re-declare
+#: 12 as backing a grid four times the area without anyone measuring anything -- a number moving
+#: because a different body moved. `test_the_measured_zoom_is_still_the_one_mars_actually_runs`
+#: holds the two together, so that change lands as a request to re-measure.
+#:
+#: WHY ZOOM AND NOT `block_plan.grid_px`, which is the quantity actually meant. This module is the
+#: preflight: `run_pass.sh` runs it as a subprocess before any scope opens, and `block_plan` imports
+#: numpy behind it. `grid_px` is `CELL_PX << tile_max_zoom`, so the orderings are identical, and the
+#: equivalence is asserted in the tests rather than assumed here.
+STANDING_MEASURED_MAX_ZOOM = 7
 
 #: The ceiling any heavy job on this box runs under, in GiB. **A RATIFIED POLICY, NOT A
 #: MEASUREMENT**, which is what separates it from the two numbers above: those are sized off real
-#: passes, this is Rohan's call about how much of a 30 GiB box a single job may take before the
+#: passes, this is a maintainer's call about how much of a 30 GiB box a single job may take before the
 #: desktop is at risk, and it holds whatever a given job happens to peak at. Anything that needs a
 #: cap and has no measured pass behind it takes this one -- the hero batch is the first such caller,
 #: and it previously derived `0.85 * MemTotal`, which scales the blast radius with the machine
@@ -103,8 +122,36 @@ def limit_gib(body: bodies.Body) -> int:
       in a Blender subprocess with a mosaic writer beside it. Nothing has run one. That is a gap in
       the measurements rather than a missing branch, and `STANDING_GIB` records the other half of
       the same gap.
+
+    THE CAPLESS BRANCH IS SPLIT BY SCALE, because `STANDING_GIB` is a measured PLANET and a body
+    can be capless at any size. Mars's z7 is where the 5.91 GiB came from; a capless body deeper
+    than that is outside the range of that measurement rather than inside it with less headroom,
+    and the difference matters because the two arms fail in opposite directions. Too high risks the
+    box; too low kills the pass inside its own cgroup with nothing on record saying why, which is
+    the failure that reads as a bug in the stage.
+
+    SO THE UNMEASURED CASE TAKES THE RATIFIED CEILING, WHICH IS A POLICY AND NOT A GUESS. It says
+    "nobody has measured this body, so take the most the box allows", and `run_pass.sh`'s
+    `MemAvailable` preflight then refuses honestly on a box that cannot back it. Returning
+    `STANDING_GIB` there would instead clear that preflight and hand the pass a cap sized for a
+    quarter of its raster. Announced rather than raised, so `MEMORY_CAP_OVERRIDE_GIB` -- which
+    `run_pass.sh` reads AFTER this resolver -- stays reachable; raising would abort the run one line
+    before the escape hatch this module's own note promises.
     """
-    return CAP_RENDERING_GIB if body.renders_polar_caps else STANDING_GIB
+    if body.renders_polar_caps:
+        return CAP_RENDERING_GIB
+    if body.tile_max_zoom > STANDING_MEASURED_MAX_ZOOM:
+        # STDERR, NEVER STDOUT: `main` prints the cap on stdout and `run_pass.sh` reads that as the
+        # number, so a note written there would be captured into the shell's `MEMORY_CAP_GIB`.
+        print(f"\n  !! THIS BODY'S CAP IS UNMEASURED. {body.name} renders no polar caps, so the "
+              f"standing\n     {STANDING_GIB} GiB would normally apply -- but that figure is "
+              f"Mars's z{STANDING_MEASURED_MAX_ZOOM} grid, and this body\n     cuts to "
+              f"z{body.tile_max_zoom}, whose raster is "
+              f"{4 ** (body.tile_max_zoom - STANDING_MEASURED_MAX_ZOOM)}x the area. Falling back to "
+              f"the ratified\n     ceiling of {HEAVY_JOB_GIB} GiB, which is a policy rather than a "
+              f"measurement of this body.\n", file=sys.stderr, flush=True)
+        return HEAVY_JOB_GIB
+    return STANDING_GIB
 
 
 def limit_for_argv(argv: list[str]) -> int:

@@ -1,5 +1,5 @@
 {
-  "name": "home-rohan-projects-maps-frontend-web",
+  "name": "terrella-web",
   "type": "module",
   "version": "0.0.1",
   "engines": {
@@ -24,7 +24,7 @@
   },
   "dependencies": {
     "astro": "^7.1.3",
-    "maplibre-gl": "6.3.0",
+    "maplibre-gl": "6.7.0",
     "pmtiles": "4.4.1"
   },
   "devDependencies": {

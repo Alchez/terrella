@@ -7,7 +7,7 @@
  * survivable when the rule gained a switch, because a preference honoured in one copy and not the
  * other is a globe that half obeys its own control, on whichever body was edited second.
  *
- * THE NAME CHIP IS PART OF THE DECORATION, NOT A NEIGHBOUR OF IT. Rohan's rule: a visitor who
+ * THE NAME CHIP IS PART OF THE DECORATION, NOT A NEIGHBOUR OF IT. The rule is that a visitor who
  * switches this off is asking not to have the thing under the pointer dressed up, and a floating
  * label is exactly that. So the chip is driven from here rather than from the tracker's callback,
  * which is also what stops the two from disagreeing — a switch repaints both or neither.

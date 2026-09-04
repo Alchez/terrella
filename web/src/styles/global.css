@@ -215,7 +215,7 @@ a {
 }
 /* THE POINTER CONTROL IS NOT OFFERED WHERE THERE IS NO POINTER. A finger cannot rest on a country
    without selecting it, so on touch the thing this switches is a tap artefact rather than a hover
-   state, and a control named for a pointer is one the device cannot exercise. Rohan's rule: a
+   state, and a control named for a pointer is one the device cannot exercise. The rule is that a
    tablet still SEES the highlight when it selects a country, and that is all it gets.
 
    `hover` asks about the PRIMARY input, which is the question worth asking — a laptop with a

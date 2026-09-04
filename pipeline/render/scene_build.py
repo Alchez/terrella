@@ -256,6 +256,46 @@ class Rig:
     #: it, so no change of tone map could restage anything.
     view_transform: str
 
+    subdivision_type: str
+    #: Viewport and render subdivision. Only the second reaches a rendered pixel; the first is here
+    #: because a mismatch between them is how a frame that previewed correctly renders coarse.
+    subdivision_levels: int
+    subdivision_render_levels: int
+    use_adaptive_subdivision: bool
+    camera_type: str
+    camera_clip_end: float
+    #: The FILL sun's shadow, not the main one's. It is off so the fill lifts shadowed faces
+    #: without casting a second set of its own.
+    fill_casts_shadow: bool
+    map_range_clamp: bool
+    mix_blend_type: str
+    mix_clamp_factor: bool
+    displacement_method: str
+    displacement_space: str
+    #: The B input of the ice-flatten mix: the height ice is pulled toward, in displacement units.
+    ice_flatten_floor: float
+    rowscale_operation: str
+    rowscale_use_clamp: bool
+    bsdf_roughness: float
+    engine: str
+    image_file_format: str
+    image_color_mode: str
+    #: What Cycles RENDERS on. `configure_render`'s `denoise_device` argument is a different
+    #: question and stays a caller decision, for the reason its own docstring gives.
+    device: str
+    #: The quasi-random sequence the path tracer walks. PINNED BECAUSE IT WAS AN UNRECORDED BLENDER
+    #: DEFAULT, and the value is continuity rather than a quality finding: 5.1.2 defaults to
+    #: TABULATED_SOBOL and 5.2.1 to AUTOMATIC, so the two versions built different scenes and every
+    #: pixel of the planet on disk was drawn with this one. Which pattern is BEST is a separate
+    #: question this does not answer.
+    sampling_pattern: str
+    use_adaptive_sampling: bool
+    use_denoising: bool
+    denoiser: str
+    denoising_input_passes: str
+    denoising_prefilter: str
+    denoising_quality: str
+
 
 RIG = Rig(
     displacement_midlevel=0.0,
@@ -282,6 +322,33 @@ RIG = Rig(
     clamp_indirect=10.0,
     image_colorspace="Non-Color",
     view_transform="Khronos PBR Neutral",
+    subdivision_type="SIMPLE",
+    subdivision_levels=1,
+    subdivision_render_levels=2,
+    use_adaptive_subdivision=True,
+    camera_type="ORTHO",
+    camera_clip_end=100.0,
+    fill_casts_shadow=False,
+    map_range_clamp=True,
+    mix_blend_type="MIX",
+    mix_clamp_factor=True,
+    displacement_method="DISPLACEMENT",
+    displacement_space="OBJECT",
+    ice_flatten_floor=0.0,
+    rowscale_operation="MULTIPLY",
+    rowscale_use_clamp=False,
+    bsdf_roughness=1.0,
+    engine="CYCLES",
+    image_file_format="PNG",
+    image_color_mode="RGBA",
+    device="GPU",
+    sampling_pattern="TABULATED_SOBOL",
+    use_adaptive_sampling=True,
+    use_denoising=True,
+    denoiser="OPENIMAGEDENOISE",
+    denoising_input_passes="RGB_ALBEDO_NORMAL",
+    denoising_prefilter="ACCURATE",
+    denoising_quality="HIGH",
 )
 
 @dataclasses.dataclass(frozen=True)
@@ -467,8 +534,57 @@ def make_texture(nt, render_dir, spec: TextureSpec):
     return node
 
 
+#: GPU backends best-first, from Blender's own `enum_device_type` minus `CPU`.
+#:
+#: THE ORDER IS A PREFERENCE, THE MEMBERSHIP IS NOT. Anything here that Blender reports as present
+#: is acceptable; what must never appear is `CPU` or `NONE`, because taking either is the silent
+#: fallback this whole mechanism exists to refuse. OPTIX leads because it uses the RT cores and is
+#: the only one measured on this box. HIP, ONEAPI and METAL are written from the same derivation and
+#: are exercised by no hardware here, which is worth knowing before trusting them.
+GPU_BACKENDS = ("OPTIX", "HIP", "ONEAPI", "METAL", "CUDA")
+
+
+def choose_compute_backend(available):
+    """The best GPU backend among those Blender reports, or raise rather than fall back.
+
+    A CPU RENDER IS A FAILURE AND NOT A DEGRADED MODE. Measured on 5.2.1, whose per-version
+    preferences directory did not exist: `compute_device_type` read NONE, the block rendered on the
+    CPU, and it took 384.7 s against 54.0 s for pixels that were correct. Nothing on disk differed,
+    so no gate could catch it and a full Earth pass would have taken about 82 hours.
+    """
+    for backend in GPU_BACKENDS:
+        if backend in available:
+            return backend
+    raise RuntimeError(
+        f"no GPU backend among {sorted(available)}: Cycles would render on the CPU, which is "
+        f"correct and roughly seven times slower. Wanted one of {list(GPU_BACKENDS)}.")
+
+
+def select_compute_device(preferences):
+    """Set the compute backend from what this build reports, and enable its devices.
+
+    DERIVED PER RUN, NEVER READ FROM SAVED PREFERENCES. Those live in
+    `~/.config/blender/<version>/`, so they are outside this repo, unversioned, and absent on any
+    Blender the box has not run interactively -- which is every upgrade, every fresh checkout and
+    every other machine.
+    """
+    preferences.get_devices()
+    backend = choose_compute_backend({device.type for device in preferences.devices})
+    preferences.compute_device_type = backend
+    # Re-read: the device list is rebuilt per backend, so the objects fetched above belong to
+    # whatever backend was selected before this call.
+    preferences.get_devices()
+    for device in preferences.devices:
+        device.use = device.type == backend
+    if preferences.compute_device_type != backend:
+        raise RuntimeError(f"asked for {backend} and this build kept "
+                           f"{preferences.compute_device_type!r}")
+    return backend
+
+
 def clear_scene():
-    """Empty the startup scene but keep user preferences (OptiX device)."""
+    """Empty the startup scene. The compute device is `select_compute_device`'s and is set per run,
+    so nothing here depends on a preferences file surviving."""
     for ob in list(bpy.data.objects):
         bpy.data.objects.remove(ob, do_unlink=True)
     for block in (bpy.data.meshes, bpy.data.materials, bpy.data.lights,
@@ -537,18 +653,18 @@ def build_plane(height, patches_per_edge):
         bpy.ops.mesh.subdivide(number_cuts=patches_per_edge - 1)
         bpy.ops.object.mode_set(mode="OBJECT")
     mod = ob.modifiers.new("Subdivision", "SUBSURF")
-    mod.subdivision_type = "SIMPLE"
-    mod.levels = 1
-    mod.render_levels = 2
-    mod.use_adaptive_subdivision = True
+    mod.subdivision_type = RIG.subdivision_type
+    mod.levels = RIG.subdivision_levels
+    mod.render_levels = RIG.subdivision_render_levels
+    mod.use_adaptive_subdivision = RIG.use_adaptive_subdivision
     return ob
 
 
 def build_camera(ortho_scale, offset=(0.0, 0.0)):
     cam = bpy.data.cameras.new("Camera")
-    cam.type = "ORTHO"
+    cam.type = RIG.camera_type
     cam.ortho_scale = ortho_scale
-    cam.clip_end = 100.0
+    cam.clip_end = RIG.camera_clip_end
     ob = bpy.data.objects.new("Camera", cam)
     ob.location = (*offset, 5.0)
     bpy.context.collection.objects.link(ob)
@@ -585,7 +701,7 @@ def build_fill(azimuth_delta_deg=0.0):
     sun = bpy.data.lights.new("Fill", "SUN")
     sun.energy = RIG.fill_strength
     sun.angle = RIG.fill_angle
-    sun.use_shadow = False
+    sun.use_shadow = RIG.fill_casts_shadow
     ob = bpy.data.objects.new("Fill", sun)
     ob.rotation_euler = rotate_arrival(RIG.fill_rotation, azimuth_delta_deg)
     bpy.context.collection.objects.link(ob)
@@ -629,7 +745,7 @@ def make_map_range(nt, name, label, from_range, to_range):
     map_range_node = nt.nodes.new("ShaderNodeMapRange")
     map_range_node.name, map_range_node.label = name, label
     map_range_node.data_type = "FLOAT"
-    map_range_node.clamp = True
+    map_range_node.clamp = RIG.map_range_clamp
     map_range_node.inputs["From Min"].default_value = from_range[0]
     map_range_node.inputs["From Max"].default_value = from_range[1]
     map_range_node.inputs["To Min"].default_value = to_range[0]
@@ -641,8 +757,8 @@ def make_mix(nt, name, label):
     mix_node = nt.nodes.new("ShaderNodeMix")
     mix_node.name, mix_node.label = name, label
     mix_node.data_type = "RGBA"
-    mix_node.blend_type = "MIX"
-    mix_node.clamp_factor = True
+    mix_node.blend_type = RIG.mix_blend_type
+    mix_node.clamp_factor = RIG.mix_clamp_factor
     return mix_node
 
 
@@ -658,8 +774,8 @@ def make_float_mix(nt, name, label):
     mix_node = nt.nodes.new("ShaderNodeMix")
     mix_node.name, mix_node.label = name, label
     mix_node.data_type = "FLOAT"
-    mix_node.blend_type = "MIX"
-    mix_node.clamp_factor = True
+    mix_node.blend_type = RIG.mix_blend_type
+    mix_node.clamp_factor = RIG.mix_clamp_factor
     return mix_node
 
 
@@ -678,7 +794,7 @@ def build_material(ob, render_dir, displacement_scale, look, present):
     """
     mat = bpy.data.materials.new("Terrain")
     mat.use_nodes = True
-    mat.displacement_method = "DISPLACEMENT"
+    mat.displacement_method = RIG.displacement_method
     nt = mat.node_tree
     for node in list(nt.nodes):
         nt.nodes.remove(node)
@@ -701,7 +817,7 @@ def build_material(ob, render_dir, displacement_scale, look, present):
 
     disp = nt.nodes.new("ShaderNodeDisplacement")
     disp.name = "Displacement"
-    disp.space = "OBJECT"
+    disp.space = RIG.displacement_space
     disp.inputs["Midlevel"].default_value = RIG.displacement_midlevel
     # Live on the hero path and overridden on the block path, where the rowscale Math node below
     # drives this socket instead. Not a second owner of the constant despite appearing twice: a
@@ -766,7 +882,7 @@ def build_material(ob, render_dir, displacement_scale, look, present):
         ice = make_mix(nt, "Ice Mix", "Ice")
         mix_socket(ice, "B").default_value = declared_albedo(render_dir, render_seam.SEAICE)
         ice_flatten = make_float_mix(nt, "Ice Flatten", "Ice Flatten")
-        float_socket(ice_flatten, "B").default_value = 0.0  # sea level
+        float_socket(ice_flatten, "B").default_value = RIG.ice_flatten_floor  # sea level
         print(f"{render_seam.SEAICE} declared — wiring Ice mix + displacement damp", flush=True)
 
     # THE DRIVEN SOCKET IS SCALE AND NOT HEIGHT, for two reasons that outlast today's constants.
@@ -778,14 +894,14 @@ def build_material(ob, render_dir, displacement_scale, look, present):
         tex[rowscale_spec.name] = make_texture(nt, render_dir, rowscale_spec)
         rowscale = nt.nodes.new("ShaderNodeMath")
         rowscale.name = "Row Scale Multiply"
-        rowscale.operation = "MULTIPLY"
-        rowscale.use_clamp = False  # the correction leaves 1.0 in both directions
+        rowscale.operation = RIG.rowscale_operation
+        rowscale.use_clamp = RIG.rowscale_use_clamp  # leaves 1.0 in both directions
         rowscale.inputs[1].default_value = displacement_scale
         print(f"{render_seam.ROWSCALE} declared — wiring per-row displacement scale", flush=True)
 
     bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
     bsdf.name = "Principled BSDF"
-    bsdf.inputs["Roughness"].default_value = 1.0
+    bsdf.inputs["Roughness"].default_value = RIG.bsdf_roughness
     out = nt.nodes.new("ShaderNodeOutputMaterial")
     out.name = "Material Output"
 
@@ -866,19 +982,20 @@ def configure_render(res_x, res_y, *, denoise_device):
         raise ValueError(f"denoise_device must be 'cpu' or 'gpu', not {denoise_device!r}")
     scene = bpy.context.scene
     render_settings, cycles_settings = scene.render, scene.cycles
-    render_settings.engine = "CYCLES"
+    render_settings.engine = RIG.engine
     render_settings.resolution_x, render_settings.resolution_y = res_x, res_y
-    render_settings.image_settings.file_format = "PNG"
-    render_settings.image_settings.color_mode = "RGBA"
-    cycles_settings.device = "GPU"
+    render_settings.image_settings.file_format = RIG.image_file_format
+    render_settings.image_settings.color_mode = RIG.image_color_mode
+    cycles_settings.device = RIG.device
+    cycles_settings.sampling_pattern = RIG.sampling_pattern
     cycles_settings.samples = RIG.samples
-    cycles_settings.use_adaptive_sampling = True
+    cycles_settings.use_adaptive_sampling = RIG.use_adaptive_sampling
     cycles_settings.adaptive_threshold = RIG.adaptive_threshold
-    cycles_settings.use_denoising = True
-    cycles_settings.denoiser = "OPENIMAGEDENOISE"
-    cycles_settings.denoising_input_passes = "RGB_ALBEDO_NORMAL"
-    cycles_settings.denoising_prefilter = "ACCURATE"
-    cycles_settings.denoising_quality = "HIGH"
+    cycles_settings.use_denoising = RIG.use_denoising
+    cycles_settings.denoiser = RIG.denoiser
+    cycles_settings.denoising_input_passes = RIG.denoising_input_passes
+    cycles_settings.denoising_prefilter = RIG.denoising_prefilter
+    cycles_settings.denoising_quality = RIG.denoising_quality
     cycles_settings.denoising_use_gpu = denoise_device == "gpu"
     cycles_settings.dicing_rate = RIG.dicing_rate
     cycles_settings.max_subdivisions = RIG.max_subdivisions
@@ -960,6 +1077,7 @@ def main():
                  f"the two is wrong and the render would be plausible either way")
 
     clear_scene()
+    backend = select_compute_device(bpy.context.preferences.addons["cycles"].preferences)
     configure_render(frame["res_x"], frame["res_y"], denoise_device=args.denoise_device)
     # ECHOED SO A CALLER CAN ASSERT IT. A flag that failed to arrive would otherwise render on the
     # CPU while the caller's recipe records "gpu", which is the producer-declares rule inverted into
@@ -996,7 +1114,6 @@ def main():
     build_material(plane, render_dir, frame["displacement_scale"], look,
                    render_seam.declared(render_dir))
 
-    prefs = bpy.context.preferences.addons["cycles"].preferences
     print(f"body {args.body}, {'sea' if look.sea is not None else 'no sea'}; ", flush=True)
     # ECHOED SO A CALLER CAN ASSERT IT, for `--denoise-device`'s reason: a base grid that failed to
     # be cut renders successfully, a little soft, and leaves nothing on disk that differs. The
@@ -1006,8 +1123,7 @@ def main():
     print(f"plane 2.0 x {frame['plane_height_units']:.6f}; "
           f"ortho {frame['ortho_scale']:.6f}; "
           f"displacement {frame['displacement_scale']:.6e}; "
-          f"res {frame['res_x']} x {frame['res_y']}; compute device "
-          f"{getattr(prefs, 'compute_device_type', '?')}", flush=True)
+          f"res {frame['res_x']} x {frame['res_y']}; compute device {backend}", flush=True)
     bpy.ops.wm.save_as_mainfile(filepath=str(args.out.resolve()),
                                 relative_remap=True)
     print(f"saved {args.out}", flush=True)

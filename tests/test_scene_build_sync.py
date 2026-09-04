@@ -706,6 +706,27 @@ class TestTheRecipeIsDerivedRatherThanEnumerated:
         recipe = scene_build.rig_recipe(palette.EARTH_LOOK)
         assert recipe["rig"]["view_transform"] == scene_build.RIG.view_transform
 
+    def test_every_rig_field_is_actually_read_by_the_builder(self, scene_build, subtests):
+        """The derivation's OTHER direction, and it had no guard until the inline sweep needed one.
+
+        Every check above asks whether the recipe carries the structure. None asks whether the
+        structure carries anything the builder applies, so a field that no `RIG.<name>` ever reads
+        is recorded, restages every block when it changes, and reaches no pixel — a whole planet
+        re-rendered for a value nothing consumes. A misspelled field name lands exactly there and
+        the suite stays green, which is how 26 fields arriving at once could go wrong quietly.
+
+        SOURCE TEXT, because the claim is about the builder's spelling and not about a runtime
+        value: reading it any other way compares two vocabularies.
+        """
+        source = Path(scene_build.__file__).read_text(encoding="utf-8")
+        fields = [field.name for field in dataclasses.fields(scene_build.RIG)]
+        assert len(fields) > 20, "too few fields for this scan to be meaningful"
+        for name in fields:
+            with subtests.test(field=name):
+                assert f"RIG.{name}" in source, (
+                    f"`Rig.{name}` is in the recipe and no `RIG.{name}` appears in the builder, so "
+                    f"changing it restages every block and moves no pixel")
+
     def test_no_rig_constant_is_left_at_module_level(self, scene_build):
         """The conversion is only worth doing if it is complete.
 
@@ -720,7 +741,11 @@ class TestTheRecipeIsDerivedRatherThanEnumerated:
         identically. A value that changes a rendered pixel while the rest of the frame arithmetic
         stands still belongs in `Rig`, however few pixels it moves.
         """
-        allowed = {"TEXTURES", "SEA_IMAGE", "RIG", "PLANE_WIDTH_UNITS"}
+        # `GPU_BACKENDS` names HARDWARE, not a value the renderer applies: it orders the chips
+        # Cycles may run on, where `RIG.device` is the setting that reaches the scene. Whether two
+        # backends agree pixel-for-pixel is UNMEASURED here, and if they do not, the backend that
+        # was chosen belongs in the recipe rather than this list.
+        allowed = {"TEXTURES", "SEA_IMAGE", "RIG", "PLANE_WIDTH_UNITS", "GPU_BACKENDS"}
         stragglers = {name for name in vars(scene_build)
                       if name.isupper() and not name.startswith("_") and name not in allowed}
         assert not stragglers, f"still module-level capitals: {sorted(stragglers)}"
@@ -808,49 +833,23 @@ class TestTheBuilderSpellsNoLookValueWhereTheRecipeCannotSeeIt:
         ".location = (4.076245, 1.005454, 5.903862)",
     })
 
-    #: Inline literals that DO reach a pixel and that `rig_recipe` therefore cannot see. In file
-    #: order, so the sweep can be walked top to bottom.
+    #: Inline literals that are not values anyone tunes: any other setting stops the builder being
+    #: what its own name says it is, so there is nothing here for a recipe to track.
     #:
-    #: PINNED RATHER THAN FIXED, AND THE PIN IS WHAT MAKES DEFERRING SAFE. `rig_recipe` is
-    #: `asdict(RIG)`, so moving any one of these into `Rig` changes the recipe's text, and
-    #: `block_render` then clears every marker and re-renders the whole planet — for pixels that did
-    #: not move. Earth's recipe on disk currently matches what `params` would write, so that night
-    #: would buy nothing. Pinning the VALUE instead costs no GPU and converts the silent miss into a
-    #: red test: change one of these and this list has to be edited, which is the moment to decide
-    #: whether the change rides a pass that is already happening.
-    #:
-    #: SO THIS IS A TRIPWIRE AND NOT A FIX. The recipe stays blind to all of them until the sweep.
-    DEFERRED_INLINE: ClassVar[frozenset[str]] = frozenset({
-        ".subdivision_type = 'SIMPLE'",
-        ".levels = 1",
-        ".render_levels = 2",
-        ".use_adaptive_subdivision = True",
-        ".type = 'ORTHO'",
-        ".clip_end = 100.0",
-        ".use_shadow = False",
+    #: `use_nodes` is a PRECONDITION rather than a setting — False leaves no node tree to configure,
+    #: so the failure is the whole graph and not a drifted pixel. `data_type` is what a node factory
+    #: BUILDS: `make_float_mix`'s docstring calls it "`make_mix`'s FLOAT twin", and the twinning is
+    #: this attribute, so recording it would record the function's identity as though it were a
+    #: look. Everything else that was deferred here now lives in `Rig`.
+    STRUCTURAL_INLINE: ClassVar[frozenset[str]] = frozenset({
         ".use_nodes = True",
         ".data_type = 'FLOAT'",
         ".data_type = 'RGBA'",
-        ".clamp = True",
-        ".blend_type = 'MIX'",
-        ".clamp_factor = True",
-        ".displacement_method = 'DISPLACEMENT'",
-        ".space = 'OBJECT'",
-        ".default_value = 0.0",
-        ".operation = 'MULTIPLY'",
-        ".use_clamp = False",
-        ".default_value = 1.0",
-        ".engine = 'CYCLES'",
-        ".file_format = 'PNG'",
-        ".color_mode = 'RGBA'",
-        ".device = 'GPU'",
-        ".use_adaptive_sampling = True",
-        ".use_denoising = True",
-        ".denoiser = 'OPENIMAGEDENOISE'",
-        ".denoising_input_passes = 'RGB_ALBEDO_NORMAL'",
-        ".denoising_prefilter = 'ACCURATE'",
-        ".denoising_quality = 'HIGH'",
     })
+
+    #: Retired: the sweep landed. Kept empty rather than deleted so the set algebra below still
+    #: reads as three named categories, and so a value added back here is a deliberate act.
+    DEFERRED_INLINE: ClassVar[frozenset[str]] = frozenset()
 
     @staticmethod
     def _literal(value: ast.expr) -> str | None:
@@ -904,7 +903,7 @@ class TestTheBuilderSpellsNoLookValueWhereTheRecipeCannotSeeIt:
         written; here it fails instead, naming every ruling whose site it could not find.
         """
         found = set(self._inline_values(Path(scene_build.__file__).read_text(encoding="utf-8")))
-        ruled = self.COSMETIC_INLINE | self.DEFERRED_INLINE
+        ruled = self.COSMETIC_INLINE | self.STRUCTURAL_INLINE | self.DEFERRED_INLINE
         assert not found - ruled, (
             "inline literals nobody has ruled on, invisible to `rig_recipe`:\n  "
             + "\n  ".join(sorted(found - ruled))
@@ -1134,3 +1133,56 @@ class TestRenamingANodeDoesNotRestageThePlanet:
         recipe = scene_build.rig_recipe(palette.EARTH_LOOK)
         assert recipe["sea_texture"] == render_seam.OCEANMASK
         assert scene_build.rig_recipe(palette.MARS_LOOK)["sea_texture"] is None
+
+
+class TestTheComputeBackendIsChosenRatherThanInherited:
+    """The rig read the compute device out of Blender's saved user preferences, which live in a
+    per-version directory outside this repo. Measured on 5.2.1, whose directory did not exist: the
+    device resolved to NONE, the block rendered on the CPU at 384.7 s against 54.0 s, peak RSS rose
+    to 11.01 GiB, and every pixel was correct. Nothing on disk differed, so no gate could see it and
+    a full Earth pass would have taken about 82 hours instead of 11:41:33.
+    """
+
+    def test_optix_is_taken_over_cuda_on_the_same_card(self, scene_build):
+        """Both are present on an NVIDIA box and they are not equivalent: OptiX uses the RT cores."""
+        assert scene_build.choose_compute_backend({"CUDA", "CPU", "OPTIX"}) == "OPTIX"
+
+    def test_a_non_nvidia_box_resolves_to_its_own_backend(self, scene_build):
+        """DERIVED, NEVER HARDCODED. `OPTIX` is NVIDIA-only, and the Linux build ships HIP and
+        oneAPI kernels too, so an AMD or Intel machine must resolve rather than fail. Neither path
+        is exercised on this hardware: both are written from the same derivation and tested only
+        here."""
+        assert scene_build.choose_compute_backend({"HIP", "CPU"}) == "HIP"
+        assert scene_build.choose_compute_backend({"ONEAPI", "CPU"}) == "ONEAPI"
+        assert scene_build.choose_compute_backend({"METAL", "CPU"}) == "METAL"
+
+    def test_cpu_only_raises_rather_than_falling_back(self, scene_build):
+        """THE WHOLE POINT. A silent CPU fallback is the defect: it renders the right pixels seven
+        times slower, so it has to be an exception and not a degraded mode."""
+        with pytest.raises(RuntimeError, match="no GPU backend"):
+            scene_build.choose_compute_backend({"CPU"})
+
+    def test_nothing_detected_raises(self, scene_build):
+        """`get_devices()` returning empty is the shape the missing preferences file produced."""
+        with pytest.raises(RuntimeError, match="no GPU backend"):
+            scene_build.choose_compute_backend(set())
+
+    def test_none_is_not_a_backend(self, scene_build):
+        """`NONE` is what the enum reads when nothing is selected, so it must never satisfy the
+        search: taking it would reintroduce the exact state this function exists to refuse."""
+        with pytest.raises(RuntimeError, match="no GPU backend"):
+            scene_build.choose_compute_backend({"NONE", "CPU"})
+
+    def test_the_preference_order_names_no_cpu_like_entry(self, scene_build):
+        """A CPU-ish name in the order would make the fallback silent again, one edit away."""
+        assert not {"CPU", "NONE", ""} & set(scene_build.GPU_BACKENDS)
+        assert scene_build.GPU_BACKENDS[0] == "OPTIX", "this box's measured fastest backend leads"
+
+    def test_the_sampling_pattern_is_pinned_and_not_inherited(self, scene_build):
+        """5.1.2 defaults to TABULATED_SOBOL and 5.2.1 to AUTOMATIC, and the rig pinned neither, so
+        the two versions built different scenes: 1.0973 DN mean on `r08c04` against a 0.0363 DN
+        same-version floor, and about 9% more render time. Pinned, the same comparison is 0.0365 DN.
+        The VALUE is continuity with every pixel already on disk, not a quality finding."""
+        assert scene_build.RIG.sampling_pattern == "TABULATED_SOBOL"
+        assert "sampling_pattern" in scene_build.rig_recipe(palette.EARTH_LOOK)["rig"], (
+            "an unrecorded pattern is what let a Blender default move the planet unseen")
