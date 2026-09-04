@@ -6,8 +6,6 @@ pass on a scan that reduced the wrong axis. Every invariance test here therefore
 proving it can fail, in the idiom `test_terrain_rgb` established for the same master.
 """
 
-from __future__ import annotations
-
 import dataclasses
 import json
 from typing import Any

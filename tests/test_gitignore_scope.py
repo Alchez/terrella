@@ -17,9 +17,6 @@ is a conventional frontend ignore file whose entries (`dist/`, `node_modules/`, 
 are meant to match at any depth, and a guard over it would be a list of every line it contains.
 """
 
-from __future__ import annotations
-
-import re
 from pathlib import Path
 
 import pytest
