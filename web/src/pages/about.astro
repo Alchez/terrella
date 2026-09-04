@@ -45,7 +45,11 @@ const tools = [
 ];
 
 // Built as one string: Astro collapses the whitespace around multi-line <a> tags, which twice
-// glued a link to the word before it ("is CC BY-SA 4.0" → "isCC BY-SA 4.0").
+// glued a link to the word before it, losing the space between "is" and the licence anchor.
+// THE OLD SPELLING IS DESCRIBED RATHER THAN QUOTED, and that is load-bearing: this comment used to
+// reproduce the licence name, `test_every_site_states_the_output_license` asserts only that the
+// name appears SOMEWHERE in the file, and the second copy kept it green while the sentence a
+// visitor reads declared a different licence.
 const licenceHtml = [
   '<strong>Imagery</strong> is <a href="https://creativecommons.org/licenses/by-sa/4.0/"',
   ' target="_blank" rel="noopener noreferrer">CC BY-SA 4.0</a>. Use it for anything, credit',

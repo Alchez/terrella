@@ -30,8 +30,19 @@ def relocated(tmp_path, monkeypatch):
 
 
 def _write(valid_fraction=1.0, **overrides):
-    """A recipe on disk, optionally with one field bent."""
+    """A recipe on disk, optionally with one field bent.
+
+    AN OVERRIDE MUST BEND A FIELD THAT EXISTS, or every `_STALE` test below passes for the wrong
+    reason. `dict.update` INVENTS a key the recipe has stopped recording, which leaves the sidecar
+    with one field the recipe lacks — still unequal, still stale, still green — so the whole class
+    reads identically whether the field is compared or absent. Two sabotage cases sat silent behind
+    exactly that.
+    """
     recorded = json.loads(viking_luma.build_recipe(valid_fraction))
+    invented = sorted(set(overrides) - set(recorded))
+    assert not invented, (
+        f"{invented} is not in the recipe, so bending it proves nothing about freshness; "
+        "the field it names has stopped being recorded")
     recorded.update(overrides)
     viking_luma.recipe_path().write_text(json.dumps(recorded, indent=2, sort_keys=True) + "\n")
     viking_luma.luma_path().write_bytes(b"not really a raster")

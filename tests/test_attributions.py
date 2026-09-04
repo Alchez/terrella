@@ -122,14 +122,29 @@ REQUIRED_STRINGS: list[tuple[str, str]] = [
 ]
 
 
+#: A line whose first non-space characters are `//`. Anchored at the start on purpose: `https://`
+#: appears in every licence URL on these pages, so a mid-line rule would delete the declarations.
+LINE_COMMENT = re.compile(r"^[ \t]*//.*$", re.MULTILINE)
+
+
 def _normalised(path: Path) -> str:
-    """Collapse every whitespace run to one space.
+    """Collapse every whitespace run to one space, after dropping source comments.
 
     Both files wrap: Prettier breaks the `.astro` template across lines and Markdown reflows. A
     required notice split over two source lines is still present on the rendered page, so matching
     raw text would fail for a formatting reason and teach everyone to ignore this test.
+
+    COMMENTS ARE REMOVED BECAUSE A COMMENT DISCHARGES NOTHING. Every assertion built on this asks
+    whether a page STATES something to a visitor, and a comment states it to nobody — but it does
+    satisfy a substring search, so a second copy in a comment holds the test green while the
+    sentence on the page says something else. That is not hypothetical: the About page's own note
+    about a whitespace bug quoted the output licence, and the sabotage case for a wrong licence on
+    the page sat silent behind it.
     """
-    return re.sub(r"\s+", " ", path.read_text(encoding="utf-8"))
+    source = path.read_text(encoding="utf-8")
+    if path.suffix in {".astro", ".ts", ".js"}:
+        source = LINE_COMMENT.sub("", source)
+    return re.sub(r"\s+", " ", source)
 
 
 @pytest.mark.parametrize("label,required", REQUIRED_STRINGS, ids=[e[0] for e in REQUIRED_STRINGS])
@@ -193,6 +208,25 @@ def test_every_site_states_the_output_license(site: Path) -> None:
         f"{site.relative_to(REPO_ROOT)} does not state the output licence {OUTPUT_LICENSE!r} "
         "verbatim. If the licence changed, change all four sites and this constant together."
     )
+
+
+def test_a_notice_that_exists_only_in_a_comment_does_not_count(tmp_path: Path) -> None:
+    """The control for the stripper above, and it is not optional.
+
+    Every licence assertion here PASSES on a substring being present, so a stripper that quietly
+    removed nothing would leave all of them green and say so in exactly the same words. This plants
+    the licence in a comment and nowhere else, and requires it to be invisible; the second half
+    plants a URL on the same line to hold the anchoring, since `https://` is `//` too.
+    """
+    commented = tmp_path / "commented.astro"
+    commented.write_text(f"// the imagery is {OUTPUT_LICENSE}\nconst nothing = 1;\n")
+    assert OUTPUT_LICENSE not in _normalised(commented)
+
+    declared = tmp_path / "declared.astro"
+    declared.write_text(f'const html = "see {CURRENT_LICENSE_URL} for {OUTPUT_LICENSE}";\n')
+    assert OUTPUT_LICENSE in _normalised(declared), (
+        "the stripper removed a declaration containing a URL, so it is cutting on `//` anywhere "
+        "rather than at the start of a line")
 
 
 def test_no_tracked_file_links_the_superseded_output_license() -> None:

@@ -41,7 +41,7 @@ What this does NOT do: it does not find missing guards, only vacuous ones — a 
 at all has no case here and never will, because cases are written from the guard side.
 
 Usage:
-    uv run scripts/sabotage.py                  # all cases; each runs its whole suite once
+    uv run scripts/sabotage.py                  # all cases, ~46 min; see the cost note below
     uv run scripts/sabotage.py --filter cap     # only cases whose label or path matches
     uv run scripts/sabotage.py --suite python   # only one suite
     uv run scripts/sabotage.py --list           # print the table, run nothing
@@ -57,6 +57,20 @@ only the repair differs, which is what the full suite would tell you.
 
 `tests/test_sabotage_cases.py` checks the table against the tree without running anything, so a
 needle that a refactor moved is a 0.1 s pytest failure rather than a shrugged-off SKIP 5 min in.
+
+RUN `--audit` BEFORE A SWEEP, ALWAYS. It costs a tenth of one and answers the question a sweep
+cannot: a full run ESCALATES when the named guard stays quiet, so a sibling test failing reports the
+case CAUGHT and a mislabelled or vacuous case survives looking healthy. The audit's PROVEN count is
+simultaneously the table's health and the sweep's schedule, since a case that fires narrowly is the
+fast path — at 448/448 python the sweep is ~46 min, and at half that it would be near three hours.
+
+WHERE THE TIME GOES, measured rather than assumed, so nobody re-derives it from the case count.
+Python's floor is process startup, 0.80 s of interpreter and collection before any test runs, and a
+case caught narrowly costs 1.17 s against 38.8 s escalated. The WEB suite has no fast path at all
+(`narrow=None`), so its 400 cases each rebuild 71 files' module graphs for 4.27 s — 28.5 of the 46
+minutes, and 87% of that is Vite transforming and importing rather than running assertions. A
+file-scoped `vitest run <file>` would roughly halve the sweep; what blocks it is that a case names
+the sabotaged SOURCE and not the guard's test file, which is the lookup that does not exist yet.
 """
 
 import argparse
@@ -398,10 +412,16 @@ SABOTAGES: list[Sabotage] = [
     ),
     Sabotage(
         suite='python',
+        # THE PAIR REVERSED, NOT THE POLE SWAPPED. Swapping north for south was this wound until the
+        # two Mars whites were unified, after which both keys hold the identical pair and the
+        # mutation changed no pixel — a needle that still matches and no longer does anything, which
+        # every check over this table passes and only `--audit` can see. Reversing sunlit against
+        # shadowed puts the cap's lit end on the tiles' shadowed colour, which is the disagreement
+        # the guard is named for and survives the two poles agreeing.
         label='the cap and the tiles disagree about one ice colour across the crossfade',
         path='pipeline/look/perennial_ice.py',
         needle='                              paint=lambda: palette.MARS_ICE_WHITE["north"],',
-        replacement='                              paint=lambda: palette.MARS_ICE_WHITE["south"],',
+        replacement='                              paint=lambda: palette.MARS_ICE_WHITE["north"][::-1],',
         guard='test_each_body_paints_one_pole_the_same_in_both_tiers',
     ),
     Sabotage(
@@ -1756,10 +1776,20 @@ SABOTAGES: list[Sabotage] = [
     ),
     Sabotage(
         suite='python',
+        # THE MUTATION MOVED INTO THE TABLE, BECAUSE EDITING THE SUBJECT FILE CANNOT PROVE THIS
+        # GUARD. `test_needle_matches_exactly_once` SKIPS the file a run is holding, since most
+        # cases disturb their own needle and it would fire as noise inside every run. This case used
+        # to edit `reliefTiles.ts` directly, so the one instance that could have caught it was the
+        # one the skip removed, and no file-editing case can ever reach it. Corrupting the NEEDLE
+        # here instead leaves the victim's own path off the in-flight file, so its instance runs.
         label='a refactor moves a needle out from under its case',
-        path='web/src/lib/reliefTiles.ts',
-        needle="export const RELIEF_BASE_MAX_ZOOM = 0;",
-        replacement="export const RELIEF_BASE_MAX_ZOOM: number = 0;",
+        path='scripts/sabotage.py',
+        # Spanning the line below it, because a needle that reads as ONE line of this file matches
+        # its own table entry as well as its subject; the `\n` here is two characters on this line.
+        needle=("        needle='export const RELIEF_BASE_MAX_ZOOM = 0;',\n"
+                "        replacement='export const RELIEF_BASE_MAX_ZOOM = 1;',"),
+        replacement=("        needle='export const RELIEF_BASE_MAX_ZOOM: number = 0;',\n"
+                     "        replacement='export const RELIEF_BASE_MAX_ZOOM = 1;',"),
         guard='test_needle_matches_exactly_once',
     ),
     # The next three mutate a case in THIS file, so their needles span two lines on purpose. A
@@ -3360,7 +3390,12 @@ SABOTAGES: list[Sabotage] = [
                 '            continue\n'
                 '        producer = layer_producers.producer_for(body, layer)'),
         replacement='        producer = layer_producers.PRODUCER_BY_BODY_LAYER[("earth", layer.name)]',
-        guard='test_a_body_with_no_layers_opens_none_of_earths_files',
+        # THE SIBLING, NOT THE LAYERLESS BODY. A body with no layers still comes back empty here:
+        # the hardcoded lookup finds Earth's producer, and the test's own synthetic grid yields no
+        # band, so the assertion holds for a reason the mutation did not touch. The body that
+        # DECLARES a layer it cannot produce is the one this gate answers for, and it stops raising
+        # the moment the lookup is hardcoded.
+        guard='test_a_body_declaring_a_layer_it_cannot_produce_opens_none_of_earths_files',
     ),
     Sabotage(
         suite='python',
@@ -3404,7 +3439,10 @@ SABOTAGES: list[Sabotage] = [
         path='pipeline/vector_raster.py',
         needle='    projected.unlink(missing_ok=True)',
         replacement='    pass  # no unlink: the second run now dies on the first run\'s leftovers',
-        guard='test_a_second_identical_run_succeeds',
+        # A CLEAN SECOND RUN DOES NOT PROVE THE UNLINK. ogr2ogr overwrites a well-formed target of
+        # its own making, so the identical re-run finishes and matches; what the unlink is really
+        # for is the leftover that is NOT well formed, which is the corrupt-intermediate guard.
+        guard='test_a_corrupt_intermediate_does_not_survive_into_the_burn',
     ),
     Sabotage(
         suite='python',
@@ -3783,8 +3821,13 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the cap recipe stops recording which layers are off, so switching one restages nothing',
         path='pipeline/tile/cap_raytrace.py',
+        # `pass`, NOT A DELETION. Removing the line outright left `if absent:` with a comment for a
+        # body, so the module stopped parsing and the whole suite failed at COLLECTION — which
+        # prints nothing the harness's `FAILED` pattern can read, so the run came back with no
+        # failing test named and the case looked like a hole in the suite rather than a broken
+        # mutation. A mutation has to leave the file importable or it measures nothing.
         needle='        recipe["layers_off"] = absent\n',
-        replacement='',
+        replacement='        pass  # the absence stops reaching the recipe\n',
         guard='test_turning_a_layer_off_restages_although_its_source_stops_being_a_dependency',
     ),
     # Load-bearing rather than tidy: turning a layer off also REMOVES its file from cap_sources, so
@@ -3941,8 +3984,18 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the gazetteer extracts as it verifies, so a refused archive half-overwrites a good one',
         path='pipeline/acquire/download_nomenclature.py',
+        # ONE PASS, WHICH IS THE WOUND THE GUARD IS NAMED FOR. This used to wrap the write loop in
+        # `if True:`, which re-indents and changes nothing, so the case reported CAUGHT by whatever
+        # else was red and could never fail on its own subject. Writing inside the verify loop is
+        # the real defect: `aaa.txt` lands, `zzz.txt` then fails its digest, and the refusal leaves
+        # half of one edition on disk.
         needle='            verified[name] = data\n    for name, data in verified.items():',
-        replacement='            verified[name] = data\n    if True:\n      for name, data in verified.items():',
+        replacement=('            verified[name] = data\n'
+                     '            destination = datasets.mars_nomenclature() / name\n'
+                     '            part = destination.with_suffix(destination.suffix + ".part")\n'
+                     '            part.write_bytes(data)\n'
+                     '            part.replace(destination)\n'
+                     '    for name, data in verified.items():'),
         guard='test_a_bad_digest_writes_NOTHING_not_even_the_members_before_it',
     ),
     # The `.cpg` is the ONE file here this pipeline invents, and it is invisible until someone reads
@@ -7847,7 +7900,11 @@ SABOTAGES: list[Sabotage] = [
         path='pipeline/datasets.py',
         needle='    return _raw("naturalearth")',
         replacement='    return paths.ROOT / "data/raw/naturalearth"',
-        guard='test_no_module_path_stays_behind_when_the_store_moves',
+        # THE OTHER HALF OF THE PAIR. The store probe reads module ATTRIBUTES after a redirect, so a
+        # path assembled inside a function has no import-time value for it to see and it stays green
+        # however wrong the function is. The text scan owns that half and says so in its own
+        # docstring; these two guards are a deliberate split, not alternatives.
+        guard='test_no_data_path_is_built_by_joining_onto_a_checkout_root',
     ),
     # The probe itself, reverted to reading the ABSOLUTE path's segments. That version answers a
     # question about the machine as well as the repo, and CI's checkout sits two levels under a
@@ -7946,7 +8003,11 @@ SABOTAGES: list[Sabotage] = [
         path='pipeline/frame/country_config.py',
         needle='    return country_work_dir(slug) / "render"',
         replacement='    return paths.ROOT / "data/work" / slug / "render"',
-        guard='test_it_follows_a_relocated_store',
+        # Assembled INSIDE a function, so `test_it_follows_a_relocated_store` cannot reach it: that
+        # guard drives the helper under a redirect and the helper is exactly what the mutation
+        # rewrites, leaving both halves consistent and wrong. The text scan is the half that sees a
+        # `data/` literal joined onto whatever root sits to its left.
+        guard='test_no_data_path_is_built_by_joining_onto_a_checkout_root',
     ),
     # A pin written into a tree the render never reads. Both sides exist, both look right, and the
     # frame the hero is built from is simply the older one.

@@ -210,9 +210,21 @@ class TestSeamClosures:
         assert vector_layers.seam_closures([east, west]) == {(0, 0), (1, 0)}
 
     def test_an_edge_ACROSS_the_meridian_is_not_one_along_it(self):
-        """An unfolded feature reaching over the seam has a real edge joining the two sides."""
-        crossing = [[179.5, 10], [-179.5, 40], [170, 40], [179.5, 10]]
-        assert vector_layers.seam_closures([crossing]) == set()
+        """An unfolded feature reaching over the seam has a real edge joining the two sides.
+
+        THE SECOND RING IS WHAT MAKES THE SKIP LOAD-BEARING, and the first alone did not. A crossing
+        edge admitted as a candidate only becomes a closure by twinning with one on the OTHER side at
+        the same latitudes, so a fixture carrying a single seam edge comes back empty whether the
+        skip runs or not — the assertion held for want of a partner rather than because of the rule,
+        and the mutation that deletes the skip outright sat silent behind it.
+        """
+        lone = [[179.5, 10], [-179.5, 40], [170, 40], [179.5, 10]]
+        assert vector_layers.seam_closures([lone]) == set()
+
+        # The crossing edge (east, 10..40) now has a west-side edge spanning the same latitudes, so
+        # admitting it would pair the two and cut a feature that never split.
+        with_partner = [[179.5, 10], [-179.5, 40], [-179.6, 10], [179.5, 10]]
+        assert vector_layers.seam_closures([with_partner]) == set()
 
 
 class TestArcsWithout:
