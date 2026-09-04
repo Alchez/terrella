@@ -1,4 +1,4 @@
-# Terrella — project memory
+# Terrella: project memory
 
 A static site of ray-traced relief maps, navigable as an interactive globe, covering every country
 on Earth plus Mars as a second body.
@@ -9,10 +9,15 @@ borders, minimal typography. The aesthetic decisions live in ART.md.
 This file is the standing brief for anyone working on the repo, human or agent. It states current
 truth only; it is not a changelog.
 
-## Purpose — learning first (overrides efficiency)
+## Purpose: learning first
 
-This project is a vehicle for learning: the point is to understand every piece — DEM data, GDAL,
-Blender/Cycles, tiling, MapLibre, serving — not to be handed a finished site.
+This project is a vehicle for learning: the point is to understand every piece (DEM data, GDAL,
+Blender/Cycles, tiling, MapLibre, serving), not to be handed a finished site.
+
+**What loses to this is the speed of getting it done, never the speed of what gets built.** Fewer
+turns, less back and forth and a finished handover all give way to the path that teaches. The
+pipeline's own runtime is a requirement like any other, measured in PROCESS, and is not the thing
+being traded here.
 
 - Where a choice has depth, present it rather than shortcutting past it.
 - Docstrings welcome, inline comments only where necessary.
@@ -33,13 +38,13 @@ Run them on any measurement before it is reported, and on any value or plan befo
 - **Arbitrary.** Can I name the evidence for this exact value? "12 passes" had none and was offered as a recommendation anyway. Where there is no evidence, the sentence has to say so.
 - **Set.** Does this claim quantify over a set: every consumer, the only producer, nothing else reads this, all the remaining work? Enumerate the set from code before the sentence ships. "Gating at the producer covers every consumer" was written after finding one of two, and "the cap raytrace needs this regardless" was written without walking the work list it claimed to depend on it.
 
-## Architecture (decided — do not re-litigate without explicit discussion)
+## Architecture (decided: do not re-litigate without explicit discussion)
 
 Three tiers of one site, one asset store, chosen by a client-side capability probe.
 
-- **Tier 1 gallery** — static HTML + responsive hero images; the pessimistic default while the probe runs.
-- **Tier 2 globe** — MapLibre globe projection over pre-shaded raster tiles; needs WebGL2. Pinned to an exact version in `web/package.json`, with one vendored patch (`patches/`, guarded by `vendoredPatches.test.ts`).
-- **Tier 3 full** — Tier 2 + terrain-RGB displacement + the idle spin, gated on GPU tier and network. The detail card is text only on both bodies: it used to open with the country's hero, which the raytraced tiles turned into a picture of the globe you were already looking at. The full render is a click away on the country's own page.
+- **Tier 1 gallery**: static HTML + responsive hero images; the pessimistic default while the probe runs.
+- **Tier 2 globe**: MapLibre globe projection over pre-shaded raster tiles; needs WebGL2. Pinned to an exact version in `web/package.json`, because `rttPoolTrim.ts` binds to private MapLibre state that a range could move silently.
+- **Tier 3 full**: Tier 2 + terrain-RGB displacement + the idle spin, gated on GPU tier and network. The detail card is text only on both bodies: it used to open with the country's hero, which the raytraced tiles turned into a picture of the globe you were already looking at. The full render is a click away on the country's own page.
 
 Default pessimistic and upgrade optimistically; the Lite/Globe/Full toggle persists and beats the
 probe; degrade at runtime if frame rate tanks; honour `Save-Data`, `prefers-reduced-motion`,
@@ -59,7 +64,7 @@ own skill (`.claude/skills/acquire-data/`).
 
 ## Rendering decisions
 
-- **Heroes:** headless Blender Cycles (bpy), RTX 4070 Super, OptiX backend + OpenImageDenoise — but **CPU denoise for 8K**, or render and denoise contend for the 12 GB VRAM and the driver throws an Xid 31 MMU fault.
+- **Heroes:** headless Blender Cycles (bpy), RTX 4070 Super, OptiX backend + OpenImageDenoise, but **CPU denoise for 8K**, or render and denoise contend for the 12 GB VRAM and the driver throws an Xid 31 MMU fault.
 - One scene rig for every country: DEM displacement, low sun, two-ramp material (elevation-keyed land, depth-keyed sea), ortho camera framed from Natural Earth bounds.
 - Vertical exaggeration belongs to the body, 15x on Earth. Every path that draws more than one body reads `Body.exaggeration`, the render seam included since it is the block prep's as well as the hero's; `palette.EXAGGERATION` is the authored constant the region preview still reads and a test pins Earth's field equal to it. Unpinned, the tiles drift away from the heroes they must match.
 - **Every body raytraces its tiles, and there is no producer seam any more.** Earth and Mars both render every tile block in Cycles off the rig the heroes use, and both poles' discs come off that same rig through `cap_raytrace`. Mars used to composite instead, approximating the look with a single-NW hillshade plus a ported fill sun plus sky-view factor plus the same ramps, assembled with GDAL; that producer, the `Body.planet_producer` field that chose it and the `hillshade.py` it ran on are all deleted rather than parked. `bodies.py` carries a note refusing the field's return and `test_bodies` holds it. Reintroducing a second producer means reintroducing the seam that stops two of them reading one raster as their own.
@@ -68,7 +73,7 @@ own skill (`.claude/skills/acquire-data/`).
 - Tiles are 512px, declared to MapLibre as `tileSize: 256`, which centres the scheme on DPR 2. → FUTURE § raster tile resolution vs device pixel ratio
 - Delivery encoding is a policy rather than one constant: masters stay lossless, delivery does not. → ART § Delivery encoding · § The srcset ladder
 - Every writer records its recipe beside its output, because existence cannot see a settings change.
-- **A producer declares what it emitted; no consumer infers it from what is on disk.** A missing raster cannot distinguish "this body has none" from "the producer crashed", and an absent path scores nothing in an mtime comparison — so switching an input off leaves the output that used it looking fresh. Two tiers own this: `pipeline/planet_seam.py` for a body's planet rasters, and `pipeline/render/render_seam.py` for what fills one render directory. The second records **one entry per stage** because a country is filled by three that do not know each other's output, which is what lets an empty list say "I ran here and produced nothing" — the fact a missing file cannot carry. It is stdlib-only, since Blender's interpreter reads it.
+- **A producer declares what it emitted; no consumer infers it from what is on disk.** A missing raster cannot distinguish "this body has none" from "the producer crashed", and an absent path scores nothing in an mtime comparison, so switching an input off leaves the output that used it looking fresh. Two tiers own this: `pipeline/planet_seam.py` for a body's planet rasters, and `pipeline/render/render_seam.py` for what fills one render directory. The second records **one entry per stage** because a country is filled by three that do not know each other's output, which is what lets an empty list say "I ran here and produced nothing", which is the fact a missing file cannot carry. It is stdlib-only, since Blender's interpreter reads it.
 - Baked NW-ish lighting globally (cartographic convention); no per-region sun position.
 
 ## Serving & deployment
@@ -79,7 +84,7 @@ own skill (`.claude/skills/acquire-data/`).
 ## Environment
 
 - Pipeline Python is the uv-managed venv (`source .venv/bin/activate`); `uv sync` rebuilds it exactly, upgrades only via `uv lock --upgrade`.
-- Dev/render box: dual-boot desktop, RTX 4070 Super, 12 GB VRAM. **All work happens in the Ubuntu boot** — never suggest Windows paths, WSL, or PowerShell.
+- Dev/render box: dual-boot desktop, RTX 4070 Super, 12 GB VRAM. **All work happens in the Ubuntu boot**: never suggest Windows paths, WSL, or PowerShell.
 - Blender's own version, path, interpreter boundary and crash recipe are in `.claude/skills/blender-rig/`, which loads when a session touches the rig.
 - **One heavy job at a time, under the ratified cgroup cap that `pipeline/profile/pass_memory.py` owns as `HEAVY_JOB_GIB`**, which is where the number lives and why it is not spelled here. The category that matters is "touches a full-planet raster" rather than "is a pipeline stage", so third-party tools and ad-hoc measurements are in scope, while the hero lane's per-country windowed stages sit outside it by that same category rather than by exemption. `run_pass.sh` sizes it per body from that owner and a hook refuses an unwrapped heavy command; `batch.py`'s cap is best effort, and where systemd user scopes cannot enforce one it says so loudly and runs on.
 - Keep project data and temp on ext4, never tmpfs `/tmp` and never large rasters on NTFS.
@@ -88,7 +93,7 @@ own skill (`.claude/skills/acquire-data/`).
 
 ## Working conventions
 
-- Pipeline stages are **idempotent and resumable** — a crash at tile N must not restart the world. Cache intermediates, validate per stage.
+- Pipeline stages are **idempotent and resumable**: a crash at tile N must not restart the world. Cache intermediates, validate per stage.
 - Python for pipeline code; boring debuggable scripts over frameworks. (Upheld on measurement, not taste: numpy releases the GIL, so threads reach the same ceiling xarray/dask would.)
 - **Every gate stays at zero and there is no "pre-existing error" allowance.** `./scripts/check.sh` from the repo root is the single place the list lives, and its header carries the order and the tool-by-tool reasoning. rasterio call sites take a targeted `# pyright: ignore[reportCallIssue]`; GDAL creation-option dicts are `dict[str, Any]`.
 - Docs in this repo state current truth, not history: if a row and reality disagree, the row is the bug. Dated decisions live in a decision archive kept outside the repo.

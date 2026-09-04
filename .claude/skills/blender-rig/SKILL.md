@@ -10,6 +10,24 @@ Blender's bundled Python is a separate interpreter from the uv venv, so a bpy sc
 this project's packages. That is why `scene_build.py` takes a body **slug** and plain numbers from
 `frame.json` rather than a `Body`, and why all geographic maths happens upstream in Python.
 
+**5.2.1 is also unpacked, at `~/software/blender-5.2.1-linux-x64/`, and is NOT what production
+runs.** `paths.BLENDER` names 5.1.2 and `MAPS_BLENDER` overrides it, which is how an A/B runs a
+second binary without a code change.
+
+**TWO THINGS BITE ON EVERY VERSION CHANGE, AND NEITHER RAISES.**
+
+- **A Blender default the rig does not pin becomes a look change.** `cycles.sampling_pattern`
+  defaults `TABULATED_SOBOL` on 5.1 and `AUTOMATIC` on 5.2, and unpinned it moved a block by 1.0973
+  DN against a 0.0363 DN floor and cost 9% more time. It is pinned in `Rig` now, and
+  `test_every_rig_field_is_actually_read_by_the_builder` covers the field being applied. When a
+  version moves, diff the built scene's state, not the property list: a property present in both can
+  still arrive with a different value.
+- **A new version has no preferences directory, so the GPU silently is not used.** Preferences live
+  per version in `~/.config/blender/<version>/`. `select_compute_device` now derives the backend per
+  run and raises rather than falling back, because the CPU render is correct and ~7x slower and no
+  gate can see it. To drive a version interactively without touching the real config, point
+  `BLENDER_USER_RESOURCES` at a scratch dir.
+
 ## GUI sessions
 
 - Assume no prior Blender experience. Give exact click paths, introduce UI vocabulary as it is used, and verify state with screenshots rather than assuming it.

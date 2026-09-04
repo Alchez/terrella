@@ -283,6 +283,12 @@ class Rig:
     #: What Cycles RENDERS on. `configure_render`'s `denoise_device` argument is a different
     #: question and stays a caller decision, for the reason its own docstring gives.
     device: str
+    #: The quasi-random sequence the path tracer walks. PINNED BECAUSE IT WAS AN UNRECORDED BLENDER
+    #: DEFAULT, and the value is continuity rather than a quality finding: 5.1.2 defaults to
+    #: TABULATED_SOBOL and 5.2.1 to AUTOMATIC, so the two versions built different scenes and every
+    #: pixel of the planet on disk was drawn with this one. Which pattern is BEST is a separate
+    #: question this does not answer.
+    sampling_pattern: str
     use_adaptive_sampling: bool
     use_denoising: bool
     denoiser: str
@@ -336,6 +342,7 @@ RIG = Rig(
     image_file_format="PNG",
     image_color_mode="RGBA",
     device="GPU",
+    sampling_pattern="TABULATED_SOBOL",
     use_adaptive_sampling=True,
     use_denoising=True,
     denoiser="OPENIMAGEDENOISE",
@@ -527,8 +534,57 @@ def make_texture(nt, render_dir, spec: TextureSpec):
     return node
 
 
+#: GPU backends best-first, from Blender's own `enum_device_type` minus `CPU`.
+#:
+#: THE ORDER IS A PREFERENCE, THE MEMBERSHIP IS NOT. Anything here that Blender reports as present
+#: is acceptable; what must never appear is `CPU` or `NONE`, because taking either is the silent
+#: fallback this whole mechanism exists to refuse. OPTIX leads because it uses the RT cores and is
+#: the only one measured on this box. HIP, ONEAPI and METAL are written from the same derivation and
+#: are exercised by no hardware here, which is worth knowing before trusting them.
+GPU_BACKENDS = ("OPTIX", "HIP", "ONEAPI", "METAL", "CUDA")
+
+
+def choose_compute_backend(available):
+    """The best GPU backend among those Blender reports, or raise rather than fall back.
+
+    A CPU RENDER IS A FAILURE AND NOT A DEGRADED MODE. Measured on 5.2.1, whose per-version
+    preferences directory did not exist: `compute_device_type` read NONE, the block rendered on the
+    CPU, and it took 384.7 s against 54.0 s for pixels that were correct. Nothing on disk differed,
+    so no gate could catch it and a full Earth pass would have taken about 82 hours.
+    """
+    for backend in GPU_BACKENDS:
+        if backend in available:
+            return backend
+    raise RuntimeError(
+        f"no GPU backend among {sorted(available)}: Cycles would render on the CPU, which is "
+        f"correct and roughly seven times slower. Wanted one of {list(GPU_BACKENDS)}.")
+
+
+def select_compute_device(preferences):
+    """Set the compute backend from what this build reports, and enable its devices.
+
+    DERIVED PER RUN, NEVER READ FROM SAVED PREFERENCES. Those live in
+    `~/.config/blender/<version>/`, so they are outside this repo, unversioned, and absent on any
+    Blender the box has not run interactively -- which is every upgrade, every fresh checkout and
+    every other machine.
+    """
+    preferences.get_devices()
+    backend = choose_compute_backend({device.type for device in preferences.devices})
+    preferences.compute_device_type = backend
+    # Re-read: the device list is rebuilt per backend, so the objects fetched above belong to
+    # whatever backend was selected before this call.
+    preferences.get_devices()
+    for device in preferences.devices:
+        device.use = device.type == backend
+    if preferences.compute_device_type != backend:
+        raise RuntimeError(f"asked for {backend} and this build kept "
+                           f"{preferences.compute_device_type!r}")
+    return backend
+
+
 def clear_scene():
-    """Empty the startup scene but keep user preferences (OptiX device)."""
+    """Empty the startup scene. The compute device is `select_compute_device`'s and is set per run,
+    so nothing here depends on a preferences file surviving."""
     for ob in list(bpy.data.objects):
         bpy.data.objects.remove(ob, do_unlink=True)
     for block in (bpy.data.meshes, bpy.data.materials, bpy.data.lights,
@@ -931,6 +987,7 @@ def configure_render(res_x, res_y, *, denoise_device):
     render_settings.image_settings.file_format = RIG.image_file_format
     render_settings.image_settings.color_mode = RIG.image_color_mode
     cycles_settings.device = RIG.device
+    cycles_settings.sampling_pattern = RIG.sampling_pattern
     cycles_settings.samples = RIG.samples
     cycles_settings.use_adaptive_sampling = RIG.use_adaptive_sampling
     cycles_settings.adaptive_threshold = RIG.adaptive_threshold
@@ -1020,6 +1077,7 @@ def main():
                  f"the two is wrong and the render would be plausible either way")
 
     clear_scene()
+    backend = select_compute_device(bpy.context.preferences.addons["cycles"].preferences)
     configure_render(frame["res_x"], frame["res_y"], denoise_device=args.denoise_device)
     # ECHOED SO A CALLER CAN ASSERT IT. A flag that failed to arrive would otherwise render on the
     # CPU while the caller's recipe records "gpu", which is the producer-declares rule inverted into
@@ -1056,7 +1114,6 @@ def main():
     build_material(plane, render_dir, frame["displacement_scale"], look,
                    render_seam.declared(render_dir))
 
-    prefs = bpy.context.preferences.addons["cycles"].preferences
     print(f"body {args.body}, {'sea' if look.sea is not None else 'no sea'}; ", flush=True)
     # ECHOED SO A CALLER CAN ASSERT IT, for `--denoise-device`'s reason: a base grid that failed to
     # be cut renders successfully, a little soft, and leaves nothing on disk that differs. The
@@ -1066,8 +1123,7 @@ def main():
     print(f"plane 2.0 x {frame['plane_height_units']:.6f}; "
           f"ortho {frame['ortho_scale']:.6f}; "
           f"displacement {frame['displacement_scale']:.6e}; "
-          f"res {frame['res_x']} x {frame['res_y']}; compute device "
-          f"{getattr(prefs, 'compute_device_type', '?')}", flush=True)
+          f"res {frame['res_x']} x {frame['res_y']}; compute device {backend}", flush=True)
     bpy.ops.wm.save_as_mainfile(filepath=str(args.out.resolve()),
                                 relative_remap=True)
     print(f"saved {args.out}", flush=True)

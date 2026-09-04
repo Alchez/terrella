@@ -741,7 +741,11 @@ class TestTheRecipeIsDerivedRatherThanEnumerated:
         identically. A value that changes a rendered pixel while the rest of the frame arithmetic
         stands still belongs in `Rig`, however few pixels it moves.
         """
-        allowed = {"TEXTURES", "SEA_IMAGE", "RIG", "PLANE_WIDTH_UNITS"}
+        # `GPU_BACKENDS` names HARDWARE, not a value the renderer applies: it orders the chips
+        # Cycles may run on, where `RIG.device` is the setting that reaches the scene. Whether two
+        # backends agree pixel-for-pixel is UNMEASURED here, and if they do not, the backend that
+        # was chosen belongs in the recipe rather than this list.
+        allowed = {"TEXTURES", "SEA_IMAGE", "RIG", "PLANE_WIDTH_UNITS", "GPU_BACKENDS"}
         stragglers = {name for name in vars(scene_build)
                       if name.isupper() and not name.startswith("_") and name not in allowed}
         assert not stragglers, f"still module-level capitals: {sorted(stragglers)}"
@@ -1129,3 +1133,56 @@ class TestRenamingANodeDoesNotRestageThePlanet:
         recipe = scene_build.rig_recipe(palette.EARTH_LOOK)
         assert recipe["sea_texture"] == render_seam.OCEANMASK
         assert scene_build.rig_recipe(palette.MARS_LOOK)["sea_texture"] is None
+
+
+class TestTheComputeBackendIsChosenRatherThanInherited:
+    """The rig read the compute device out of Blender's saved user preferences, which live in a
+    per-version directory outside this repo. Measured on 5.2.1, whose directory did not exist: the
+    device resolved to NONE, the block rendered on the CPU at 384.7 s against 54.0 s, peak RSS rose
+    to 11.01 GiB, and every pixel was correct. Nothing on disk differed, so no gate could see it and
+    a full Earth pass would have taken about 82 hours instead of 11:41:33.
+    """
+
+    def test_optix_is_taken_over_cuda_on_the_same_card(self, scene_build):
+        """Both are present on an NVIDIA box and they are not equivalent: OptiX uses the RT cores."""
+        assert scene_build.choose_compute_backend({"CUDA", "CPU", "OPTIX"}) == "OPTIX"
+
+    def test_a_non_nvidia_box_resolves_to_its_own_backend(self, scene_build):
+        """DERIVED, NEVER HARDCODED. `OPTIX` is NVIDIA-only, and the Linux build ships HIP and
+        oneAPI kernels too, so an AMD or Intel machine must resolve rather than fail. Neither path
+        is exercised on this hardware: both are written from the same derivation and tested only
+        here."""
+        assert scene_build.choose_compute_backend({"HIP", "CPU"}) == "HIP"
+        assert scene_build.choose_compute_backend({"ONEAPI", "CPU"}) == "ONEAPI"
+        assert scene_build.choose_compute_backend({"METAL", "CPU"}) == "METAL"
+
+    def test_cpu_only_raises_rather_than_falling_back(self, scene_build):
+        """THE WHOLE POINT. A silent CPU fallback is the defect: it renders the right pixels seven
+        times slower, so it has to be an exception and not a degraded mode."""
+        with pytest.raises(RuntimeError, match="no GPU backend"):
+            scene_build.choose_compute_backend({"CPU"})
+
+    def test_nothing_detected_raises(self, scene_build):
+        """`get_devices()` returning empty is the shape the missing preferences file produced."""
+        with pytest.raises(RuntimeError, match="no GPU backend"):
+            scene_build.choose_compute_backend(set())
+
+    def test_none_is_not_a_backend(self, scene_build):
+        """`NONE` is what the enum reads when nothing is selected, so it must never satisfy the
+        search: taking it would reintroduce the exact state this function exists to refuse."""
+        with pytest.raises(RuntimeError, match="no GPU backend"):
+            scene_build.choose_compute_backend({"NONE", "CPU"})
+
+    def test_the_preference_order_names_no_cpu_like_entry(self, scene_build):
+        """A CPU-ish name in the order would make the fallback silent again, one edit away."""
+        assert not {"CPU", "NONE", ""} & set(scene_build.GPU_BACKENDS)
+        assert scene_build.GPU_BACKENDS[0] == "OPTIX", "this box's measured fastest backend leads"
+
+    def test_the_sampling_pattern_is_pinned_and_not_inherited(self, scene_build):
+        """5.1.2 defaults to TABULATED_SOBOL and 5.2.1 to AUTOMATIC, and the rig pinned neither, so
+        the two versions built different scenes: 1.0973 DN mean on `r08c04` against a 0.0363 DN
+        same-version floor, and about 9% more render time. Pinned, the same comparison is 0.0365 DN.
+        The VALUE is continuity with every pixel already on disk, not a quality finding."""
+        assert scene_build.RIG.sampling_pattern == "TABULATED_SOBOL"
+        assert "sampling_pattern" in scene_build.rig_recipe(palette.EARTH_LOOK)["rig"], (
+            "an unrecorded pattern is what let a Blender default move the planet unseen")

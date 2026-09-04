@@ -1147,7 +1147,7 @@ import { REPO_URL } from "../lib/siteLinks";
   // there is no terrain source and null is the honest answer, not zero.
   let coveringTileCount: () => number | null = () => null;
   // Re-apply the DEM bound. Needed because a WebGL context restore silently drops it: MapLibre
-  // rebuilds the style from line 22704 of _contextRestored, which fires `style.load` BEFORE
+  // rebuilds the style from line 23533 of _contextRestored, which fires `style.load` BEFORE
   // _setupPainter() has run, so the terrain tile manager the cap is written to does not exist yet —
   // then setTerrain builds a fresh, uncapped one. Measured 4/4 forced losses: 381 slots -> 1155,
   // i.e. straight back to the ~1.14 GiB ceiling the cap exists to remove (1155 x demSlotBytes(512)
@@ -1423,7 +1423,7 @@ import { REPO_URL } from "../lib/siteLinks";
   // The caps must be RE-ADDED after a context restore, and specifically not from `style.load`.
   // MapLibre says so itself on every loss ("Custom layer ... cannot be restored ... you will need
   // to re-add it manually"), but the timing is the part that bites: _contextRestored calls
-  // setStyle() at line 22704 and _setupPainter() only at 22716, so a cap added from `style.load`
+  // setStyle() at line 23533 and _setupPainter() only at 23546, so a cap added from `style.load`
   // binds its buffers and textures to the GL context from BEFORE the painter came back. It renders
   // as a black disc over the pole — present, wrong, and silent. Re-adding once the map reads
   // healthy is the only ordering that holds, so the re-add is driven from there.
@@ -1804,10 +1804,10 @@ import { REPO_URL } from "../lib/siteLinks";
       GL_RESTORE_GRACE_MS,
     );
     // WATCH FROM THE LOSS, NOT FROM THE RESTORE. `webglcontextrestored` is not guaranteed to
-    // arrive: MapLibre's _contextRestored calls this.resize() at line 22718, which fires `move`,
+    // arrive: MapLibre's _contextRestored calls this.resize() at line 23551, which fires `move`,
     // which reaches its own Hash plugin (we pass hash:"map") -> unproject -> the terrain depth pass
     // -> useProgram on a style that is still mid-rebuild, and it THROWS — three lines before
-    // fire("webglcontextrestored") at 22721. Observed both ways on the same build, so anything
+    // fire("webglcontextrestored") at 23554. Observed both ways on the same build, so anything
     // hung off that event is a coin toss. Polling the STATE converges either way.
     startRecoveryWatch(performance.now() + GL_RESTORE_GRACE_MS);
   });

@@ -44,17 +44,10 @@ until all three exist**. In order:
    pnpm install
    ```
 
-   **This applies a vendored patch, and you should know that before you debug MapLibre.**
-   `pnpm-workspace.yaml`'s `patchedDependencies` points at `patches/maplibre-gl@6.3.0.patch`, one
-   expression replaced in the minified bundle: `coveringTiles` locates the camera from the camera's
-   own position instead of unprojecting its nadir screen point, which is exact on mercator and lands
-   in the wrong place on a globe at pitch. The failure mode if it goes missing is **silence**: no
-   error, no build warning, the same picture, just far more tiles than the camera asked for. So it
-   is guarded from both sides: `src/lib/vendoredPatches.test.ts` pins the expression, and its
-   `.browser` twin pins the effect over 697 cameras. A version bump orphans the patch (pnpm keys it
-   to an exact version), and those guards are what turn that into a failure instead of a silent
-   regression. It is filed upstream as maplibre-gl-js#8187; when a release carries the fix, delete
-   the patch, both guards, and the `patchedDependencies` entry together.
+   **`maplibre-gl` is pinned to an exact version on purpose, so do not widen it to a range.**
+   `src/lib/rttPoolTrim.ts` reaches into private MapLibre state that no release note describes, and
+   its canaries are what tell you that state moved. A range lets it move on an install nobody ran
+   deliberately, which is the one case those canaries cannot date.
 
 3. **The gallery manifest** `src/data/countries.json`, generated from the hero-variant store
    and imported by all three pages (index, `[slug]`, globe), so its absence 500s the whole site.
@@ -137,8 +130,7 @@ new token a visitor would keep the tiles they already have for up to a year.
 web/
 ├── astro.config.ts        # build config + the dev-only /heroes, /borders, /tiles middleware
 ├── wrangler.jsonc         # the site Worker, serving dist/ as static assets
-├── pnpm-workspace.yaml    # allowed build scripts + patchedDependencies (see setup step 2)
-├── patches/               # the vendored maplibre-gl patch pnpm applies on install
+├── pnpm-workspace.yaml    # allowed build scripts
 ├── public/
 │   └── caps/              # polar cap WebP rungs + caps.json (generated; gitignored)
 ├── scripts/
@@ -172,7 +164,6 @@ since those are the ones where being wrong is silent rather than loud:
   infers from what it finds.
 - **`assetBase`**: dev versus production origins, the seam a deploy moves.
 - **`capability` + `fpsDegradation`**: the tier probe and the runtime downgrade ladder.
-- **`vendoredPatches`**: test-only, and the guard described under setup above.
 
 `src/lib/perf/` holds the `?perf` instrument and nothing else. It is a **lazy boundary**: no page may
 statically value-import from it, so a visitor without the flag never downloads it. `lazyBoundary.test.ts` enforces that for the whole directory, because guarding it
