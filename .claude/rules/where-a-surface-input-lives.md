@@ -15,19 +15,19 @@ picking the wrong one is expensive in a direction that reads as thoroughness. As
 | Vocabulary | What belongs in it | What it costs to add |
 | --- | --- | --- |
 | `planet_seam.PLANET_RASTERS` | The fused planet's OWN outputs: heightfield, oceanmask, watermask | Every body must answer for it, and **eight modules call `planet_seam.declared`** |
-| `layers.LAYERS` | A third-party dataset warped or burned onto the grid — RGI glaciers, OSI SAF sea ice, GLOBathy depth | One row, plus a producer per body that has it |
-| Neither — a pure rule | Arithmetic with no dataset behind it, like the forced Antarctic white | Nothing; it rides a layer's DECLARATION |
+| `layers.LAYERS` | A third-party dataset warped or burned onto the grid (RGI glaciers, OSI SAF sea ice, GLOBathy depth) | One row, plus a producer per body that has it |
+| Neither, a pure rule | Arithmetic with no dataset behind it, like the forced Antarctic white | Nothing; it rides a layer's DECLARATION |
 
 **Freshness is not the discriminator, because both vocabularies already give it.**
 `planet_seam.rasters_off` and `layers.layers_off` are the same guarantee at two tiers: each records
 what is switched OFF, which mtimes structurally cannot see. Reaching for `PLANET_RASTERS` *because*
-you want an input tracked is the mistake — `layers_off` tracks it too, for one row instead of eight
+you want an input tracked is the mistake: `layers_off` tracks it too, for one row instead of eight
 readers and both bodies.
 
 ## A Layer does not have to paint
 
 The tell that sends people to the wrong vocabulary is "my input only modifies another layer, so it
-cannot be a Layer." It can. `WHITE_UNION` is `(PERENNIAL_ICE, GLACIERS)` — **`LAKE_DEPTH` and
+cannot be a Layer." It can. `WHITE_UNION` is `(PERENNIAL_ICE, GLACIERS)`, and **`LAKE_DEPTH` and
 `SEA_ICE` are already rows that never fold into the white alpha.**
 
 ## An input that REMOVES white goes in `WHITE_EXCLUSIONS`, never inside a producer
@@ -69,7 +69,7 @@ reads it once and serves both Mercator stages from there, leaving only the cap t
 
 ## The cap goes to source; the tiles read a warp
 
-`CapIceInputs.warp` and `.burn` open the ORIGINAL file — `_earth_north` warps the NetCDF, Mars burns
+`CapIceInputs.warp` and `.burn` open the ORIGINAL file: `_earth_north` warps the NetCDF, Mars burns
 its unit shapefiles. The Mercator tiers read a pre-warped `*_3857.tif` built by the layer registry.
 Two mechanisms for one dataset is correct here and is not a second reader: the grids differ, and
 `layers.Layer` is the single owner of the filename either way.

@@ -127,7 +127,7 @@ class TestTheAppliedExaggerationIsUniformDownThePlane:
     copy of the same arithmetic would not be.
 
     NO GPU, NO STORE AND NO BLENDER. This is the whole of the correctness claim about the fix, and
-    it costs milliseconds; the renders that follow are for Rohan's eye, not for this.
+    it costs milliseconds; the renders that follow are for a human eye, not for this.
     """
 
     CONTEXTS = (0, block_plan.DENOISE_BAND_PX, block_plan.CONTEXT_CEILING_PX)

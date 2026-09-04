@@ -620,6 +620,25 @@ SABOTAGES: list[Sabotage] = [
         replacement='    window.clearTimeout(restoreWatchdog);\n    glLostNotice?.setAttribute("hidden", "");\n    startRecoveryWatch(performance.now());',
         guard='NEVER hides the notice on the restore event alone — this is the whole bug',
     ),
+    # --- the constructor throw, after MapLibre moved GPUInitializationError out of `error` --------
+    Sabotage(
+        suite='web',
+        label='construction stops explaining a dead GPU, so the notice never goes up',
+        path='web/src/components/Globe.astro',
+        needle='      glLostNotice?.removeAttribute("hidden");\n    }\n    throw error;',
+        replacement='    }\n    throw error;',
+        guard='catches a GPUInitializationError thrown OUT of the constructor',
+    ),
+    Sabotage(
+        suite='web',
+        # The plausible wound, not a silly one: swallowing reads as "the notice already told them",
+        # and every line below the construction then runs against a map that was never built.
+        label='constructor failure is swallowed instead of re-raised',
+        path='web/src/components/Globe.astro',
+        needle='    throw error;\n  }\n\n  map.setVerticalFieldOfView(',
+        replacement='  }\n\n  map.setVerticalFieldOfView(',
+        guard='catches a GPUInitializationError thrown OUT of the constructor',
+    ),
     Sabotage(
         suite='web',
         label='amnesty window stops expiring old losses',
@@ -9029,7 +9048,7 @@ SABOTAGES: list[Sabotage] = [
         replacement='    searchToggle.setAvailable(true, `${searchLabel} (loading the catalogue)`);',
         guard='greys the button until the catalogue lands, rather than looking live and doing nothing',
     ),
-    # THE SECOND ROUND, ALL FOUR REPORTED BY ROHAN LOOKING AT THE PAGE. Each wound below leaves a
+    # THE SECOND ROUND, ALL FOUR FOUND BY LOOKING AT THE PAGE RATHER THAN THE CODE. Each wound below leaves a
     # panel that renders exactly as designed in a screenshot — what breaks is reachability, or what
     # is underneath, neither of which a still can carry.
     Sabotage(

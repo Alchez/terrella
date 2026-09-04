@@ -39,7 +39,7 @@ import { REPO_URL } from "../lib/siteLinks";
 
      WHAT IT COSTS, STATED RATHER THAN GLOSSED: Lite PERSISTS the tier where this link was plain
      navigation, so returning to the gallery now means being in Lite until you pick again. That is
-     Rohan's call, and the gallery masthead already made the same trade in the other direction when
+     a ratified call, and the gallery masthead already made the same trade in the other direction when
      it dropped its Globe link for row space. */}
 <nav class="globe-chrome" aria-label="Site">
   <a
@@ -814,7 +814,16 @@ import { REPO_URL } from "../lib/siteLinks";
   // 15 keeps a whisper of roundness at overview; retune within the tested 5–15 band.
   const VERTICAL_FIELD_OF_VIEW_DEG = 15;
 
-  const map = new maplibregl.Map({
+  // The GPU-failure notice, looked up BEFORE the map exists because the constructor is one of the
+  // two places that reveals it. The other is the `error` handler far below, which is also why this
+  // is one element read once rather than a lookup at each site.
+  const glLostNotice = document.getElementById("gl-lost");
+
+  // `satisfies` rather than a bare literal: hoisting these out of the `new Map(...)` call loses the
+  // contextual typing that kept `attributionControl: false` a literal instead of `boolean`, and the
+  // constructor rejects the widened form. The options type is not exported, so it is read off the
+  // constructor itself and cannot drift from what the installed version actually accepts.
+  const mapOptions = {
     container: "globe",
     style: {
       version: 8,
@@ -891,7 +900,24 @@ import { REPO_URL } from "../lib/siteLinks";
     // top-level `antialias` in v5). Context-creation flag — cannot be toggled
     // live, so the FPS watchdog can only mitigate via pixelRatio, not disable it.
     canvasContextAttributes: { antialias: true },
-  });
+  } satisfies ConstructorParameters<typeof maplibregl.Map>[0];
+
+  // CONSTRUCTION CAN THROW, AND THAT IS THE ONLY WAY A DEAD GPU REACHES THIS PAGE. MapLibre raises
+  // `GPUInitializationError` out of `new Map` rather than firing it at `error` and handing back a
+  // half-built map, so the handler far below never sees this one: it would be registered on an
+  // object that was never returned. Re-raised once the notice is up, because there is no globe
+  // without a context and every line after this assumes one.
+  let map: maplibregl.Map;
+  try {
+    map = new maplibregl.Map(mapOptions);
+  } catch (error) {
+    if (error instanceof maplibregl.GPUInitializationError) {
+      console.error(formatGpuInitFailure(error), error.requestedAttributes);
+      glLostNotice?.removeAttribute("hidden");
+    }
+    throw error;
+  }
+
   map.setVerticalFieldOfView(VERTICAL_FIELD_OF_VIEW_DEG);
 
   // Event stamps for the ?perf overlay, recorded HERE rather than in the overlay module:
@@ -1695,7 +1721,6 @@ import { REPO_URL } from "../lib/siteLinks";
   //
   // Recovery is now CHECKED (restoreFault) rather than assumed, and the check outlives its own
   // verdict so a late recovery takes the notice back down. All of it lives in glDiagnostics.ts.
-  const glLostNotice = document.getElementById("gl-lost");
   let restoreWatchdog: number | undefined;
   let recoveryPoll: number | undefined;
 

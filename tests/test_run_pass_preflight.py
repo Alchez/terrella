@@ -249,7 +249,7 @@ class TestTheCapReachesTheCgroup:
 class TestEveryRunsLogIsKept:
     """The raytrace producer resumes across nights, so the pass's log has to survive one.
 
-    Rohan's requirement, and it is a correctness one rather than tidiness: the box will not be free
+    A stated requirement, and a correctness one rather than tidiness: the box will not be free
     for 22 consecutive hours, so the record of which blocks failed is spread over several runs. The
     script used to open the log with `: >`, which meant every night but the last was destroyed by
     the act of continuing.
@@ -327,7 +327,7 @@ class TestTheCapResolver:
         body at that scale was the composite, which is deleted. So 12 is not a number that is
         probably fine here; it is a number whose measurement never covered this body.
 
-        WHAT IT GETS INSTEAD IS A POLICY AND NOT A GUESS. `HEAVY_JOB_GIB` is Rohan's ratified
+        WHAT IT GETS INSTEAD IS A POLICY AND NOT A GUESS. `HEAVY_JOB_GIB` is the ratified
         ceiling, so handing it over says "nobody measured this, take the most the box allows" -- and
         the `MemAvailable` preflight downstream then refuses honestly, where at 12 it would wave the
         pass through to be killed inside its own cgroup with no cause anyone could read.

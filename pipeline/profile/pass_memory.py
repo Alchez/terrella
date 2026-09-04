@@ -91,7 +91,7 @@ STANDING_MEASURED_MAX_ZOOM = 7
 
 #: The ceiling any heavy job on this box runs under, in GiB. **A RATIFIED POLICY, NOT A
 #: MEASUREMENT**, which is what separates it from the two numbers above: those are sized off real
-#: passes, this is Rohan's call about how much of a 30 GiB box a single job may take before the
+#: passes, this is a maintainer's call about how much of a 30 GiB box a single job may take before the
 #: desktop is at risk, and it holds whatever a given job happens to peak at. Anything that needs a
 #: cap and has no measured pass behind it takes this one -- the hero batch is the first such caller,
 #: and it previously derived `0.85 * MemTotal`, which scales the blast radius with the machine

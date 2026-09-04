@@ -40,15 +40,17 @@ Run them on any measurement before it is reported, and on any value or plan befo
 
 ## Architecture (decided: do not re-litigate without explicit discussion)
 
-Three tiers of one site, one asset store, chosen by a client-side capability probe.
+Three tiers of one site, one asset store, chosen by a client-side capability probe. **The `Tier`
+union in `web/src/lib/capability.ts` is the only copy of the list that can go red, so it owns the
+names, and README's *Three tiers* describes them for a reader. What belongs here is how one gets
+chosen and what each one costs, and nothing that restates either of those.**
 
-- **Tier 1 gallery**: static HTML + responsive hero images; the pessimistic default while the probe runs.
-- **Tier 2 globe**: MapLibre globe projection over pre-shaded raster tiles; needs WebGL2. Pinned to an exact version in `web/package.json`, because `rttPoolTrim.ts` binds to private MapLibre state that a range could move silently.
-- **Tier 3 full**: Tier 2 + terrain-RGB displacement + the idle spin, gated on GPU tier and network. The detail card is text only on both bodies: it used to open with the country's hero, which the raytraced tiles turned into a picture of the globe you were already looking at. The full render is a click away on the country's own page.
-
-Default pessimistic and upgrade optimistically; the Lite/Globe/Full toggle persists and beats the
-probe; degrade at runtime if frame rate tanks; honour `Save-Data`, `prefers-reduced-motion`,
-`prefers-reduced-data`.
+- Default pessimistic and upgrade optimistically; the Lite/Globe/Full toggle persists and beats the
+  probe; degrade at runtime if frame rate tanks; honour `Save-Data`, `prefers-reduced-motion`,
+  `prefers-reduced-data`.
+- **Globe needs WebGL2, and `maplibre-gl` is pinned to an exact version** in `web/package.json`, because `rttPoolTrim.ts` binds to private MapLibre state that a range could move silently.
+- **Full is gated on GPU tier and network**, being the only tier that carries terrain displacement and the idle spin.
+- **The detail card is text only on both bodies.** It used to open with the country's hero, which the raytraced tiles turned into a picture of the globe you were already looking at; the full render is a click away on the country's own page.
 
 ## Data sources
 

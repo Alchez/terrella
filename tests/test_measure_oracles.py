@@ -422,12 +422,12 @@ class TestTheOracleAlarmsOnTheICEMovingRatherThanOnTheWHITEDeparting:
 
     IT BECAME LOAD-BEARING WHEN THE WHITE STOPPED BEING MEASURED. The ratified white is authored to a
     look target and departs from the ice's hue on purpose: its red:violet is 0.893 against a measured
-    1.042 north and 1.292 south, so the old assertion fires at 7x and 20x tolerance on a value Rohan
-    ratified by eye. An oracle that cries DRIFT at a deliberate decision gets ignored, and then it is
+    1.042 north and 1.292 south, so the old assertion fires at 7x and 20x tolerance on a value that
+    was ratified by eye. An oracle that cries DRIFT at a deliberate decision gets ignored, and then it is
     not there for the case it exists for.
 
     WHAT STILL HAS TO ALARM is the SUBJECT moving. A ratification is about ice that was measured at a
-    moment; if the ice's own hue drifts, the frame Rohan judged no longer describes the planet and
+    moment; if the ice's own hue drifts, the judged frame no longer describes the planet and
     the decision needs re-taking. That is the question this class pins.
     """
 

@@ -15,7 +15,7 @@ None of these is visible from any single file, and none of them fails loudly.
 
 - **`cap_pass`** is the CLI and the freshness loop. It is the entry point:
   `python -m pipeline.tile.cap_pass --body earth`, invoked at the planet pass's tail.
-- **`cap_render`** is everything the disc is built FROM — `CapGrid`, the warps, `BASE_AZIMUTH` and
+- **`cap_render`** is everything the disc is built FROM: `CapGrid`, the warps, `BASE_AZIMUTH` and
   `azimuth_delta`, `_lonlat_grid`, the masks, `_bake_coastline`, `finish_disc`, `write_cap_rungs`,
   `cap_sources`, `cap_is_fresh`. It held a second, composited arm until that was deleted, so its
   name describes what it no longer does.
@@ -26,8 +26,8 @@ None of these is visible from any single file, and none of them fails loudly.
 ## One recipe, and it must move whenever anything it names does
 
 `cap_is_fresh` compares one sidecar per pole against `cap_raytrace.params`. A constant that reaches
-a rendered pixel and reaches no recipe leaves a disc fresh forever — the whole class of defect this
-tier keeps hitting. `params` records `"producer": "raytrace"` as a literal, so a future second
+a rendered pixel and reaches no recipe leaves a disc fresh forever, which is the whole class of
+defect this tier keeps hitting. `params` records `"producer": "raytrace"` as a literal, so a future second
 producer writing the same sidecar is visible; the disc has no other way to say who drew it, and the
 `producer_seam` that answered this question one tier up went with the composite.
 
@@ -50,7 +50,7 @@ because inverting the quotient leaves that case identical and every other case w
 A quadrant spans a quarter of the longitude circle and needs 7 of the 24 passes plus the upper
 neighbour. **Which 7 is derived off `_lonlat_grid`, the same function the blend reads.** Which
 quarter a given `(row, col)` holds depends on the AEQD convention and on the pole's `az_sign`, and
-the two poles disagree about the second — a plan written from one pole's convention renders 28
+the two poles disagree about the second: a plan written from one pole's convention renders 28
 correct-looking frames for the other, all of them the wrong half of the circle. It does not crash;
 the blend's coverage check is what stops it, after the GPU has been spent.
 
@@ -61,7 +61,7 @@ what lets tests plan a 256 px stand-in for an 8192 px disc.
 
 `--sun-azimuth-delta` and `--tile` are invisible when lost: one renders the base bearing, the other
 photographs the whole plane at a quadrant's resolution. Both succeed. `check_echoes` requires the
-reported quadrant and delta to MATCH what was asked, not merely to be present — a `--tile` arriving
+reported quadrant and delta to MATCH what was asked, not merely to be present: a `--tile` arriving
 as a different pair renders, stitches, and lands under the name of the quadrant that was asked for.
 
 **A frame is rendered to `.part.png` and renamed**, so existence is the completeness claim the

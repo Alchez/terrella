@@ -712,8 +712,33 @@ describe("earth.astro wires the diagnostics rather than re-stating them", () => 
     expect(restoredHandler).toContain("startRecoveryWatch(");
   });
 
-  it("declares the notice before any handler that touches it", () => {
-    expect(globe.indexOf("const glLostNotice")).toBeLessThan(globe.indexOf('map.on("error"'));
+  it("catches a GPUInitializationError thrown OUT of the constructor, which the handler cannot see", () => {
+    // MapLibre #8066, in 6.7.0: `new Map` now THROWS this instead of firing it at `error` and
+    // returning a half-built map. The handler above is registered after construction, so on that
+    // path it never runs at all. Left unwrapped the page shows no notice and an uncaught exception,
+    // and nothing goes red: the whole failure is silent, which is why it needs a guard rather than
+    // a comment. Matched on the construction itself so the assertion cannot pass on some other
+    // try/catch that happens to mention the same names.
+    const construction = globe.match(
+      /try \{\n\s*map = new maplibregl\.Map\([\s\S]*?\n  \} catch [\s\S]*?\n  \}/,
+    )?.[0];
+    expect(construction, "`new maplibregl.Map` must sit inside a try that explains a GPU failure")
+      .toBeTruthy();
+    expect(construction).toContain("maplibregl.GPUInitializationError");
+    expect(construction).toContain("formatGpuInitFailure");
+    expect(construction).toContain('removeAttribute("hidden")');
+    // Re-raised rather than swallowed: there is no globe without a context, and every line below
+    // the construction assumes one. Stopping the module IS the correct outcome once the reader has
+    // been told why.
+    expect(construction).toContain("throw error");
+  });
+
+  it("declares the notice before anything that touches it, construction included", () => {
+    const notice = globe.indexOf("const glLostNotice");
+    expect(notice).toBeLessThan(globe.indexOf('map.on("error"'));
+    // The catch reveals the notice, so the lookup has to precede the construction as well. This is
+    // the ordering the constructor-throw made load-bearing.
+    expect(notice).toBeLessThan(globe.indexOf("new maplibregl.Map("));
   });
 });
 

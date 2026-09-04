@@ -243,8 +243,8 @@ def snow_alpha(persistence, top, bottom):
 SOURCE_CELL_M = 1113.2
 
 #: Blur radius as a fraction of that cell, so the feather scales with the artefact instead of with
-#: a pixel count. RATIFIED BY ROHAN on a polar A/B against the unfeathered arm; the number is a look
-#: judgement and re-tuning it is his call, not a free parameter.
+#: a pixel count. RATIFIED on a polar A/B against the unfeathered arm; the number is a look
+#: judgement and re-tuning it is the maintainer's call, not a free parameter.
 SOFTEN_FRACTION = 0.35
 
 #: How far sigma may drift inside one filtered band, as a fraction of the band's own sigma.
