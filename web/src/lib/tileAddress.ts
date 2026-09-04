@@ -62,9 +62,8 @@ import {
   VECTOR_TILE_EXTENSION,
   describeVectorTileTypeMismatch,
 } from "./vectorTiles";
-// Beside this module rather than in src/data/, which LOOKS like its home and is gitignored: the
-// repo's root `data/` pattern is unanchored, so it matches a directory of that name at any depth.
-// A committed file has to live somewhere git will actually keep it.
+// Beside this module rather than in src/data/, which looks like its home: a token table has no
+// reader without `tileAddress`, and the generator writes it wherever this import points.
 import TOKENS from "./tileTokens.json";
 
 /** Every pyramid the site knows how to draw, named by the ROLE it plays on a globe.

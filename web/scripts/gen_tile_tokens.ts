@@ -45,8 +45,7 @@ import type { LayerId } from "../src/lib/tileAddress.ts";
 
 const WEB_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const REPO_ROOT = path.resolve(WEB_ROOT, "..");
-// Beside the module that reads it, not in src/data/ — the repo's root `data/` ignore pattern is
-// unanchored and matches any directory of that name, so a committed file cannot live there.
+// Must match where `tileAddress.ts` imports it from, which is where the placement is explained.
 const TOKENS_FILE = path.join(WEB_ROOT, "src/lib/tileTokens.json");
 
 /** Hex characters kept. Restated from `TOKEN_LENGTH` in tileAddress.ts, which cannot be imported
