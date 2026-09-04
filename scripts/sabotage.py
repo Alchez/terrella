@@ -2814,6 +2814,20 @@ SABOTAGES: list[Sabotage] = [
         replacement='                   frame_lonlat=None, dst_crs="EPSG:3857")',
         guard='test_the_payload_round_trips_the_validating_serialiser',
     ),
+    # THE CURVE, NOT A CONSTANT, and it is the shape the recipe cannot see. `ICE_LO`, `ICE_BAND`
+    # and `ICE_MAX_ALPHA` all reach the painting stage's recipe and a derived guard keeps them
+    # there; the polynomial they are fed into reaches no recipe anywhere, so a change to it moves
+    # every sea-ice pixel with the render fingerprint green. It was also invisible to the tests:
+    # the class named for the smoothstep asserted only the two ends and the midpoint, which is
+    # exactly where a straight line agrees with it.
+    Sabotage(
+        suite='python',
+        label='the sea-ice alpha ramp stops being a smoothstep',
+        path='pipeline/look/seaice.py',
+        needle='    return ice_max_alpha * fraction * fraction * (3.0 - 2.0 * fraction)',
+        replacement='    return ice_max_alpha * fraction',
+        guard='test_the_curve_is_a_smoothstep_and_not_a_linear_ramp',
+    ),
     # The ocean gate itself. Dropping it leaks alpha onto shoreline land, and the same alpha damps
     # displacement in the rig — coastal collapse at full exaggeration, while every open-ocean pixel
     # still renders correctly.

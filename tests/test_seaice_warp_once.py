@@ -104,6 +104,26 @@ class TestIceAlpha:
         mid = seaice.ice_alpha(np.array([seaice.ICE_LO + seaice.ICE_BAND / 2]))[0]
         assert 0.0 < mid < 1.0
 
+    def test_the_curve_is_a_smoothstep_and_not_a_linear_ramp(self):
+        """EVERY OTHER ASSERTION IN THIS CLASS IS BLIND TO THE CURVE, which is why this one exists.
+
+        The two ends and the midpoint are exactly where a smoothstep and a straight line agree:
+        0, half of max, max. So the class named for the smoothstep passed in full with the curve
+        replaced by `ice_max_alpha * fraction` -- measured, along with the whole suite at 6,744, and
+        that ramp moves every sea-ice pixel on Earth by up to 0.0797 alpha, 20.3 DN of coverage.
+
+        The quarter points are where they separate, and the expected values are DERIVED from the
+        polynomial rather than pasted, so a deliberate change to the curve edits the formula here
+        and cannot be satisfied by nudging a literal until it passes.
+        """
+        for quarter in (0.25, 0.75):
+            frequency = seaice.ICE_LO + seaice.ICE_BAND * quarter
+            smoothstep = quarter * quarter * (3.0 - 2.0 * quarter)
+            got = seaice.ice_alpha(np.array([frequency]))[0]
+            assert got == pytest.approx(seaice.ICE_MAX_ALPHA * smoothstep)
+            assert got != pytest.approx(seaice.ICE_MAX_ALPHA * quarter), \
+                "a linear ramp satisfies every other assertion in this class"
+
 
 @pytest.mark.skipif(not seaice.seaice_src().exists(),
                     reason="OSI SAF ice-frequency source not present (CI)")
