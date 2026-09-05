@@ -12,8 +12,8 @@ No rendered asset or elevation tile is in git, so a clone gets the code and none
 | :-- | :-- | :-- |
 | Run every check the project has | git, uv, pnpm | minutes |
 | See the site in a browser | a local render store, which nothing ships: the gallery manifest, hero images, three tile archives | the two rows below |
-| Change how the globe's tiles look | the source data and the fused heightfield, no GPU | hours |
-| Change how the gallery's renders look | the above, plus an NVIDIA GPU and Blender | days |
+| Change how the globe's tiles look | the source data and the fused heightfield, an NVIDIA GPU and Blender: every tile block is raytraced | a night per body, then a re-cut and a deploy |
+| Change how the gallery's renders look | the above, at 8K per country | days |
 
 The first row runs on a fresh clone with nothing configured, and it is both test suites, the type checkers and the linters. Everything under it needs the render store, and since nothing ships one, the bottom two rows are how you get the second.
 
@@ -40,6 +40,17 @@ Linux only, so far. CI runs Ubuntu, and the render pipeline expects a Blender ta
 ## Tests that skip themselves
 
 Some tests read source data that is not in git. Those skip rather than fail, and `uv run pytest -rs` names the artifact each one wanted, which is how you tell an expected skip from a broken setup. A failure is a different thing and is worth reporting.
+
+## Changing how it looks, without being able to render it
+
+You can run almost all of the pipeline: stage logic is tested against synthetic rasters in a temp directory rather than against the render store. What you cannot do is render, so the question a reviewer needs answered is whether your change moves pixels.
+
+Part of that is answered without a GPU. `tests/curve_fingerprint.json` holds every pure transform in `pipeline/look/` sampled over a fixed domain, computed from the code alone.
+
+- **The samples move**: the test fails and names the transforms whose output changed. If that was deliberate, regenerate with `uv run python -m scripts.curve_fingerprint --write` and commit the result in the same change, so the diff says what the change costs.
+- **The samples do not move**: nothing in that registry computes differently. That is not the same as leaving the output alone, and the difference is worth stating in your pull request. A change to how a transform is called, to the Blender shader graph, or to anything under `pipeline/fuse/`, moves pixels and moves no sample here.
+
+Two things follow. Reviewing a look change means reading the arithmetic, because no gate covers the parts listed above. And a change that alters what the globe looks like needs a rendered frame the maintainer judges by eye, which is a conversation worth having in an issue before you build it.
 
 ## AI-assisted contributions
 
