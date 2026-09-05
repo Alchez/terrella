@@ -89,7 +89,7 @@ def grid_matches(path: Path, width: int, height: int, bounds) -> bool:
     Every 3857 raster below `height_3857` is warped to height's grid (via -te/-ts), but each one's
     freshness is gated on its own SOURCE, not on height. A re-fuse that GROWS the grid -- un-skipping
     Antarctica takes the planet from 93009 to 131072 rows -- re-warps height while these sit falsely
-    fresh at the old dimensions, and the composite then reads window slices past their bottom (silent
+    fresh at the old dimensions, and readers then take window slices past their bottom (silent
     corruption). A dimension/bounds comparison catches exactly that, and is deliberately NOT an mtime
     dependency on height: that would re-warp all of them on a SAME-grid re-fuse (the Caspian
     rewrote 4 chunks without moving the grid), which is 30+ min of needless work.
@@ -122,7 +122,7 @@ def resolution_matches(path: Path, map_units_per_pixel: float) -> bool:
     every 3857 raster when the reference grid moves beneath it, but the reference itself was gated on
     `is_stale` alone — the mtimes of a VRT and a chunk directory, neither of which moves when a body's
     tile ceiling does. Raising Mars from z6 to z7 therefore left a 32768 square grid reading FRESH:
-    the pass composited it and began cutting a z7 pyramid out of z6 pixels, which is the exact
+    the pass rendered it and began cutting a z7 pyramid out of z6 pixels, which is the exact
     upsample the ceiling was chosen to avoid, arriving with no error anywhere.
 
     DERIVED, NOT RECORDED, which is why this takes no sidecar. A raster's transform IS its

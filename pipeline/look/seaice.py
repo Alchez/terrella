@@ -102,7 +102,7 @@ def warp_seaice_raster(bounds, width, height, out_path, src=None, band_rows=None
     """Warp the ice-frequency source onto a Web-Mercator grid in latitude BANDS (RAW PACKED Float32).
 
     Stores the packed value (0..10000, fill 65535), NOT the 0..1 fraction, for the same reason as snow
-    (`warp_persistence_raster`): the composite unpacks per window in float64, so a window slice of this
+    (`warp_persistence_raster`): the reader unpacks per window in float64, so a window slice of this
     raster must be bit-identical to warping that window alone.
 
     WHY BANDS: `snow.warp_persistence_raster` holds the argument and the measurement that settled it.
@@ -152,7 +152,7 @@ def ice_alpha(frequency, ice_lo=None, ice_band=None, ice_max_alpha=None):
     zero wherever there is no ice, so there is no seasonal-snow flooding to hold back).
 
     ice_lo / ice_band / ice_max_alpha default (None) to the module globals -- the Arctic pack (Mercator
-    tiles + north cap) uses those. South of the equator both the tile composite and the south cap pass
+    tiles + north cap) uses those. South of the equator both the tile tier and the south cap pass
     the toned SH_ICE_* pair instead, for the reason those constants document.
     """
     ice_lo = ICE_LO if ice_lo is None else ice_lo

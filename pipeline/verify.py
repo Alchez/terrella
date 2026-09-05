@@ -5,7 +5,7 @@ verification bugs shipped, and every one was in the CHECK, never in the pipeline
 
   1. `pgrep -f` matched the `/usr/bin/time` wrapper, not gdalwarp -> three impossible "findings"
   2. a bbox MAX as a lake oracle -> a 92 m Caspian "leak" whose argmax sat on land near Baku
-  3. the raw lakedepth FILE instead of what `composite()` is handed -> a leak that cannot reach a pixel
+  3. the raw lakedepth FILE instead of the window a producer is handed -> a leak reaching no pixel
   4. `memory.current` (incl. reclaimable page cache) instead of `anon` -> a false OOM alarm
   5. a calibration oracle restricted to lakes where GLOBathy copies the published depth verbatim
   6. differencing CPU across two same-named PIDs -> **-0.1% CPU**

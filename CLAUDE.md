@@ -20,7 +20,7 @@ pipeline's own runtime is a requirement like any other, measured in PROCESS, and
 being traded here.
 
 - Where a choice has depth, present it rather than shortcutting past it.
-- Docstrings welcome, inline comments only where necessary.
+- **The teaching lives in chat, never in the file.** A docstring and a comment are the same instrument under different syntax, and both are written only where the code cannot speak for itself.
 - Prefer the path that teaches over the path that merely ships. Slower is fine.
 - Expect the plan to change as understanding grows; don't resist rework.
 
@@ -98,12 +98,16 @@ own skill (`.claude/skills/acquire-data/`).
 - Pipeline stages are **idempotent and resumable**: a crash at tile N must not restart the world. Cache intermediates, validate per stage.
 - Python for pipeline code; boring debuggable scripts over frameworks. (Upheld on measurement, not taste: numpy releases the GIL, so threads reach the same ceiling xarray/dask would.)
 - **Every gate stays at zero and there is no "pre-existing error" allowance.** `./scripts/check.sh` from the repo root is the single place the list lives, and its header carries the order and the tool-by-tool reasoning. rasterio call sites take a targeted `# pyright: ignore[reportCallIssue]`; GDAL creation-option dicts are `dict[str, Any]`.
-- Docs in this repo state current truth, not history: if a row and reality disagree, the row is the bug. Dated decisions live in a decision archive kept outside the repo.
-- A learning goes where it will be met: a fact about one function into that function's docstring, a general work heuristic into the agent's memory.
+- Docs in this repo state current truth, not history: if a row and reality disagree, the row is the bug. Dated decisions live in a decision archive kept outside the repo, which is what a comment reading `→ HISTORY, *some heading*` points at: the heading names the conclusion, so the pointer stays legible to a reader who cannot open the archive.
+- A learning goes where it will be met: a fact about one function into that function's docstring if the code cannot carry it, a general work heuristic into the agent's memory.
 - **Anything with two readers needs one owner**, and the kind of thing is incidental: a path, a procedure, a constant, a header, an explanation. Trigger: change one copy, what goes red? Nothing red means it needs an owner. Where one owner is impossible, such as a latitude that must live in both Python and TypeScript, make one copy executable so drift fails loudly.
 - **For an explanation nothing ever goes red**, so ask instead how many places you would edit if the concept changed. One block owns a concept; every site that needs it gets one line pointing there. `scripts/prose_report.py` measures it, as an instrument you run rather than a gate.
+- **"Comment" means docstring too, in every rule here.** They are one instrument in two syntaxes, and a bound that names only the `#` form sends the prose into the `"""` form instead.
 - **A comment explains its own subject and claims nothing that can rot behind its back.** Trigger: could this sentence go false without anyone touching this function? Counts, measurements taken elsewhere and system-wide properties all can, and belong in a test, in PROCESS.md, or nowhere. Keep the concept, the context needed to read the code, and the anti-redo guard.
 - **A comment carries two things and nothing else: what the code IS, and the guard against redoing work already done and reverted.** Everything else is justification, and its home is HISTORY. The test that catches it: **if the sentence would sit comfortably in the HISTORY entry for this change, it does not go in the comment.** The tell is the past tense, since the urge peaks at the moment of the edit and what it wants to narrate is what the site used to be: grep your own added lines for *used to*, *was*, *before*, *previously*, *outlived*, *went with*, *no longer* before calling an edit done.
+- **A docstring longer than the function it documents is the signal to check, not a violation by itself.** A constants block earns one; a four-line function almost never does. `python -m scripts.prose_report` already counts docstrings as prose and is the instrument for asking.
+- **No all-caps lead-ins.** Emphasis by shouting is a tic, not a signal, and a page of it flattens to noise so the one line that mattered reads like the rest. Put the point in the first sentence instead.
+- **Brevity is what gets read.** Every word earns its place or goes: a maintainer skims and a contributor is new, and both lose the same paragraph. Say it once, in the fewest words that stay true.
 - **An anti-redo note names the temptation, never just the prohibition.** "`X` must not come back" is unreadable to anyone who never met `X`: say what it was, why re-adding it looks right, and what breaks. **And first ask whether a guard already makes it red**: if a test fails on the mistake, the comment is a second copy of the guard and should not be written at all.
 - A superseded path is deleted the same day, or moved out of the production package: prose calling it "retired" does not disarm a runnable entry point. Exception: under gitignored `data/`, where deletion is permanent.
 - Never commit rendered assets or DEM data, code and config only.

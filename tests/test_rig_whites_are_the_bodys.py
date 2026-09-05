@@ -1,28 +1,17 @@
-"""The rig's ice whites must be the BODY's, and today they are one global spelling of Earth's.
+"""The rig paints each body's ice in a white that body's own producers declare.
 
-WHAT THIS GUARDS, AND WHY A GLOBAL SURVIVED SO LONG. `scene_build.RIG.snow_rgba` is
-`palette.SNOW_RGB` and reaches every render of every body, while the composite tier asks the
-producer registry, which answers `_earth_white` for Earth and `_mars_ice_white` for Mars. The two
-agree on Earth by coincidence of VALUE — the registry hands back the very constant the rig reads —
-so no Earth pixel has ever disagreed and nothing has ever gone red. On Mars they do not agree at
-all: its whites are warm (F3EFE7 north, FFEFC6 south, measured off the Viking mosaic) against
-Earth's cool blue-white E8F1F6, and `palette`'s own note says blue-in-shadow "is Earth physics and
-does not travel".
+What this refuses is a white held on the rig itself. Such a global agrees with Earth's registry
+answer by coincidence of value, so no Earth pixel disagrees and nothing goes red, while a raytraced
+Mars paints its polar deposits in Earth's snow with the mask correct, the recipe recorded and every
+gate green. `perennial_ice` is `in_block`, so Martian ice really does reach the rig.
 
-`perennial_ice` is in `layers.BLOCK_LAYERS`, so a raytraced Mars reaches the rig and paints its
-polar deposits in Earth's white. Nothing on disk can show it: the mask is correct, the recipe is
-recorded, every gate is green.
+"The rig asks the registry" cannot be literal, because `scene_build` runs in Blender's Python, which
+reaches `palette` (numpy only) but not `layer_producers` and its rasterio and GDAL. So the answer
+travels the way every other per-window fact does: resolved by the prep, written into the render
+directory, declared through `render_seam`. These tests assert that contract end to end rather than
+any one call, so they stay true whichever transport is built.
 
-THE INTERPRETER BOUNDARY IS WHY "THE RIG ASKS THE REGISTRY" CANNOT BE LITERAL. `scene_build` runs
-in Blender's Python, which reaches `palette` (numpy only) but not `layer_producers`, which pulls
-rasterio, GDAL and the download modules. So the authority must reach the rig the way every other
-per-window fact already does — resolved by the prep, written into the render directory, declared
-through `render_seam`. These tests therefore assert the CONTRACT (the rig renders the body's white)
-and not a call, so they stay true whichever transport is built.
-
-Derived from the registry rather than listing bodies, on the rule that a guard catching omission
-from a hand-written list should derive the list instead: a third body joins these assertions by
-existing.
+Derived from the registry rather than listing bodies, so a third body joins by existing.
 """
 
 import dataclasses
@@ -62,9 +51,9 @@ WHITE_LAYERS = frozenset({layers.PERENNIAL_ICE.name, layers.GLACIERS.name, layer
 def polar_window(latitude_deg: float, rows: int = 4) -> layer_producers.LayerWindow:
     """A minimal window at one latitude, enough for a paint producer to answer.
 
-    A PAINT MAY VARY WITHIN A WINDOW, which is why this takes a latitude at all: Mars's producer
-    chooses per row, because its two poles are different colours. Everything else is the smallest
-    shape that satisfies the dataclass — no producer reads it to decide a colour.
+    A paint may vary within a window, which is why this takes a latitude at all: Mars's producer
+    resolves per row against its two poles. Everything else is the smallest shape that satisfies the
+    dataclass, and no producer reads it to decide a colour.
     """
     latitude = np.full(rows, latitude_deg, dtype=np.float64)
     ones = np.ones((rows, 1), dtype=np.float64)
@@ -77,8 +66,8 @@ def polar_window(latitude_deg: float, rows: int = 4) -> layer_producers.LayerWin
 def registry_whites(body: bodies.Body) -> dict[str, tuple]:
     """The sunlit white this body's own producers declare for each ice layer that reaches the rig.
 
-    Asked of the producer rather than read off `palette`, because that indirection IS the fix: a
-    test that reached for `palette.SNOW_RGB` here would pass for Mars while Mars renders wrong.
+    Asked of the producer rather than read off `palette`, because that indirection is the contract:
+    a test reaching for `palette.SNOW_RGB` here would pass for Mars while Mars rendered wrong.
     """
     whites: dict[str, tuple] = {}
     for layer_name in sorted(body.surface_layers & WHITE_LAYERS & layers.BLOCK_LAYERS):
@@ -121,7 +110,7 @@ def rig_white(scene_build, body: bodies.Body, render_dir) -> tuple:
 
 
 class TestTheRigPaintsEachBodysOwnWhite:
-    """The headline contract, and the one that is red today."""
+    """The headline contract."""
 
     @pytest.mark.parametrize("name", sorted(bodies.BODIES))
     def test_the_rig_white_is_one_the_bodys_registry_declares(self, scene_build, name, tmp_path):
@@ -168,19 +157,20 @@ class TestMarsIsTheInstanceThatMakesItVisible:
     """Named rather than derived, because the measurement behind it is Mars's alone."""
 
     def test_mars_ice_reaches_a_cycles_render(self):
-        """The premise the defect rests on: if no Martian ice layer reached the rig, the global
-        would be harmless. `perennial_ice` is `in_block`, so it does."""
+        """The premise the contract rests on: if no Martian ice layer reached the rig, a global
+        white would be harmless. `perennial_ice` is `in_block`, so it does."""
         mars = bodies.BODIES["mars"]
         assert mars.surface_layers & WHITE_LAYERS & layers.BLOCK_LAYERS, (
             "Mars declares no ice layer reaching a Cycles render; this suite's premise is gone"
         )
 
-    def test_mars_declares_a_warm_white_earth_does_not_have(self):
+    def test_mars_declares_a_white_earth_does_not_have(self):
         """The oracle, stated as a fact about the registry rather than about a render.
 
-        Mars's deposits are warm (F3EFE7 / FFEFC6, measured off the Viking mosaic); Earth's snow is
-        cool blue-white. `palette`'s own note says blue-in-shadow is Earth physics that does not
-        travel, so this is not a near-miss that a tolerance could absorb.
+        The two whites were decided separately: Earth's is authored on its own physics, since
+        blue-in-shadow is glacial ice absorbing red and does not travel, and Mars's is authored on a
+        rendered frame. Nothing makes them converge, so sharing a value would mean one body had
+        inherited the other's rather than agreeing with it.
         """
         martian = set(registry_whites(bodies.BODIES["mars"]).values())
         terrestrial = set(registry_whites(bodies.BODIES["earth"]).values())
@@ -191,7 +181,7 @@ class TestMarsIsTheInstanceThatMakesItVisible:
         )
 
     def test_the_rig_does_not_paint_mars_in_earths_white(self, scene_build, tmp_path):
-        """The defect in one sentence: a raytraced Mars discards a Viking measurement."""
+        """In one sentence: a raytraced Mars must not be painted in Earth's snow."""
         assert rig_white(scene_build, bodies.BODIES["mars"], tmp_path) not in set(
             registry_whites(bodies.BODIES["earth"]).values()), (
             "the rig paints Martian polar ice in Earth's snow white"
@@ -199,17 +189,17 @@ class TestMarsIsTheInstanceThatMakesItVisible:
 
 
 class TestEarthDoesNotMove:
-    """The positive control. Every assertion above must be satisfiable WITHOUT changing an Earth
-    pixel, or the fix ships a look change nobody judged on a body that has already been ratified.
+    """The positive control. Every assertion above is satisfiable without changing an Earth pixel,
+    and if it stops being so, the seam has moved a body that was already ratified.
     """
 
     def test_earths_registry_white_is_still_the_authored_constant(self):
-        """What the fix must preserve: Earth's producers answer `palette.SNOW_RGB`, so routing the
-        rig through the registry leaves Earth's rendered white bit-identical."""
+        """Earth's producers answer `palette.SNOW_RGB`, so routing the rig through the registry
+        leaves Earth's rendered white bit-identical."""
         assert palette.SNOW_RGB in set(registry_whites(bodies.BODIES["earth"]).values())
 
     def test_the_rig_still_paints_earth_the_authored_white(self, scene_build, tmp_path):
-        """Green before the fix and green after. If this ever fails, the fix moved Earth.
+        """If this fails, the seam moved Earth.
 
         The values are 8-bit sRGB on both sides, so this is byte equality and not a tolerance: the
         registry hands back `palette.SNOW_RGB` and the seam carries it unchanged, which is what
@@ -219,11 +209,10 @@ class TestEarthDoesNotMove:
 
 
 class TestTheRigHoldsNoWhiteOfItsOwn:
-    """The other half of the fix: no fallback to fall back TO.
+    """The other half of the seam: no fallback to fall back to.
 
-    A rig that kept a default would satisfy every assertion above while still rendering a body in
-    another body's white the moment a prep forgot to declare one — the silent path this whole seam
-    exists to remove.
+    A rig keeping a default satisfies every assertion above and still renders a body in another
+    body's white the moment a prep forgets to declare one.
     """
 
     def test_the_rig_constants_carry_no_ice_albedo(self, scene_build):

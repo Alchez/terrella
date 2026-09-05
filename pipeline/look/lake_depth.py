@@ -3,7 +3,7 @@
 Sits beside snow.py by design. Lake depth is a TINT-ONLY rendering input, never terrain: at
 the locked 15x exaggeration a carved lake bed makes Namtso a 1.5 km crater and kills the flat
 plate that catches the surrounding mountains' shadows. So, exactly like snow, it
-is warped onto the render grid at composite time and never enters the fusion master -- which
+is warped onto the render grid by the planet warp and never enters the fusion master -- which
 is also why a future finer re-fuse would not have to redo any of this.
 
 Epistemics, because they are unusually load-bearing here (measured):
@@ -77,7 +77,7 @@ def warp_depth(bounds, width, height, out_path, vrt=None):
     kernel so it cannot bleed a false trench across a shoreline.
 
     Returns None when the VRT has not been built, so shading still runs flat-water-only --
-    the same contract as snow.rasterize_glaciers when RGI is missing.
+    the same contract as `snow.rasterize_glaciers_raster` when RGI is missing.
     """
     vrt = vrt or lake_vrt()
     if not vrt.exists():
@@ -127,7 +127,7 @@ def lakes_only(depth, watercode):
 
 def inland_water(watercode):
     """Boolean mask of inland water -- watermask class 2 (lake) OR 3 (river) -- selecting the
-    flat WATER_RGB / lake-ramp branch of the composite.
+    flat WATER_RGB / lake-ramp branch of the painter.
 
     Class 1 (ocean) is deliberately EXCLUDED: it is sea, coloured by the depth ramp, the mirror
     of lakes_only's rule above. This is THE one implementation of that decision, shared by both

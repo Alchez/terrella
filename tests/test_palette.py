@@ -236,18 +236,6 @@ class TestSharedConstants:
         )
 
 
-class TestWriteColorRelief:
-    def test_writes_gdaldem_format_with_nodata(self, tmp_path):
-        out = tmp_path / "ramp_land.txt"
-        palette.write_color_relief(out, "land", look=palette.EARTH_LOOK)
-        lines = out.read_text().splitlines()
-        assert lines[-1] == "nv 0 0 0"
-        first = lines[0].split()
-        assert len(first) == 4                       # elevation R G B
-        assert first[0] == "0.00"
-        assert all(0 <= int(v) <= 255 for v in first[1:])
-
-
 class TestTheLookIsByteStable:
     """Golden hashes over every artefact the ramps produce.
 

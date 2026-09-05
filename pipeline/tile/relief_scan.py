@@ -20,7 +20,7 @@ over-margins, which costs render pixels and loses nothing.
 WHAT IS MASKED IS THE RASTER'S OWN DECLARED NODATA, ALONGSIDE NAN. A declared sentinel is not
 missing to anything that does not ask: `height_3857.tif` declares -32768.0, and a consumer
 guarding only NaN once packed that as a real elevation and drew a line from pole to pole on the
-live site. See HISTORY, *the column the warp could not fill*.
+live site.
 """
 
 import argparse

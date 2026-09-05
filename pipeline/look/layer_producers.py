@@ -1,34 +1,22 @@
-"""Which producer builds a body's surface layer for the tile composite, and what that one reads.
+"""Which producer builds a body's surface layer on the Mercator grid, and what that one reads.
 
-ONE ANSWER TO "HOW DOES THIS BODY MAKE THAT LAYER" at the Mercator tier. `layers.py` says what a
-layer is and which stages read it; `Body.surface_layers` says which ones a planet has; this says who
-builds each one, out of what, and how the result becomes a number the composite can blend.
+`layers.py` says what a layer is; `Body.surface_layers` says which ones a planet has; this says who
+builds each one, out of what, and how the result becomes a number `prep_block` can fold. The cap
+tier has its own registry in `look/perennial_ice.py`, keyed by `(body, pole)` where this is keyed by
+`(body, layer)`, and its docstring holds the argument both inherit.
 
-THE CAP TIER'S REGISTRY IS `look/perennial_ice.py`, whose docstring holds the argument this module
-inherits rather than restates: a producer is CODE, so bodies differ in machinery and not in
-constants. Two registries and not one because the tiers key differently — that one by
-`(body, pole)`, this one by `(body, layer)` — and a cap producer paints an AEQD disc where these
-paint one window of a Mercator strip. Merging them is a separate claim.
+Asking a producer for its sources is what makes the warp gate's disk question about the body's own
+files. Collapsing it back to a bare `source.exists()` on a module constant looks like dropping a
+redundant check, and that question reads "have we downloaded Earth's data" whatever body is being
+built: a second planet passes the gate on Earth's file and has Earth's cryosphere warped onto its
+own grid, at the same latitudes, with no missing file and no error.
 
-THE HOLE THIS CLOSES, AND THE TIDY THAT REOPENS IT. Every source below used to be a module constant
-at a fixed global path, asked `source.exists()` at the warp gate. That question reads "have we
-downloaded Earth's data" whatever body is being built, so a second planet declaring one of these
-layers passed the gate on Earth's file and had Earth's cryosphere warped onto its own grid — same
-latitudes, no missing file, no error, a plausible planet. Asked of the body's own producer, the disk
-question is about the body's own files. Collapsing it back to a bare `.exists()` looks like removing
-a redundant check and is silent on the only body anyone builds.
+A producer owns the whole act, sources through per-window arithmetic, because a body that registers
+one half inherits Earth's other half in silence. A Martian raster run through Earth's
+`unpack_persistence` is ice graded by NSIDC's packing convention, which no type could notice.
 
-A PRODUCER OWNS THE WHOLE ACT — the sources, the build, and the per-window arithmetic — because a
-body that registers one half inherits Earth's other half in silence. A Martian raster built by a
-Martian producer and then run through Earth's `unpack_persistence` and Earth's latitude ramp is ice
-graded by NSIDC's packing convention, which no type and no test could notice.
-
-`contribution` RUNS ON A WORKER THREAD AND MUST TOUCH NO FILESYSTEM. `planet_warp` gathers every
-read on the main thread precisely so the compute stays pure; a producer opening a file here would
-put GDAL back where rasterio is not thread-safe.
-
-    from pipeline.look import layer_producers
-    producer = layer_producers.producer_for(body, layers.SEA_ICE)
+`contribution` runs on a worker thread and must touch no filesystem. `planet_warp` gathers every
+read on the main thread precisely so the compute stays pure, and rasterio is not thread-safe.
 """
 
 import dataclasses
@@ -53,10 +41,9 @@ from pipeline.look import lake_depth, mars_ice, palette, seaice, snow, viking_lu
 class LayerBuild:
     """The 3857 grid a producer must land its sources on, and where to leave the result.
 
-    Every field is passed to every producer whether or not it reads it — `band_rows` means nothing
-    to a rasterize — on `perennial_ice.CapIceInputs`' rule: a request whose shape depended on which
-    producer was registered would have to be built per body, which puts a body branch back into the
-    caller this seam exists to remove.
+    Every field goes to every producer whether or not it reads it, on `perennial_ice.CapIceInputs`'
+    rule: a request shaped by which producer was registered has to be built per body, which puts the
+    body branch back into the caller this seam removes.
     """
 
     #: (left, bottom, right, top) in EPSG:3857, the height raster's own bounds.
@@ -65,40 +52,37 @@ class LayerBuild:
     height: int
     #: The file to write, already named from `Layer.warped_basename` under this body's work dir.
     out: Path
-    #: The band height for a producer that warps a coarse source in latitude strips. It equals the
-    #: composite's window height, which is what makes a banded mosaic byte-identical to the
-    #: per-window warps it replaced (`snow.warp_persistence_raster`).
+    #: The band height for a producer that warps a coarse source in latitude strips. It is
+    #: `planet_warp.WINDOW_ROWS`, so a banded mosaic is byte-identical to per-window warps
+    #: (`snow.warp_persistence_raster`).
     band_rows: int
 
 
 @dataclass(frozen=True)
 class LayerWindow:
-    """One window of the composite, as a producer is allowed to see it.
+    """One window of the planet grid, as a producer is allowed to see it.
 
-    `raw` is this producer's OWN slice and None when its raster was never built; the masks and the
-    geometry are shared, and are here for the producers that grade against them rather than against
-    a file. Same all-fields-always rule as `LayerBuild` above.
+    `raw` is this producer's own slice and None when its raster was never built; the masks and the
+    geometry are shared, for the producers that grade against them rather than against a file. Same
+    all-fields-always rule as `LayerBuild`.
     """
 
     raw: np.ndarray | None
     #: The planet seam's water classes, or None on a body whose seam emitted no water mask.
     watercode: np.ndarray | None
-    #: `~(ocean | water)` for this window — the composite's own definition of land.
+    #: `~(ocean | water)` for this window — the tile tier's definition of land, which the cap tier
+    #: spells the same way on its own grid.
     land: np.ndarray
-    #: Open sea alone, WITHOUT inland water. Carried separately from `land` because it is not its
-    #: complement: `~land` is `ocean | water`, so a producer gating on it paints lakes as well, and
-    #: the sea-ice producer gating on lakes is a white disc on every one of them. Not derivable from
-    #: `watercode` either — the ocean mask is its own planet raster, not one of that mask's classes.
+    #: Open sea alone, without inland water, and not `land`'s complement: `~land` is
+    #: `ocean | water`, so a sea-ice producer gating on that paints a white disc on every lake. Not
+    #: derivable from `watercode` either, the ocean mask being its own planet raster.
     ocean: np.ndarray
-    #: True latitude in degrees per ROW (1-D). A Mercator window has rows of constant latitude,
-    #: which is what separates this from the cap tier's per-pixel field.
+    #: True latitude in degrees per row (1-D). A Mercator window has rows of constant latitude,
+    #: where the cap tier's twin is a per-pixel field.
     latitude: np.ndarray
-    #: GROUND metres per pixel, per ROW (1-D) — never Mercator map metres. Carried for the same
-    #: reason `perennial_ice.CapIceInputs` carries its scalar twin, and named the same thing: a
-    #: producer turning a ground distance into pixels needs both the cos(latitude) stretch and the
-    #: body's own `ground_metres_per_mercator_unit`, and this window knows neither on its own. It is
-    #: per row here and scalar there because a Mercator row has one resolution and an AEQD disc has
-    #: one for the whole disc.
+    #: Ground metres per pixel, per row (1-D), never Mercator map metres. A producer turning a
+    #: ground distance into pixels needs the cos(latitude) stretch and the body's own
+    #: `ground_metres_per_mercator_unit`, and knows neither on its own.
     ground_metres_per_px: np.ndarray
     #: The window's latitude span in 3857 metres, for a producer whose ramp needs the extent rather
     #: than the per-row value.
@@ -108,11 +92,11 @@ class LayerWindow:
 
 @dataclass(frozen=True)
 class LayerProducer:
-    """One body's answer for one layer at the composite tier: what it reads, builds and contributes.
+    """One body's answer for one layer at the Mercator tier: what it reads, builds and contributes.
 
-    `sources` is a CALLABLE and never a tuple literal, for the reason `perennial_ice.CapIce` records
-    at length: a literal evaluates its paths once, at import, so a caller that redirects the data
-    root is answered with the path from before the redirect. Every path here hangs off `paths.DATA`.
+    `sources` is a callable and never a tuple literal, on `perennial_ice.CapIce`'s rule: a literal
+    evaluates its paths at import, so a caller that redirects the data root is answered with the
+    path from before the redirect. Every path here hangs off `paths.DATA`.
     """
 
     sources: Callable[[], tuple[Path, ...]]
@@ -123,64 +107,46 @@ class LayerProducer:
     #: than zeros keeps a layer that contributes nothing out of the union entirely.
     contribution: Callable[[LayerWindow], "np.ndarray | None"]
     #: The `(sunlit, shadowed)` white the cap painter paints this producer's alpha with, or None
-    #: where the layer's number is not painted as a white at all (lake depth, which takes a ramp).
-    #:
-    #: `cap_render` is the ONLY consumer of this now. On the planet the alpha is folded by
-    #: `prep_block` and coloured by Blender, so no white passes through Python there at all.
+    #: where the layer's number is not a white at all (lake depth, which takes a ramp). `cap_render`
+    #: is its only consumer: on the planet, `prep_block` folds the alpha and Blender colours it.
     #:
     #: Each end may be a bare RGB triple or an array shaped per row, so a producer whose material
-    #: changes across the window says so itself. Mars's does: its two poles measure as different
-    #: colours, 1.053 against 1.291 in red:violet, and one producer covers both hemispheres.
+    #: changes across the window says so itself.
     #:
-    #: WHY THIS IS THE PRODUCER'S AND NOT THE COMPOSITOR'S. It used to be a module global read
-    #: inside `shade.composite`, on the argument that one white serves every body's perennial ice.
-    #: That was true while Earth was the only body painting any, and it stopped being true twice
-    #: over — once when a second planet arrived and inherited Earth's white by omission, and again
-    #: when that planet turned out to need two of its own. A global read cannot show a reader that
-    #: either fact exists, which is the whole failure: the code that decided to paint a pixel is the
-    #: only code that knows what the pixel is made of.
+    #: It belongs to the producer because the code that decides to paint a pixel is the only code
+    #: that knows what the pixel is made of. Read as a module global instead, a second planet
+    #: inherits Earth's white by omission and nothing can show a reader that a second planet exists.
     paint: Callable[[LayerWindow], "tuple[Any, Any] | None"]
     #: The constants `contribution` reads, for the freshness recipe of every stage that grades.
     #:
-    #: A tunable reaching a pixel and reaching no recipe leaves a stale output looking fresh; one
-    #: recorded by a body that cannot evaluate it restages that body for output it could not have
-    #: changed. Both are silent, and a single gate cannot separate them once two bodies paint the
-    #: same layer by different arithmetic — the gate asks whether the body paints ice, which is
-    #: right, and the values behind it answered for Earth, which stopped being right. So the code
-    #: that READS a constant is the code that declares it.
+    #: A tunable reaching a pixel and no recipe leaves a stale output looking fresh; one recorded by
+    #: a body that cannot evaluate it restages that body for output it could not have changed. Both
+    #: are silent, and one gate cannot separate them once two bodies paint a layer by different
+    #: arithmetic. So the code that reads a constant is the code that declares it.
     #:
-    #: Still not here: `palette.LAKE_*`. Lake depth really is one ramp on every body that has lakes,
-    #: it is not a white, and no second instance has contradicted it — so it stays in the rig's own
-    #: constants until one does.
+    #: `palette.LAKE_*` is deliberately still not here: lake depth is one ramp on every body that
+    #: has lakes and is not a white, so it stays in the rig's constants until something contradicts
+    #: that.
     contribution_recipe: Callable[[], dict[str, Any]]
     #: The constants `paint` reads, for the freshness recipe of every stage that paints.
     #:
-    #: NOT A RETREAT FROM RECORDING THE WHITES — they are still the producer's and still restage
-    #: the composite and both caps. The split exists because `prep_block` grades without painting:
-    #: it folds the alpha and lets Blender colour it, so recording the whites there would put a
-    #: night of GPU behind a colour tweak that cannot reach one raytraced pixel.
-    #:
-    #: Empty where the number is not a white at all, exactly as `paint` returns None.
+    #: Split from the above because `prep_block` grades without painting, so recording the whites
+    #: there would put a night of GPU behind a colour tweak that cannot reach one raytraced pixel.
+    #: Empty where the number is not a white, exactly as `paint` returns None.
     paint_recipe: Callable[[], dict[str, Any]]
-    #: The constants `build` bakes INTO the raster, which is a different set from `recipe` above and
-    #: cannot share its machinery.
+    #: The constants `build` bakes into the raster, which cannot share the machinery above.
     #:
-    #: WHY THE SPLIT IS NOT TIDINESS. `recipe` reaches the painting stage's own recipe, so changing
-    #: one of its values restages that stage — which is exactly right for a constant read per
-    #: window, because the rerun re-reads it. A constant consumed at BUILD time is frozen into the
-    #: disk, and `warp_needs_rebuild` is closed over PATHS: no Python value can reach it. Recording a
-    #: build-time constant in `recipe` alone therefore produces the worst available outcome — a full
-    #: composite restage that repaints from the unchanged raster and lands the same wrong pixels,
-    #: looking for all the world like the change applied.
+    #: A constant read per window is re-read when its stage reruns, so recording it there is enough.
+    #: A build-time constant is frozen into the file, and `warp_needs_rebuild` is closed over paths
+    #: that no Python value can reach: recorded in `contribution_recipe` alone it buys a full
+    #: restage that repaints from the unchanged raster and lands the same wrong pixels.
     #:
-    #: Materialised by `warp_inputs` through `freshness.write_if_changed`, whose whole purpose is to
-    #: let a constant stand in as an mtime dependency: the file moves if and only if a value moved.
+    #: Materialised by `warp_inputs` through `freshness.write_if_changed`, so the file moves if and
+    #: only if a value moved.
     #:
-    #: EMPTY IS THE ANSWER FOR EVERY EARTH PRODUCER and that is a property of them rather than an
-    #: omission — all four are pure transport, landing a source on the grid and storing it raw, with
-    #: every grading constant read later in `contribution`. An empty dict writes no file and adds no
-    #: source, so Earth's gate stays byte-for-byte what it was and the optional-layer warps do not
-    #: restage. Mars's ice is the first build to grade before it writes.
+    #: Empty on every Earth producer, which is a property of them rather than an omission: all four
+    #: are pure transport. An empty dict writes no file and adds no source, so those warps do not
+    #: restage.
     build_recipe: Callable[[], dict[str, Any]]
 
 
@@ -196,7 +162,7 @@ def _build_lake_depth(request: LayerBuild) -> None:
 
 
 def _build_persistence(request: LayerBuild) -> None:
-    """NSIDC-0791 onto the grid, storing the RAW PACKED Float32 and banded at the window height.
+    """NSIDC-0791 onto the grid, storing the raw packed Float32 and banded at the window height.
 
     Banded so each strip is exactly the per-window warp it replaced; `snow.warp_persistence_raster`
     holds why a single whole-grid warp decimates a source this coarse.
@@ -241,14 +207,12 @@ def _build_antarctic_rock(request: LayerBuild) -> None:
 
 
 def _earth_antarctic_rock(_window: LayerWindow) -> "np.ndarray | None":
-    """None on every window, and that is this layer's whole answer at this tier.
+    """None on every window: the one producer that builds a raster and contributes nothing.
 
-    THE ONE PRODUCER THAT BUILDS A RASTER AND CONTRIBUTES NOTHING. What consumes the raster is
-    `fold_white`, which takes it back OUT of the finished union as a `WHITE_EXCLUSIONS` member;
-    `gather` reads the slice straight off `layer_raw` and returns it beside the contributions, so it
-    reaches no producer at all. Returning an array here instead would put the rock into
-    `fold_white`'s maximum and paint the outcrop the very white this layer exists to remove — an
-    inversion that renders as a perfectly plausible ice sheet.
+    `gather` reads the slice straight off `layer_raw` and `fold_white` takes it back out of the
+    finished union as a `WHITE_EXCLUSIONS` member, so it reaches no producer. Returning an array
+    here instead puts the rock into the maximum and paints the outcrop the very white this layer
+    exists to remove, which renders as a perfectly plausible ice sheet.
     """
     return None
 
@@ -267,23 +231,18 @@ def _earth_lake_depth(window: LayerWindow) -> "np.ndarray | None":
 def _earth_perennial_ice(window: LayerWindow) -> "np.ndarray | None":
     """NSIDC-0791 persistence, plus the forced Antarctic patch that has no dataset behind it.
 
-    BOTH HALVES ARE THIS LAYER'S ANSWER, exactly as the cap tier's two poles are. NSIDC-0791 covers
-    Antarctica and saturates over it (median 1.000 per band 60-90S), but 9-14% of the continent's
-    land arrives as clustered fill that unpacks to 0.0, which RGI's peripheral region 19 does not
-    reach either — so the patch exists to close those holes rather than to substitute for an absent
-    dataset. The holes are IN
-    the file, which is what makes the patch ride the layer's DECLARATION and not its raster: no
-    file could ever switch a latitude-and-land rule off, and this returns an array even when `raw`
-    is None.
+    Both halves are this layer's answer. NSIDC-0791 covers Antarctica and saturates over it, but
+    9-14% of the continent's land arrives as clustered fill unpacking to 0.0, which RGI's peripheral
+    region 19 does not reach either, so the patch closes holes rather than standing in for a missing
+    dataset. The holes being in the file is what makes the patch ride the layer's declaration: no
+    file can switch a latitude-and-land rule off, so this returns an array even when `raw` is None.
 
-    float64 in both branches. `snow_alpha` returns float64 and `antarctic_snow_mask` float32, so the
-    zeros base is what keeps the two paths feeding the union the same dtype.
+    float64 in both branches, since `snow_alpha` returns float64 and `antarctic_snow_mask` float32.
 
-    NO ROCK REACHES THIS PRODUCER, and that is a correctness boundary rather than a tidy. The
-    outcrop used to be subtracted from the patch here, inside ONE TERM of the maximum below, where
-    `persistence_alpha` re-claimed 63% of it — a negative has no home in a positive claim. It is now
-    a `WHITE_EXCLUSIONS` member applied after the whole union folds, so this producer answers only
-    the question it can answer: where Earth's perennial ice IS.
+    No rock reaches this producer, which is a correctness boundary rather than a tidy: a negative
+    has no home in a positive claim, and subtracted here it sits inside one term of the maximum
+    where `persistence_alpha` re-claims 63% of it. It is a `WHITE_EXCLUSIONS` member instead, so
+    this answers only where Earth's perennial ice is.
     """
     if window.raw is None:
         persistence_alpha = np.zeros(window.land.shape, dtype=float)
@@ -304,12 +263,12 @@ def _earth_sea_ice(window: LayerWindow) -> "np.ndarray | None":
     """Frequency -> smoothstep, toned in the southern hemisphere.
 
     South of the equator the pack takes the cap's fainter, pulled-in fringe (`seaice.SH_ICE_*`), or
-    the full-strength Antarctic belt reads as a bright halo — proven on the cap. No window straddles
-    both hemispheres' ice and the equator is ice-free, so the per-row split is exact.
+    the full-strength Antarctic belt reads as a bright halo. No window straddles both hemispheres'
+    ice and the equator is ice-free, so the per-row split is exact.
 
-    GATED HERE AND NOT BY A CONSUMER. The frequency field is nonzero over land near the coast, and
-    the alpha is spent on displacement as well as colour, so an ungated return is a producer handing
-    out something that flattens shorelines. `tests/test_sea_ice_gate.py` is the law's guard.
+    Gated here rather than by a consumer: the frequency field is nonzero over land near the coast
+    and the alpha is spent on displacement as well as colour, so an ungated return hands out
+    something that flattens shorelines. `tests/test_sea_ice_gate.py` guards it.
     """
     if window.raw is None:
         return None
@@ -326,11 +285,9 @@ def _earth_sea_ice(window: LayerWindow) -> "np.ndarray | None":
 def _no_tunables() -> dict[str, Any]:
     """A producer whose arithmetic has no constants of its own.
 
-    Empty is a statement and not an omission, on `CapIce.sources`' rule. Lake depth is a warp and
-    the glacier mask a rasterize: both land a source on the grid and hand the number through
-    unmodified, so there is nothing here to re-tune. What paints them — the lake ramp, the whites —
-    belongs to the compositor. A producer that grows a constant declares it here, and the bodies
-    that read it restage; that is the field working, not a change of policy.
+    Empty is a statement and not an omission, on `CapIce.sources`' rule: lake depth is a warp and
+    the glacier mask a rasterize, both handing their number through unmodified. What paints them is
+    declared by `paint_recipe` instead.
     """
     return {}
 
@@ -338,23 +295,20 @@ def _no_tunables() -> dict[str, Any]:
 def _earth_paint(_window: "LayerWindow | None" = None) -> tuple[Any, Any]:
     """Earth's one ice white, shared by its perennial ice, its glaciers and its cap producers.
 
-    ONE HOME, DECLARED BY EACH READER RATHER THAN COPIED INTO IT. Earth's two composite-tier ice
-    layers feed a single union and must agree, and the caps must agree with both or the crossfade
-    changes colour across the seam. Reading `palette` from one function keeps that a fact rather
-    than a coincidence between four registry entries.
+    Its two Mercator-tier ice layers feed a single union and must agree, and the caps must agree
+    with both or the crossfade changes colour across the seam. One function rather than four
+    registry entries transcribing `palette` is what makes that a fact instead of a coincidence.
     """
     return palette.SNOW_RGB, palette.SNOW_SHADOW_RGB
 
 
 def _earth_perennial_ice_recipe() -> dict[str, Any]:
-    """What `_earth_perennial_ice` GRADES with: `snow_alpha`'s latitude ramp and the softening.
+    """What `_earth_perennial_ice` grades with: `snow_alpha`'s latitude ramp and the softening.
 
-    THE SOFTENING'S TWO CONSTANTS ARE HERE FOR THE REASON `snow`'s RAMP_* ARE, and the arithmetic
-    they key is spatial rather than tonal, which is what makes leaving them out so quiet: a
-    re-tuned edge width changes no colour, no threshold and no file, so a stale output painted
-    with the old sigma reads exactly as fresh as a new one. `SOFTEN_BAND_TOLERANCE` is deliberately
-    NOT recorded: it bounds the banding's own approximation error rather than choosing an answer,
-    so moving it can only make the same intended output more or less exactly computed.
+    The softening's two constants are spatial rather than tonal, which is what would make leaving
+    them out quiet: a re-tuned edge width changes no colour, no threshold and no file, so a stale
+    output reads exactly as fresh as a new one. `SOFTEN_BAND_TOLERANCE` is deliberately absent,
+    bounding the banding's approximation error rather than choosing an answer.
     """
     return {"snow_ramp_lat_lo": snow.RAMP_LAT_LO,
             "snow_ramp_lat_hi": snow.RAMP_LAT_HI,
@@ -366,11 +320,11 @@ def _earth_perennial_ice_recipe() -> dict[str, Any]:
 
 
 def _earth_paint_recipe() -> dict[str, Any]:
-    """Earth's one ice white as a recipe, declared by BOTH producers that paint in it.
+    """Earth's one ice white as a recipe, declared by both producers that paint in it.
 
     From `_earth_paint`, the same function their `paint` returns, so the recipe cannot record a
-    colour the producer does not use. Both declare it and the merge is by key, so the duplicate is
-    one value seen twice rather than two free to drift.
+    colour the producer does not use. The merge is by key, so the duplicate is one value seen twice
+    rather than two free to drift.
     """
     lit, shadow = _earth_paint()
     return {"snow_rgb": lit, "snow_shadow_rgb": shadow}
@@ -402,14 +356,12 @@ def _mars_ice_sources() -> tuple[Path, ...]:
 
 
 def _build_mars_ice(request: LayerBuild) -> None:
-    """Viking luma graded, cut to the mapped units and feathered — the one build that is not a warp.
+    """Viking luma graded, cut to the mapped units and feathered: the only build that grades.
 
-    THE ONLY BUILD HERE THAT GRADES BEFORE IT WRITES. Its siblings land a source on the grid and
-    store it raw, leaving every constant to `contribution`; this one bakes `FEATHER_KM` and
-    `ALPHA_LEVELS` into the file, because the feather is a distance transform and a distance
-    transform cannot be computed from one window — a pixel's nearest ice can lie outside whatever
-    slice is in hand. That asymmetry is what `build_recipe` exists for, and why this producer's
-    `recipe` is empty rather than carrying those two.
+    Its siblings store their source raw and leave every constant to `contribution`. This one bakes
+    `FEATHER_KM` and `ALPHA_LEVELS` into the file, because a distance transform cannot be computed
+    from one window: a pixel's nearest ice can lie outside whatever slice is in hand. That is what
+    `build_recipe` exists for, and why this producer's `contribution_recipe` is empty.
     """
     progress.stage("grade Viking luma -> Mars ice alpha (polar bands) ...")
     request.out.unlink(missing_ok=True)
@@ -420,14 +372,11 @@ def _build_mars_ice(request: LayerBuild) -> None:
 
 
 def _mars_perennial_ice(window: LayerWindow) -> "np.ndarray | None":
-    """The alpha the build already computed, as float64 — this window and nothing else.
+    """The alpha the build already computed, as float64: this window and nothing else.
 
-    NOTHING IS GRADED HERE, the mirror image of Earth's producer, and it follows from where the
-    feather has to run rather than from taste. None when the raster was never built, per the
-    contract: no file, no ice, and no zeros pushed into the union to be blended against.
-
-    float64 because the fold blends whichever body's answer it is handed alongside Earth's, and a
-    narrower dtype from one of them shifts the other's blend sub-DN.
+    Nothing is graded here, the mirror image of Earth's producer, which follows from where the
+    feather has to run. None when the raster was never built: no file, no ice, and no zeros pushed
+    into the union to be blended against. float64 to match what the fold promotes to.
     """
     if window.raw is None:
         return None
@@ -435,19 +384,18 @@ def _mars_perennial_ice(window: LayerWindow) -> "np.ndarray | None":
 
 
 def _mars_ice_paint(window: LayerWindow) -> tuple[Any, Any]:
-    """Mars's white, chosen PER ROW, because its two poles are not the same colour.
+    """Mars's white, resolved per row against `MARS_ICE_WHITE`'s two poles.
 
-    Measured off the Viking mosaic over each pole's own painted extent, weighted by the alpha this
-    producer hands over: red:violet 1.053 north against 1.291 south. Their own surrounding ground
-    reads 1.231 and 1.807, and normalising each cap by its own ground leaves most of the gap intact
-    — so the difference belongs to the ice, not to what surrounds it or to how it was imaged.
+    Both entries carry one authored white today, so this resolves twice to the same answer. The
+    lookup stays because one producer spans both hemispheres here, where the cap tier keys on the
+    pole: a re-split has nowhere else to reach the pixels, and a producer that stopped asking would
+    look identical until then. `test_mars_still_resolves_its_white_PER_POLE_though_both_poles_now_
+    carry_one` makes the pole matter synthetically, which is the only arm that can tell the two
+    apart.
 
-    ONE PRODUCER SPANS BOTH HEMISPHERES HERE, unlike the cap tier where the pole is the registry
-    key, which is exactly why the paint has to be able to vary within a window rather than being one
-    constant per producer. Returned as `(3, H, 1)`, which the blend broadcasts for free.
-
-    The equator is a hemisphere boundary and never an ice boundary: Mars carries no ice within 76
-    degrees of it, so the row this splits on is one no alpha reaches.
+    Returned as `(3, H, 1)`, which the blend broadcasts for free. The equator is a hemisphere
+    boundary and never an ice boundary, Mars carrying no ice within 76 degrees of it, so the row
+    this splits on is one no alpha reaches.
     """
     northern = np.asarray(window.latitude) >= 0.0
     def per_row(north: Any, south: Any) -> np.ndarray:
@@ -459,14 +407,14 @@ def _mars_ice_paint(window: LayerWindow) -> tuple[Any, Any]:
 
 
 def _mars_ice_paint_recipe() -> dict[str, Any]:
-    """Both whites, flat and per pole, so a re-tune of either one restages the composite.
+    """Both whites, flat and per pole, so a re-tune of either restages the block render and caps.
 
-    FOUR KEYS RATHER THAN EARTH'S TWO, and the asymmetry is the point: a recipe records what its own
-    body evaluates, and Mars evaluates two pairs where Earth evaluates one. Recording Earth's shape
-    here would have to invent a single Martian white that no pixel is painted with.
+    Four keys rather than Earth's two: a recipe records what its own body evaluates, and Mars
+    evaluates two pairs. Both stay required even now the values agree, since collapsing to one key
+    would record today's pixels correctly and leave half of any future re-split untracked.
 
-    Flat keys rather than a nested dict so a `git log -S "snow_rgb_south"` finds the value's history
-    the same way it finds Earth's.
+    Flat keys rather than a nested dict, so `git log -S "snow_rgb_south"` finds the value's history
+    the way it finds Earth's.
     """
     return {f"snow_{end}_{pole}": list(value)
             for pole, pair in sorted(palette.MARS_ICE_WHITE.items())
@@ -476,22 +424,20 @@ def _mars_ice_paint_recipe() -> dict[str, Any]:
 def _mars_ice_build_recipe() -> dict[str, Any]:
     """The two constants `_build_mars_ice` freezes into its raster.
 
-    The luma WEIGHTS are deliberately absent, and covered rather than forgotten: `look/viking_luma`
-    records them in its own recipe, so a weight change restages that stage, moves the field's mtime,
-    and reaches this raster as a moved SOURCE. Recording them here as well would rebuild correctly
-    and claim the coupling lives in two places.
+    The luma weights are deliberately absent, and covered rather than forgotten: `look/viking_luma`
+    records them in its own recipe, so a weight change moves the field's mtime and reaches this
+    raster as a moved source. Recording them here too would claim the coupling lives in two places.
     """
     return {"mars_feather_km": mars_ice.FEATHER_KM,
             "mars_alpha_levels": {pole: list(levels)
                                   for pole, levels in sorted(mars_ice.ALPHA_LEVELS.items())}}
 
 
-#: Every composite-tier producer that ships, by (body slug, layer name).
+#: Every Mercator-tier producer that ships, by (body slug, layer name).
 #:
-#: Six entries and six MECHANISMS — a banded NetCDF warp, a vector rasterize, a banded GeoTIFF warp,
+#: Six entries and six mechanisms: a banded NetCDF warp, a vector rasterize, a banded GeoTIFF warp,
 #: a nodata-masked bilinear warp, Mars's graded-and-feathered polar bands, and a vector rasterize
-#: whose result no pixel of its own is painted from — which is what gives the parameterisation real
-#: instances instead of one shape repeated with a different constant.
+#: whose result no pixel of its own is painted from.
 PRODUCER_BY_BODY_LAYER: dict[tuple[str, str], LayerProducer] = {
     ("earth", layers.LAKE_DEPTH.name): LayerProducer(
         sources=lambda: (extract_globathy.lake_vrt(),),
@@ -533,7 +479,7 @@ PRODUCER_BY_BODY_LAYER: dict[tuple[str, str], LayerProducer] = {
     ("mars", layers.PERENNIAL_ICE.name): LayerProducer(
         sources=_mars_ice_sources,
         build=_build_mars_ice, contribution=_mars_perennial_ice, paint=_mars_ice_paint,
-        # THE ONLY PRODUCER THAT ANSWERS ALL THREE FIELDS DIFFERENTLY, which is what keeps the
+        # The only producer that answers all three fields differently, which is what keeps the
         # split honest: it grades nothing per window, declares two whites per pole, and bakes a
         # feather and its alpha levels into the raster. One field could not carry that.
         contribution_recipe=_no_tunables, paint_recipe=_mars_ice_paint_recipe,
@@ -542,19 +488,18 @@ PRODUCER_BY_BODY_LAYER: dict[tuple[str, str], LayerProducer] = {
 
 
 def producer_for(body: bodies.Body, layer: layers.Layer) -> LayerProducer:
-    """The producer this body builds `layer` with, at the composite tier.
+    """The producer this body builds `layer` with, at the Mercator tier.
 
-    RAISES RATHER THAN FALLING BACK, on `perennial_ice.cap_ice`'s rule and for its sharper reason: a
-    body inheriting Earth's producer by omission warps Earth's data onto another world and paints it
-    as that world's, with nothing missing and nothing to report. Only asked of a body that declares
-    the layer, so the raise is unreachable in a correct configuration and is exactly a statement that
-    the two declarations disagree.
+    Raises rather than falling back, on `perennial_ice.cap_ice`'s rule: a body inheriting Earth's
+    producer by omission warps Earth's data onto another world and paints it as that world's, with
+    nothing missing and nothing to report. Only asked of a body that declares the layer, so the
+    raise says the two declarations disagree.
     """
     try:
         return PRODUCER_BY_BODY_LAYER[(body.name, layer.name)]
     except KeyError:
         raise KeyError(
-            f"{body.name} declares the {layer.name} layer but registers no composite producer; "
+            f"{body.name} declares the {layer.name} layer but registers no Mercator producer; "
             f"known: {sorted(PRODUCER_BY_BODY_LAYER)}"
         ) from None
 
@@ -563,12 +508,12 @@ def producers_for(body: bodies.Body, vocabulary: frozenset[str]
                   ) -> list[tuple[layers.Layer, LayerProducer]]:
     """The producers a stage with this vocabulary runs on this body, in `LAYERS` order.
 
-    ONE ANSWER, because `gather` runs them and `constants_for` records what they read: a layer one
+    One answer, because `gather` runs them and `constants_for` records what they read: a layer one
     saw and the other did not is a constant reaching a pixel with no recipe behind it.
 
-    ASKED OF THE BODY, NEVER OF THE RASTER ON DISK. A producer runs because the planet DECLARED the
-    layer, which is what lets Earth's perennial ice carry the forced Antarctic patch — a rule with
-    no file behind it, so no missing raster could switch it off.
+    Asked of the body, never of the raster on disk. A producer runs because the planet declared the
+    layer, which is what lets Earth's perennial ice carry the forced Antarctic patch: a rule with no
+    file behind it, so no missing raster can switch it off.
     """
     return [(layer, producer_for(body, layer)) for layer in layers.warped_for(vocabulary)
             if layer.name in body.surface_layers]
@@ -578,14 +523,15 @@ def constants_for(body: bodies.Body, vocabulary: frozenset[str], *,
                   painted: bool) -> dict[str, Any]:
     """Every constant this body's producers read for `vocabulary`, as one stage's freshness record.
 
-    `vocabulary` IS THE SAME ARGUMENT THE CALLER HANDS `gather`, so a stage cannot run a producer
+    `vocabulary` is the same argument its caller hands `gather`, so a stage cannot run a producer
     without passing the set that decides whether its constants are recorded.
 
-    `painted` is what the stage DOES with the answer, derivable from no layer or body: the
-    composite blends contribution and white together, `prep_block` folds the alpha alone.
+    `painted` is what the stage does with the answer, derivable from no layer or body. True where a
+    white reaches a pixel, which is `block_render` (the prep resolves each producer's colour) and
+    the two cap stages; False for `prep_block.params`, whose `build` drops `gather`'s paints.
 
-    ONE PARAMETER RATHER THAN TWO FUNCTIONS: a caller that must merge two calls can forget the
-    second and get a plausible, shorter recipe, which is the failure being closed here.
+    One parameter rather than two functions: a caller that must merge two calls can forget the
+    second and get a plausible, shorter recipe.
     """
     recorded: dict[str, Any] = {}
     for _layer, producer in producers_for(body, vocabulary):
@@ -595,46 +541,34 @@ def constants_for(body: bodies.Body, vocabulary: frozenset[str], *,
     return recorded
 
 
-#: The layers whose contributions merge into ONE white, in the order they fold.
+#: The layers whose contributions merge into one white, in the order they fold.
 #:
-#: SEA ICE IS ABSENT AND THAT IS THE POINT. It is gated on the ocean selector where this union
-#: paints land, so folding it in here would paint pack ice onto the shore it borders.
-#: Lake depth is absent for a different reason: it is a ramp position and not a white at all.
+#: Sea ice is absent deliberately: it is gated on the ocean selector where this union paints land,
+#: so folding it in would paint pack ice onto the shore it borders. Lake depth is absent for a
+#: different reason, being a ramp position and not a white at all.
 WHITE_UNION: tuple[layers.Layer, ...] = (layers.PERENNIAL_ICE, layers.GLACIERS)
 
-#: The layers that REMOVE white, applied after that union and never folded into it.
+#: The layers that remove white, applied after that union and never folded into it: `fold_white` is
+#: a maximum over positive claims, so "this pixel is definitively not ice" has no representation in
+#: it and saying so inside one union member leaves every other member free to outvote it. The rule
+#: beside this file owns what that costs.
 #:
-#: THE NEGATIVE HALF OF THE SAME LAW, and it exists because `fold_white` is a maximum over POSITIVE
-#: claims. Every member of `WHITE_UNION` says "this pixel is ice"; "this pixel is definitively NOT
-#: ice" has no representation in a maximum of non-negative arrays at all. Before this tuple the only
-#: way to say it was to subtract inside one union member's own contribution — where every OTHER
-#: member independently outvotes it. Measured, that cost the Antarctic outcrop 63% of its
-#: subtraction, because NSIDC-0791 persistence reads a median 1.0000 on the very rock SCAR ADD maps.
-#:
-#: BESIDE THE UNION AND NOT IN `layers`, because the two are one law and a reader who finds either
-#: half needs the other: what makes a new white source safe to add is that this half lands after all
-#: of them. A layer belongs here rather than in the union when its answer is about a pixel NOT being
-#: white, which is a different question from how strongly something else claims it.
+#: Here beside the union rather than in `layers`, because a reader who finds either half needs the
+#: other: what makes a new white source safe to add is that this half lands after all of them.
 WHITE_EXCLUSIONS: tuple[layers.Layer, ...] = (layers.ANTARCTIC_ROCK,)
 
 
 def white_law(body: bodies.Body, vocabulary: frozenset[str]) -> dict[str, list[str]]:
-    """Which of `vocabulary` this body folds INTO the white and which it takes back OUT.
+    """Which of `vocabulary` this body folds into the white and which it takes back out.
 
-    A LAW RATHER THAN A CONSTANT, which is why it is not `constants_for`'s: a producer's recipe says
+    A law rather than a constant, which is why it is not `constants_for`'s: a producer's recipe says
     how it grades its own claim, and no producer can see whether that claim is added or subtracted.
-    Nothing else in a recipe stands in for this. `producers_for` walks `warped_for`, so a layer's
-    producer is recorded whichever tuple it sits in, and `glaciers` and `antarctic_rock` both grade
-    nothing per window — a layer changing side moves no other entry anywhere.
+    The rule beside this file owns why nothing else in a recipe stands in for it.
 
-    Filtered as `gather` filters, so a stage records the law it runs and no other.
-
-    LISTS AND NOT SETS: order is part of the law, since `fold_white`'s `merge` caller is not
-    commutative, and these are recipe values a set could not serialise in a stable order anyway.
-
-    NARROWED BY `producers_for` RATHER THAN BY ITS OWN COPY OF THAT FILTER, so the law recorded is
-    the law the stage runs by construction: a fourth spelling of "this body, this vocabulary" is a
-    fourth thing to keep in step, and this one has to agree with `gather` or the record is fiction.
+    Lists rather than sets, because a set has no stable serialisation order. Narrowed by
+    `producers_for` rather than by its own copy of that filter, so the law recorded is the law the
+    stage runs; a fourth spelling of "this body, this vocabulary" would have to agree with `gather`
+    or the record is fiction.
     """
     runs = {layer.name for layer, _ in producers_for(body, vocabulary)}
 
@@ -651,24 +585,21 @@ def gather(body: bodies.Body, layer_raw: dict[str, "np.ndarray | None"], window:
                                                 dict[str, np.ndarray]]:
     """Every layer `vocabulary` reads, as this body's producers answer for one window.
 
-    WHICH PRODUCERS RUN IS `producers_for`'S ANSWER and not a condition restated here, so that this
-    and `constants_for` cannot disagree about the set — see there for why the declaration is asked
-    of the body rather than of the rasters on disk.
+    Which producers run is `producers_for`'s answer rather than a condition restated here, so this
+    and `constants_for` cannot disagree about the set.
 
-    `vocabulary` IS THE CALLER'S STAGE VIEW, on `layers.layers_off`'s rule: the composite reads
-    `PLANET_LAYERS` and the block render `BLOCK_LAYERS`, and the two genuinely disagree.
+    `vocabulary` is the caller's stage view, on `layers.layers_off`'s rule: `prep_block` reads
+    `BLOCK_LAYERS` and `cap_render` `CAP_LAYERS`, and the two genuinely disagree.
 
-    A paint is asked ONLY of a layer that contributed, so a producer that paints nothing this window
+    A paint is asked only of a layer that contributed, so a producer that paints nothing this window
     never has to answer what colour it would have used.
 
-    THE EXCLUSIONS ARE READ HERE, ONCE, because this is the only place holding both `layer_raw` and
-    the body's declarations. They are the third return rather than a shared field on the window: no
-    producer is allowed to see them, since the whole point of `WHITE_EXCLUSIONS` is that a negative
-    is applied to the FOLD and not inside any one producer's positive answer.
+    The exclusions are read here because this is the only place holding both `layer_raw` and the
+    body's declarations, and they are a third return rather than a field on the window because no
+    producer may see them: a negative applies to the fold, never inside one positive answer.
 
-    ASKED OF THE BODY AND OF THE VOCABULARY, NEVER OF THE DICT. One supplier keys `layer_raw` on
-    `path.exists()` alone, so a slice can arrive for a body that declares no such layer, and a stage
-    that does not read the layer must get the un-excluded answer exactly.
+    Asked of the body and the vocabulary, never of the dict. One supplier keys `layer_raw` on
+    `path.exists()` alone, so a slice can arrive for a body that declares no such layer.
     """
     exclusions = {layer.name: raw for layer in WHITE_EXCLUSIONS
                   if layer.name in vocabulary and layer.name in body.surface_layers
@@ -695,27 +626,19 @@ def fold_white(contributions: dict[str, np.ndarray], shape: tuple[int, ...], *,
     `WHITE_EXCLUSIONS` back out of the result.
 
     float64 base because that is what `snow_alpha` returns and what the maxima promote to; a float32
-    base would narrow every pixel the blend touches. `np.maximum` reorders freely and every
-    contribution is non-negative, so which layer lands first cannot move a bit — the fixed order is
-    for the caller that folds something ALONGSIDE the alpha and is not commutative.
+    base would narrow every pixel the blend touches.
 
-    `merge` is that caller. It receives the value carried so far, the alpha BEFORE this layer folds
-    in, and this layer's name and contribution, and it exists so the compositor's paint merge reads
-    the same running alpha this fold produces rather than recomputing a second one beside it. Left
-    None by a caller that wants the alpha alone, which is every caller that does not paint.
+    The exclusions land after the maximum and that order is the whole point. Subtracting inside one
+    contribution leaves every other union member free to re-claim the pixel, which is what a maximum
+    of positives does by construction, so an exclusion applied earlier is not a weaker fix but one a
+    second white source silently undoes. `WHITE_EXCLUSIONS` holds the argument.
 
-    THE EXCLUSIONS LAND AFTER THE MAXIMUM AND THAT ORDER IS THE WHOLE POINT. Subtracting inside any
-    one contribution leaves every other union member free to re-claim the pixel, which is what a
-    maximum of positives does by construction — so an exclusion applied earlier is not a weaker fix,
-    it is a fix that a second white source silently undoes. `WHITE_EXCLUSIONS` holds the argument.
+    `exclusions` is required rather than defaulted, because a caller that skips the negative gets a
+    plausible white rather than an error. Pass an empty dict to say a window excludes nothing.
 
-    REQUIRED RATHER THAN DEFAULTED, because a caller that skips the negative gets a plausible white
-    rather than an error, and a plausible white is precisely the failure this parameter exists to
-    end. Pass an empty dict to mean "this window excludes nothing" and say so deliberately.
-
-    `merge` still sees pre-exclusion alphas, and that is correct rather than tolerated: it decides
-    which layer's COLOUR wins a pixel, and the painter multiplies that colour by the alpha returned
-    here — which is zero on every excluded pixel, so the colour there reaches nothing.
+    `merge` sees each layer's name, its contribution and the running alpha before it folds, so a
+    caller can fold something alongside the alpha that is not commutative. No shipped caller passes
+    one: both discard the second return, and it is exercised only by `test_prep_block`.
     """
     alpha = np.zeros(shape, dtype=float)
     carried = None

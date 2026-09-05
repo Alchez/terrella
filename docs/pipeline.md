@@ -134,7 +134,7 @@ It runs the pass inside a systemd scope with a memory cap derived per body by `p
 | `pipeline.compose.features_geojson` → `pipeline.compose.features_pmtiles` | Mars's vector pyramid: the IAU gazetteer folded to GeoJSON, then cut to its own `vector.pmtiles`. Four layers, including the IAU's label anchors. Both cuts are driven by `pipeline.compose.vector_cut`, which owns the freshness gate, the staging loop and the conversion; the two stages above only declare what is in them |
 | `pipeline.tile.pack_pmtiles` + `tools/pmtiles convert` | `planet.pmtiles`, `terrain.pmtiles` and `vector.pmtiles`: the range-request-servable archives, one per pyramid. The packer reads the tile encoding off the directory, so the same command packs any of them |
 
-Snow here is **not** the hero's WorldCover class-70 mask (permanent ice only, which left mid/high-latitude ranges bare). It is observed MODIS snow *persistence* as a soft alpha, ramped by latitude, with RGI glaciers crisp on top. The decisions behind every piece are recorded in the project's decision archive, which is kept outside this repository (see the note in the README); the pipeline diagrams show the full graph.
+Snow here is **not** the hero's WorldCover class-70 mask (permanent ice only, which left mid/high-latitude ranges bare). It is observed MODIS snow *persistence* as a soft alpha, ramped by latitude, with RGI glaciers crisp on top. The decisions behind every piece are recorded in the project's decision archive, which is kept outside this repository (`CLAUDE.md` says what its citations mean); the pipeline diagrams show the full graph.
 
 ## From heroes to the website
 

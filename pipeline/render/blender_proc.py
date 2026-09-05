@@ -1,20 +1,17 @@
 """The one way this project launches Blender, and the one place that decides its environment.
 
-WHY A MODULE RATHER THAN A KWARG AT EACH CALL. Two callers spelled the identical
-`subprocess.run(command, cwd=ROOT, capture_output=True, text=True, check=False)`, and a third built
-a Blender command for `batch` to run. Nothing was red, because each was correct on its own; what a
-duplicated launch shape costs is that one of them can acquire a setting the others never hear about,
-which is exactly how `TMPDIR` came to be missing from all three.
+One launch shape rather than a kwarg at each call site. Duplicated launches are each correct alone
+and nothing goes red, so one can acquire a setting the others never hear about: that is how `TMPDIR`
+came to be missing from all three.
 
-THE TEMPORARY DIRECTORY IS A MEMORY DECISION AND NOT A TIDINESS ONE. Cycles stages its tile buffer
-in the system temp directory, which is tmpfs on this project's render box, so the buffer is held in
-RAM rather than on disk. Blender removes that directory only on a CLEAN exit, and the cgroup cap
-exists precisely to KILL a runaway render, so the protection is what strands the file. The leak is
-then invisible to the mechanism that caused it: tmpfs is not charged to the render's cgroup, so a
-memory limit cannot see it, and the space is reclaimed only by deleting the file by hand.
+The temp directory is a memory decision, not a tidiness one. Cycles stages its tile buffer in the
+system temp directory, which is tmpfs on the render box, so the buffer is held in RAM. Blender
+removes that directory only on a clean exit, and the cgroup cap exists to kill a runaway render, so
+the protection is what strands the file. The leak is invisible to the mechanism that caused it:
+tmpfs is not charged to the render's cgroup, and the space comes back only by deleting the file.
 
-`stdlib only` is not required here, unlike `render_seam`: Blender's own interpreter never imports
-this module, because this module is what starts Blender.
+Stdlib-only is not required here, unlike `render_seam`: Blender's interpreter never imports this
+module, because this module is what starts it.
 """
 
 import os
@@ -36,12 +33,12 @@ def temp_dir() -> Path:
 def env(**extra: str) -> dict[str, str]:
     """The environment a Blender subprocess is launched with.
 
-    CREATED, NOT MERELY NAMED. A `TMPDIR` pointing at a directory that does not exist is not an
-    error anywhere in the chain — Blender falls back to the system temp directory and renders
-    perfectly — so naming it without creating it restores the defect in silence.
+    Created, not merely named: a `TMPDIR` pointing at a directory that does not exist is an error
+    nowhere in the chain, since Blender falls back to the system temp directory and renders
+    perfectly, so naming it without creating it restores the defect in silence.
 
-    `extra` is layered on top rather than replacing the inherited environment, because Blender needs
-    the caller's PATH, HOME and GPU variables to find its devices at all.
+    `extra` layers on top of the inherited environment rather than replacing it, because Blender
+    needs the caller's PATH, HOME and GPU variables to find its devices.
     """
     directory = temp_dir()
     directory.mkdir(parents=True, exist_ok=True)

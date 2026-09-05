@@ -118,7 +118,15 @@ SCRATCH_DIRS = (r"_ice_ab/|_ice_levels/|_ice_scout/|_viking_scout/|_crism_scout/
 # Gitignoring a path is otherwise a change nothing goes red for, and un-gitignoring one is the same
 # in reverse — this pattern is what makes both red, so it moves in the same commit as the .gitignore
 # entry it mirrors.
-IGNORED_PATHS = r"\.claude/settings\.local\.json"
+#
+# `web/.perf/` MATCHES A FILE INSIDE IT AND NEVER THE DIRECTORY, which is the same distinction
+# SCRATCH_DIRS draws with its trailing slash, arriving at the opposite shape because the traffic
+# here runs the other way: three tracked files name the directory as where the dev endpoint WRITES,
+# and a pattern that caught those would be exempted per file, disarming the guard everywhere in
+# them. Only a named file is a pointer, and `ui-rigs/` holds rigs, captures and notes a clone
+# never receives.
+IGNORED_PATHS = (r"\.claude/settings\.local\.json"
+                 r"|web/\.perf/[\w./-]*\.\w+")
 
 CHECK_GROUPS = {
     "BLOCK_COMMENT_FILES": BLOCK_COMMENT_FILES,
