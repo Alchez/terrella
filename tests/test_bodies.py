@@ -958,6 +958,53 @@ def test_the_projection_s_sphere_and_earth_s_own_are_the_same_number_for_a_reaso
     assert bodies.ground_metres_per_mercator_unit(bodies.EARTH) == 1.0
 
 
+#: A module resolving its parsed `--body` through the registry, which raises naming what it knows.
+#: The other accepted guard is a `choices=` on the argument itself, whatever list it derives from:
+#: `scene_build` takes the look registry's, correctly, since ramps are what it needs a body for.
+RESOLVES_THROUGH_THE_REGISTRY = re.compile(r"bodies\.get\(\s*\w+\.body\s*\)")
+
+
+def _declares_a_body_argument(call: ast.Call) -> bool:
+    """True if `call` is an `add_argument("--body", ...)`, rather than a line passing one along.
+
+    The distinction is the whole test: `cap_raytrace` spells `"--body"` while assembling the argv
+    it hands Blender, and a source grep reads that as a stage declaring one. Only a call can
+    declare, so parsing separates them where no regex over the text can.
+    """
+    name = call.func.attr if isinstance(call.func, ast.Attribute) else None
+    return (name == "add_argument" and bool(call.args)
+            and isinstance(call.args[0], ast.Constant) and call.args[0].value == "--body")
+
+
+def test_every_stage_that_takes_a_body_refuses_one_it_does_not_know() -> None:
+    """A mistyped `--body` must not reach the stage, and the set is what this asks about.
+
+    Ten modules declare one and two mechanisms cover them: argparse refuses the string against a
+    `choices=` list, or the registry's own lookup raises naming what it knows. A bare
+    `BODIES[args.body]` behind neither answers a typo with a `KeyError` naming neither the flag nor
+    the planets that exist, and that module is invisible from inside itself: both spellings read as
+    correct locally, so only walking the set can see which one is alone.
+
+    Scanned rather than run, since the lookup lives in `main` whose next statement opens the master.
+    """
+    unguarded = []
+    for path in sorted((paths.ROOT / "pipeline").rglob("*.py")):
+        source = path.read_text(encoding="utf-8")
+        declarations = [node for node in ast.walk(ast.parse(source))
+                        if isinstance(node, ast.Call) and _declares_a_body_argument(node)]
+        if not declarations:
+            continue
+        if RESOLVES_THROUGH_THE_REGISTRY.search(source):
+            continue
+        if not all(any(word.arg == "choices" for word in call.keywords) for call in declarations):
+            unguarded.append(str(path.relative_to(paths.ROOT)))
+    assert not unguarded, (
+        f"these stages declare a --body and refuse nothing: {unguarded}. Give the argument a "
+        "`choices=` list, or resolve it with `bodies.get(args.body)` — a bare `BODIES[args.body]` "
+        "answers a typo with a KeyError that names neither the flag nor the planets that exist"
+    )
+
+
 def test_every_body_rides_the_projection_s_sphere_because_proj_allows_no_other() -> None:
     """Measured, not assumed: `gdalwarp` refuses EPSG:3857 -> a Mars-radius target with "Source and
     target ellipsoid do not belong to the same celestial body", and it identifies the body from a

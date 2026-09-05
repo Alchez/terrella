@@ -437,27 +437,38 @@ class TestTheCapResolver:
         """
         assert pass_memory.STANDING_GIB != pass_memory.HEAVY_JOB_GIB
 
-    def test_every_figure_the_module_argues_from_is_one_PROCESS_still_carries(self, subtests):
-        """`pass_memory`'s docstring is a SECOND COPY of PROCESS.md's measurements, and this is what
-        makes the copy go red instead of quietly aging.
+    #: The one measurement that sizes each cap, and the stage PROCESS.md measured it on. A cap is
+    #: only defensible if its own figure is current, so these are what the module may state.
+    SIZING_FIGURES = (("CAP_RENDERING_GIB", "14.41 GiB", "Earth's cap stage"),
+                      ("STANDING_GIB", "5.91 GiB", "Mars's ice alpha, its heaviest non-cap stage"),
+                      ("HEAVY_JOB_GIB", "17.0 GB", "the largest hero's base grid"))
 
-        The copy has to exist: the module is where someone reads why the cap is 16, and a pointer
-        alone does not survive being read at 3 a.m. under an OOM. What it must not do is drift, and
-        it already had twice over -- it argued from Earth's composite at 10.55 GiB and Mars at
-        4.01 GiB, both of which PROCESS had retired in the section it points at, so a reader
-        checking the source of the number found a different one and no sign of the disagreement.
-
-        Retired figures stay in scope on purpose: naming one as retired is exactly as much a claim
-        about PROCESS as citing it, and the retraction is the sentence most likely to be dropped.
-        """
-        figures = set(re.findall(r"\d+\.\d+ Gi?B", PASS_MEMORY_SOURCE.read_text()))
-        assert len(figures) >= 8, f"only {figures} found; this scan is broken, not the module"
+    def test_each_cap_cites_the_figure_PROCESS_sizes_it_from(self, subtests):
+        """Each constant states the one measurement behind it, and PROCESS.md still carries it."""
+        source = PASS_MEMORY_SOURCE.read_text()
         process = PROCESS.read_text()
-        for figure in sorted(figures):
-            with subtests.test(figure):
+        for constant, figure, stage in self.SIZING_FIGURES:
+            with subtests.test(constant):
+                assert figure in source, f"{constant} no longer states the figure that sizes it"
                 assert figure in process, (
-                    f"pass_memory argues from {figure}, which PROCESS.md no longer carries anywhere"
-                )
+                    f"{constant} is sized from {figure} ({stage}), which PROCESS.md no longer "
+                    f"carries anywhere")
+
+    def test_the_module_states_no_figure_it_is_not_sized_by(self, subtests):
+        """The half that stops the table growing back.
+
+        A restated measurement is a copy with one reader and no owner: it cannot go red when PROCESS
+        moves, only when someone edits it here. The previous guard scanned module to PROCESS and so
+        could not see the direction that actually failed -- PROCESS measured the raytraced block
+        producer at 8.18 GiB while this module went on calling it unmeasured, with nothing red.
+        """
+        sizing = {figure for _, figure, _ in self.SIZING_FIGURES}
+        for figure in sorted(set(re.findall(r"\d+\.\d+ Gi?B", PASS_MEMORY_SOURCE.read_text()))):
+            with subtests.test(figure):
+                assert figure in sizing, (
+                    f"pass_memory states {figure}, which sizes none of its constants. Stage figures "
+                    f"belong in PROCESS.md § Memory, which owns them and can be re-measured in one "
+                    f"place")
 
     def test_that_scan_can_actually_miss_one(self):
         """The positive control. Every figure in the module happens to be current, which is the

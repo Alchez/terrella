@@ -313,6 +313,13 @@ class Sabotage(NamedTuple):
     An empty `needle` means a CREATION case: `path` must not exist, and the mutation is to write
     `replacement` there and delete it afterwards. Some subjects are the presence of a file, not a
     line in one.
+
+    `mutate_match` of `expected_matches` says which occurrence to take when a needle is deliberately
+    not unique. It exists so a needle can be pure code: where the only thing separating two call
+    sites is the comment above them, quoting that comment makes the case break on an unrelated
+    wording edit, and the mutation then lands on the wrong site or nowhere. Both numbers are pinned
+    by `test_needle_matches_the_declared_number_of_times`, since an index alone would slide onto a
+    different site the day a refactor removed one match.
     """
 
     suite: str
@@ -321,6 +328,8 @@ class Sabotage(NamedTuple):
     needle: str
     replacement: str
     guard: str
+    expected_matches: int = 1
+    mutate_match: int = 1
 
 
 SABOTAGES: list[Sabotage] = [
@@ -384,6 +393,20 @@ SABOTAGES: list[Sabotage] = [
         path='pipeline/look/mars_ice.py',
         needle='FEATHER_KM = 5.0',
         replacement='#: Reproduced by ' + '_ice_ab' + '/scripts/feather.py\nFEATHER_KM = 5.0',
+        guard='test_no_reference_to_a_file_a_clone_will_not_have',
+    ),
+    # The gitignored-path half, and it is the alternation with the narrowest escape. `web/.perf/` is
+    # named by three tracked files as the place the dev endpoint WRITES, which is a description and
+    # not a pointer, so the pattern has to match a FILE inside the directory and nothing else. A
+    # needle citing the bare directory would go red on those three and the exemption would then be
+    # written per file, disarming the guard everywhere in them.
+    Sabotage(
+        suite='python',
+        label='cite a rig inside the gitignored perf directory from the module it sized',
+        path='web/src/lib/spinRate.ts',
+        needle='export const SPIN_REFERENCE_ZOOM = 3;',
+        replacement='/** Swept by `web/' + '.perf' + '/ui-rigs/spin_rate.mjs`. */\n'
+                    'export const SPIN_REFERENCE_ZOOM = 3;',
         guard='test_no_reference_to_a_file_a_clone_will_not_have',
     ),
     # --- The ice white becomes the layer's own ------------------------------------------------------
@@ -991,8 +1014,11 @@ SABOTAGES: list[Sabotage] = [
         suite='web',
         label='the page hands the live map to a global again, under a brand-new name',
         path='web/src/components/Globe.astro',
-        needle='  // The scripted-diagnosis seam is NOT here.',
-        replacement='  window.debugMap = map;\n  // The scripted-diagnosis seam is NOT here.',
+        # Any statement with `map` in scope would do; this one is picked for being the page's most
+        # stable line, since the guard reads the whole source rather than a region of it.
+        needle='  map.addControl(new maplibregl.AttributionControl({ compact: false }), "bottom-left");',
+        replacement='  window.debugMap = map;\n'
+                    '  map.addControl(new maplibregl.AttributionControl({ compact: false }), "bottom-left");',
         guard='is not also written from the page, where nothing structural would gate it',
     ),
 
@@ -1082,7 +1108,7 @@ SABOTAGES: list[Sabotage] = [
         # call are otherwise identical, and this needle used to tell them apart only by nesting
         # depth — the ladder's was two levels deeper. When the watchdog stopped nesting inside a
         # motion gate the two collapsed to the same indent and the needle matched twice, which
-        # `test_needle_matches_exactly_once` caught. This is the same pair that once bit the other
+        # the count check caught. This is the same pair that once bit the other
         # way round, the shallower needle silently corrupting the report instead of the ladder.
         needle=(
             'const action = nextDegradationAction({\n'
@@ -1672,12 +1698,12 @@ SABOTAGES: list[Sabotage] = [
         # The regression itself. Astro strips an HTML comment out of slot children and NOT out of a
         # component's own template, so these shipped to every visitor the moment the globe's markup
         # became a component — build green, page identical, only a byte-diff of dist/ saying so.
-        # The needle swaps the opening delimiter alone because that is what the rule keys on; a
-        # reader tidying the comment converts both ends, and this catches that identically.
+        # The needle swaps the opening delimiter alone because that is what the rule keys on, and
+        # quotes no wording: the delimiters plus the blank line between two comments locate it.
         label='an HTML comment returns to a template, and ships to every visitor',
         path='web/src/components/Globe.astro',
-        needle='{/* Names whatever the pointer is on',
-        replacement='<!-- Names whatever the pointer is on',
+        needle='*/}\n\n{/*',
+        replacement='*/}\n\n<!--',
         guard='writes its comments in the form that never reaches a visitor',
     ),
     Sabotage(
@@ -1777,7 +1803,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         # THE MUTATION MOVED INTO THE TABLE, BECAUSE EDITING THE SUBJECT FILE CANNOT PROVE THIS
-        # GUARD. `test_needle_matches_exactly_once` SKIPS the file a run is holding, since most
+        # GUARD. The count check SKIPS the file a run is holding, since most
         # cases disturb their own needle and it would fire as noise inside every run. This case used
         # to edit `reliefTiles.ts` directly, so the one instance that could have caught it was the
         # one the skip removed, and no file-editing case can ever reach it. Corrupting the NEEDLE
@@ -1790,7 +1816,7 @@ SABOTAGES: list[Sabotage] = [
                 "        replacement='export const RELIEF_BASE_MAX_ZOOM = 1;',"),
         replacement=("        needle='export const RELIEF_BASE_MAX_ZOOM: number = 0;',\n"
                      "        replacement='export const RELIEF_BASE_MAX_ZOOM = 1;',"),
-        guard='test_needle_matches_exactly_once',
+        guard='test_needle_matches_the_declared_number_of_times',
     ),
     # The next three mutate a case in THIS file, so their needles span two lines on purpose. A
     # single-line needle quoting a line of this file matches twice — once at the real site, once
@@ -1869,13 +1895,9 @@ SABOTAGES: list[Sabotage] = [
         suite='web',
         label='country-hit moves back above the highlight layers, costing a third drape stack',
         path='web/src/components/Globe.astro',
-        needle=(
-            '      if (countries) addCountryHighlight(); // hover outline, on top so the edge is crisp\n'
-        ),
-        replacement=(
-            '      if (countries) addCountryHitTargets();\n'
-            '      if (countries) addCountryHighlight(); // hover outline, on top so the edge is crisp\n'
-        ),
+        needle='      if (countries) addCountryHighlight();',
+        replacement=('      if (countries) addCountryHitTargets();\n'
+                     '      if (countries) addCountryHighlight();'),
         guard='matches what the globe actually adds last',
     ),
     Sabotage(
@@ -1924,34 +1946,28 @@ SABOTAGES: list[Sabotage] = [
         replacement='const LEGACY_VERSION_PREFIX = /^\\/v\\w+\\//;',
         guard='does NOT strip a segment that merely looks like one',
     ),
-    # Reordered rather than deleted, on purpose. Dropping the `try {` leaves a dangling `} catch`
+    # Hoisted rather than deleted, on purpose. Dropping the `try {` leaves a dangling `} catch`
     # — a SYNTAX error, which the compiler catches and no test ever sees, so the case reported
     # WRONG/(unparsed) rather than naming a guard. A mutation has to compile to prove anything.
+    #
+    # A COPY ABOVE THE TRY, not the brace moved down, which is what lets the needle be code. Both
+    # statements run first and throw outside the handler; the originals still stand inside it,
+    # shadowed and never reached on the path this is about.
     Sabotage(
         suite='web',
         label='the index load moves back outside the try, so a missing archive 500s instead of 404ing',
         path='web/worker/index.ts',
-        needle=(
-            '    try {\n'
-            '      // The index is fetched whole, once, and then reused three ways: within this request, across\n'
-            '      // requests in this isolate (DIRECTORY_CACHE), and across isolates (the Cache API entry below,\n'
-            '      // which is colo-local and long-lived — live tiles come back with `age` in the tens of\n'
-            '      // thousands of seconds, far longer than any isolate survives).\n'
-            '      const index = await loadArchiveIndex(env.ARCHIVE, archiveKey, r2Source, cache, ctx, request);\n'
-            '      const archive = new PMTiles(\n'
-            '        index ? new PrefetchedIndexSource(r2Source, index) : r2Source,\n'
-            '        DIRECTORY_CACHE,\n'
-            '        nativeDecompress,\n'
-            '      );\n'
-        ),
+        needle='      return respond(tagCache(new Response(body, { status, headers }), "miss"));\n    };',
         replacement=(
+            '      return respond(tagCache(new Response(body, { status, headers }), "miss"));\n'
+            '    };\n'
             '    const index = await loadArchiveIndex(env.ARCHIVE, archiveKey, r2Source, cache, ctx, request);\n'
             '    const archive = new PMTiles(\n'
             '      index ? new PrefetchedIndexSource(r2Source, index) : r2Source,\n'
             '      DIRECTORY_CACHE,\n'
             '      nativeDecompress,\n'
             '    );\n'
-            '    try {\n'
+            '    void archive;'
         ),
         guard='answers 404 when the bucket has no such object',
     ),
@@ -2728,14 +2744,14 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the registry radius is "corrected" to the spherical mean, tilting every latitude',
         path='pipeline/bodies.py',
-        # ANCHORED ON EARTH'S OWN COMMENT, because the bare field line stopped being unique the
-        # moment Mars joined the registry carrying the SAME number on purpose. The freshness gate
-        # caught that within a second of Mars landing, which is the whole reason it exists.
-        needle=("    # test, not one value read twice.\n"
-                "    mercator_radius_m=6378137.0,"),
-        replacement=("    # test, not one value read twice.\n"
-                     "    mercator_radius_m=6371000.0,"),
+        # Earth is the FIRST registry entry, selected by index because the bare field line stopped
+        # being unique the moment Mars joined carrying the same number on purpose. Selecting it by
+        # quoting Earth's comment instead put a wording edit between the case and its subject.
+        needle='    mercator_radius_m=6378137.0,',
+        replacement='    mercator_radius_m=6371000.0,',
         guard='test_earth_carries_web_mercator_s_defining_sphere',
+        expected_matches=2,
+        mutate_match=1,
     ),
     # The plausible edit: 6371000 IS a real earth radius, just not the projection's one. Nothing
     # crashes; the per-row z-factor is quietly wrong at every latitude. It used to be catchable only
@@ -2923,6 +2939,17 @@ SABOTAGES: list[Sabotage] = [
         guard='test_an_unknown_body_raises_and_names_the_ones_that_exist',
     ),
     # A misspelt body name then produces a complete, plausible, entirely wrong pyramid.
+    # The registry can only raise if a stage asks it. Eleven modules take a `--body`, ten of them
+    # behind argparse `choices` or this lookup, and the one that had neither answered a typo with a
+    # bare KeyError — invisible from inside that module, since both spellings read as correct there.
+    Sabotage(
+        suite='python',
+        label='a stage subscripts the registry directly, so a mistyped body is a bare KeyError',
+        path='pipeline/tile/terrain_rgb.py',
+        needle='    body = bodies.get(args.body)',
+        replacement='    body = bodies.BODIES[args.body]',
+        guard='test_every_stage_that_takes_a_body_refuses_one_it_does_not_know',
+    ),
     Sabotage(
         suite='python',
         label='the ground ratio is inverted, which Earth cannot notice because its ratio is 1.0',
@@ -3045,16 +3072,16 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label="Mars is given its own sphere to project on, which cannot be tiled at all",
         path='pipeline/bodies.py',
-        # ANCHORED ON MARS'S OWN COMMENT, not on the two radii being adjacent — which is what this
-        # needle used to rely on, and a comment inserted between them broke it one commit later.
-        # Adjacency is not a property of the code; it is a property of nobody having explained it yet.
+        # Mars is the SECOND registry entry. Neither adjacency nor the comment above the field can
+        # be relied on: adjacency broke when a comment was inserted between the two radii, and the
+        # comment broke when its wording changed. Position in the registry is the stable fact.
         # Only the AEQD radius moves, which makes this the HALF-fix: the guard asserts both spheres,
         # so a case that changed both would pass even against a test that had lost one assertion.
-        needle=('    # celestial body — which does not escape the check either. See the module '
-                'note.\n    aeqd_radius_m=6371000.0,'),
-        replacement=('    # celestial body — which does not escape the check either. See the module '
-                     'note.\n    aeqd_radius_m=3396190.0,'),
+        needle='    aeqd_radius_m=6371000.0,',
+        replacement='    aeqd_radius_m=3396190.0,',
         guard='test_mars_projects_on_earths_spheres_and_that_is_deliberate',
+        expected_matches=2,
+        mutate_match=2,
     ),
     # THE MOST TEMPTING EDIT IN THE REGISTRY, and the reason that guard is written as a deliberate
     # sameness rather than left implicit: a planet whose radius is 3,396,190 m carrying Earth's
@@ -3163,14 +3190,13 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label="the browser's zoom range: Mars's relief ceiling drifts past what was cut",
         path='web/src/lib/tileAddress.ts',
-        # ANCHORED ON THE ENTRY'S OWN COMMENT, because `minZoom: 0, maxZoom: 7` stopped identifying
-        # a single entry the day Mars published a terrain pyramid at the same ceiling. A bare
-        # coordinate pair is not a location once a second thing legitimately holds it.
-        needle="      // runtime by the dev server reading the archive's own header.\n"
-               "      minZoom: 0,\n      maxZoom: 7,",
-        replacement="      // runtime by the dev server reading the archive's own header.\n"
-                    "      minZoom: 0,\n      maxZoom: 8,",
+        # `minZoom: 0, maxZoom: 7` stopped identifying a single entry the day Mars published a
+        # terrain pyramid at the same ceiling, so the pair is a count rather than a location: relief
+        # first, terrain second, in file order.
+        needle='      minZoom: 0,\n      maxZoom: 7,',
+        replacement='      minZoom: 0,\n      maxZoom: 8,',
         guard='test_the_browser_publishes_every_pyramid_at_the_zoom_the_pipeline_cut_it_to',
+        expected_matches=2,
     ),
     Sabotage(
         suite='python',
@@ -3179,11 +3205,11 @@ SABOTAGES: list[Sabotage] = [
         # The sibling the case above needed once a second Mars pyramid existed: the same drift, on
         # the entry whose ceiling comes from the elevation cut's own master rather than the relief
         # cut's. Earth's z8 here asks for a level the descent never wrote.
-        needle='      // arrives as a 404 and paints exactly like a tile still in flight.\n'
-               '      minZoom: 0,\n      maxZoom: 7,',
-        replacement='      // arrives as a 404 and paints exactly like a tile still in flight.\n'
-                    '      minZoom: 0,\n      maxZoom: 8,',
+        needle='      minZoom: 0,\n      maxZoom: 7,',
+        replacement='      minZoom: 0,\n      maxZoom: 8,',
         guard='test_the_browser_publishes_every_pyramid_at_the_zoom_the_pipeline_cut_it_to',
+        expected_matches=2,
+        mutate_match=2,
     ),
     # Through a NAMED CONSTANT rather than a literal, which is the case the guard nearly missed:
     # Earth's registry entry reads `RELIEF_MAX_ZOOM` where Mars's is a number, so a digits-only read
@@ -3304,8 +3330,8 @@ SABOTAGES: list[Sabotage] = [
         # Re-anchored when `ROOT = paths.ROOT` was deleted here: `COAST_SHP` was its only reader and
         # it moved to `paths.DATA`. Any module-scope constant line serves — what the mutation needs
         # is a place to define one, not this particular neighbour.
-        needle='COAST_RGB = (96, 122, 142)  # muted steel-blue',
-        replacement='COAST_RGB = (96, 122, 142)  # muted steel-blue\nEXAG = 15.0',
+        needle='COAST_RGB = (96, 122, 142)',
+        replacement='EXAG = 15.0\nCOAST_RGB = (96, 122, 142)',
         guard='test_neither_shading_module_carries_its_own_exaggeration',
     ),
     # Unused, so every behavioural guard above stays green and the diff reads as a tidy local. This
@@ -3493,12 +3519,17 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the rock layer starts contributing, so the union paints the outcrop white',
         path='pipeline/look/layer_producers.py',
-        needle='''    inversion that renders as a perfectly plausible ice sheet.
-    """
-    return None''',
-        replacement='''    inversion that renders as a perfectly plausible ice sheet.
-    """
-    return None if _window.raw is None else np.asarray(_window.raw, dtype=float)''',
+        # Anchored on the NEXT def rather than on the docstring above the return, because a needle
+        # quoting prose re-breaks every time someone edits a comment: this one has been re-anchored
+        # for that reason and the disambiguation it needs is available in code either way.
+        needle='''    return None
+
+
+def _earth_lake_depth''',
+        replacement='''    return None if _window.raw is None else np.asarray(_window.raw, dtype=float)
+
+
+def _earth_lake_depth''',
         guard='test_gather_returns_no_entry_for_it_however_much_rock_there_is',
     ),
     # THE DEFECT THAT SHIPPED, WRITTEN OUT AS A MUTATION. Moving the negative back inside a union
@@ -5490,6 +5521,17 @@ SABOTAGES: list[Sabotage] = [
         replacement='    if kind == "land":\n        return look.sea',
         guard='test_gdaldem_ramp_text_is_unchanged',
     ),
+    # The fill's bearing is authored here and rendered from `RIG.fill_rotation`. Until the rig
+    # derived its euler, moving this constant moved no light and no recipe: a look dial that reads
+    # live, is not, and would send a re-tune of the fill to the wrong file.
+    Sabotage(
+        suite='python',
+        label='the authored fill azimuth is re-aimed and the rendered fill stays where it was',
+        path='pipeline/look/palette.py',
+        needle='FILL_AZIMUTH = 135.0',
+        replacement='FILL_AZIMUTH = 145.0',
+        guard='test_the_fill_arrives_from_the_south_east_its_comment_already_claimed',
+    ),
     Sabotage(
         suite='python',
         # The refusal deleted, which is the tidy it invites: `look.sea` is typed optional, so
@@ -5938,22 +5980,19 @@ SABOTAGES: list[Sabotage] = [
         # THE FREEZE, REINTRODUCED IN ITS MOST PLAUSIBLE FORM. A default argument is evaluated once,
         # at import, so this reads as a harmless bit of parameterisation and quietly restores the
         # exact defect the module exists to remove -- for all twenty entries at once.
-        label='the registry captures the store in a default argument, freezing every entry',
+        label='the registry memoises the store on first call, freezing every entry',
         path='pipeline/datasets.py',
-        # THE WHOLE FUNCTION, because the body is where the freeze lives. A first version changed
-        # only the signature to `root: Path = paths.DATA` and left the body reading `paths.DATA` at
-        # call time -- inert, MISSED, and silent about the guard. A mutation must break the thing.
-        needle=('def _raw(*parts: str) -> Path:\n'
-                '    """The raw store\'s own root, joined at call time so a redirected '
-                '`MAPS_DATA` reaches it."""\n'
-                '    return paths.DATA.joinpath("raw", *parts)'),
-        replacement=('_FROZEN_ROOT = paths.DATA\n'
-                     '\n'
-                     '\n'
-                     'def _raw(*parts: str) -> Path:\n'
-                     '    """The raw store\'s own root, joined at call time so a redirected '
-                     '`MAPS_DATA` reaches it."""\n'
-                     '    return _FROZEN_ROOT.joinpath("raw", *parts)'),
+        # THE BODY IS WHERE THE FREEZE LIVES. A first version changed only the signature to
+        # `root: Path = paths.DATA` and left the body reading `paths.DATA` at call time -- inert,
+        # MISSED, and silent about the guard. A mutation must break the thing.
+        #
+        # The return line alone, so the docstring between the def and it is not part of the anchor.
+        # Memoising on first call is the same defect by a different route: a root resolved once,
+        # which a redirect after that point cannot move.
+        needle='    return paths.DATA.joinpath("raw", *parts)',
+        replacement=('    frozen = getattr(_raw, "_root", None) or paths.DATA\n'
+                     '    _raw._root = frozen  # pyright: ignore[reportFunctionMemberAccess]\n'
+                     '    return frozen.joinpath("raw", *parts)'),
         guard='test_a_redirected_store_moves_every_entry',
     ),
     Sabotage(
@@ -6067,13 +6106,13 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the AEQD sphere is collapsed onto the Mercator one, moving the cap off its parallel',
         path='pipeline/bodies.py',
-        # Earth's copy, disambiguated from Mars's by the comment above it — see the note on the
-        # Mercator case for why the bare line is no longer unique.
-        needle=("    # The caps' AEQD sphere. NOT the Mercator one above, and not MapLibre's globe "
-                "radius.\n    aeqd_radius_m=6371000.0,"),
-        replacement=("    # The caps' AEQD sphere. NOT the Mercator one above, and not MapLibre's "
-                     "globe radius.\n    aeqd_radius_m=6378137.0,"),
+        # Earth's copy, the FIRST registry entry — see the Mercator case for why the bare line is
+        # not unique and why the comment above it is not what tells the two apart.
+        needle='    aeqd_radius_m=6371000.0,',
+        replacement='    aeqd_radius_m=6378137.0,',
         guard='test_a_body_carries_two_distinct_radii_and_they_are_not_interchangeable',
+        expected_matches=2,
+        mutate_match=1,
     ),
     # --- Where a cap reads and writes ----------------------------------------------------------
     # Each of these leaves a cap that renders and blends perfectly; only its LOCATION is wrong, and
@@ -6172,13 +6211,15 @@ SABOTAGES: list[Sabotage] = [
         # blank, it keeps the flat pale polar plug the textures exist to cover.
         # No 404, no console line, just a colour that reads as a decision.
         #
-        # The needle carries the line BELOW it because both bodies answer `true` now; `hasBorders`
-        # is the nearest fact that will not be rewritten by anything touching caps.
+        # Both bodies answer `true` now, so the field is a count rather than a location: Earth's
+        # descriptor is first in the file and Mars's second.
         label="Mars stops fetching the polar caps the pipeline renders",
         path='web/src/lib/bodies.ts',
-        needle='    rendersPolarCaps: true,\n    // Mars has no nations.',
-        replacement='    rendersPolarCaps: false,\n    // Mars has no nations.',
+        needle='    rendersPolarCaps: true,',
+        replacement='    rendersPolarCaps: false,',
         guard='test_the_two_registries_agree_on_which_bodies_render_polar_caps',
+        expected_matches=2,
+        mutate_match=2,
     ),
     Sabotage(
         suite='python',
@@ -7801,13 +7842,12 @@ SABOTAGES: list[Sabotage] = [
         # number, and it makes a z8 Mars address parse against a pyramid cut one rung shallower.
         label='Mars relief takes Earth\'s zoom ceiling instead of its own',
         path='web/src/lib/tileAddress.ts',
-        # Anchored for the same reason as the ceiling-drift case above: two Mars entries now declare
-        # the same pair, so the coordinate no longer names one of them.
-        needle="      // runtime by the dev server reading the archive's own header.\n"
-               "      minZoom: 0,\n      maxZoom: 7,",
-        replacement="      // runtime by the dev server reading the archive's own header.\n"
-                    "      minZoom: RELIEF_MIN_ZOOM,\n      maxZoom: RELIEF_MAX_ZOOM,",
+        # Counted for the same reason as the ceiling-drift case above: two Mars entries declare the
+        # same pair, and relief is the first.
+        needle='      minZoom: 0,\n      maxZoom: 7,',
+        replacement='      minZoom: RELIEF_MIN_ZOOM,\n      maxZoom: RELIEF_MAX_ZOOM,',
         guard='bounds a Mars relief address by MARS\'s ceiling, not Earth\'s',
+        expected_matches=2,
     ),
     Sabotage(
         suite='web',
@@ -8061,8 +8101,8 @@ SABOTAGES: list[Sabotage] = [
         suite='web',
         label='Mars inherits an atmosphere instead of declaring none',
         path='web/src/lib/bodies.ts',
-        needle='    atmosphere: null,\n    // Matches',
-        replacement='    atmosphere: { sky: "#8fb8d6", horizon: "#cbd8dd", fog: "#dfe7ea" },\n    // Matches',
+        needle='    atmosphere: null,',
+        replacement='    atmosphere: { sky: "#8fb8d6", horizon: "#cbd8dd", fog: "#dfe7ea" },',
         guard='is a state the registry actually holds, in both arms',
     ),
     Sabotage(
@@ -8215,12 +8255,11 @@ SABOTAGES: list[Sabotage] = [
         # the last, on a producer whose whole point is that it runs across several.
         label='the pass log is emptied at the top of every run, so a resumed render loses its record',
         path='pipeline/profile/run_pass.sh',
-        needle='if [[ -s "$PROF/pass.log" ]]; then\n'
-               '    # Named for when that run\'s log was last written rather than for now, so the filename says\n'
-               '    # which night it covers, and so re-running twice inside one second cannot land on one name.\n'
-               '    mv "$PROF/pass.log" "$PROF/pass-$(date -r "$PROF/pass.log" +%Y%m%dT%H%M%S).log"\n'
-               'fi\n',
-        replacement='',
+        # The guard is closed rather than the block deleted, because a comment sits between the test
+        # and the `mv` and no code-only span reaches across it. `: > "$PROF/pass.log"` below still
+        # truncates, so the prior run's record is gone either way.
+        needle='if [[ -s "$PROF/pass.log" ]]; then',
+        replacement='if false; then',
         guard='test_a_prior_runs_log_survives_the_next_run',
     ),
     # --- the pass's memory cap becomes the body's --------------------------------------------------
@@ -8351,15 +8390,14 @@ SABOTAGES: list[Sabotage] = [
     ),
     Sabotage(
         suite='python',
-        # A figure this module argues from goes stale against PROCESS, which is what it points at.
-        # Both retired figures got here exactly this way and neither was noticed: the prose still
-        # reads as sourced, and a reader who follows the pointer finds a different number with
+        # The figure sizing a cap goes stale against PROCESS, which is what it points at. The prose
+        # still reads as sourced, and a reader who follows the pointer finds a different number with
         # nothing saying the two disagree.
-        label='the module argues from a stage peak PROCESS no longer carries',
+        label='a cap cites a stage peak PROCESS no longer carries',
         path='pipeline/profile/pass_memory.py',
-        needle='- Earth at z8: `cap_render` **14.41 GiB** · tile cut **3.74 GiB**',
-        replacement='- Earth at z8: `cap_render` **13.02 GiB** · tile cut **3.74 GiB**',
-        guard='test_every_figure_the_module_argues_from_is_one_PROCESS_still_carries',
+        needle='#: 14.41 GiB peak on Earth, so the headroom is 1.11x.',
+        replacement='#: 13.02 GiB peak on Earth, so the headroom is 1.23x.',
+        guard='test_each_cap_cites_the_figure_PROCESS_sizes_it_from',
     ),
     # `set -u` does NOT catch this: a failed command substitution assigns the EMPTY STRING rather
     # than leaving the name unset, so the cap becomes `G`, the arithmetic compares against zero, and
@@ -9010,8 +9048,8 @@ SABOTAGES: list[Sabotage] = [
         suite='web',
         label='opening twice re-announces and re-steals focus mid-typing',
         path='web/src/lib/catalogueSearchBox.ts',
-        needle='    if (next === opened) return; // idempotent',
-        replacement='    if (false) return; // idempotent',
+        needle='    if (next === opened) return;',
+        replacement='    if (false) return;',
         guard='is idempotent, so a repeated open does not re-steal focus or re-announce',
     ),
     # The page's half. Each of these leaves a working search box in the wrong relationship to
@@ -9196,8 +9234,9 @@ SABOTAGES: list[Sabotage] = [
         suite='web',
         label="Firefox's own quick-find opens underneath ours",
         path='web/src/lib/catalogueSearchBox.ts',
-        needle="    event.preventDefault(); // Firefox's quick-find binds this key",
-        replacement="    void 0; // Firefox's quick-find binds this key",
+        # The line above comes along because `event.preventDefault();` is four handlers' line here.
+        needle='    if (isTypingTarget(event.target)) return;\n    event.preventDefault();',
+        replacement='    if (isTypingTarget(event.target)) return;\n    void 0;',
         guard='prevents the default, or Firefox quick-find opens underneath it',
     ),
     Sabotage(
@@ -9613,6 +9652,17 @@ def audit_verdict(case: Sabotage, green: bool, output: str) -> tuple[str, str]:
     return AUDIT_OTHER, "red, but reported " + (", ".join(reported) or "nothing this pattern reads")
 
 
+def apply_needle(source: str, case: Sabotage) -> str:
+    """`source` with `case.mutate_match`'s occurrence of the needle replaced, and no other."""
+    cut = -1
+    for _ in range(case.mutate_match):
+        cut = source.find(case.needle, cut + 1)
+        if cut < 0:
+            raise ValueError(
+                f"{case.path}: needle occurrence {case.mutate_match} not found for {case.label!r}")
+    return source[:cut] + case.replacement + source[cut + len(case.needle):]
+
+
 def run_case(case: Sabotage, judge: Callable[[Sabotage], tuple[bool, str, bool]] =
              judge_while_mutated) -> tuple[bool, str, bool]:
     """Apply one sabotage, judge it, restore. Returns (green, output, escalated)."""
@@ -9628,7 +9678,7 @@ def run_case(case: Sabotage, judge: Callable[[Sabotage], tuple[bool, str, bool]]
     source = target.read_text(encoding="utf-8")
     shutil.copy2(target, backup)
     try:
-        target.write_text(source.replace(case.needle, case.replacement, 1), encoding="utf-8")
+        target.write_text(apply_needle(source, case), encoding="utf-8")
         target.touch()  # mtime, or a running Vite serves the sabotaged module after restore
         return judge(case)
     finally:

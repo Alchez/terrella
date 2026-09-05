@@ -71,7 +71,7 @@ def main() -> int:
 
         # Gated separately, and NOT behind the colour stage's `continue`: the displacement texture
         # reads the height warp alone. A look change must not drag it along, and an encoding change
-        # must not drag the ~14 GB composite behind it.
+        # must not drag the ~14 GB colour render behind it.
         elev_recipe = cap_render.cap_elev_recipe(grid)
         elev_sidecar = work / f"cap_{grid.name}_elev_params.json"
         if not args.force and cap_render.cap_is_fresh(

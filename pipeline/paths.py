@@ -1,34 +1,29 @@
 """The single home for machine-specific filesystem roots.
 
-Every pipeline module derives its locations from the three constants here, so a
-different checkout (or a container, or another contributor's machine) relocates
-everything by setting two environment variables — the open-source portability
-seam. `tests/test_paths.py` enforces single-homing with a source scan: growing a
-new `Path.home()` root anywhere else fails the suite.
+Every pipeline module derives its locations from the three constants here, so a different checkout,
+container or contributor's machine relocates everything by setting two environment variables. That
+is the open-source portability seam, and `tests/test_paths.py` enforces it with a source scan: a new
+`Path.home()` root anywhere else fails the suite.
 
-- ROOT: the repository checkout. Source-tree-derived, never env-driven — outputs
-  that live in the repo (web/public assets) must follow the checkout, not the
-  data store.
-- DATA: the asset/data store (DEM tiles, mosaics, render dirs, tile pyramid).
-  `MAPS_DATA` overrides; defaults to `<repo>/data`. The shell twin of this seam
-  is `build_mosaics.sh`, which reads the same variable.
-- BLENDER: the Blender binary for hero renders. `MAPS_BLENDER` overrides;
-  defaults to the documented tarball install (docs/pipeline.md § Environment setup).
+- ROOT is source-tree-derived and never env-driven, because outputs that live in the repo
+  (`web/public` assets) must follow the checkout rather than the data store.
+- DATA takes `MAPS_DATA`, defaulting to `<repo>/data`. Its shell twin is `build_mosaics.sh`, which
+  reads the same variable.
+- BLENDER takes `MAPS_BLENDER`, defaulting to the tarball install in docs/pipeline.md § Environment
+  setup.
 
-DERIVE AT CALL TIME, NOT AT IMPORT — the rule every consumer of these three follows, stated here
-rather than at each of them. A module-level `SOMEWHERE = DATA / "x/y"` freezes the root at import,
-so redirecting `MAPS_DATA` moves some of a module's paths and not others. The failure has no error
-in it: the frozen readers go stale together, so they still agree with each other and every
-assertion between them still passes. It has already cost one run that isolated its working tree and
-wrote its served output into the real `web/public/`. Write a function.
+Derive at call time, not at import. A module-level `SOMEWHERE = DATA / "x/y"` freezes the root at
+import, so redirecting `MAPS_DATA` moves some of a module's paths and not others, with no error in
+it: the frozen readers go stale together, still agree with each other, and every assertion between
+them still passes. It has already cost one run that isolated its working tree and wrote its served
+output into the real `web/public/`. Write a function.
 
-THE RULE IS GUARDED BY `TestNoNewPathFreezesTheStoreAtImport` for one FORM of it, not for the rule
-entire: a module-level `Path` already under `DATA` was computed at import by construction, whatever
-function produced it, and its list of known violations is pinned and only shrinks. A DEFAULT
-ARGUMENT is the form it cannot see, being evaluated at import just the same and living where
-`vars(module)` does not reach. Write a function there too, and pass `None`. The older
-`STORE_PROBE` beside it asks a different question and cannot substitute, since it moves the store
-BEFORE importing, which is the one condition under which a frozen constant looks correct.
+`TestNoNewPathFreezesTheStoreAtImport` guards one form of that, not the rule entire. It catches a
+module-level `Path` under `DATA`, whatever produced it, against a pinned list that only shrinks. A
+default argument is the form it cannot see: evaluated at import just the same, but living where
+`vars(module)` does not reach. Write a function there too and pass `None`. The older `STORE_PROBE`
+cannot substitute, since it moves the store before importing, the one condition under which a frozen
+constant looks correct.
 """
 
 import os

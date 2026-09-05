@@ -67,7 +67,7 @@ def merge_to_gpkg(shapefiles, out=None):
     STAGED AND RENAMED, never written in place, for the reason the zips above are: a target written
     in place EXISTS and is short for the whole merge, and every consumer downstream keys on exactly
     that. `layer_producers` lists this path as a freshness mtime, so a merge that dies at region 12
-    leaves a GeoPackage missing seven regions, newer than the composite that reads it, and therefore
+    leaves a GeoPackage missing seven regions, newer than the warp that reads it, and therefore
     CURRENT — the planet is burnt with a third of its glaciers gone and nothing anywhere reports it.
     A rename is atomic within a filesystem, so the previous complete merge stands until this one is.
 

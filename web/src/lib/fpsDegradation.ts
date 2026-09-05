@@ -35,8 +35,8 @@
  * At DPR 1 the RTT path is ~2.9x the canvas's own pixel work and dropping it is
  * a clear win; at DPR 3 it is 0.32x, and dropping it hands the full 13 Mpx
  * canvas the whole layer stack instead — terrain measured 43% CHEAPER than off
- * at DPR 3 (HISTORY, the exaggeration-ramp entry). Pulling this rung first on a
- * hi-DPI phone could therefore make frames SLOWER.
+ * at DPR 3. Pulling this rung first on a hi-DPI phone could therefore make
+ * frames SLOWER.
  *
  * Lowering the pixel ratio is precisely what moves a device into the regime
  * where dropping terrain pays. Hence: spin, then pixel ratio, then terrain.

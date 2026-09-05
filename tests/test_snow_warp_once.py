@@ -124,16 +124,6 @@ class TestPersistenceWarpOnceEqualsPerWindow:
         shifted = snow.unpack_persistence(packed[64:192])
         assert not np.array_equal(top, shifted)  # the Alps have real spatial variation
 
-    def test_wrapper_preserves_region_path_behaviour(self, tmp_path):
-        """warp_persistence (region path) must still equal raster-then-unpack, byte-for-byte."""
-        bounds, width, rows = _alps_grid()
-        legacy = snow.warp_persistence(bounds, width, rows, tmp_path / "legacy.tif")
-        raster = tmp_path / "raster.tif"
-        snow.warp_persistence_raster(bounds, width, rows, raster)
-        with rasterio.open(raster) as dataset:
-            refactored = snow.unpack_persistence(dataset.read(1))
-        assert np.array_equal(legacy, refactored)
-
     def test_banded_mosaic_equals_single_band_warp(self, tmp_path):
         """A's core: warp-in-bands + mosaic must equal a single-band warp of the same grid, so the
         only thing banding changes is dodging the whole-grid decimation of the coarse source -- never

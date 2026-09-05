@@ -1,33 +1,29 @@
 """What a body's planet stage produced, declared by the stage that produced it.
 
-THE SEAM EVERY BODY ENTERS THROUGH. Earth's planet rasters come out of a 648-cell fusion; Mars's
-come out of a CRS relabel of one published file. Both write the same three-named set into
-`data/work/<body>/planet/`, and everything downstream — the 3857 warps, the block raytrace, both
-polar caps — reads them from there without caring which producer ran.
+The seam every body enters through. Earth's planet rasters come out of a 648-cell fusion, Mars's out
+of a CRS relabel of one published file, and both write the same three-named set into
+`data/work/<body>/planet/`, where everything downstream reads them without caring which producer
+ran: the 3857 warps, the block raytrace, both polar caps.
 
-WHY A DECLARATION AND NOT A DIRECTORY LISTING, which is the whole reason this module exists.
-Downstream stages need to know whether this body HAS an ocean mask, and the tempting answer is
-`(planet / "planet_oceanmask.vrt").exists()`. That answer is wrong in a way nothing reports:
+A declaration and not a directory listing, which is the whole reason this module exists. Downstream
+stages need to know whether this body has an ocean mask, and the tempting answer,
+`(planet / "planet_oceanmask.vrt").exists()`, is wrong in a way nothing reports:
 
-  * ABSENCE IS NOT A STATEMENT. A missing mask cannot distinguish "this planet has no sea" from
-    "the producer died two rasters in". The first is a fact to composite against; the second is a
+  * Absence is not a statement. A missing mask cannot distinguish "this planet has no sea" from
+    "the producer died two rasters in". The first is a fact to render against; the second is a
     half-built planet that must never be shaded, and they look identical on disk.
-  * ABSENCE IS ALSO INVISIBLE TO FRESHNESS. `freshness.newest_mtime` scores a missing path 0.0,
-    so a raster that goes away stops being a dependency at the same moment it stops being an input.
-    Turning a sea OFF therefore leaves the old sea-painted composite looking perfectly fresh —
-    which is exactly the loop Phase 2 runs when it tries a shoreline contour, then another, then
-    none.
+  * Absence is also invisible to freshness. `freshness.newest_mtime` scores a missing path 0.0, so
+    a raster that goes away stops being a dependency at the same moment it stops being an input,
+    and turning a sea off leaves the old sea-painted raster looking perfectly fresh.
 
-So the producer states what it emitted, and it states it LAST. The declaration's PRESENCE is the
-stage's completion stamp (the `.done` idiom one tier up, carrying content), and its CONTENT is the
-body fact. A crashed producer writes none and every consumer refuses to run; a complete one is
-trusted about what it does not have.
+So the producer states what it emitted, and it states it last. The declaration's presence is the
+stage's completion stamp, carrying content where the `.done` idiom one tier up carries none, and its
+content is the body fact. A crashed producer writes none and every consumer refuses to run; a
+complete one is trusted about what it does not have.
 
-RASTERS, NEVER "LAYERS". `layers.SURFACE_LAYERS` already owns that word for the optional things the
-render paints OVER the heightfield — snow, glaciers, sea ice, lake depth, the coastline. These three
-are the heightfield and the masks that classify it, produced by an entirely different tier and
-answering an entirely different question. One word for both concepts is how a reader ends up
-believing `layers_off` and this set are the same switch.
+Rasters, never "layers": `layers.py` owns that word for the optional things the render paints over
+the heightfield, where these three are the heightfield and the masks that classify it. The rule
+beside this file holds the two vocabularies apart and says what each costs to add.
 
     from pipeline import planet_seam
     rasters = planet_seam.declared(body)     # raises if the producer never finished
@@ -47,8 +43,8 @@ from pipeline import bodies, layers
 #: that chooses between the land and sea ramps; `watermask` is the 4-class code (0 land, 1 ocean,
 #: 2 inland lake, 3 inland river) that selects inland water and keys the lake bathymetry off it.
 #:
-#: A TUPLE, NOT A SET, because producers iterate it and the order they build in is the order they
-#: report in. Membership tests take `KNOWN_RASTERS` below.
+#: A tuple and not a set, because producers iterate it and the order they build in is the order
+#: they report in. Membership tests take `KNOWN_RASTERS` below.
 PLANET_RASTERS = ("heightfield", "oceanmask", "watermask")
 
 KNOWN_RASTERS = frozenset(PLANET_RASTERS)
@@ -125,7 +121,7 @@ GRID_TOLERANCE_DEG = 1e-7
 def _grid_of(path: Path) -> tuple[int, int, tuple[float, float, float, float]]:
     """`(width, height, bounds)` read out of a VRT's own XML.
 
-    PARSED RATHER THAN OPENED, so this module stays stdlib-only. `pipeline/render/prep_block.py`
+    Parsed rather than opened, so this module stays stdlib-only. `pipeline/render/prep_block.py`
     imports it and runs inside Blender's interpreter, which has no rasterio, and a GDAL dependency
     here would be discovered at the first block of a production pass rather than at import.
 
@@ -149,24 +145,24 @@ def _grid_of(path: Path) -> tuple[int, int, tuple[float, float, float, float]]:
 def _require_nested_grids(body: bodies.Body, rasters: Iterable[str]) -> None:
     """Refuse a set whose rasters do not sit on nested grids — same bounds, whole-number size ratio.
 
-    NOT "ALL THREE MUST MATCH", AND THE DIFFERENCE IS DELIBERATE. `prep_block` reads the heightfield
-    and the ocean mask independently — the mask picks the material, the heightfield drives
-    displacement — so they are allowed to carry different detail, and the masks are refined in
+    Not "all three must match", and the difference is deliberate: `prep_block` reads the heightfield
+    and the ocean mask independently, the mask picking the material and the heightfield driving
+    displacement, so they are allowed to carry different detail, and the masks are refined in
     latitude alone to take the high-latitude coastline lattice out of the delivered pixels. What
-    they may NOT do is straddle: pixel edges that fall between each other put the mask's coast a
+    they may not do is straddle: pixel edges that fall between each other put the mask's coast a
     fraction of a pixel off the terrain it classifies, on every warp, systematically and silently.
 
     Identical bounds plus a whole-number ratio per axis is exactly the condition that every coarse
     edge lands on a fine one. Either direction passes, because which raster is finer is a producer's
     choice and only the alignment is a correctness claim.
 
-    THE HEIGHTFIELD IS THE REFERENCE because `_require_coherent` has already refused a set without
+    The heightfield is the reference because `_require_coherent` has already refused a set without
     one, and because it is what `planet_warp` measures the 3857 reference grid from.
 
-    WRITE-SIDE ONLY, unlike `_require_coherent` next door, and the asymmetry is the point. That one
-    is re-checked on read because the LAYER REGISTRY can gain an entry months after a declaration is
-    written, so the same file becomes incoherent without anything touching it. A grid cannot: it
-    moves only when a producer re-runs, and a producer that re-runs writes this file again.
+    Write-side only, unlike `_require_coherent` next door, and the asymmetry is the point: that one
+    is re-checked on read because the layer registry can gain an entry months after a declaration is
+    written, so the same file becomes incoherent without anything touching it. A grid cannot, moving
+    only when a producer re-runs, and a producer that re-runs writes this file again.
     """
     named = sorted(set(rasters))
     if "heightfield" not in named:
@@ -197,7 +193,7 @@ def _require_nested_grids(body: bodies.Body, rasters: Iterable[str]) -> None:
 def write_vrt_if_changed(vrt: Path, build: Callable[[Path], None]) -> bool:
     """Have `build` write `vrt`, and replace the file on disk only when the XML actually differs.
 
-    NOT AN OPTIMISATION — it is what makes a producer safe to re-run at all. Every 3857 warp
+    Not an optimisation: it is what makes a producer safe to re-run at all. Every 3857 warp
     downstream is gated on the VRT's mtime, so an unconditional overwrite restages the whole planet:
     on Earth that is a 44 GB re-warp and then every block back through Cycles, to reproduce pixels
     that were already correct. Re-indexing is the natural thing to do after touching a producer, so
@@ -207,11 +203,11 @@ def write_vrt_if_changed(vrt: Path, build: Callable[[Path], None]) -> bool:
     assumed: rebuilding all three of Earth's planet VRTs from the same 648 chunks, into the same
     directory, reproduced the live files' SHA-256 exactly (GDAL 3.12.2).
 
-    THE SCRATCH TARGET SHARES THE VRT'S DIRECTORY, and that is load-bearing rather than tidy: GDAL
-    writes source paths RELATIVE to the VRT, so building somewhere else and moving the result
+    The scratch target shares the VRT's directory, and that is load-bearing rather than tidy: GDAL
+    writes source paths relative to the VRT, so building somewhere else and moving the result
     rewrites every one of them and the comparison can never come out equal.
 
-    SHARED BY BOTH PRODUCERS. Earth's builds a 648-source mosaic index with `gdalbuildvrt`; Mars's
+    Shared by both producers: Earth's builds a 648-source mosaic index with `gdalbuildvrt`; Mars's
     relabels one file's CRS with `gdal_translate`. The tool differs, the hazard does not, and a
     ten-line routine with a subtle directory constraint is exactly the shape that drifts when it is
     written out twice.
@@ -229,9 +225,9 @@ def write_vrt_if_changed(vrt: Path, build: Callable[[Path], None]) -> bool:
 
 
 def declare(body: bodies.Body, rasters: Iterable[str]) -> Path:
-    """Record what this body's planet stage emitted. CALL LAST, after every raster is on disk.
+    """Record what this body's planet stage emitted. Call last, after every raster is on disk.
 
-    THE ORDERING IS THE CONTRACT, not a convention: this file's existence is what tells every
+    The ordering is the contract rather than a convention: this file's existence is what tells every
     consumer the stage finished. Written early, it promises rasters a crash may never deliver, and
     the guarantee it exists to give is gone.
 
@@ -258,7 +254,7 @@ def declare(body: bodies.Body, rasters: Iterable[str]) -> Path:
 def declared(body: bodies.Body) -> frozenset[str]:
     """Which planet rasters this body has, as its producer declared them. Raises if it never ran.
 
-    RAISES RATHER THAN RETURNING AN EMPTY SET, and that is the point of the whole module: an empty
+    Raises rather than returning an empty set, and that is the point of the whole module: an empty
     answer would be a statement about the planet, and a missing file is a statement about the
     pipeline. The two must not share a return value.
     """
@@ -279,7 +275,7 @@ def declared(body: bodies.Body) -> frozenset[str]:
 def rasters_off(rasters: frozenset[str]) -> list[str]:
     """Which of the vocabulary this planet stage did NOT emit, sorted — one stage's freshness record.
 
-    THE ONES THAT ARE OFF, NEVER THE ONES THAT ARE ON, exactly as `bodies.layers_off` does it and
+    The ones that are off and never the ones that are on, exactly as `bodies.layers_off` does it and
     for the same measured reason, which that function holds. Earth emits all three, so its list is
     empty and nothing enters its recipe.
     """
