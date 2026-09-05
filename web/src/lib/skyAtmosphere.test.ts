@@ -428,10 +428,10 @@ describe("no second module grows its own sky", () => {
     .filter((name): name is string => typeof name === "string")
     .filter((name) => SWEPT_SUFFIXES.some((suffix) => name.endsWith(suffix)))
     .filter((name) => !EXEMPT.has(name))
-    // A suffix does not make something a file. Vitest's browser mode writes `__screenshots__/`
-    // subdirectories named after the test file that produced them, so eleven DIRECTORIES under
-    // `src/lib/` end in `.ts` and reading one throws EISDIR. The sibling sweep in
-    // astroTemplates.test.ts never met this only because it looks for `.astro`.
+    // A suffix does not make something a file: vitest's browser mode writes directories named
+    // after the spec that produced them, and reading one throws EISDIR. They land under
+    // `web/.vitest/`, outside this walk, so this looks dead. It is the cheap guard against them
+    // landing back inside it.
     .filter((name) => statSync(new URL(name, SOURCE_ROOT)).isFile())
     .map((name) => ({ name, text: readFileSync(new URL(name, SOURCE_ROOT), "utf8") }));
 

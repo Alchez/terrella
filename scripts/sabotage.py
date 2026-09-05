@@ -253,13 +253,13 @@ class Suite(NamedTuple):
     command: list[str]
     cwd: str
     environment: dict[str, str]
-    # Vitest prints ` FAIL  <file> > <describe> > <title>`; pytest prints `FAILED <file>::<name>`.
-    # The names this yields are matched by `guard_fired`, which anchors: a guard may be a PREFIX of
-    # the name it credits, never an interior substring.
+    # Vitest prints ` FAIL  |<project>| <file> > <describe> > <title>`; pytest prints
+    # `FAILED <file>::<name>`. The names this yields are matched by `guard_fired`, which anchors:
+    # a guard may be a PREFIX of the name it credits, never an interior substring.
     #
-    # The vitest form gains a `|browser (chromium)|` segment for the browser project and NOT for
-    # node, so the project label has to be optional. Judging never noticed, because it greps the
-    # whole output — but `--harvest` reads this pattern, and without the optional segment it
+    # The project label stays optional even though both projects print one, because tightening it
+    # buys nothing and the failure mode is silent. Judging would not notice a miss, since it greps
+    # the whole output — but `--harvest` reads this pattern, and without the optional segment it
     # reported "(nothing failed)" for a case three browser tests were in fact catching. Harvest is
     # exactly the tool you reach for when you do not yet know which test catches a case, so a blind
     # spot there reads as "nothing guards this".
