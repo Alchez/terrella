@@ -19,8 +19,6 @@ Rows are pinned and latitude derived, rather than read back from the marker: mar
 to two decimals, and that is enough to flip a quantum on those two blocks.
 """
 
-from __future__ import annotations
-
 import math
 
 import numpy as np

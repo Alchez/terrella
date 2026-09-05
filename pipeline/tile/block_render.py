@@ -1,35 +1,30 @@
 """Render a body's whole Mercator grid as Cycles blocks, into the one raster the tile cut reads.
 
-THE ONLY PRODUCER OF `planet_rgb.tif`, and it renders it block by block out of Blender. It replaced
-a numpy compositor that shaded the same raster window by window, and it kept that arrangement's one
-load-bearing property: everything downstream — the pyramid, the freshness marker, the publish —
-cannot tell what produced the raster, and only the recipe beside it can. So this writes its own
-recipe rather than inheriting one, carrying the rig, the look and the margin law and no hillshade
-at all. That mattered most while a body could be switched between producers against one shared
-dependency list, which would have left the old pixels looking perfectly fresh.
+The only producer of `planet_rgb.tif`, rendering it block by block out of Blender. It writes its own
+recipe rather than inheriting one, carrying the rig, the look and the margin law, because nothing
+downstream can tell what produced the raster: not the pyramid, not the freshness marker, not the
+publish, and only the recipe beside it can.
 
-It sits in `tile/` beside the producer it replaces rather than in `render/` beside the rig it
-drives, because what it emits is a planet raster the pyramid is cut from — `render/` is one scene
-at a time, and `scene_build` is the shared part of it this shells into.
+It sits in `tile/` beside what it emits rather than in `render/` beside the rig it drives, because
+what it emits is a planet raster the pyramid is cut from: `render/` is one scene at a time, and
+`scene_build` is the shared part of it this shells into.
 
-RESUME IS THE WHOLE DESIGN, not a convenience. A planet is a full night of GPU at best, so the unit
-of work has to be the block: prep, render, crop, write into the mosaic, mark — strictly in that
+Resume is the whole design, not a convenience. A planet is a full night of GPU at best, so the unit
+of work has to be the block: prep, render, crop, write into the mosaic, mark, strictly in that
 order, because a marker written before the bytes it vouches for is how a crash leaves a state that
 reads as complete. Stopping this at any instant costs the one block in flight.
 
-THE MARKER IS AN EXISTENCE TEST AND NOT AN MTIME ONE, and that is forced rather than chosen. Every
-block lands in ONE shared raster whose mtime advances with every later block, so the first block's
-marker is older than the mosaic the moment the second one writes — the repo's ordinary rule, that a
-marker must be newer than the bytes it vouches for, cannot hold here. What replaces it is one
-generation stamp for the whole run: the recipe and the warped inputs are compared against it ONCE
-at pass start, and if anything moved, the entire marker set is cleared and the planet re-renders.
-Per-block freshness answers "did this block finish", never "is this block still correct".
+The marker is an existence test and not an mtime one, and that is forced rather than chosen: every
+block lands in one shared raster whose mtime advances with every later block, so the first block's
+marker is older than the mosaic the moment the second one writes, and the repo's ordinary rule that
+a marker must be newer than the bytes it vouches for cannot hold here. What replaces it is one
+generation stamp for the whole run, compared against the recipe and the warped inputs once at pass
+start; the rule beside this file owns what feeds that comparison. Per-block freshness answers "did
+this block finish", never "is this block still correct".
 
     python -m pipeline.tile.block_render --body earth              # the planet, resumable
     python -m pipeline.tile.block_render --body earth --only r00c00,r31c40   # named blocks
 """
-
-from __future__ import annotations
 
 import argparse
 import json
@@ -63,26 +58,22 @@ from pipeline.raster_io import GTIFF_CREATE
 from pipeline.render import blender_proc, prep_block
 from pipeline.tile import cut_tiles, relief_scan
 
-#: Consecutive block failures that stop the run. A single block can fail for its own reasons — a
-#: transient OptiX fault, a bad frame — and throwing away the hours still queued behind it would be
-#: the wrong trade. A RUN this long is not a block, it is the GPU being gone. Carried unchanged from
-#: the probe's night runner, where it was calibrated across 1,358 blocks.
+#: Consecutive block failures that stop the run. A single block can fail for its own reasons, a
+#: transient OptiX fault or a bad frame, and throwing away the hours still queued behind it would be
+#: the wrong trade; a run of this many is not a block failing, it is the GPU being gone.
 CONSECUTIVE_ABORT = 8
 
-#: Total failures, as a fraction of the planned blocks, that stop the run.
-#:
-#: THE PROBE'S PER-REGION FRACTION HAS NO ANALOGUE HERE and this is not it renamed: a planet pass
-#: has no regions to abandon and move on from, so the only question a total can answer is whether
-#: to keep spending GPU on a planet that will come out holed. Scattered failures below this are
-#: recorded and stepped over; nothing is lost by stopping, because every finished block is on disk
-#: and marked.
+#: Total failures, as a fraction of the planned blocks, that stop the run. A planet pass has no
+#: regions to abandon and move on from, so the only question a total can answer is whether to keep
+#: spending GPU on a planet that will come out holed. Scattered failures below this are recorded and
+#: stepped over, and nothing is lost by stopping, every finished block being on disk and marked.
 FAILURE_CEILING_FRACTION = 0.01
 
 #: The recipe this producer bakes into the mosaic, beside it, as every writer in the pipeline does.
 PARAMS_NAME = "raytrace_params.json"
 
-#: A fixed-size progress document, rewritten after every block. THE POINT OF CONTACT FOR A WATCHER:
-#: checking on a run that lasts a night must not mean reading a log that grew all night.
+#: A fixed-size progress document, rewritten after every block: the point of contact for a watcher,
+#: since checking on a run that lasts a night must not mean reading a log that grew all night.
 STATUS_NAME = "raytrace_status.json"
 
 #: The file whose mtime dates the current generation of block markers beside it.
@@ -108,8 +99,8 @@ def generation_stamp(markers: Path) -> Path:
 
 @dataclass(frozen=True)
 class Sidecars:
-    """Every path one run of this producer writes, and whether that run fills the canonical
-    raster — which decides what it may declare as well as what it may name."""
+    """Every path one run of this producer writes, and whether that run fills the canonical raster,
+    which is what decides how those paths are named."""
 
     mosaic: Path
     markers: Path
@@ -122,21 +113,21 @@ class Sidecars:
 def sidecars_for(work: Path, mosaic: Path) -> Sidecars:
     """Everything a run writes, derived from the raster it fills rather than from `work`.
 
-    ONE RULE AND ONE OWNER: what a run writes sits beside its raster and is named after it.
+    One rule and one owner: what a run writes sits beside its raster and is named after it.
     `--mosaic` exists so an A/B cannot disturb a shipping planet, and a half-kept seam disturbs it
     in the direction nothing looks at. The recipe is in `raytrace_deps`, so an A/B writing the
     shipping recipe moves it, the next production pass moves it back, `generation_is_current` reads
-    False and `start_generation` clears a finished planet's entire marker set — a night of Cycles
-    to emit the pixels already on disk, logged as a line that reads like ordinary operation.
+    False and `start_generation` clears a finished planet's entire marker set: a night of Cycles to
+    emit the pixels already on disk, logged as a line that reads like ordinary operation.
 
-    THE CANONICAL RASTER'S SIDECARS KEEP THEIR BARE NAMES, the same elision the compositor made for
-    its default variant. Prefixing every mosaic's alike is the tidier rule and renames two
-    files a finished pass left on disk, which moves an mtime: the same night, paid on the way in.
+    The canonical raster's sidecars keep their bare names, because prefixing every mosaic's alike
+    renames two files a finished pass left on disk, which moves an mtime and costs the same night on
+    the way in.
 
-    RESOLVED FIRST, so a canonical raster spelled through a symlink or a `..` is still canonical —
-    which the arm worktrees can produce, since they run against a symlinked work directory. Read as
-    a second raster it would take a recipe of its own while sharing the markers and the bytes,
-    leaving the shipping planet fresh under a recipe that describes nothing.
+    Resolved first, so a canonical raster spelled through a symlink or a `..` is still canonical,
+    which the arm worktrees can produce by running against a symlinked work directory. Read as a
+    second raster it would take a recipe of its own while sharing the markers and the bytes, leaving
+    the shipping planet fresh under a recipe that describes nothing.
     """
     mosaic = mosaic.resolve()
     canonical = mosaic == mosaic_in(work).resolve()
@@ -155,25 +146,17 @@ def block_name(block: Block) -> str:
 
 
 def context_census(blocks: list[Block]) -> dict[str, int]:
-    """How many blocks this plan renders at each context width, which is the context law's OUTPUT.
+    """How many blocks this plan renders at each context width, which is the context law's output.
 
-    RECORDED INSTEAD OF THE LAW'S CONSTANTS, and the difference is the whole point. A hand-written
-    list of the law's constants failed three times in one session, in both directions: twice it went
-    SHORT — a floor added to the law and not to the list, then a shortcut deleted from the law and
-    not reflected anywhere — which left the recipe text unmoved, the generation reading as current,
-    and a resume about to keep blocks rendered under the old rule; and once it went LONG, recording
-    a ceiling no block on this body reaches, so raising it for another planet would restage this one
-    for identical pixels.
+    Recorded instead of the law's constants, because a hand-written list of them goes wrong in both
+    directions and silently: short, when a change to the law is not reflected in the list, leaving
+    the recipe text unmoved and a resume about to keep blocks rendered under the old rule; and long,
+    recording a bound no block on this body reaches, so raising it for another planet restages this
+    one for identical pixels. A census cannot go short, being measured from the plan rather than
+    described.
 
-    A census cannot go short, because it is measured from the plan rather than described: any change
-    to the law that moves a context moves this, and any change that moves none does not. It is exact
-    enough on the ordering question too — a context is a pure function of relief and latitude, so
-    widths cannot permute between blocks without the relief moving, and the relief derives from
-    `height_3857`, which is a dependency by mtime.
-
-    IT COVERS ONE OF THE THREE WIDTHS AND ONLY ONE. The delivered and traced edges are the same for
-    every block on a body, so they are recorded as the plain constants they are; the context is the
-    one the law computes per block, so it is the one that needs measuring rather than describing.
+    It covers one of the three widths and only one: the delivered and traced edges are the same for
+    every block on a body and are recorded as the plain constants they are.
     """
     census: dict[str, int] = {}
     for block in blocks:
@@ -186,25 +169,18 @@ def params(body: bodies.Body, rasters: frozenset[str], look: palette.Look,
            rig: dict[str, Any], blocks: list[Block]) -> str:
     """Everything that can move a raytraced pixel and is not a file with an mtime.
 
-    THE SPLIT IS RECIPE AGAINST DEPS: a warped source moves an mtime and `raytrace_deps` tracks it;
-    a constant moves nothing at all and only a recipe can see it. A look constant that reaches
+    The split is recipe against deps: a warped source moves an mtime and `raytrace_deps` tracks it,
+    where a constant moves nothing at all and only a recipe can see it. A look constant that reaches
     neither leaves a stale planet reading fresh forever.
 
     `layers_off` and `rasters_off` follow the conditional-record idiom: they are what tracks a layer
-    going OFF, which the dependency mtimes structurally cannot — a path that is not there scores
-    0.0 and is invisible, so switching sea ice off would otherwise leave a planet painted with it
+    going off, which the dependency mtimes structurally cannot, a path that is not there scoring 0.0
+    and being invisible, so switching sea ice off would otherwise leave a planet painted with it
     looking current.
 
-    THREE TIERS REACH A BLOCK, each declared by the code that reads it: this module's own, the
-    rig's through `rig_recipe`, and the producers' through `layer_producers.constants_for`.
-
-    EVERY BLOCK-TIER CONSTANT HAS BEEN PERTURBED and the ones that move no recipe are accounted for
-    rather than open: `TRACED_CEILING_PX` is a refusal bound, and `CONTEXT_RATIO`,
-    `CONTEXT_QUANTUM_PX`, `CONTEXT_CEILING_PX` and `MERCATOR_LATITUDE_LIMIT_DEG` all reach this
-    recipe through `contexts`. A probe holding `blocks` fixed reads all four as silent, which is the
-    probe's artifact and not a gap.
-
-    The rig arrives as an argument because `scene_build` owns its own constants; see `rig_recipe`.
+    Three tiers reach a block, each declared by the code that reads it: this module's own, the rig's
+    through `rig_recipe`, and the producers' through `layer_producers.constants_for`. The rig
+    arrives as an argument because `scene_build` owns its own constants.
     """
     recipe: dict[str, Any] = {
         "producer": "raytrace",
@@ -213,8 +189,8 @@ def params(body: bodies.Body, rasters: frozenset[str], look: palette.Look,
         # The two widths that are the same for every block, recorded as the constants they are.
         "denoise_band_px": block_plan.DENOISE_BAND_PX,
         "traced_px": block_plan.RENDER_BLOCK_PX + 2 * block_plan.DENOISE_BAND_PX,
-        # The third is per block, so the context law's OUTPUT and not its constants — see
-        # `context_census` for why a described law went wrong three times and a measured one cannot.
+        # The third is per block, so the context law's output and not its constants; `context_census`
+        # holds why a described law goes wrong in both directions and a measured one cannot.
         "contexts": context_census(blocks),
         "exaggeration": body.exaggeration,
         "ground_scale": bodies.ground_metres_per_mercator_unit(body),
@@ -235,9 +211,9 @@ def params(body: bodies.Body, rasters: frozenset[str], look: palette.Look,
         # rather than the per-block prep directory. Left out, a depth change would reach only the
         # blocks that were going to render anyway and leave every finished one terraced.
         "mask_full_scale": prep_block.MASK_FULL_SCALE,
-        # The same argument one line up, for the policy at the POLES rather than the mask depth: it
+        # The same argument one line up, for the policy at the poles rather than the mask depth: it
         # moves only the two edge block rows, and those are exactly the blocks a marker already
-        # calls done. Left out, the fix that replaced the zero fill would reach nothing on disk.
+        # calls done, so left out, a fix to the row edge would reach nothing on disk.
         "row_edge_mode": prep_block.ROW_EDGE_MODE,
         # What the prep grades its masks with, and the general case of the line above it: none of
         # it moves a warped raster, so `raytrace_deps` is blind to all of it.
@@ -261,13 +237,9 @@ def params(body: bodies.Body, rasters: frozenset[str], look: palette.Look,
 def rig_recipe(body: bodies.Body) -> dict[str, Any]:
     """`scene_build`'s own account of the constants it will apply to this body's look.
 
-    IMPORTED WITH `bpy` STUBBED, which is not a trick invented here: `scene_build` touches bpy only
-    at render time and `tests/test_scene_build_sync` has imported it this way since the hero
-    sea-sync, precisely so that its constants can be read without Blender. The alternative is
-    restating them, which is the copy that drifted three times before that test existed.
-
-    The stub is left in place only if this module put it there, so a caller that genuinely runs
-    inside Blender keeps the real module.
+    Imported with `bpy` stubbed, `scene_build` touching bpy only at render time, so its constants
+    can be read without Blender rather than restated here. The stub is removed only if this module
+    put it there, so a caller genuinely running inside Blender keeps the real module.
     """
     stubbed = "bpy" not in sys.modules
     if stubbed:
@@ -283,18 +255,16 @@ def rig_recipe(body: bodies.Body) -> dict[str, Any]:
 def raytrace_deps(work: Path, recipe: Path) -> tuple[Path, ...]:
     """Everything the raytraced mosaic must be newer than.
 
-    NO HILLSHADE AND NO SHADING RECIPE, which is exactly what the switch away from the compositor
-    removed: Cycles computes its own light. What stays is the warped input set the block prep
-    actually cuts from — the heightfield, the two masks, and every optional surface layer — plus
-    this producer's own recipe.
+    The warped input set the block prep cuts from, being the heightfield, the two masks and every
+    optional surface layer, plus this producer's own recipe. No hillshade and no shading recipe:
+    Cycles computes its own light.
 
-    Over-inclusive in the same way and for the same reason: `is_stale` takes the newest mtime, so
-    naming a raster this body does not have costs nothing, while missing one is silent.
+    Over-inclusive deliberately: `is_stale` takes the newest mtime, so naming a raster this body
+    does not have costs nothing, while missing one is silent.
 
-    NO PRODUCER STAMP, and its absence is the deletion of the second producer rather than an
-    oversight. `producer_seam` existed because two producers wrote one raster and shared one `.done`
-    marker, so each read the other's work as its own; one producer cannot be confused about who
-    filled the mosaic. A second one arriving needs that seam back before it writes a pixel.
+    There is no producer stamp because one producer cannot be confused about who filled the mosaic.
+    A second one arriving needs that seam back before it writes a pixel, which is the standing brief
+    rather than this function's to argue.
     """
     return (work / planet_warp.HEIGHT_3857, work / planet_warp.OCEAN_3857,
             work / planet_warp.WATER_3857,
@@ -304,13 +274,12 @@ def raytrace_deps(work: Path, recipe: Path) -> tuple[Path, ...]:
 def generation_is_current(markers: Path, deps: tuple[Path, ...]) -> bool:
     """Whether the markers on disk describe the planet being rendered now.
 
-    NOT `freshness.is_stale`, AND THE DIFFERENCE IS STRUCTURAL RATHER THAN STYLISTIC. That predicate
-    calls an output stale when it was REWRITTEN since it was stamped, which is what catches a
-    crashed half-written raster. Here the output GROWS after its stamp by design — every block
-    lands in the same directory the stamp sits in — so that clause would call a healthy resume
-    stale on its second block and re-render the planet from scratch every time.
-
-    What is asked instead is only the other half: did any input move since this generation began.
+    Not `freshness.is_stale`, and the difference is structural: that predicate also calls an output
+    stale when it was rewritten since it was stamped, which catches a crashed half-written raster.
+    Here the output grows after its stamp by design, every block landing in the same directory the
+    stamp sits in, so that clause would call a healthy resume stale on its second block and
+    re-render the planet from scratch every time. What is asked instead is only the other half: did
+    any input move since this generation began.
     """
     stamp = generation_stamp(markers)
     return stamp.exists() and freshness.newest_mtime(*deps) <= stamp.stat().st_mtime
@@ -319,9 +288,9 @@ def generation_is_current(markers: Path, deps: tuple[Path, ...]) -> bool:
 def start_generation(markers: Path, mosaic: Path) -> None:
     """Begin a new generation: no block on disk is trusted, and the mosaic stops being complete.
 
-    THE MOSAIC'S OWN MARKER GOES FIRST AND THAT ORDER MATTERS. `tiles_are_fresh` keys on it, so a
+    The mosaic's own marker goes first and that order matters: `tiles_are_fresh` keys on it, so a
     mosaic left stamped while it is being rewritten block by block is a pyramid cut from a planet
-    that is half one producer and half the other — and every gate would pass.
+    that is half one generation and half the next, with every gate passing.
     """
     freshness.done_marker(mosaic).unlink(missing_ok=True)
     shutil.rmtree(markers, ignore_errors=True)
@@ -332,22 +301,16 @@ def start_generation(markers: Path, mosaic: Path) -> None:
 def check_inputs(work: Path, body: bodies.Body, rasters: frozenset[str]) -> None:
     """Refuse to start when this body cannot feed the rig, or its warped rasters are not on disk.
 
-    THE ALTERNATIVE IS A SLOW FAILURE THAT BLAMES THE WRONG THING. Without this the first block
+    The alternative is a slow failure that blames the wrong thing: without this the first block
     raises on a missing heightfield, and so does the next, and the run stops eight blocks later on
-    the consecutive-failure counter — whose message says the GPU is gone, about a stage that never
+    the consecutive-failure counter, whose message says the GPU is gone about a stage that never
     ran. On an unattended night that reads as a hardware fault until someone opens the log.
 
-    THERE IS NO LONGER A SEAM CHECK ABOVE THIS, and its removal is the point rather than an
-    omission. A planet declaring no watermask used to be refused here, because the rig loaded
-    `inlandlake.png` and `river.png` for every look while `prep_block` wrote them only where the
-    seam declared one; `scene_build.textures_for` now reads the render directory's own declaration,
-    so a thin seam is rendered rather than turned away. What replaced it is a narrower question in
-    the only place that can ask it: a LOOK with a sea over a directory with no oceanmask refuses in
-    `scene_build`, which this interpreter cannot import because it imports `bpy`.
-
-    WHICH RASTERS ARE REQUIRED COMES FROM THE DECLARATION AND NEVER FROM THE DISK, because those are
+    Which rasters are required comes from the declaration and never from the disk, those being
     different questions: a body that emits no inland water must not be asked for a watermask, and a
-    body that does must not be allowed to start without one.
+    body that does must not be allowed to start without one. A thin seam is rendered rather than
+    turned away here, the narrower refusal living in `scene_build.textures_for`, which this
+    interpreter cannot import because it imports `bpy`.
 
     The warp itself is still the pass's, which is the seam this names rather than papers over.
     """
@@ -367,19 +330,16 @@ def check_inputs(work: Path, body: bodies.Body, rasters: frozenset[str]) -> None
 def check_fits(blocks: list[Block], body: bodies.Body) -> list[Block]:
     """The plan, unchanged, unless some block cannot be rendered at all — then stop.
 
-    A BLOCK THAT DOES NOT FIT STOPS THE RUN RATHER THAN BEING SKIPPED, and the asymmetry is the
-    reason: a skipped block is a hole in a planet that the mosaic cannot show, because an unwritten
-    block reads as black rather than as missing. Failing before the first render costs seconds;
-    discovering it from the pixels costs the pass and the look decision taken off them.
+    A block that does not fit stops the run rather than being skipped, and the asymmetry is the
+    reason: a skipped block is a hole in a planet the mosaic cannot show, an unwritten block reading
+    as black rather than as missing. Failing before the first render costs seconds; discovering it
+    from the pixels costs the pass and the look decision taken off them. Separated from the plan it
+    checks so that the refusal is provable without a planet on disk.
 
-    Separated from the plan it checks so that the refusal is provable without a planet on disk.
-
-    IT NOW CHECKS THE CONSTANTS RATHER THAN THE RELIEF, and that is a real narrowing worth saying
-    out loud. The traced edge is `RENDER_BLOCK_PX + 2 * DENOISE_BAND_PX` for every block on every
-    body, so this can no longer refuse one block and pass its neighbour: what it catches is a block
-    edge raised past what the GPU is proven at. The width that still varies per block is the
-    context, and it is bounded by `CONTEXT_CEILING_PX` inside the law instead of here, because a
-    plane is geometry rather than a frame.
+    It checks the constants and not the relief: the traced edge is the same for every block on every
+    body, so this cannot refuse one block and pass its neighbour, and what it catches is a block edge
+    raised past what the GPU is proven at. The context is the width that varies per block, and it is
+    bounded inside the law instead of here, a plane being geometry rather than a frame.
     """
     oversized = [block_name(block) for block in blocks if not block.fits]
     if oversized:
@@ -406,9 +366,9 @@ def plan_blocks(body: bodies.Body, work: Path) -> list[Block]:
 def ensure_mosaic(mosaic: Path, body: bodies.Body) -> None:
     """Create the full-grid raster once, so blocks may land in any order and a resume can skip.
 
-    THE INTERNAL TILING IS `raster_io.GTIFF_CREATE`'s AND NOT A NUMBER WRITTEN HERE, which is what
+    The internal tiling is `raster_io.GTIFF_CREATE`'s and not a number written here, which is what
     keeps a render block a whole number of internal tiles. Straddling them would make every block
-    write decompress, modify and recompress its neighbours' pixels — and a rewritten tile that grows
+    write decompress, modify and recompress its neighbours' pixels, and a rewritten tile that grows
     cannot go back in place, so a random-order pass would fragment the file. `test_block_render`
     pins the divisibility rather than leaving it a coincidence of two 512s.
 
@@ -433,21 +393,17 @@ def ensure_mosaic(mosaic: Path, body: bodies.Body) -> None:
     progress.stage(f"created {mosaic} ({edge} x {edge})")
 
 
-#: Where OIDN runs for BLOCKS, which is not where it runs for heroes and is the only Cycles setting
-#: that differs between the two callers of `scene_build`. Everything else that separates a hero from
-#: a block happens before Blender starts: a different prep module, a different framing law, a
-#: different snow source. Measured on r07c26 and r26c46 at both block edges: 5.07 s and 4.69 s saved
-#: per 2048 block, 20.11 s and 19.82 s per 4096 block, no fault, and a delivered-pixel difference of
-#: at most 1 DN with 88-91% of channels bit-identical. `scene_build.configure_render` holds why this
-#: cannot be derived from the frame size instead.
+#: Where the denoiser runs for blocks, which is not where it runs for heroes and is one of the two
+#: Cycles settings that differ between the callers of `scene_build`. Everything else separating a
+#: hero from a block happens before Blender starts: a different prep module, a different framing
+#: law, a different snow source. `scene_build.configure_render` holds why this cannot be derived
+#: from the frame size instead.
 BLOCK_DENOISE_DEVICE = "gpu"
 
-#: Whether a block's plane starts as a base grid, which is the SECOND setting that differs between
-#: the two callers of `scene_build` and differs for a harder reason than the first. `base_patches`
-#: holds the measurement; the short of it is that a block's plane is mostly off-camera and lands
-#: near 21M micropolygons, while a hero's is entirely in frame and reaches 41.8M to 67M — past the
-#: 12 GB card, where OptiX fails to build at all. Blocks can afford one micropolygon per pixel and
-#: heroes currently cannot, so this is the caller's to state and not a constant to flip.
+#: Whether a block's plane starts as a base grid, the second of those two and the harder one: a
+#: block's plane is mostly off-camera where a hero's is entirely in frame, so blocks can afford one
+#: micropolygon per pixel and heroes cannot. `base_patches` holds the VRAM ceiling that decides it.
+#: The caller's to state, not a constant to flip.
 BLOCK_BASE_GRID = "fitted"
 
 
@@ -468,24 +424,23 @@ def blender_command(body: bodies.Body, render_dir: Path, blend: Path, png: Path)
 def cropped(png: Path, block: Block) -> np.ndarray:
     """The delivered pixels of a rendered frame: the denoise band cut back off, alpha dropped.
 
-    THE BAND, NEVER THE CONTEXT, AND THE TWO ARE DIFFERENT NUMBERS. The frame Cycles produced is
-    the TRACED rectangle, which overhangs the delivered block by `DENOISE_BAND_PX` so that OIDN's
-    own edge falls outside the pixels that ship. The context is far wider and never reaches a
-    frame at all: it is off-camera geometry, there so that terrain outside the block can still
-    throw a shadow across the boundary.
+    The band, never the context, and the two are different numbers. The frame Cycles produced is the
+    traced rectangle, which overhangs the delivered block by `DENOISE_BAND_PX` so the denoiser's own
+    edge falls outside the pixels that ship. The context is far wider and never reaches a frame at
+    all, being off-camera geometry there so terrain outside the block can throw a shadow across the
+    boundary.
 
-    Cropping by the context instead would take a correctly SHAPED square out of the wrong place —
-    on Earth's widest blocks, 1,856 px off true — and the mosaic would record it as done. The shape
-    check below cannot see that on its own, which is why `test_block_render` asserts the offset
-    against the band in both directions.
+    Cropping by the context instead takes a correctly shaped square out of the wrong place and the
+    mosaic records it as done. The shape check below cannot see that on its own, which is why
+    `test_block_render` asserts the offset against the band in both directions.
     """
     with rasterio.open(png) as src:  # pyright: ignore[reportCallIssue]
         frame = src.read()
     band, edge, traced = block_plan.DENOISE_BAND_PX, block.size_px, block.traced_edge_px
-    # THE FRAME IS CHECKED, NOT THE CROP, and the difference is a hole this had while the outer
-    # ring was the margin. A frame LARGER than asked for — a rig that photographed its whole plane
-    # — still yields a crop of exactly the right shape, so a shape assertion on the result passes
-    # and the mosaic takes the wrong ground. Only the frame's own size can tell the two apart.
+    # The frame is checked and not the crop: a frame larger than asked for, from a rig that
+    # photographed its whole plane, still yields a crop of exactly the right shape, so a shape
+    # assertion on the result passes and the mosaic takes the wrong ground. Only the frame's own
+    # size tells the two apart.
     if frame.shape[1:] != (traced, traced):
         raise RuntimeError(f"{png.name}: rendered {frame.shape[1]}x{frame.shape[2]}, expected the "
                            f"{traced} px traced frame — the frame numbers and the rig disagree, "
@@ -498,17 +453,16 @@ def render_block(body: bodies.Body, block: Block, mosaic: Path, scratch: Path,
                  markers: Path, work: Path, *, keep_intermediates: bool = False) -> None:
     """One block, end to end: prep, render, crop, write into the mosaic, mark.
 
-    THE MARKER IS LAST AND THE MOSAIC IS CLOSED BEFORE IT. Only a flushed write is a block that
+    The marker is last and the mosaic is closed before it: only a flushed write is a block that
     exists, and this is the ordering the resume depends on being right.
 
-    `work` IS CARRIED RATHER THAN RE-DERIVED so that every raster this run reads comes from the one
-    directory `run` validated. The prep used to resolve the body's default itself, which made
-    `--work` a flag that moved the checks and left the pixels behind.
+    `work` is carried rather than re-derived, so every raster this run reads comes from the one
+    directory `run` validated. The rule beside this file owns why.
 
-    `keep_intermediates` LEAVES THE FRAME, THE SCENE AND THE PREP DIRECTORY where this block wrote
+    `keep_intermediates` leaves the frame, the scene and the prep directory where this block wrote
     them, for a question about the render itself: the crop is a pure slice and the mosaic write is
     lossless, so the frame is the one thing that can place an artifact before or after them. The
-    frame is unlinked HERE and not inside the render directory, so suppressing that directory's
+    frame is unlinked here and not inside the render directory, so suppressing that directory's
     removal on its own keeps the inputs and loses the pixels.
     """
     name = block_name(block)
@@ -525,17 +479,17 @@ def render_block(body: bodies.Body, block: Block, mosaic: Path, scratch: Path,
     if result.returncode != 0 or not png.exists():
         raise RuntimeError(f"blender exited {result.returncode} for {name}: "
                            f"{result.stdout[-1500:]}{result.stderr[-1500:]}")
-    # THE RECIPE BELOW WILL CLAIM A DENOISE DEVICE, SO THE RENDER HAS TO CONFIRM IT USED ONE. A
+    # The recipe below will claim a denoise device, so the render has to confirm it used one: a
     # dropped or renamed flag renders on the CPU and succeeds, and the only surviving trace would be
-    # a recipe asserting something that never happened — stale-looking-fresh in the one direction a
-    # freshness check cannot see, because the recipe would be self-consistent.
+    # a recipe asserting something that never happened, which is stale-looking-fresh in the one
+    # direction a freshness check cannot see, the recipe being self-consistent.
     if f"DENOISE_DEVICE {BLOCK_DENOISE_DEVICE}" not in result.stdout:
         raise RuntimeError(f"{name}: asked Blender for --denoise-device "
                            f"{BLOCK_DENOISE_DEVICE} and it did not report back; the recipe would "
                            f"record a device this block was not rendered with")
-    # THE SAME CHECK FOR THE SAME REASON, and the count below cannot stand in for it: `fitted` on a
-    # plane under the cap yields one patch, which is byte-identical to the flag never arriving. Only
-    # the POLICY discriminates, so only the policy can confirm the recipe's claim.
+    # The same check for the same reason, and the count below cannot stand in for it: `fitted` on a
+    # plane under the cap yields one patch, byte-identical to the flag never arriving. Only the
+    # policy discriminates, so only the policy can confirm the recipe's claim.
     if f"BASE_GRID {BLOCK_BASE_GRID}" not in result.stdout:
         raise RuntimeError(f"{name}: asked Blender for --base-grid {BLOCK_BASE_GRID} and it did "
                            f"not report back; the recipe would record a dicing this block was not "
@@ -545,8 +499,8 @@ def render_block(body: bodies.Body, block: Block, mosaic: Path, scratch: Path,
     crop = cropped(png, block)
     with rasterio.open(mosaic, "r+") as dst:  # pyright: ignore[reportCallIssue]
         dst.write(crop, window=block.delivered_window)
-    # The base grid is READ BACK rather than recomputed here. It is a pure function of the frame and
-    # `scene_build` owns it; a second evaluation on this side would be a copy free to disagree,
+    # The base grid is read back rather than recomputed here: it is a pure function of the frame and
+    # `scene_build` owns it, so a second evaluation on this side would be a copy free to disagree,
     # which is the failure it is meant to catch. Recorded so an under-diced block is identifiable
     # afterwards, since it is not identifiable from its pixels.
     reported = next((line for line in result.stdout.splitlines()
@@ -563,14 +517,13 @@ def render_block(body: bodies.Body, block: Block, mosaic: Path, scratch: Path,
 def disk_floor_bytes(body: bodies.Body, remaining: int, total: int) -> float:
     """Free space this run refuses to go below, sized for what it may still have to write.
 
-    THE COMPRESSION RATIO IS NOT KNOWABLE IN ADVANCE, so the floor assumes DEFLATE buys nothing and
+    The compression ratio is not knowable in advance, so the floor assumes DEFLATE buys nothing and
     the raster grows to its uncompressed size. Scaled by the blocks still to do, so it relaxes as
     the run progresses: a fixed planet-sized floor would abort a nearly finished pass that needs a
     few hundred megabytes, which costs a night in the other direction.
 
-    It watches the WORK directory rather than `$HOME`. Those are the same filesystem on the machine
-    this was written on and nothing records that coincidence, so a contributor with the store on a
-    second disk would otherwise have a floor measuring the wrong volume.
+    It watches the work directory rather than `$HOME`, which are the same filesystem here and need
+    not be, so a store on a second disk would otherwise have a floor measuring the wrong volume.
     """
     uncompressed = block_plan.grid_px(body) ** 2 * 3
     return uncompressed * (remaining / total) if total else 0.0
@@ -617,17 +570,16 @@ class Status:
 
 
 def log(message: str, *, stage: bool = False) -> None:
-    """One progress line, stamped in LOCAL time because a night run is read against a wall clock.
+    """One progress line, stamped in local time because a night run is read against a wall clock.
 
-    `astimezone()` on a UTC now, rather than a naive one: the reader wants their own hours and the
+    `astimezone()` on a UTC now rather than a naive one: the reader wants their own hours and the
     project's other timestamps are UTC by rule, so the conversion is stated rather than implied.
 
-    `stage=True` marks the line as a boundary a watcher should wake for, and the default is what
-    makes this producer readable at all: it runs 1,024 blocks on Earth at today's block size and
-    the watchdog EXITS on every marker it matches, so marking the per-block line would be one
-    wake-up per block in a night, and the figure grows as the block shrinks. The
-    per-block story is read from `raytrace_status.json`, which is rewritten in place and can be
-    sampled at whatever interval the reader wants; only the boundaries of the run are stages.
+    `stage=True` marks the line as a boundary a watcher should wake for, and the default of False is
+    what makes this producer readable at all: the watchdog exits on every marker it matches, so
+    marking the per-block line would be 1,024 wake-ups on Earth in one night, and more as the block
+    shrinks. The per-block story is read from `raytrace_status.json` instead, rewritten in place and
+    sampled at whatever interval the reader wants.
     """
     if stage:
         message = progress.marked(message)
@@ -645,29 +597,18 @@ def run(body: bodies.Body, work: Path, mosaic: Path, *, limit: int | None = None
     `keep_intermediates` reaches every block AND holds the scratch tree below, so that what is kept
     does not depend on whether this run happened to be the one that finished the planet.
     """
-    # THE PLAN COMES BEFORE THE RECIPE, because the recipe records what the plan produced. The
-    # repo's ordering rule — write the recipe, THEN ask the freshness question — is unchanged and
-    # is what still makes a settings change restage itself; planning first only supplies the
-    # recipe's content. Inputs are checked first of all, so a missing warp fails in a second
-    # rather than after a whole-grid plan.
-    # THIS PRODUCER NAMES ITSELF, before the freshness question below that depends on it and before
-    # any block is prepped. It names the RAYTRACE as a LITERAL and reads it from no registry, which
-    # is what kept the stamp honest while a body could still ask for the other producer: this module
-    # is a shipped entry point of its own (`--only` is how one block is re-rendered for judging), so
-    # it could put raytraced bytes into the raster of a body whose registry entry disagreed. No such
-    # entry exists now, and the literal stays, because a stamp that describes what ran is the only
-    # kind that survives a second producer arriving.
-    # ONLY FOR THE CANONICAL RASTER, the guard the compositor made for the same reason: the
-    # declaration's subject is the raster the tile cut reads, so a run pointed elsewhere claiming it
-    # would name a producer for bytes it never wrote. A second mosaic needs no declaration at all —
-    # the stamp exists because two producers share ONE output, and that one has a single producer.
+    # The plan comes before the recipe, because the recipe records what the plan produced. The
+    # repo's ordering rule, write the recipe and then ask the freshness question, is unchanged and
+    # is what makes a settings change restage itself; planning first only supplies the recipe's
+    # content. Inputs are checked first of all, so a missing warp fails in a second rather than
+    # after a whole-grid plan.
     rasters = planet_seam.declared(body)
     look = palette.look_for(body.name)
     check_inputs(work, body, rasters)
     sidecars = sidecars_for(work, mosaic)
-    # ONE SPELLING FROM HERE DOWN. Everything beside the raster is derived from the resolved path,
+    # One spelling from here down: everything beside the raster is derived from the resolved path,
     # so addressing the raster itself by the caller's would leave one run holding two names for one
-    # file — which is what the progress document then reports and a reader compares against.
+    # file, which is what the progress document then reports and a reader compares against.
     mosaic = sidecars.mosaic
     blocks = plan_blocks(body, work)
     recipe = freshness.write_if_changed(sidecars.recipe,
@@ -772,7 +713,7 @@ def run(body: bodies.Body, work: Path, mosaic: Path, *, limit: int | None = None
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    # REQUIRED, WITH NO DEFAULT, exactly as the planet pass's is: a producer that assumes Earth
+    # Required with no default, exactly as the planet pass's is: a producer that assumes Earth
     # because nobody said otherwise does not fail, it spends a night rendering the wrong planet.
     parser.add_argument("--body", required=True, choices=sorted(bodies.BODIES),
                         help="which planet's grid, look and margin law to render")
@@ -784,8 +725,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mosaic", type=Path, default=None,
                         help="override the raster written, the seam `--out` gives the planet pass: "
                              "an A/B, or a first pass that must not overwrite a shipping planet. "
-                             "Everything the run writes follows the name and it declares no "
-                             "producer, so it cannot restage the raster it was told to keep off")
+                             "Everything the run writes follows the name, including its own recipe, "
+                             "so it cannot restage the raster it was told to keep off")
     # `default=None` and tested against None, never for truthiness: `--limit 0` has to mean render
     # nothing at all, and a falsy test would read it as no limit and start the whole planet.
     parser.add_argument("--limit", type=int, default=None,

@@ -1,40 +1,26 @@
 """Build one relief scene from code: a country's hero, or one block of a planet.
 
-THIS IS THE SHARED RIG AND NOT THE HERO RIG. Two callers stage a render
-directory and shell into this exact file: `render_prep.py` for a country in
-its own Albers projection, and the block prep for a z8 EPSG:3857 block,
-which writes its cuts under the same filenames purely to satisfy the
-table below. Nothing here is country-shaped.
+The shared rig, not the hero rig. Two callers stage a render directory and shell into this exact
+file: `render_prep.py` for a country in its own Albers projection, and the block prep for a z8
+EPSG:3857 block, which writes its cuts under the same filenames purely to satisfy the table below.
+Nothing here is country-shaped.
 
-Builds the whole scene from the constants below — plane + adaptive-subdivision
-displacement, a land ramp with lake/river switches over an optional sea ramp
-(plus a snow switch iff snowmask.png exists in the render dir, and a
-depth-keyed lake ramp iff lakedepth.tif does), sun plus a shadowless
+Builds the whole scene from the constants below: plane plus adaptive-subdivision displacement, a
+land ramp with lake/river switches over an optional sea ramp (plus a snow switch iff snowmask.png
+exists in the render dir, and a depth-keyed lake ramp iff lakedepth.tif does), sun plus a shadowless
 fill sun, ortho camera, locked render settings.
 
-It began as a reconstruction of a hand-built scene, verified against it by
-structural dump-diff and a pixel-diff of test renders. THAT BASELINE IS RETIRED
-and no longer shipped: the graph built here is conditional on what the render
-directory declared, so no single file can track it, and regenerating one from
-this module would only compare the code against itself. `scene_dump` still
-verifies a CHANGE, by diffing two dumps of scenes it built itself. The origin
-scene is recoverable from history:
-  git show 3e35eb6:blender/india_hero_handbuilt_phase0.blend > origin.blend
+The look arrives as `--body`, a slug and not a `Body`: Blender's interpreter cannot import this
+project's virtual environment, and `palette.look_for` keys on slugs for that reason.
 
-THE LOOK ARRIVES AS `--body`, WHICH IS A SLUG AND NOT A `Body`: Blender's
-interpreter cannot import this project's virtual environment, and
-`palette.look_for` keys on slugs for that reason.
+Runs inside Blender's Python, which has no GDAL: all geographic math (projection, frame width, plane
+aspect) happens in render_prep.py and arrives here as plain numbers in frame.json (plane height,
+ortho scale, displacement scale, render resolution; docs/framing-math.md). The heightfield's pixel
+size is cross-checked against frame.json so a stale or mismatched file fails loudly instead of
+framing the wrong scene.
 
-Runs inside Blender's Python, which has no GDAL: all geographic math
-(projection, frame width, plane aspect) happens in render_prep.py and
-arrives here as plain numbers in frame.json — plane height, ortho scale,
-displacement scale, render resolution (docs/framing-math.md). The
-heightfield's pixel size is cross-checked against frame.json so a stale or
-mismatched file fails loudly instead of framing the wrong scene.
-
-Color constants are stored in LINEAR floats exactly as Blender holds them
-(hex comments alongside are the sRGB values entered in the GUI, which
-converts on entry — bpy does not).
+Colour constants are stored in linear floats exactly as Blender holds them; the hex alongside is the
+sRGB the GUI takes, which it converts on entry and bpy does not.
 
 Usage:
   blender -b --python pipeline/render/scene_build.py -- \
@@ -62,15 +48,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from pipeline.look import palette
 from pipeline.render import render_seam
 
-#: How wide the displacement plane is in Blender units, which is the ruler every other number in
-#: this module is written on: `ortho_scale` is a fraction of it, `plane_height_units` is measured
-#: against it, and a tile's camera offset is a multiple of it.
-#:
-#: NOT A RIG CONSTANT AND DELIBERATELY OUTSIDE `Rig`. Every look value there decides what a pixel
-#: comes out as; this decides what a unit means, and moving it renders identically because the
-#: frame arithmetic that feeds it moves in the same step. It is a constant rather than four
-#: literals because the tiling law has to agree with the plane `build_plane` actually adds, and a
-#: disagreement photographs the wrong ground and stitches perfectly.
+#: How wide the displacement plane is in Blender units, the ruler every other number in this module
+#: is written on: `ortho_scale` is a fraction of it, `plane_height_units` is measured against it, a
+#: tile's camera offset is a multiple of it. A constant rather than four literals because the tiling
+#: law has to agree with the plane `build_plane` adds, and a disagreement photographs the wrong
+#: ground and stitches perfectly. Outside `Rig` deliberately, for the reason
+#: `test_no_rig_constant_is_left_at_module_level` gives.
 PLANE_WIDTH_UNITS = 2.0
 
 
@@ -80,21 +63,12 @@ def _rgba(stops):
 
 
 def arrival_azimuth_deg(rotation):
-    """Compass bearing a sun with this XYZ euler ARRIVES FROM, clockwise from north.
+    """Compass bearing a sun with this XYZ euler arrives from, clockwise from north.
 
-    THE ONLY THING ABOUT A SUN THAT IS VISIBLE IN THE OUTPUT, and for two years nothing derived it.
-    A Blender sun shines along its own local -Z, so an euler is a statement about where the light
-    GOES; the cartographic convention is about where it COMES FROM, and the two differ by 180
-    degrees before the euler's own sign conventions are applied at all. The guard that was supposed
-    to pin the light asserted `SUN_ROTATION[2] == -45.0`, which stays true with the light arriving
-    from any bearing whatever, and the rig shipped 90 degrees off the convention it was written to.
-
-    So this is the executable copy of the conversion, and the pinned number lives in the test that
-    calls it. Rotating the sun and its guard together is then the mutation that has to fail, which
-    is exactly what a coordinate assertion cannot catch.
-
-    Pure arithmetic on purpose: no `bpy`, so a test can call it without Blender, and it was checked
-    against Blender's own world matrix on the renders the 315 decision was taken from.
+    A Blender sun shines along its own local -Z, so an euler says where the light goes; the
+    cartographic convention says where it comes from, and the two differ by 180 degrees before the
+    euler's own sign conventions apply. The executable copy of that conversion, with the pinned
+    bearing in the test that calls it. Pure arithmetic, so a test reaches it without Blender.
     """
     rx, ry, rz = rotation
     # Travel direction is Rz @ Ry @ Rx applied to (0, 0, -1), giving a source direction whose
@@ -115,18 +89,12 @@ def arrival_azimuth_deg(rotation):
 
 
 def rotate_arrival(rotation, delta_deg):
-    """`rotation` turned so its light ARRIVES `delta_deg` further clockwise. Checks its own work.
+    """`rotation` turned so its light arrives `delta_deg` further clockwise. Checks its own work.
 
-    THE EULER TURNS THE OTHER WAY, and that was measured rather than reasoned: +90 on the Z euler
-    took the arrival bearing from 315 to 225. This is the sign convention `arrival_azimuth_deg` was
-    written about, and a frame lit from the wrong side of the meridian is a plausible frame.
-
-    THE RESIDUAL IS ITSELF AN ANGLE, so it wraps. Comparing it linearly refuses a correct
-    180-degree turn, where the move reads +180 and the ask normalises to -180: one rotation, 360
-    apart on a straight number line.
-
-    Pure arithmetic, so a test reaches it without Blender — and the check runs at delta 0 too,
-    which is every hero and every block, so the conversion cannot rot on the path nobody turns.
+    The euler turns the other way: +90 on Z takes the arrival bearing from 315 to 225, and a frame
+    lit from the wrong side of the meridian is a plausible frame. The residual is itself an angle,
+    so it wraps; compared linearly it would refuse a correct 180-degree turn. The check runs at
+    delta 0 as well, which is every hero and every block, so it cannot rot on the path nobody turns.
     """
     turned = (rotation[0], rotation[1], rotation[2] - math.radians(delta_deg))
     moved = (arrival_azimuth_deg(turned) - arrival_azimuth_deg(rotation) + 180.0) % 360.0 - 180.0
@@ -153,17 +121,13 @@ def tile_index(text: str) -> tuple[int, int]:
 def tile_camera_location(ortho_scale, plane_height_units, tile):
     """Where the ortho camera sits to photograph one tile of the plane, as (x, y) in plane units.
 
-    THE SPLIT IS DERIVED FROM `ortho_scale` AND NEVER PASSED IN. The camera fraction the prep chose
+    The split is derived from `ortho_scale` and never passed in: the camera fraction the prep chose
     is already in the frame, so a driver asking for tile 1,1 of a frame framed for the whole plane
-    is a contradiction visible here — where a split arriving as its own argument would simply agree
-    with whichever of the two was wrong.
-
-    MOVING THE OBJECT AND NOT `shift_x`, because shift is expressed in sensor widths and inherits
-    the sensor-fit rules, while a location is in the units the plane itself is measured in.
-
-    SQUARE PLANES ONLY, refused rather than generalised. The rows here step by `ortho_scale`, which
-    is the plane's own step only while its height equals its width; a block's plane is not square
-    and nothing tiles one, so a two-axis version would have no second instance to verify it.
+    is a contradiction visible here, where a split arriving as its own argument would agree with
+    whichever of the two was wrong. It moves the object rather than `shift_x`, which is expressed in
+    sensor widths and inherits the sensor-fit rules. Square planes only, refused rather than
+    generalised: the rows step by `ortho_scale`, the plane's own step only while height equals
+    width, and a block's plane is not square, so a two-axis version has nothing to verify it.
     """
     if abs(plane_height_units - PLANE_WIDTH_UNITS) > 1e-9:
         raise ValueError(f"tiling needs a square plane and this one is {PLANE_WIDTH_UNITS} x "
@@ -182,25 +146,17 @@ def tile_camera_location(ortho_scale, plane_height_units, tile):
     return ((col + 0.5) * ortho_scale - half, half - (row + 0.5) * ortho_scale)
 
 
-# ---- locked look
-# ---- angle, land ramp top). Colour + sun-altitude constants are DERIVED from
-# ---- pipeline/look/palette.py since the hero sea-sync: copies drifted three
-# ---- times (sea ramp, water tint, sun altitude) —
-# ---- imports cannot. WORLD_*/FILL_*/SUN_ANGLE/STRENGTH stay local: they have no
-# ---- tile counterpart or are deliberately not ports (ART.md hero→tile map). ----
 @dataclasses.dataclass(frozen=True)
 class Rig:
     """Every constant that reaches a rendered pixel and is this module's rather than a look's.
 
-    ONE STRUCTURE SO THE RECIPE CAN BE DERIVED RATHER THAN ENUMERATED. `rig_recipe` is
-    `dataclasses.asdict` of the instance below, which makes a forgotten constant *unrepresentable*
-    instead of merely caught. What it replaces was a hand-written list of keys policed by a scan for
-    module-level ALL-CAPS names, and that scan is blind by construction to a value written inline in
-    a function body: three such values shipped, reaching every pixel and no freshness record.
+    One structure, so `rig_recipe` can be `dataclasses.asdict` of the instance below and a forgotten
+    constant is unrepresentable rather than merely caught. The rule beside this file owns what that
+    derivation costs, field names being recipe keys.
 
-    FIELD NAMES ARE RECIPE KEYS, so renaming one restages every rendered block. That is the price of
-    the derivation and it is deliberate: the alternative is a name-to-key mapping, which is the
-    second copy this exists to delete.
+    No snow or ice albedo is a field here: those arrive per render directory through
+    `render_seam.paint_for`, and a default restores the fallback that rendered Earth's whites on
+    every body. `test_rig_whites_are_the_bodys` is the guard.
     """
 
     displacement_midlevel: float
@@ -209,51 +165,40 @@ class Rig:
     sun_strength: float
     fill_rotation: tuple[float, float, float]
     fill_angle: float
-    #: 15% of `sun_strength`; a shadowless SE fill so shadowed faces keep directional modeling and
-    #: never go pure black. The comment said SE while the light arrived from NE; putting the main
-    #: sun on 315 put this on 135 and made it true. `arrival_azimuth_deg` is what says so.
+    #: 15% of `sun_strength`; a shadowless SE fill so shadowed faces keep directional modelling and
+    #: never go pure black. `arrival_azimuth_deg` is what says which bearing it arrives from.
     fill_strength: float
-    #: ACHROMATIC ON PURPOSE, and it is the scene's only ambient light rather than a backdrop
-    #: swatch. Authored warm as `F2E7D5` it arrived with a linear B/R of 0.749, and a tint does not
-    #: tint a near-white surface, it REPLACES it: measured on the hero arms that cost snow 64% of
-    #: its blue, the sea 7%, and land nothing. Its grey is the luminance of that warm colour, so the
-    #: move was hue-only and not the twice-rejected ambient raise. Re-warming it to colour the
-    #: backdrop tints every white on the planet to do it.
+    #: Achromatic, and the scene's only ambient light rather than a backdrop swatch: a tint does not
+    #: tint a near-white surface, it replaces it, so re-warming this to colour the backdrop tints
+    #: every white on the planet to do it. Its grey is the luminance of the warm colour it replaced,
+    #: which made that move hue-only rather than the twice-rejected ambient raise.
     world_rgba: tuple[float, float, float, float]
     world_strength: float
     water_rgba: tuple[float, float, float, float]
-    #: NO SNOW OR ICE ALBEDO LIVES HERE. Both were module constants spelling Earth's whites, wired
-    #: into every body's render while the composite tier asked each body's registry — which on Earth
-    #: returns that same constant, so the two agreed by coincidence of value and nothing went red.
-    #: The colour arrives per render directory through `render_seam.paint_for`; re-adding a default
-    #: here restores the silent fallback that hid this.
-    #: Depth-position ramp; stop 0 IS the flat water tint.
+    #: Depth-position ramp; stop 0 is the flat water tint.
     lake_stops: list[tuple[float, tuple[float, float, float, float]]]
     ramp_interpolation: str
-    #: A Cycles SAMPLE COUNT, and the one number here measured in the same units as a block edge
+    #: A Cycles sample count, and the one number here measured in the same units as a block edge
     #: without being one. Never search-and-replace it.
     samples: int
     adaptive_threshold: float
     dicing_rate: float
-    #: Per PATCH, not per mesh — `base_patches` holds what that means.
+    #: Per patch, not per mesh; `base_patches` holds what that means.
     max_subdivisions: int
     #: How much coarser geometry outside the camera is diced. It exists for the block path, whose
     #: plane carries terrain far past the traced rectangle so that off-block ridges cast shadows in;
     #: at Earth's widest that plane is 7,808 px against a 4,352 px frame, so most of the mesh is
-    #: never seen. PINNED BECAUSE IT WAS AN UNRECORDED BLENDER DEFAULT, not because it is a quality
-    #: lever: 4, 16 and 64 sit within 0.06 DN mean of each other on the same block, against 37.58 DN
-    #: for the control that deletes the context outright. 16 over the default 4 for memory.
+    #: never seen. Pinned because it was an unrecorded Blender default rather than because it is a
+    #: quality lever: 4, 16 and 64 sit within 0.06 DN of each other, and 16 is the default 4 raised
+    #: for memory.
     offscreen_dicing_scale: float
     bounces: dict[str, int]
     clamp_indirect: float
-    #: Set on EVERY image the rig loads, so 0-255 maps linearly to 0-1 with no sRGB transform on
-    #: top — the thing a binary mask never notices and a soft alpha very much does. One of the
-    #: founding bpy lessons, and it was spelled inline in `load_image` where no recipe could see it.
+    #: Set on every image the rig loads, so 0-255 maps linearly to 0-1 with no sRGB transform on
+    #: top: the thing a binary mask never notices and a soft alpha very much does.
     image_colorspace: str
     #: The other end of the same axis: how linear light becomes an 8-bit value, and the last thing
-    #: to touch every pixel in the frame. It must be a VIEW name from Blender's OCIO config, not a
-    #: colorspace name. Spelled inline in `configure_render` until snow was measured clipping under
-    #: it, so no change of tone map could restage anything.
+    #: to touch every pixel in the frame. A view name from Blender's OCIO config, not a colorspace.
     view_transform: str
 
     subdivision_type: str
@@ -280,14 +225,13 @@ class Rig:
     engine: str
     image_file_format: str
     image_color_mode: str
-    #: What Cycles RENDERS on. `configure_render`'s `denoise_device` argument is a different
+    #: What Cycles renders on. `configure_render`'s `denoise_device` argument is a different
     #: question and stays a caller decision, for the reason its own docstring gives.
     device: str
-    #: The quasi-random sequence the path tracer walks. PINNED BECAUSE IT WAS AN UNRECORDED BLENDER
-    #: DEFAULT, and the value is continuity rather than a quality finding: 5.1.2 defaults to
-    #: TABULATED_SOBOL and 5.2.1 to AUTOMATIC, so the two versions built different scenes and every
-    #: pixel of the planet on disk was drawn with this one. Which pattern is BEST is a separate
-    #: question this does not answer.
+    #: The quasi-random sequence the path tracer walks, pinned for continuity rather than quality:
+    #: 5.1.2 defaults to TABULATED_SOBOL and 5.2.1 to AUTOMATIC, so the two versions build different
+    #: scenes and every pixel of the planet on disk was drawn with this one. Which is best is a
+    #: separate question this does not answer.
     sampling_pattern: str
     use_adaptive_sampling: bool
     use_denoising: bool
@@ -302,7 +246,11 @@ RIG = Rig(
     sun_rotation=(math.radians(90.0 - palette.SUN_ALT_DEG), 0.0, math.radians(-135.0)),
     sun_angle=math.radians(palette.SUN_ANGULAR_DIAMETER_DEG),
     sun_strength=3.0,
-    fill_rotation=(math.radians(30.0), 0.0, math.radians(45.0)),
+    # Derived from the authored angles rather than transcribed: both spellings gave the same two
+    # floats, so nothing here reads as a live dial that is not one. `arrival_azimuth_deg` inverts
+    # the Z law, a light arriving from a bearing pointing at `180 - bearing`.
+    fill_rotation=(math.radians(90.0 - palette.FILL_ALTITUDE), 0.0,
+                   math.radians(180.0 - palette.FILL_AZIMUTH)),
     fill_angle=math.radians(10.0),
     fill_strength=0.45,
     world_rgba=(0.808332, 0.808332, 0.808332, 1.0),   # the luminance F2E7D5 carried
@@ -311,7 +259,6 @@ RIG = Rig(
     water_rgba=(*palette.srgb8_to_linear(palette.WATER_RGB), 1.0),
     lake_stops=_rgba(palette.LAKE_STOPS),
     ramp_interpolation="EASE",
-    # A Cycles SAMPLE COUNT, not a pixel edge. Never search-and-replace it alongside resolutions.
     samples=4096,
     adaptive_threshold=0.01,
     dicing_rate=1.0,
@@ -355,17 +302,11 @@ RIG = Rig(
 class TextureSpec:
     """One image node's whole wiring, declared here rather than spelled at the call site.
 
-    EVERY VALUE ON A TEXTURE IS A LOOK DECISION EXCEPT ITS NAME. `interpolation` decides whether a
-    mask has a hard edge or a feathered one; `extension` decides whether a texture wraps at the
-    plane's UV boundary, which at the poles is whether one pole's row bleeds into the other's. Both
-    reach every pixel and neither moves an mtime, so both belong in the recipe.
-
-    The name is an IDENTITY and not a look value: renaming a node consistently renders
-    byte-identically. It is therefore the one field `rig_recipe` leaves out, which is why the
-    recipe keys this table by `filename` rather than by the name that opens it here.
-
-    `optional` is the raster's presence, never a look: an optional node is built iff its file was
-    declared, which is how a body that draws no sea ice simply has no ice node.
+    Every value on a texture is a look decision except its name: `interpolation` decides whether a
+    mask has a hard edge or a feathered one, and `extension` decides whether a texture wraps at the
+    plane's UV boundary, which at the poles is whether one pole's row bleeds into the other's. The
+    name is identity rather than look, and the one field `rig_recipe` leaves out. `optional` is the
+    raster's presence, never a look: an optional node is built iff its file was declared.
     """
 
     name: str
@@ -424,9 +365,9 @@ class LookConstants:
 def look_constants(look: palette.Look) -> LookConstants:
     """Derive the rig's ramp inputs from a look, restating none of them.
 
-    BOTH ENDS OF EACH RANGE COME OFF THE `Surface` rather than restating the 0.0, which was the
-    same Earth-is-the-datum assumption `origin_m` exists to remove. No assertion over Earth can
-    tell the read from the restatement, so `test_scene_build_sync` supplies a moved origin.
+    Both ends of each range come off the `Surface` rather than restating the 0.0, which is the
+    Earth-is-the-datum assumption `origin_m` exists to remove. No assertion over Earth can tell the
+    read from the restatement, so `test_scene_build_sync` supplies a moved origin.
     """
     sea = look.sea
     return LookConstants(
@@ -440,41 +381,19 @@ def look_constants(look: palette.Look) -> LookConstants:
 def rig_recipe(look: palette.Look) -> dict[str, Any]:
     """Every constant here that can move a rendered pixel, keyed by its own name.
 
-    DERIVED FROM THE STRUCTURE, NEVER ENUMERATED, and that replaced a hand-written list policed by a
-    scan of this module's capitals. A list kept beside the constants still goes quietly short — the
-    constant gets added, the list does not, and the output rendered with the old value reads as
-    current forever — and the scan could not see a value spelled inline in a function body at all.
-    So there is no list: `Rig` and `TEXTURES` are the enumeration, and the capitals scan now asks the
-    opposite question, that no constant survives OUTSIDE them.
-
-    WHAT IS STILL SPELLED INLINE IS THEREFORE INVISIBLE HERE. Those values are pinned rather than
-    derived, and `TestTheBuilderSpellsNoLookValueWhereTheRecipeCannotSeeIt` enumerates them and
-    holds both the reason and the cost of moving them in.
-
-    A HASH OF THIS FILE WOULD ALSO BE HONEST AND IS DELIBERATELY NOT WHAT THIS IS. It would restage
-    a planet render on a docstring edit, and the render is the most expensive output the project
-    has; the point of a recipe over a source stamp is that it moves when a VALUE moves.
-
-    The look arrives as an argument because it is not this module's to own — `look_constants` is
-    what turns it into the numbers the graph takes, and both ends of every ramp ride along.
+    Derived from the structure rather than enumerated, so `Rig` and `TEXTURES` are the enumeration
+    and what is still spelled inline is invisible here;
+    `TestTheBuilderSpellsNoLookValueWhereTheRecipeCannotSeeIt` holds those, with the cost of moving
+    them in. A hash of this file would also be honest and is deliberately not what this is: it would
+    restage a planet render on a docstring edit, where a recipe moves when a value moves. The look
+    arrives as an argument because it is not this module's to own.
     """
     constants = look_constants(look)
     return {
-        # DERIVED, NEVER ENUMERATED. A field added to `Rig` is in the recipe with nothing to
-        # remember, which is the whole reason the constants are a structure.
         "rig": dataclasses.asdict(RIG),
-        # DERIVED TOO, and the whole table rather than the four this look loads: the optional ones
-        # are declined by a body's planet seam rather than by its look, so recording only what is
-        # loaded would let a planet that GAINED sea ice restage nothing. An interpolation is as much
-        # a look decision as a colour is — an oceanmask read Linear instead of Closest feathers
-        # every coastline — and it is the half that used to be spelled inline where no recipe saw it.
-        #
-        # KEYED BY THE RASTER AND MINUS THE NODE'S NAME, which is the one field in the row that
-        # cannot move a pixel: renaming a node consistently renders byte-identically, so recorded,
-        # it put 11h41m of Cycles plus both cap discs behind a change that moves nothing. Excluded
-        # BY NAME rather than by listing what to keep, so a field added to `TextureSpec` later is
-        # recorded with nothing here to remember. `TestRenamingANodeDoesNotRestageThePlanet` holds
-        # both directions, its control being that `interpolation` in the same row still moves this.
+        # The whole table rather than the four this look loads, and keyed by the raster minus the
+        # node's name: the rule beside this file owns both, and
+        # `TestRenamingANodeDoesNotRestageThePlanet` is the guard.
         "textures": {spec.filename: {field: value
                                      for field, value in dataclasses.asdict(spec).items()
                                      if field != "name"}
@@ -493,21 +412,14 @@ def rig_recipe(look: palette.Look) -> dict[str, Any]:
 def textures_for(look: palette.Look, declared: frozenset[str]) -> dict[str, TextureSpec]:
     """The mandatory textures this render directory can actually supply, in table order.
 
-    THE OPTIONAL ONES ARE NOT HERE because they are built at their own sites, beside the mixes and
-    ramps they feed, which is what keeps each optional branch readable as one block.
+    The optional ones are built at their own sites, beside the mixes and ramps they feed, which is
+    what keeps each optional branch readable as one block.
 
-    A DECLARATION DECIDES THIS AND NEVER `Path.exists()`, which is the rule the optional four have
-    always followed and these four used to be exempt from. `prep_block.build` writes the lake and
-    river masks only when the planet seam declared a watermask, so the rig loading both for every
-    look made a body with no inland water unrenderable — refused before its first block rather than
-    drawn without them. What is loaded is now what some stage said it wrote.
-
-    A LOOK STILL ANSWERS FOR THE SEA AND THAT HAS NOT COLLAPSED INTO THE DECLARATION. `Look.sea`
-    decides whether the sea BRANCH exists in the graph; the declaration decides whether the IMAGE
-    can be loaded. The pair that must never resolve quietly is a look with a sea over a directory
-    with no oceanmask: dropping the image there wires the sea ramp to nothing and renders a planet
-    of land, which is indistinguishable from a correct render of a body that has no sea. So it
-    raises, on the same reasoning that keeps this off `Path.exists()` in the first place.
+    A declaration decides this and never `Path.exists()`: `prep_block.build` writes the lake and
+    river masks only when the planet seam declared a watermask, so what is loaded is what some stage
+    said it wrote. A look still answers for the sea: `Look.sea` decides whether the sea branch
+    exists in the graph, the declaration whether the image can be loaded, and the pair that must
+    never resolve quietly is the one the raise below describes.
     """
     if look.sea is not None and TEXTURES[SEA_IMAGE].filename not in declared:
         raise ValueError(
@@ -520,12 +432,8 @@ def textures_for(look: palette.Look, declared: frozenset[str]) -> dict[str, Text
 
 
 def make_texture(nt, render_dir, spec: TextureSpec):
-    """Build one image node entirely from its declaration.
-
-    THE ONLY PLACE AN IMAGE NODE IS CONFIGURED, so there is nowhere left to spell an interpolation
-    or an extension inline. That is what closes the hole the capitals scan could never see: three
-    nodes set those values as literals here for months, reaching every rendered pixel and no recipe.
-    """
+    """Build one image node entirely from its declaration, this being the only place one is
+    configured, so there is nowhere left to spell an interpolation or an extension inline."""
     node = nt.nodes.new("ShaderNodeTexImage")
     node.name = spec.name
     node.image = load_image(render_dir, spec.filename)
@@ -536,21 +444,19 @@ def make_texture(nt, render_dir, spec: TextureSpec):
 
 #: GPU backends best-first, from Blender's own `enum_device_type` minus `CPU`.
 #:
-#: THE ORDER IS A PREFERENCE, THE MEMBERSHIP IS NOT. Anything here that Blender reports as present
-#: is acceptable; what must never appear is `CPU` or `NONE`, because taking either is the silent
-#: fallback this whole mechanism exists to refuse. OPTIX leads because it uses the RT cores and is
-#: the only one measured on this box. HIP, ONEAPI and METAL are written from the same derivation and
-#: are exercised by no hardware here, which is worth knowing before trusting them.
+#: The order is a preference and the membership is not: anything here that Blender reports as
+#: present is acceptable, and what must never appear is `CPU` or `NONE`, because taking either is
+#: the silent fallback this whole mechanism exists to refuse. OPTIX leads because it uses the RT
+#: cores and is the only one measured on this box; HIP, ONEAPI and METAL are exercised by no
+#: hardware here, which is worth knowing before trusting them.
 GPU_BACKENDS = ("OPTIX", "HIP", "ONEAPI", "METAL", "CUDA")
 
 
 def choose_compute_backend(available):
     """The best GPU backend among those Blender reports, or raise rather than fall back.
 
-    A CPU RENDER IS A FAILURE AND NOT A DEGRADED MODE. Measured on 5.2.1, whose per-version
-    preferences directory did not exist: `compute_device_type` read NONE, the block rendered on the
-    CPU, and it took 384.7 s against 54.0 s for pixels that were correct. Nothing on disk differed,
-    so no gate could catch it and a full Earth pass would have taken about 82 hours.
+    A CPU render is a failure and not a degraded mode: it is correct, several times slower, and
+    identical on disk, so no gate can catch it.
     """
     for backend in GPU_BACKENDS:
         if backend in available:
@@ -563,10 +469,9 @@ def choose_compute_backend(available):
 def select_compute_device(preferences):
     """Set the compute backend from what this build reports, and enable its devices.
 
-    DERIVED PER RUN, NEVER READ FROM SAVED PREFERENCES. Those live in
-    `~/.config/blender/<version>/`, so they are outside this repo, unversioned, and absent on any
-    Blender the box has not run interactively -- which is every upgrade, every fresh checkout and
-    every other machine.
+    Derived per run, never read from saved preferences: those live in `~/.config/blender/<version>/`,
+    so they are outside this repo, unversioned, and absent on any Blender the box has not run
+    interactively, which is every upgrade, every fresh checkout and every other machine.
     """
     preferences.get_devices()
     backend = choose_compute_backend({device.type for device in preferences.devices})
@@ -594,13 +499,12 @@ def clear_scene():
 
 
 def plane_span_px(frame):
-    """How many RENDER pixels the displacement plane spans, which is what dicing counts.
+    """How many render pixels the displacement plane spans, which is what dicing counts.
 
-    NOT the heightfield's pixel width, which is the tempting number and is wrong on both paths for
+    Not the heightfield's pixel width, which is the tempting number and wrong on both paths for
     opposite reasons: a hero's 16384-wide grid is photographed at 7680, and a block's plane is
-    deliberately wider than the rectangle its camera sees. What both have in common is the frame's
-    own arithmetic — the plane is 2.0 Blender units across, the camera spans `ortho_scale` of them
-    along the longer axis, and the render puts its long resolution across that span.
+    deliberately wider than the rectangle its camera sees. Both come off the frame's own arithmetic
+    instead, the camera spanning `ortho_scale` of the plane along the longer axis.
     """
     pixels_per_unit = max(frame["res_x"], frame["res_y"]) / frame["ortho_scale"]
     return max(PLANE_WIDTH_UNITS, frame["plane_height_units"]) * pixels_per_unit
@@ -609,39 +513,29 @@ def plane_span_px(frame):
 def base_patches(span_px):
     """Quads per plane edge, so adaptive subdivision can reach one micropolygon per pixel.
 
-    `MAX_SUBDIVISIONS` CAPS EACH PATCH, NOT THE MESH, and that is the whole reason this exists. The
-    plane is added as a single quad, so the cap is 2**12 = 4096 micropolygons along its entire
-    edge however many pixels the render asks for. Past that, Cycles dices coarser than the pixels
-    and the displacement detail the raytrace exists for is quietly lost — no warning, no error, an
-    image that merely looks a little softer than it should.
+    `RIG.max_subdivisions` caps each patch and not the mesh, which is the whole reason this exists:
+    a plane added as a single quad caps at 2**12 micropolygons along its entire edge however many
+    pixels the render asks for, and past that Cycles dices coarser than the pixels with no warning
+    and no error, an image that merely looks a little softer than it should.
 
-    Measured at 256 px, where 256 micropolygons per edge are needed: a bare quad at maxsub 5
-    (cap 32) differs from a maxsub 9 reference by 26.10 DN mean and 154 max, while an 8x8 grid at
-    maxsub 5 is bit-identical to that reference, 0.0000 DN. It is also bit-identical when the cap
-    is not binding, so a patch count larger than necessary costs nothing.
+    A grid rather than a larger cap, because a constant has to be re-derived every time the block
+    edge or the context moves and this does not; `test_scene_build_sync` holds one micropolygon per
+    pixel across every planned block on every registered body.
 
-    A GRID RATHER THAN A LARGER `MAX_SUBDIVISIONS` because a constant has to be re-derived every
-    time the block edge or the context moves, and this does not: it is computed from the frame that
-    is actually being rendered. `test_scene_build_sync` asserts every planned block on every
-    registered body clears one micropolygon per pixel through it.
-
-    IT IS REACHED ONLY THROUGH `--base-grid fitted`, AND THE REASON IS A HARD VRAM CEILING RATHER
-    THAN A COST. The grid multiplies micropolygons by 4x on both callers alike; what differs is the
-    total, because `OFFSCREEN_DICING_SCALE` coarsens the ~69% of a block's plane its camera never
-    sees while a hero's plane is entirely in frame. Measured on this box's 12 GB card: a block lands
-    near 21M and is comfortable; Nepal at 41.8M renders but takes 177% longer; Australia at 67M
-    fails outright with `Failed to build OptiX acceleration structure`, having also wanted 17.0 GB
-    of host against the heavy-job cap. So the hero lane keeps the single quad -- knowingly under-diced,
-    and the alternative is not a slower hero but no hero at all. Which frame sizes sit on which side
-    of that wall is unmeasured; Nepal at 36.8 Mpx clears it and Australia at 58.8 does not.
+    Reached only through `--base-grid fitted`, and the reason is a hard VRAM ceiling rather than a
+    cost: the grid multiplies micropolygons by 4x on both callers alike, but a hero's plane is
+    entirely in frame where `RIG.offscreen_dicing_scale` coarsens the ~69% of a block's plane its
+    camera never sees. On this box's 12 GB card the largest heroes fail outright to build an OptiX
+    acceleration structure, so the hero lane keeps the single quad, knowingly under-diced, the
+    alternative being no hero at all. Which frame sizes sit on which side of that wall is unmeasured.
     """
     return max(1, math.ceil(span_px / 2 ** RIG.max_subdivisions))
 
 
 def build_plane(height, patches_per_edge):
-    # NO DEFAULT, for the reason no field on `Body` has one. A defaulted 1 is exactly the value
-    # that under-dices in silence, so a caller that dropped the argument would render a softer
-    # planet and raise nothing; without one it is a TypeError before Cycles starts.
+    # No default, for the reason no field on `Body` has one: a defaulted 1 is exactly the value that
+    # under-dices in silence, so a caller that dropped the argument would render a softer planet and
+    # raise nothing, where without one it is a TypeError before Cycles starts.
     bpy.ops.mesh.primitive_plane_add(size=PLANE_WIDTH_UNITS)
     ob = bpy.context.active_object
     ob.name = "Plane"
@@ -675,9 +569,9 @@ def build_camera(ortho_scale, offset=(0.0, 0.0)):
 def declared_albedo(render_dir: Path, image: str) -> tuple[float, float, float, float]:
     """The linear RGBA this render directory says `image`'s mask is painted in.
 
-    Only the sunlit half is wired: Cycles is meant to produce the shaded end from light, where the
-    composite keys it to the producer's second colour. That substitution is what stopped a body's
-    authored shadow hue reaching a raytraced pixel, and the seam keeps the other half recoverable.
+    Only the sunlit half is wired: Cycles produces the shaded end from light rather than keying it
+    to the producer's second colour. That is why a body's authored shadow hue reaches no raytraced
+    pixel, and the seam keeps the other half recoverable.
     """
     sunlit, _shadowed = render_seam.paint_for(render_dir, image)
     return (*palette.srgb8_to_linear(sunlit), 1.0)
@@ -695,9 +589,9 @@ def build_sun(azimuth_delta_deg=0.0):
 
 
 def build_fill(azimuth_delta_deg=0.0):
-    """THE FILL TURNS WITH THE KEY, never on its own. `cap_render.azimuth_delta` is added to both
-    of the composite's azimuths, so a rig that moved only the key would be a different intervention
-    from the one the raytraced arm has to reproduce."""
+    """The fill turns with the key, never on its own. `cap_render.azimuth_delta` applies to both
+    azimuths, so a rig that moved only the key would be a different intervention from the one the
+    cap's law describes."""
     sun = bpy.data.lights.new("Fill", "SUN")
     sun.energy = RIG.fill_strength
     sun.angle = RIG.fill_angle
@@ -825,10 +719,8 @@ def build_material(ob, render_dir, displacement_scale, look, present):
     # a hero has no `rowscale.tif` to link from.
     disp.inputs["Scale"].default_value = displacement_scale
 
-    # NAMED FOR WHAT THEY ARE, and the sea nodes stay interleaved with the land ones rather than
-    # grouped. Both used to be frozen against a hand-built .blend compared by dump-diff; that
-    # baseline is retired, so a node's name now answers to the reader and to the arm probes that
-    # reach into the built graph, which is the only thing that ever addressed one by name.
+    # Named for what they are, and the sea nodes stay interleaved with the land ones rather than
+    # grouped: a node's name answers to the reader and to the arm probes that address one by name.
     land_range = make_map_range(nt, "Land Range", "Land",
                                 constants.land_range, (0.0, 1.0))
     sea_range = (None if constants.sea_range is None else
@@ -841,14 +733,12 @@ def build_material(ob, render_dir, displacement_scale, look, present):
     rgb.name = "Water Color"
     rgb.outputs[0].default_value = RIG.water_rgba
 
-    # EACH MIX EXISTS ONLY WHERE ITS MASK DOES, which is the same rule the optional nodes below
-    # follow.
+    # Each mix exists only where its mask does, the same rule the optional nodes below follow.
     lake = make_mix(nt, "Lake Mix", "Lake") if lake_spec.filename in present else None
     river = make_mix(nt, "River Mix", "River") if river_spec.filename in present else None
     ocean = None if sea_ramp is None else make_mix(nt, "Ocean Mix", "Ocean")
 
-    # optional data-driven snow/ice (render/snow_mask.py); layer not declared
-    # -> graph identical to the pre-snow scene
+    # optional data-driven snow/ice (render/snow_mask.py); layer not declared -> no snow node
     snow = None
     if render_seam.SNOWMASK in present:
         tex[snow_spec.name] = make_texture(nt, render_dir, snow_spec)
@@ -856,25 +746,22 @@ def build_material(ob, render_dir, displacement_scale, look, present):
         mix_socket(snow, "B").default_value = declared_albedo(render_dir, render_seam.SNOWMASK)
         print(f"{render_seam.SNOWMASK} declared — wiring Snow mix", flush=True)
 
-    # optional depth-keyed lake tint (render/lake_mask.py); raster absent ->
-    # the Lake mix keeps the flat RGB node, the pre-lake-depth graph exactly.
-    # The raster stores the log1p ramp POSITION (0..1), not metres, and
-    # LAKE_STOPS[0] IS the flat water tint, so a lake without depth data
-    # degrades to today's colour with no selector logic. Rivers stay flat by
-    # decision (no global bed data) — the River mix keeps the RGB node. Depth
-    # is tint-only and must NEVER reach displacement (at 15x exaggeration a
-    # carved bed makes Namtso a 1.5 km crater).
+    # optional depth-keyed lake tint (render/lake_mask.py); raster absent -> the Lake mix keeps the
+    # flat RGB node, which is stop 0 of this ramp, so a lake without depth data degrades to that
+    # colour with no selector logic. The raster stores the log1p ramp position (0..1), not metres.
+    # Rivers stay flat by decision, there being no global bed data. Depth is tint-only and must
+    # never reach displacement: at 15x a carved bed makes a crater of the lake.
     lake_ramp = None
     if render_seam.LAKEDEPTH in present:
         tex[lake_depth_spec.name] = make_texture(nt, render_dir, lake_depth_spec)
         lake_ramp = make_ramp(nt, "Lake Ramp", "Lake Bed", RIG.lake_stops)
         print(f"{render_seam.LAKEDEPTH} declared — wiring depth-keyed Lake ramp", flush=True)
 
-    # optional sea ice (block prep only today): ONE continuous ocean-gated alpha drives BOTH
-    # arms — an ice-white mix over the finished sea colour, and the displacement pulled toward
-    # sea level, which is what a floating sheet is. The ramps keep reading the RAW heightfield
-    # on purpose: damping the branch that feeds them would read 0 m under pack and collapse
-    # abyssal colour to shelf colour, deleting the see-through the alpha's ceiling exists for.
+    # optional sea ice (block prep only today): one continuous ocean-gated alpha drives both arms,
+    # an ice-white mix over the finished sea colour and the displacement pulled toward sea level,
+    # which is what a floating sheet is. The ramps keep reading the raw heightfield on purpose:
+    # damping the branch that feeds them would read 0 m under pack and collapse abyssal colour to
+    # shelf colour, deleting the see-through the alpha's ceiling exists for.
     ice = None
     ice_flatten = None
     if render_seam.SEAICE in present:
@@ -885,9 +772,9 @@ def build_material(ob, render_dir, displacement_scale, look, present):
         float_socket(ice_flatten, "B").default_value = RIG.ice_flatten_floor  # sea level
         print(f"{render_seam.SEAICE} declared — wiring Ice mix + displacement damp", flush=True)
 
-    # THE DRIVEN SOCKET IS SCALE AND NOT HEIGHT, for two reasons that outlast today's constants.
+    # The driven socket is Scale and not Height, for two reasons that outlast today's constants.
     # `disp = (Height - Midlevel) * Scale`, so multiplying Scale is right at any midlevel where
-    # multiplying Height is right only while `DISPLACEMENT_MIDLEVEL` is 0.0; and it leaves the
+    # multiplying Height is right only while `RIG.displacement_midlevel` is 0.0; and it leaves the
     # Height chain alone, so the sea-ice damp above and the ramps' raw metres both need no thought.
     rowscale = None
     if render_seam.ROWSCALE in present:
@@ -927,7 +814,7 @@ def build_material(ob, render_dir, displacement_scale, look, present):
         link(land_color, mix_socket(snow, "A"))
         link(tex[snow_spec.name].outputs["Color"], snow.inputs[0])
         land_color = mix_socket(snow, "Result")
-    # THE CHAIN IS THREADED RATHER THAN FIXED, so a body with no inland water hands the land colour
+    # The chain is threaded rather than fixed, so a body with no inland water hands the land colour
     # straight to the sea branch instead of through two mixes it has no masks to drive.
     surface_color = land_color
     if lake is not None:
@@ -962,21 +849,18 @@ def build_material(ob, render_dir, displacement_scale, look, present):
 def configure_render(res_x, res_y, *, denoise_device):
     """Cycles settings for one frame. `denoise_device` is the caller's, and deliberately so.
 
-    OIDN ON THE GPU IS ROUGHLY EIGHT TIMES FASTER AND THE HEROES STILL MUST NOT USE IT. Render and
-    denoise then contend for the same 12 GB and the driver throws an Xid 31 MMU fault, which is what
-    CLAUDE.md's rule is about; measured, a block frame denoises in 0.85 s on the GPU against 5.93 s
-    on the CPU, and a hero is several times a block.
+    Denoising on the GPU is much faster and the heroes still must not use it: render and denoise
+    then contend for the same card and the driver throws the Xid 31 fault CLAUDE.md's rule is about.
 
-    IT CANNOT BE DERIVED FROM `res_x`/`res_y`, which is the obvious idea and does not survive the
-    numbers: the two populations OVERLAP. Maldives is 13.8 Mpx and Chile 18.1 against a 4096 block's
-    18.9, so no threshold separates "block" from "hero" -- one placed above the block flips two
-    heroes into an untested regime, one placed below it puts the blocks back on the CPU. A threshold
-    would also encode THIS machine's 12 GB as though it were a fact about the project, and a rule
-    that reads the device at render time makes the output depend on the host with nothing on disk
-    saying which way it went. A recipe can record a value; it cannot record a rule.
+    It cannot be derived from `res_x`/`res_y`, the obvious idea: the two populations overlap, with
+    the largest heroes below a 4096 block's 18.9 Mpx, so any threshold either flips a hero into an
+    untested regime or puts the blocks back on the CPU. It would also encode this machine's card as
+    though it were a fact about the project, and reading the device at render time makes the output
+    depend on the host with nothing on disk saying which way it went: a recipe records a value, not
+    a rule.
 
-    So the caller decides and records what it decided. The default is the conservative one, because
-    the default is what a future caller at an unknown frame size inherits.
+    So the caller decides and records what it decided, the default being the conservative one a
+    future caller at an unknown frame size inherits.
     """
     if denoise_device not in ("cpu", "gpu"):
         raise ValueError(f"denoise_device must be 'cpu' or 'gpu', not {denoise_device!r}")
@@ -1007,13 +891,12 @@ def configure_render(res_x, res_y, *, denoise_device):
 
 
 def build_parser():
-    """The CLI, separated from `main` so its DEFAULTS can be asserted without Blender.
+    """The CLI, separated from `main` so its defaults can be asserted without Blender.
 
-    FOUR OF THESE DEFAULTS ARE LOAD-BEARING AND THEY FAIL THE SAME WAY: `--denoise-device`,
+    Four of these defaults are load-bearing and fail the same way: `--denoise-device`,
     `--base-grid`, `--sun-azimuth-delta` and `--tile` each describe a regime one caller opts into
-    and the other must not. Together they are the whole mechanism protecting 203 pinned hero
-    renders from settings measured on blocks and caps, and a default nothing can reach is a default
-    nothing can pin.
+    and the other must not, which is what keeps the pinned hero renders clear of settings measured
+    on blocks and caps.
     """
     ap = argparse.ArgumentParser()
     ap.add_argument("--body", required=True, choices=sorted(palette.LOOK_BY_BODY),
@@ -1035,9 +918,8 @@ def build_parser():
     ap.add_argument("--sun-azimuth-delta", type=float, default=0.0, metavar="DEG",
                     help="turn the WHOLE lighting rig this many degrees clockwise in arrival "
                          "bearing. Defaults to 0, which is the rig every hero and every block "
-                         "renders under; the cap's raytraced arm renders a ring of these because "
-                         "Cycles takes one sun direction per frame where the composite turns its "
-                         "light per pixel")
+                         "renders under; the cap renders a ring of these because Cycles takes one "
+                         "sun direction per frame where the cap's light turns per pixel")
     ap.add_argument("--tile", type=tile_index, default=None, metavar="ROW,COL",
                     help="photograph one tile of the plane instead of the whole frame, by moving "
                          "the ortho camera. The grid is derived from the frame's own camera "
@@ -1079,9 +961,9 @@ def main():
     clear_scene()
     backend = select_compute_device(bpy.context.preferences.addons["cycles"].preferences)
     configure_render(frame["res_x"], frame["res_y"], denoise_device=args.denoise_device)
-    # ECHOED SO A CALLER CAN ASSERT IT. A flag that failed to arrive would otherwise render on the
+    # Echoed so a caller can assert it: a flag that failed to arrive would otherwise render on the
     # CPU while the caller's recipe records "gpu", which is the producer-declares rule inverted into
-    # a lie: the block would be correct, slow, and permanently mislabelled.
+    # a lie, the block correct, slow, and permanently mislabelled.
     print(f"DENOISE_DEVICE {args.denoise_device}", flush=True)
     build_world()
     offset = ((0.0, 0.0) if args.tile is None
@@ -1090,12 +972,11 @@ def main():
     build_camera(frame["ortho_scale"], offset)
     sun = build_sun(args.sun_azimuth_delta)
     fill = build_fill(args.sun_azimuth_delta)
-    # ECHOED SO A CALLER CAN ASSERT THEM, for `--denoise-device`'s reason and harder. A dropped
-    # `--sun-azimuth-delta` renders a frame lit from the base bearing, a dropped `--tile`
-    # photographs the whole plane at a quadrant's resolution: both succeed, both look like a
-    # rendered cap, and neither leaves anything on disk that differs from the frame that was asked
-    # for. The BEARINGS are read back off the built objects rather than recomputed, so what is
-    # reported is what Blender stored.
+    # Echoed so a caller can assert them, for `--denoise-device`'s reason and harder: a dropped
+    # `--sun-azimuth-delta` renders a frame lit from the base bearing and a dropped `--tile`
+    # photographs the whole plane at a quadrant's resolution, both succeeding, both looking like a
+    # rendered cap, neither leaving anything on disk that differs from the frame that was asked for.
+    # The bearings are read back off the built objects rather than recomputed.
     print(f"SUN_AZIMUTH_DELTA {args.sun_azimuth_delta:.4f} main arrives from "
           f"{arrival_azimuth_deg(tuple(sun.rotation_euler)):.2f} "
           f"fill from {arrival_azimuth_deg(tuple(fill.rotation_euler)):.2f}", flush=True)
@@ -1115,10 +996,10 @@ def main():
                    render_seam.declared(render_dir))
 
     print(f"body {args.body}, {'sea' if look.sea is not None else 'no sea'}; ", flush=True)
-    # ECHOED SO A CALLER CAN ASSERT IT, for `--denoise-device`'s reason: a base grid that failed to
+    # Echoed so a caller can assert it, for `--denoise-device`'s reason: a base grid that failed to
     # be cut renders successfully, a little soft, and leaves nothing on disk that differs. The
-    # POLICY rides with the count because they fail independently -- `fitted` on a plane under the
-    # cap yields 1, which is indistinguishable from the flag never arriving.
+    # policy rides with the count because they fail independently: `fitted` on a plane under the cap
+    # yields 1, indistinguishable from the flag never arriving.
     print(f"BASE_GRID {args.base_grid} BASE_PATCHES {patches} SPAN_PX {span_px:.0f}", flush=True)
     print(f"plane 2.0 x {frame['plane_height_units']:.6f}; "
           f"ortho {frame['ortho_scale']:.6f}; "

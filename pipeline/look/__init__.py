@@ -1,7 +1,7 @@
 """What a body's surface is painted with, and the law that lights it.
 
-BOTH RIGS READ THIS PACKAGE AND NEITHER OWNS IT, which is why it is a package rather than a folder
-inside one of them. The tile composite imports nearly all of it; the hero's Blender scene imports the
+Both rigs read this package and neither owns it, which is why it is a package rather than a folder
+inside one of them. The tile lane imports nearly all of it; the hero's Blender scene imports the
 palette. Nothing here may import from `pipeline/render/`: the dependency runs one way, upward, and a
 cycle is the signal that a module has been placed on the wrong side of the seam.
 
