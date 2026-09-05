@@ -64,9 +64,10 @@ function testFilesOnDisk(): string[] {
     for (const entry of entries) {
       const relative = `${root}/${String(entry)}`;
       if (!relative.endsWith(".test.ts")) continue;
-      // A name ending `.test.ts` is not necessarily a FILE. When a browser test fails, vitest
-      // writes `__screenshots__/<spec>.browser.test.ts/` — a directory named exactly like the spec
-      // — and counting it here reported two uncollected tests that do not exist.
+      // A name ending `.test.ts` is not necessarily a FILE: a failing browser test makes vitest
+      // write a directory named exactly like the spec, and counting one here reports an
+      // uncollected test that does not exist. Those land under `web/.vitest/`, outside both
+      // roots, so this looks dead. It is the cheap guard against them landing back inside one.
       if (!statSync(`${WEB_ROOT}${relative}`).isFile()) continue;
       // Defensive: neither root should contain these, but a stray build output here would look
       // like an uncollected test rather than the packaging mistake it is.
