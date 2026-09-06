@@ -2844,31 +2844,10 @@ SABOTAGES: list[Sabotage] = [
         replacement='    return ice_max_alpha * fraction',
         guard='test_the_curve_is_a_smoothstep_and_not_a_linear_ramp',
     ),
-    # The two below are the same defect class one tier up: a curve nobody wrote a bespoke guard for.
-    # `curve_fingerprint` samples every pure transform in `pipeline/look/` over a fixed domain, so
-    # the coverage is the registry rather than whichever curve someone thought to pin by hand.
-    # The ramp easing reaches every stop on both bodies, land, sea and lake alike, and no constant
-    # moves with it.
-    Sabotage(
-        suite='python',
-        label='the ramp easing straightens, so every interpolated stop shifts',
-        path='pipeline/look/palette.py',
-        needle='    return t * t * (3.0 - 2.0 * t)',
-        replacement='    return t',
-        guard='test_the_committed_curves_still_equal_what_this_code_computes',
-    ),
-    # The lake depth axis, which `lake_position`'s own docstring calls the honesty/legibility dial.
-    # `LAKE_CURVE` and `LAKE_MAX_M` are both recorded; which curve consumes them is not.
-    Sabotage(
-        suite='python',
-        label='the lake depth axis becomes a square root while its recorded curve still says log1p',
-        path='pipeline/look/lake_depth.py',
-        needle='        return (np.log1p(np.clip(depth, 0.0, palette.LAKE_MAX_M))\n'
-               '                / math.log1p(palette.LAKE_MAX_M))',
-        replacement='        return np.sqrt(np.clip(depth, 0.0, palette.LAKE_MAX_M)'
-                    ' / palette.LAKE_MAX_M)',
-        guard='test_the_committed_curves_still_equal_what_this_code_computes',
-    ),
+    # Two more curves are unguarded and stay that way for now: `palette.smoothstep`, which eases
+    # every stop on both bodies, and `lake_depth.lake_position`'s log1p axis. A sampling instrument
+    # covering both was built and deleted the same day, so the honest state is that a bespoke guard
+    # per curve is the only mechanism here, and these two do not have one.
     # The ocean gate itself. Dropping it leaks alpha onto shoreline land, and the same alpha damps
     # displacement in the rig — coastal collapse at full exaggeration, while every open-ocean pixel
     # still renders correctly.

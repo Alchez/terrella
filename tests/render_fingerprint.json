@@ -1,0 +1,2088 @@
+{
+  "acquire/download_nomenclature": {
+    "archive": "MARS_nomenclature_geometries.zip",
+    "dbf_encoding": "UTF-8, declared by a .cpg this pipeline writes; the archive ships none",
+    "host": "https://asc-planetarynames-data.s3.us-west-2.amazonaws.com",
+    "layers": {
+      "line": {
+        "centres_east_of_180": 118,
+        "features": 203,
+        "longitude_bounds": [
+          -138.222,
+          358.9187
+        ]
+      },
+      "poly": {
+        "centres_east_of_180": 1047,
+        "features": 1717,
+        "longitude_bounds": [
+          -180.0,
+          360.3366
+        ]
+      }
+    },
+    "member_sha256": {
+      "MARS_nomenclature_line.dbf": "10b931cfc5903a9c347d6f18755dfe8a7c0218cf52991acd1ab46a6e6990d13d",
+      "MARS_nomenclature_line.prj": "50ddbbfcb902fe00f6cfe5be39c1f1e64d53ddb1102bfde75d587fc3c2ff91b3",
+      "MARS_nomenclature_line.shp": "0c28f2e1403e0e5a0de3b4adb453fd2aa0913d7e990cd03990a9e4ddee5fa97c",
+      "MARS_nomenclature_line.shx": "2da80097c91854fe2da4a5541bca2c58e324b17be99400d870d267e862a7ddf2",
+      "MARS_nomenclature_poly.dbf": "b3c2f701ef484cf7fd79e7cd59a5669e9265e6ff64a6fedd2601c7ed8706293b",
+      "MARS_nomenclature_poly.prj": "50ddbbfcb902fe00f6cfe5be39c1f1e64d53ddb1102bfde75d587fc3c2ff91b3",
+      "MARS_nomenclature_poly.shp": "551ab23cffae4891ac23d76645323c0f99a856a5358ae8056dbcecae70f86907",
+      "MARS_nomenclature_poly.shx": "77e5b6d27433d1c3eaeb4d3502422419c0cb257d9d7e164d245286f6699999a1",
+      "metadata_nomenclature_polygons_MARS.xml": "5e0c303fa94618f127e13ef02b3ca1b2da83f0fff8a436c0bbdf54b2c5cb6f1e"
+    },
+    "url": "https://asc-planetarynames-data.s3.us-west-2.amazonaws.com/MARS_nomenclature_geometries.zip",
+    "use_constraints": "Public domain."
+  },
+  "acquire/download_sim3292": {
+    "collection": "mars/sim3292_global_geologic_map/units",
+    "host": "https://astrogeology.usgs.gov/pygeoapi",
+    "query_limit": 200,
+    "units": {
+      "Apu": {
+        "features": 5,
+        "geometry_sha256": "b1eb2a86a12b5cdf704fd0bc0a28b1be69157d13c4b7126c91a9c52f02887bd2",
+        "spharea_km2": 2005394.2
+      },
+      "lApc": {
+        "features": 2,
+        "geometry_sha256": "12c66f17fa53722d02f0b23e94f8e8f857ab6f418bd80f0ae5deb118795b55ad",
+        "spharea_km2": 700535.0
+      }
+    }
+  },
+  "compose/features_geojson": {
+    "carried_fields": [
+      "name",
+      "clean_name",
+      "type",
+      "origin",
+      "diameter"
+    ],
+    "coordinate_precision": 4,
+    "features": {
+      "line": 203,
+      "poly": 1717
+    },
+    "fold": "-wrapdateline",
+    "simplified": false,
+    "source": {
+      "line": "MARS_nomenclature_line.shp",
+      "poly": "MARS_nomenclature_poly.shp"
+    },
+    "srs": "declared EPSG:4326, not transformed from ESRI:104905"
+  },
+  "compose/vector_cut:countries": {
+    "buffer": 0,
+    "extent": 4096,
+    "layers": [
+      "country_fill",
+      "country_outline",
+      "country_hit"
+    ],
+    "max_zoom": 8,
+    "min_zoom": 0,
+    "seam_band_degrees": 1.0,
+    "seam_twin_latitude_epsilon": 0.05,
+    "simplification": 2.0,
+    "simplification_max_zoom": 0.5,
+    "source": "countries.geojson"
+  },
+  "compose/vector_cut:features": {
+    "buffer": 0,
+    "extent": 4096,
+    "layers": [
+      "feature_fill",
+      "feature_outline",
+      "feature_line",
+      "feature_label"
+    ],
+    "max_zoom": 7,
+    "min_zoom": 0,
+    "seam_band_degrees": 1.0,
+    "seam_twin_latitude_epsilon": 0.05,
+    "simplification": 2.0,
+    "simplification_max_zoom": 0.5
+  },
+  "look/viking_luma": {
+    "grid": {
+      "bounds": [
+        -180.0,
+        -90.0,
+        180.0,
+        90.0
+      ],
+      "crs": "EPSG:4326",
+      "height": 11530,
+      "width": 23059
+    },
+    "luma_weights": [
+      0.2126,
+      0.7152,
+      0.0722
+    ],
+    "nodata": 0.0,
+    "source": "Mars_Viking_ClrMosaic_global_925m.tif",
+    "source_md5": "a0e0bbf33ecb0ff65ece9cfa8e08813e",
+    "valid_fraction": 1.0
+  },
+  "tile/block_render:earth": {
+    "base_grid": "fitted",
+    "block_px": 4096,
+    "contexts": {},
+    "denoise_band_px": 128,
+    "denoise_device": "gpu",
+    "exaggeration": 15.0,
+    "grid_px": 131072,
+    "ground_scale": 1.0,
+    "ice_band": 0.4,
+    "ice_lo": 0.55,
+    "ice_max_alpha": 0.85,
+    "ice_rgb": [
+      212,
+      228,
+      240
+    ],
+    "ice_shadow_rgb": [
+      156,
+      184,
+      210
+    ],
+    "layers_off": [],
+    "map_units_per_pixel": 305.7483,
+    "mask_full_scale": 65535.0,
+    "producer": "raytrace",
+    "rasters_off": [
+      "heightfield",
+      "oceanmask",
+      "watermask"
+    ],
+    "rig": {
+      "look": {
+        "land_range": [
+          0.0,
+          6000.0
+        ],
+        "land_stops": [
+          [
+            0.0,
+            [
+              0.814847,
+              0.693872,
+              0.527115,
+              1.0
+            ]
+          ],
+          [
+            0.083,
+            [
+              0.679543,
+              0.412543,
+              0.270498,
+              1.0
+            ]
+          ],
+          [
+            0.25,
+            [
+              0.617207,
+              0.313989,
+              0.215861,
+              1.0
+            ]
+          ],
+          [
+            0.5,
+            [
+              0.584079,
+              0.417885,
+              0.309469,
+              1.0
+            ]
+          ],
+          [
+            0.75,
+            [
+              0.715694,
+              0.584078,
+              0.445201,
+              1.0
+            ]
+          ],
+          [
+            1.0,
+            [
+              0.814847,
+              0.715694,
+              0.57758,
+              1.0
+            ]
+          ]
+        ],
+        "sea_range": [
+          -6000.0,
+          0.0
+        ],
+        "sea_stops": [
+          [
+            0.0,
+            [
+              0.233475,
+              0.485456,
+              0.474589,
+              1.0
+            ]
+          ],
+          [
+            0.0333,
+            [
+              0.171323,
+              0.407422,
+              0.407422,
+              1.0
+            ]
+          ],
+          [
+            0.1333,
+            [
+              0.138432,
+              0.381326,
+              0.412543,
+              1.0
+            ]
+          ],
+          [
+            0.3333,
+            [
+              0.093059,
+              0.291771,
+              0.341914,
+              1.0
+            ]
+          ],
+          [
+            0.6333,
+            [
+              0.06301,
+              0.215861,
+              0.274677,
+              1.0
+            ]
+          ],
+          [
+            1.0,
+            [
+              0.042311,
+              0.155926,
+              0.205079,
+              1.0
+            ]
+          ]
+        ]
+      },
+      "rig": {
+        "adaptive_threshold": 0.01,
+        "bounces": {
+          "diffuse_bounces": 4,
+          "glossy_bounces": 4,
+          "max_bounces": 12,
+          "transmission_bounces": 12,
+          "volume_bounces": 0
+        },
+        "bsdf_roughness": 1.0,
+        "camera_clip_end": 100.0,
+        "camera_type": "ORTHO",
+        "clamp_indirect": 10.0,
+        "denoiser": "OPENIMAGEDENOISE",
+        "denoising_input_passes": "RGB_ALBEDO_NORMAL",
+        "denoising_prefilter": "ACCURATE",
+        "denoising_quality": "HIGH",
+        "device": "GPU",
+        "dicing_rate": 1.0,
+        "displacement_method": "DISPLACEMENT",
+        "displacement_midlevel": 0.0,
+        "displacement_space": "OBJECT",
+        "engine": "CYCLES",
+        "fill_angle": 0.17453292519943295,
+        "fill_casts_shadow": false,
+        "fill_rotation": [
+          0.5235987755982988,
+          0.0,
+          0.7853981633974483
+        ],
+        "fill_strength": 0.45,
+        "ice_flatten_floor": 0.0,
+        "image_color_mode": "RGBA",
+        "image_colorspace": "Non-Color",
+        "image_file_format": "PNG",
+        "lake_stops": [
+          [
+            0.0,
+            [
+              0.2704977910130658,
+              0.5647115057049292,
+              0.5520114015120001,
+              1.0
+            ]
+          ],
+          [
+            0.5,
+            [
+              0.12743768043564743,
+              0.3277780980565422,
+              0.3712376804741491,
+              1.0
+            ]
+          ],
+          [
+            1.0,
+            [
+              0.06301001765316767,
+              0.21586050011389926,
+              0.27467731206038465,
+              1.0
+            ]
+          ]
+        ],
+        "map_range_clamp": true,
+        "max_subdivisions": 12,
+        "mix_blend_type": "MIX",
+        "mix_clamp_factor": true,
+        "offscreen_dicing_scale": 16.0,
+        "ramp_interpolation": "EASE",
+        "rowscale_operation": "MULTIPLY",
+        "rowscale_use_clamp": false,
+        "samples": 4096,
+        "sampling_pattern": "TABULATED_SOBOL",
+        "subdivision_levels": 1,
+        "subdivision_render_levels": 2,
+        "subdivision_type": "SIMPLE",
+        "sun_angle": 0.20943951023931956,
+        "sun_rotation": [
+          0.7853981633974483,
+          0.0,
+          -2.356194490192345
+        ],
+        "sun_strength": 3.0,
+        "use_adaptive_sampling": true,
+        "use_adaptive_subdivision": true,
+        "use_denoising": true,
+        "view_transform": "Khronos PBR Neutral",
+        "water_rgba": [
+          0.2704977910130658,
+          0.5647115057049292,
+          0.5520114015120001,
+          1.0
+        ],
+        "world_rgba": [
+          0.808332,
+          0.808332,
+          0.808332,
+          1.0
+        ],
+        "world_strength": 0.3
+      },
+      "sea_texture": "oceanmask.png",
+      "textures": {
+        "heightfield.tif": {
+          "extension": "REPEAT",
+          "filename": "heightfield.tif",
+          "interpolation": "Linear",
+          "optional": false
+        },
+        "inlandlake.png": {
+          "extension": "REPEAT",
+          "filename": "inlandlake.png",
+          "interpolation": "Closest",
+          "optional": false
+        },
+        "lakedepth.tif": {
+          "extension": "REPEAT",
+          "filename": "lakedepth.tif",
+          "interpolation": "Linear",
+          "optional": true
+        },
+        "oceanmask.png": {
+          "extension": "REPEAT",
+          "filename": "oceanmask.png",
+          "interpolation": "Closest",
+          "optional": false
+        },
+        "river.png": {
+          "extension": "REPEAT",
+          "filename": "river.png",
+          "interpolation": "Closest",
+          "optional": false
+        },
+        "rowscale.tif": {
+          "extension": "EXTEND",
+          "filename": "rowscale.tif",
+          "interpolation": "Closest",
+          "optional": true
+        },
+        "seaice.png": {
+          "extension": "REPEAT",
+          "filename": "seaice.png",
+          "interpolation": "Linear",
+          "optional": true
+        },
+        "snowmask.png": {
+          "extension": "REPEAT",
+          "filename": "snowmask.png",
+          "interpolation": "Closest",
+          "optional": true
+        }
+      }
+    },
+    "row_edge_mode": "edge",
+    "sh_ice_lo": 0.62,
+    "sh_ice_max_alpha": 0.55,
+    "snow_ramp_band": 0.32,
+    "snow_ramp_lat_hi": 63.0,
+    "snow_ramp_lat_lo": 45.0,
+    "snow_ramp_low_max": 0.6,
+    "snow_ramp_low_min": 0.4,
+    "snow_rgb": [
+      232,
+      241,
+      246
+    ],
+    "snow_shadow_rgb": [
+      176,
+      199,
+      219
+    ],
+    "snow_soften_fraction": 0.35,
+    "snow_source_cell_m": 1113.2,
+    "traced_px": 4352,
+    "white_exclusions": [
+      "antarctic_rock"
+    ],
+    "white_union": [
+      "perennial_ice",
+      "glaciers"
+    ]
+  },
+  "tile/block_render:mars": {
+    "base_grid": "fitted",
+    "block_px": 4096,
+    "contexts": {},
+    "denoise_band_px": 128,
+    "denoise_device": "gpu",
+    "exaggeration": 20.0,
+    "grid_px": 65536,
+    "ground_scale": 0.5324736674674753,
+    "layers_off": [
+      "antarctic_rock",
+      "glaciers",
+      "lake_depth",
+      "sea_ice"
+    ],
+    "map_units_per_pixel": 611.49622628141,
+    "mask_full_scale": 65535.0,
+    "producer": "raytrace",
+    "rasters_off": [
+      "heightfield",
+      "oceanmask",
+      "watermask"
+    ],
+    "rig": {
+      "look": {
+        "land_range": [
+          -8600.0,
+          6100.0
+        ],
+        "land_stops": [
+          [
+            0.0,
+            [
+              0.108487,
+              0.045162,
+              0.026101,
+              1.0
+            ]
+          ],
+          [
+            0.17687075,
+            [
+              0.187821,
+              0.078187,
+              0.045186,
+              1.0
+            ]
+          ],
+          [
+            0.30034014,
+            [
+              0.274677,
+              0.114435,
+              0.066626,
+              1.0
+            ]
+          ],
+          [
+            0.46496599,
+            [
+              0.412543,
+              0.171441,
+              0.082283,
+              1.0
+            ]
+          ],
+          [
+            0.62959184,
+            [
+              0.514918,
+              0.246201,
+              0.111932,
+              1.0
+            ]
+          ],
+          [
+            0.81891156,
+            [
+              0.597202,
+              0.366253,
+              0.187821,
+              1.0
+            ]
+          ],
+          [
+            1.0,
+            [
+              0.658375,
+              0.520996,
+              0.337164,
+              1.0
+            ]
+          ]
+        ],
+        "sea_range": null,
+        "sea_stops": null
+      },
+      "rig": {
+        "adaptive_threshold": 0.01,
+        "bounces": {
+          "diffuse_bounces": 4,
+          "glossy_bounces": 4,
+          "max_bounces": 12,
+          "transmission_bounces": 12,
+          "volume_bounces": 0
+        },
+        "bsdf_roughness": 1.0,
+        "camera_clip_end": 100.0,
+        "camera_type": "ORTHO",
+        "clamp_indirect": 10.0,
+        "denoiser": "OPENIMAGEDENOISE",
+        "denoising_input_passes": "RGB_ALBEDO_NORMAL",
+        "denoising_prefilter": "ACCURATE",
+        "denoising_quality": "HIGH",
+        "device": "GPU",
+        "dicing_rate": 1.0,
+        "displacement_method": "DISPLACEMENT",
+        "displacement_midlevel": 0.0,
+        "displacement_space": "OBJECT",
+        "engine": "CYCLES",
+        "fill_angle": 0.17453292519943295,
+        "fill_casts_shadow": false,
+        "fill_rotation": [
+          0.5235987755982988,
+          0.0,
+          0.7853981633974483
+        ],
+        "fill_strength": 0.45,
+        "ice_flatten_floor": 0.0,
+        "image_color_mode": "RGBA",
+        "image_colorspace": "Non-Color",
+        "image_file_format": "PNG",
+        "lake_stops": [
+          [
+            0.0,
+            [
+              0.2704977910130658,
+              0.5647115057049292,
+              0.5520114015120001,
+              1.0
+            ]
+          ],
+          [
+            0.5,
+            [
+              0.12743768043564743,
+              0.3277780980565422,
+              0.3712376804741491,
+              1.0
+            ]
+          ],
+          [
+            1.0,
+            [
+              0.06301001765316767,
+              0.21586050011389926,
+              0.27467731206038465,
+              1.0
+            ]
+          ]
+        ],
+        "map_range_clamp": true,
+        "max_subdivisions": 12,
+        "mix_blend_type": "MIX",
+        "mix_clamp_factor": true,
+        "offscreen_dicing_scale": 16.0,
+        "ramp_interpolation": "EASE",
+        "rowscale_operation": "MULTIPLY",
+        "rowscale_use_clamp": false,
+        "samples": 4096,
+        "sampling_pattern": "TABULATED_SOBOL",
+        "subdivision_levels": 1,
+        "subdivision_render_levels": 2,
+        "subdivision_type": "SIMPLE",
+        "sun_angle": 0.20943951023931956,
+        "sun_rotation": [
+          0.7853981633974483,
+          0.0,
+          -2.356194490192345
+        ],
+        "sun_strength": 3.0,
+        "use_adaptive_sampling": true,
+        "use_adaptive_subdivision": true,
+        "use_denoising": true,
+        "view_transform": "Khronos PBR Neutral",
+        "water_rgba": [
+          0.2704977910130658,
+          0.5647115057049292,
+          0.5520114015120001,
+          1.0
+        ],
+        "world_rgba": [
+          0.808332,
+          0.808332,
+          0.808332,
+          1.0
+        ],
+        "world_strength": 0.3
+      },
+      "sea_texture": null,
+      "textures": {
+        "heightfield.tif": {
+          "extension": "REPEAT",
+          "filename": "heightfield.tif",
+          "interpolation": "Linear",
+          "optional": false
+        },
+        "inlandlake.png": {
+          "extension": "REPEAT",
+          "filename": "inlandlake.png",
+          "interpolation": "Closest",
+          "optional": false
+        },
+        "lakedepth.tif": {
+          "extension": "REPEAT",
+          "filename": "lakedepth.tif",
+          "interpolation": "Linear",
+          "optional": true
+        },
+        "oceanmask.png": {
+          "extension": "REPEAT",
+          "filename": "oceanmask.png",
+          "interpolation": "Closest",
+          "optional": false
+        },
+        "river.png": {
+          "extension": "REPEAT",
+          "filename": "river.png",
+          "interpolation": "Closest",
+          "optional": false
+        },
+        "rowscale.tif": {
+          "extension": "EXTEND",
+          "filename": "rowscale.tif",
+          "interpolation": "Closest",
+          "optional": true
+        },
+        "seaice.png": {
+          "extension": "REPEAT",
+          "filename": "seaice.png",
+          "interpolation": "Linear",
+          "optional": true
+        },
+        "snowmask.png": {
+          "extension": "REPEAT",
+          "filename": "snowmask.png",
+          "interpolation": "Closest",
+          "optional": true
+        }
+      }
+    },
+    "row_edge_mode": "edge",
+    "sea": null,
+    "snow_rgb_north": [
+      226,
+      242,
+      253
+    ],
+    "snow_rgb_south": [
+      226,
+      242,
+      253
+    ],
+    "snow_shadow_rgb_north": [
+      185,
+      198,
+      207
+    ],
+    "snow_shadow_rgb_south": [
+      185,
+      198,
+      207
+    ],
+    "traced_px": 4352,
+    "white_exclusions": [],
+    "white_union": [
+      "perennial_ice"
+    ]
+  },
+  "tile/cap_raytrace:earth:north": {
+    "asset": {
+      "format": "webp",
+      "quality": 85,
+      "rungs": [
+        1024,
+        2048,
+        4096,
+        8192
+      ]
+    },
+    "azimuth_passes": 24,
+    "base_grid": "fitted",
+    "coast_rgb": [
+      96,
+      122,
+      142
+    ],
+    "denoise_device": "cpu",
+    "exaggeration": 15.0,
+    "grid": {
+      "aeqd_radius_m": 6371000.0,
+      "az_sign": -1.0,
+      "coast_dilate": 1,
+      "coast_opacity": 0.55,
+      "edge_lat": 82.0,
+      "ice_lo": null,
+      "ice_max_alpha": null,
+      "lat_0": 90.0,
+      "name": "north",
+      "px": 8192
+    },
+    "ground_scale": 1.0011202323026211,
+    "ice_band": 0.4,
+    "ice_lo": 0.55,
+    "ice_max_alpha": 0.85,
+    "ice_rgb": [
+      212,
+      228,
+      240
+    ],
+    "ice_shadow_rgb": [
+      156,
+      184,
+      210
+    ],
+    "mask_full_scale": 65535.0,
+    "producer": "raytrace",
+    "quadrant_split": 2,
+    "rasters_off": [
+      "heightfield",
+      "oceanmask",
+      "watermask"
+    ],
+    "rig": {
+      "look": {
+        "land_range": [
+          0.0,
+          6000.0
+        ],
+        "land_stops": [
+          [
+            0.0,
+            [
+              0.814847,
+              0.693872,
+              0.527115,
+              1.0
+            ]
+          ],
+          [
+            0.083,
+            [
+              0.679543,
+              0.412543,
+              0.270498,
+              1.0
+            ]
+          ],
+          [
+            0.25,
+            [
+              0.617207,
+              0.313989,
+              0.215861,
+              1.0
+            ]
+          ],
+          [
+            0.5,
+            [
+              0.584079,
+              0.417885,
+              0.309469,
+              1.0
+            ]
+          ],
+          [
+            0.75,
+            [
+              0.715694,
+              0.584078,
+              0.445201,
+              1.0
+            ]
+          ],
+          [
+            1.0,
+            [
+              0.814847,
+              0.715694,
+              0.57758,
+              1.0
+            ]
+          ]
+        ],
+        "sea_range": [
+          -6000.0,
+          0.0
+        ],
+        "sea_stops": [
+          [
+            0.0,
+            [
+              0.233475,
+              0.485456,
+              0.474589,
+              1.0
+            ]
+          ],
+          [
+            0.0333,
+            [
+              0.171323,
+              0.407422,
+              0.407422,
+              1.0
+            ]
+          ],
+          [
+            0.1333,
+            [
+              0.138432,
+              0.381326,
+              0.412543,
+              1.0
+            ]
+          ],
+          [
+            0.3333,
+            [
+              0.093059,
+              0.291771,
+              0.341914,
+              1.0
+            ]
+          ],
+          [
+            0.6333,
+            [
+              0.06301,
+              0.215861,
+              0.274677,
+              1.0
+            ]
+          ],
+          [
+            1.0,
+            [
+              0.042311,
+              0.155926,
+              0.205079,
+              1.0
+            ]
+          ]
+        ]
+      },
+      "rig": {
+        "adaptive_threshold": 0.01,
+        "bounces": {
+          "diffuse_bounces": 4,
+          "glossy_bounces": 4,
+          "max_bounces": 12,
+          "transmission_bounces": 12,
+          "volume_bounces": 0
+        },
+        "bsdf_roughness": 1.0,
+        "camera_clip_end": 100.0,
+        "camera_type": "ORTHO",
+        "clamp_indirect": 10.0,
+        "denoiser": "OPENIMAGEDENOISE",
+        "denoising_input_passes": "RGB_ALBEDO_NORMAL",
+        "denoising_prefilter": "ACCURATE",
+        "denoising_quality": "HIGH",
+        "device": "GPU",
+        "dicing_rate": 1.0,
+        "displacement_method": "DISPLACEMENT",
+        "displacement_midlevel": 0.0,
+        "displacement_space": "OBJECT",
+        "engine": "CYCLES",
+        "fill_angle": 0.17453292519943295,
+        "fill_casts_shadow": false,
+        "fill_rotation": [
+          0.5235987755982988,
+          0.0,
+          0.7853981633974483
+        ],
+        "fill_strength": 0.45,
+        "ice_flatten_floor": 0.0,
+        "image_color_mode": "RGBA",
+        "image_colorspace": "Non-Color",
+        "image_file_format": "PNG",
+        "lake_stops": [
+          [
+            0.0,
+            [
+              0.2704977910130658,
+              0.5647115057049292,
+              0.5520114015120001,
+              1.0
+            ]
+          ],
+          [
+            0.5,
+            [
+              0.12743768043564743,
+              0.3277780980565422,
+              0.3712376804741491,
+              1.0
+            ]
+          ],
+          [
+            1.0,
+            [
+              0.06301001765316767,
+              0.21586050011389926,
+              0.27467731206038465,
+              1.0
+            ]
+          ]
+        ],
+        "map_range_clamp": true,
+        "max_subdivisions": 12,
+        "mix_blend_type": "MIX",
+        "mix_clamp_factor": true,
+        "offscreen_dicing_scale": 16.0,
+        "ramp_interpolation": "EASE",
+        "rowscale_operation": "MULTIPLY",
+        "rowscale_use_clamp": false,
+        "samples": 4096,
+        "sampling_pattern": "TABULATED_SOBOL",
+        "subdivision_levels": 1,
+        "subdivision_render_levels": 2,
+        "subdivision_type": "SIMPLE",
+        "sun_angle": 0.20943951023931956,
+        "sun_rotation": [
+          0.7853981633974483,
+          0.0,
+          -2.356194490192345
+        ],
+        "sun_strength": 3.0,
+        "use_adaptive_sampling": true,
+        "use_adaptive_subdivision": true,
+        "use_denoising": true,
+        "view_transform": "Khronos PBR Neutral",
+        "water_rgba": [
+          0.2704977910130658,
+          0.5647115057049292,
+          0.5520114015120001,
+          1.0
+        ],
+        "world_rgba": [
+          0.808332,
+          0.808332,
+          0.808332,
+          1.0
+        ],
+        "world_strength": 0.3
+      },
+      "sea_texture": "oceanmask.png",
+      "textures": {
+        "heightfield.tif": {
+          "extension": "REPEAT",
+          "filename": "heightfield.tif",
+          "interpolation": "Linear",
+          "optional": false
+        },
+        "inlandlake.png": {
+          "extension": "REPEAT",
+          "filename": "inlandlake.png",
+          "interpolation": "Closest",
+          "optional": false
+        },
+        "lakedepth.tif": {
+          "extension": "REPEAT",
+          "filename": "lakedepth.tif",
+          "interpolation": "Linear",
+          "optional": true
+        },
+        "oceanmask.png": {
+          "extension": "REPEAT",
+          "filename": "oceanmask.png",
+          "interpolation": "Closest",
+          "optional": false
+        },
+        "river.png": {
+          "extension": "REPEAT",
+          "filename": "river.png",
+          "interpolation": "Closest",
+          "optional": false
+        },
+        "rowscale.tif": {
+          "extension": "EXTEND",
+          "filename": "rowscale.tif",
+          "interpolation": "Closest",
+          "optional": true
+        },
+        "seaice.png": {
+          "extension": "REPEAT",
+          "filename": "seaice.png",
+          "interpolation": "Linear",
+          "optional": true
+        },
+        "snowmask.png": {
+          "extension": "REPEAT",
+          "filename": "snowmask.png",
+          "interpolation": "Closest",
+          "optional": true
+        }
+      }
+    },
+    "sh_ice_lo": 0.62,
+    "sh_ice_max_alpha": 0.55,
+    "snow_ramp_band": 0.32,
+    "snow_ramp_lat_hi": 63.0,
+    "snow_ramp_lat_lo": 45.0,
+    "snow_ramp_low_max": 0.6,
+    "snow_ramp_low_min": 0.4,
+    "snow_rgb": [
+      232,
+      241,
+      246
+    ],
+    "snow_shadow_rgb": [
+      176,
+      199,
+      219
+    ],
+    "snow_soften_fraction": 0.35,
+    "snow_source_cell_m": 1113.2,
+    "white_exclusions": [
+      "antarctic_rock"
+    ],
+    "white_union": [
+      "perennial_ice"
+    ]
+  },
+  "tile/cap_raytrace:earth:south": {
+    "asset": {
+      "format": "webp",
+      "quality": 85,
+      "rungs": [
+        1024,
+        2048,
+        4096,
+        8192
+      ]
+    },
+    "azimuth_passes": 24,
+    "base_grid": "fitted",
+    "coast_rgb": [
+      96,
+      122,
+      142
+    ],
+    "denoise_device": "cpu",
+    "exaggeration": 15.0,
+    "grid": {
+      "aeqd_radius_m": 6371000.0,
+      "az_sign": 1.0,
+      "coast_dilate": 0,
+      "coast_opacity": 0.0,
+      "edge_lat": -82.0,
+      "ice_lo": 0.62,
+      "ice_max_alpha": 0.55,
+      "lat_0": -90.0,
+      "name": "south",
+      "px": 8192
+    },
+    "ground_scale": 1.0011202323026211,
+    "ice_band": 0.4,
+    "ice_lo": 0.55,
+    "ice_max_alpha": 0.85,
+    "ice_rgb": [
+      212,
+      228,
+      240
+    ],
+    "ice_shadow_rgb": [
+      156,
+      184,
+      210
+    ],
+    "mask_full_scale": 65535.0,
+    "producer": "raytrace",
+    "quadrant_split": 2,
+    "rasters_off": [
+      "heightfield",
+      "oceanmask",
+      "watermask"
+    ],
+    "rig": {
+      "look": {
+        "land_range": [
+          0.0,
+          6000.0
+        ],
+        "land_stops": [
+          [
+            0.0,
+            [
+              0.814847,
+              0.693872,
+              0.527115,
+              1.0
+            ]
+          ],
+          [
+            0.083,
+            [
+              0.679543,
+              0.412543,
+              0.270498,
+              1.0
+            ]
+          ],
+          [
+            0.25,
+            [
+              0.617207,
+              0.313989,
+              0.215861,
+              1.0
+            ]
+          ],
+          [
+            0.5,
+            [
+              0.584079,
+              0.417885,
+              0.309469,
+              1.0
+            ]
+          ],
+          [
+            0.75,
+            [
+              0.715694,
+              0.584078,
+              0.445201,
+              1.0
+            ]
+          ],
+          [
+            1.0,
+            [
+              0.814847,
+              0.715694,
+              0.57758,
+              1.0
+            ]
+          ]
+        ],
+        "sea_range": [
+          -6000.0,
+          0.0
+        ],
+        "sea_stops": [
+          [
+            0.0,
+            [
+              0.233475,
+              0.485456,
+              0.474589,
+              1.0
+            ]
+          ],
+          [
+            0.0333,
+            [
+              0.171323,
+              0.407422,
+              0.407422,
+              1.0
+            ]
+          ],
+          [
+            0.1333,
+            [
+              0.138432,
+              0.381326,
+              0.412543,
+              1.0
+            ]
+          ],
+          [
+            0.3333,
+            [
+              0.093059,
+              0.291771,
+              0.341914,
+              1.0
+            ]
+          ],
+          [
+            0.6333,
+            [
+              0.06301,
+              0.215861,
+              0.274677,
+              1.0
+            ]
+          ],
+          [
+            1.0,
+            [
+              0.042311,
+              0.155926,
+              0.205079,
+              1.0
+            ]
+          ]
+        ]
+      },
+      "rig": {
+        "adaptive_threshold": 0.01,
+        "bounces": {
+          "diffuse_bounces": 4,
+          "glossy_bounces": 4,
+          "max_bounces": 12,
+          "transmission_bounces": 12,
+          "volume_bounces": 0
+        },
+        "bsdf_roughness": 1.0,
+        "camera_clip_end": 100.0,
+        "camera_type": "ORTHO",
+        "clamp_indirect": 10.0,
+        "denoiser": "OPENIMAGEDENOISE",
+        "denoising_input_passes": "RGB_ALBEDO_NORMAL",
+        "denoising_prefilter": "ACCURATE",
+        "denoising_quality": "HIGH",
+        "device": "GPU",
+        "dicing_rate": 1.0,
+        "displacement_method": "DISPLACEMENT",
+        "displacement_midlevel": 0.0,
+        "displacement_space": "OBJECT",
+        "engine": "CYCLES",
+        "fill_angle": 0.17453292519943295,
+        "fill_casts_shadow": false,
+        "fill_rotation": [
+          0.5235987755982988,
+          0.0,
+          0.7853981633974483
+        ],
+        "fill_strength": 0.45,
+        "ice_flatten_floor": 0.0,
+        "image_color_mode": "RGBA",
+        "image_colorspace": "Non-Color",
+        "image_file_format": "PNG",
+        "lake_stops": [
+          [
+            0.0,
+            [
+              0.2704977910130658,
+              0.5647115057049292,
+              0.5520114015120001,
+              1.0
+            ]
+          ],
+          [
+            0.5,
+            [
+              0.12743768043564743,
+              0.3277780980565422,
+              0.3712376804741491,
+              1.0
+            ]
+          ],
+          [
+            1.0,
+            [
+              0.06301001765316767,
+              0.21586050011389926,
+              0.27467731206038465,
+              1.0
+            ]
+          ]
+        ],
+        "map_range_clamp": true,
+        "max_subdivisions": 12,
+        "mix_blend_type": "MIX",
+        "mix_clamp_factor": true,
+        "offscreen_dicing_scale": 16.0,
+        "ramp_interpolation": "EASE",
+        "rowscale_operation": "MULTIPLY",
+        "rowscale_use_clamp": false,
+        "samples": 4096,
+        "sampling_pattern": "TABULATED_SOBOL",
+        "subdivision_levels": 1,
+        "subdivision_render_levels": 2,
+        "subdivision_type": "SIMPLE",
+        "sun_angle": 0.20943951023931956,
+        "sun_rotation": [
+          0.7853981633974483,
+          0.0,
+          -2.356194490192345
+        ],
+        "sun_strength": 3.0,
+        "use_adaptive_sampling": true,
+        "use_adaptive_subdivision": true,
+        "use_denoising": true,
+        "view_transform": "Khronos PBR Neutral",
+        "water_rgba": [
+          0.2704977910130658,
+          0.5647115057049292,
+          0.5520114015120001,
+          1.0
+        ],
+        "world_rgba": [
+          0.808332,
+          0.808332,
+          0.808332,
+          1.0
+        ],
+        "world_strength": 0.3
+      },
+      "sea_texture": "oceanmask.png",
+      "textures": {
+        "heightfield.tif": {
+          "extension": "REPEAT",
+          "filename": "heightfield.tif",
+          "interpolation": "Linear",
+          "optional": false
+        },
+        "inlandlake.png": {
+          "extension": "REPEAT",
+          "filename": "inlandlake.png",
+          "interpolation": "Closest",
+          "optional": false
+        },
+        "lakedepth.tif": {
+          "extension": "REPEAT",
+          "filename": "lakedepth.tif",
+          "interpolation": "Linear",
+          "optional": true
+        },
+        "oceanmask.png": {
+          "extension": "REPEAT",
+          "filename": "oceanmask.png",
+          "interpolation": "Closest",
+          "optional": false
+        },
+        "river.png": {
+          "extension": "REPEAT",
+          "filename": "river.png",
+          "interpolation": "Closest",
+          "optional": false
+        },
+        "rowscale.tif": {
+          "extension": "EXTEND",
+          "filename": "rowscale.tif",
+          "interpolation": "Closest",
+          "optional": true
+        },
+        "seaice.png": {
+          "extension": "REPEAT",
+          "filename": "seaice.png",
+          "interpolation": "Linear",
+          "optional": true
+        },
+        "snowmask.png": {
+          "extension": "REPEAT",
+          "filename": "snowmask.png",
+          "interpolation": "Closest",
+          "optional": true
+        }
+      }
+    },
+    "sh_ice_lo": 0.62,
+    "sh_ice_max_alpha": 0.55,
+    "snow_ramp_band": 0.32,
+    "snow_ramp_lat_hi": 63.0,
+    "snow_ramp_lat_lo": 45.0,
+    "snow_ramp_low_max": 0.6,
+    "snow_ramp_low_min": 0.4,
+    "snow_rgb": [
+      232,
+      241,
+      246
+    ],
+    "snow_shadow_rgb": [
+      176,
+      199,
+      219
+    ],
+    "snow_soften_fraction": 0.35,
+    "snow_source_cell_m": 1113.2,
+    "white_exclusions": [
+      "antarctic_rock"
+    ],
+    "white_union": [
+      "perennial_ice"
+    ]
+  },
+  "tile/cap_raytrace:mars:north": {
+    "asset": {
+      "format": "webp",
+      "quality": 85,
+      "rungs": [
+        1024,
+        2048,
+        4096,
+        8192
+      ]
+    },
+    "azimuth_passes": 24,
+    "base_grid": "fitted",
+    "coast_rgb": [
+      96,
+      122,
+      142
+    ],
+    "denoise_device": "cpu",
+    "exaggeration": 20.0,
+    "grid": {
+      "aeqd_radius_m": 6371000.0,
+      "az_sign": -1.0,
+      "coast_dilate": 1,
+      "coast_opacity": 0.55,
+      "edge_lat": 82.0,
+      "ice_lo": null,
+      "ice_max_alpha": null,
+      "lat_0": 90.0,
+      "name": "north",
+      "pole_smooth": {
+        "angle_degrees": 30.0,
+        "interpolated_lat": 87.1,
+        "isotropic_km": 4.0,
+        "taper_km": 40.0
+      },
+      "px": 8192
+    },
+    "ground_scale": 0.5330701616700675,
+    "layers_off": [
+      "antarctic_rock",
+      "coastline",
+      "sea_ice"
+    ],
+    "mask_full_scale": 65535.0,
+    "producer": "raytrace",
+    "quadrant_split": 2,
+    "rasters_off": [
+      "heightfield",
+      "oceanmask",
+      "watermask"
+    ],
+    "rig": {
+      "look": {
+        "land_range": [
+          -8600.0,
+          6100.0
+        ],
+        "land_stops": [
+          [
+            0.0,
+            [
+              0.108487,
+              0.045162,
+              0.026101,
+              1.0
+            ]
+          ],
+          [
+            0.17687075,
+            [
+              0.187821,
+              0.078187,
+              0.045186,
+              1.0
+            ]
+          ],
+          [
+            0.30034014,
+            [
+              0.274677,
+              0.114435,
+              0.066626,
+              1.0
+            ]
+          ],
+          [
+            0.46496599,
+            [
+              0.412543,
+              0.171441,
+              0.082283,
+              1.0
+            ]
+          ],
+          [
+            0.62959184,
+            [
+              0.514918,
+              0.246201,
+              0.111932,
+              1.0
+            ]
+          ],
+          [
+            0.81891156,
+            [
+              0.597202,
+              0.366253,
+              0.187821,
+              1.0
+            ]
+          ],
+          [
+            1.0,
+            [
+              0.658375,
+              0.520996,
+              0.337164,
+              1.0
+            ]
+          ]
+        ],
+        "sea_range": null,
+        "sea_stops": null
+      },
+      "rig": {
+        "adaptive_threshold": 0.01,
+        "bounces": {
+          "diffuse_bounces": 4,
+          "glossy_bounces": 4,
+          "max_bounces": 12,
+          "transmission_bounces": 12,
+          "volume_bounces": 0
+        },
+        "bsdf_roughness": 1.0,
+        "camera_clip_end": 100.0,
+        "camera_type": "ORTHO",
+        "clamp_indirect": 10.0,
+        "denoiser": "OPENIMAGEDENOISE",
+        "denoising_input_passes": "RGB_ALBEDO_NORMAL",
+        "denoising_prefilter": "ACCURATE",
+        "denoising_quality": "HIGH",
+        "device": "GPU",
+        "dicing_rate": 1.0,
+        "displacement_method": "DISPLACEMENT",
+        "displacement_midlevel": 0.0,
+        "displacement_space": "OBJECT",
+        "engine": "CYCLES",
+        "fill_angle": 0.17453292519943295,
+        "fill_casts_shadow": false,
+        "fill_rotation": [
+          0.5235987755982988,
+          0.0,
+          0.7853981633974483
+        ],
+        "fill_strength": 0.45,
+        "ice_flatten_floor": 0.0,
+        "image_color_mode": "RGBA",
+        "image_colorspace": "Non-Color",
+        "image_file_format": "PNG",
+        "lake_stops": [
+          [
+            0.0,
+            [
+              0.2704977910130658,
+              0.5647115057049292,
+              0.5520114015120001,
+              1.0
+            ]
+          ],
+          [
+            0.5,
+            [
+              0.12743768043564743,
+              0.3277780980565422,
+              0.3712376804741491,
+              1.0
+            ]
+          ],
+          [
+            1.0,
+            [
+              0.06301001765316767,
+              0.21586050011389926,
+              0.27467731206038465,
+              1.0
+            ]
+          ]
+        ],
+        "map_range_clamp": true,
+        "max_subdivisions": 12,
+        "mix_blend_type": "MIX",
+        "mix_clamp_factor": true,
+        "offscreen_dicing_scale": 16.0,
+        "ramp_interpolation": "EASE",
+        "rowscale_operation": "MULTIPLY",
+        "rowscale_use_clamp": false,
+        "samples": 4096,
+        "sampling_pattern": "TABULATED_SOBOL",
+        "subdivision_levels": 1,
+        "subdivision_render_levels": 2,
+        "subdivision_type": "SIMPLE",
+        "sun_angle": 0.20943951023931956,
+        "sun_rotation": [
+          0.7853981633974483,
+          0.0,
+          -2.356194490192345
+        ],
+        "sun_strength": 3.0,
+        "use_adaptive_sampling": true,
+        "use_adaptive_subdivision": true,
+        "use_denoising": true,
+        "view_transform": "Khronos PBR Neutral",
+        "water_rgba": [
+          0.2704977910130658,
+          0.5647115057049292,
+          0.5520114015120001,
+          1.0
+        ],
+        "world_rgba": [
+          0.808332,
+          0.808332,
+          0.808332,
+          1.0
+        ],
+        "world_strength": 0.3
+      },
+      "sea_texture": null,
+      "textures": {
+        "heightfield.tif": {
+          "extension": "REPEAT",
+          "filename": "heightfield.tif",
+          "interpolation": "Linear",
+          "optional": false
+        },
+        "inlandlake.png": {
+          "extension": "REPEAT",
+          "filename": "inlandlake.png",
+          "interpolation": "Closest",
+          "optional": false
+        },
+        "lakedepth.tif": {
+          "extension": "REPEAT",
+          "filename": "lakedepth.tif",
+          "interpolation": "Linear",
+          "optional": true
+        },
+        "oceanmask.png": {
+          "extension": "REPEAT",
+          "filename": "oceanmask.png",
+          "interpolation": "Closest",
+          "optional": false
+        },
+        "river.png": {
+          "extension": "REPEAT",
+          "filename": "river.png",
+          "interpolation": "Closest",
+          "optional": false
+        },
+        "rowscale.tif": {
+          "extension": "EXTEND",
+          "filename": "rowscale.tif",
+          "interpolation": "Closest",
+          "optional": true
+        },
+        "seaice.png": {
+          "extension": "REPEAT",
+          "filename": "seaice.png",
+          "interpolation": "Linear",
+          "optional": true
+        },
+        "snowmask.png": {
+          "extension": "REPEAT",
+          "filename": "snowmask.png",
+          "interpolation": "Closest",
+          "optional": true
+        }
+      }
+    },
+    "snow_rgb_north": [
+      226,
+      242,
+      253
+    ],
+    "snow_rgb_south": [
+      226,
+      242,
+      253
+    ],
+    "snow_shadow_rgb_north": [
+      185,
+      198,
+      207
+    ],
+    "snow_shadow_rgb_south": [
+      185,
+      198,
+      207
+    ],
+    "white_exclusions": [],
+    "white_union": [
+      "perennial_ice"
+    ]
+  },
+  "tile/cap_raytrace:mars:south": {
+    "asset": {
+      "format": "webp",
+      "quality": 85,
+      "rungs": [
+        1024,
+        2048,
+        4096,
+        8192
+      ]
+    },
+    "azimuth_passes": 24,
+    "base_grid": "fitted",
+    "coast_rgb": [
+      96,
+      122,
+      142
+    ],
+    "denoise_device": "cpu",
+    "exaggeration": 20.0,
+    "grid": {
+      "aeqd_radius_m": 6371000.0,
+      "az_sign": 1.0,
+      "coast_dilate": 0,
+      "coast_opacity": 0.0,
+      "edge_lat": -82.0,
+      "ice_lo": 0.62,
+      "ice_max_alpha": 0.55,
+      "lat_0": -90.0,
+      "name": "south",
+      "pole_smooth": {
+        "angle_degrees": 30.0,
+        "interpolated_lat": 87.1,
+        "isotropic_km": 4.0,
+        "taper_km": 40.0
+      },
+      "px": 8192
+    },
+    "ground_scale": 0.5330701616700675,
+    "layers_off": [
+      "antarctic_rock",
+      "coastline",
+      "sea_ice"
+    ],
+    "mask_full_scale": 65535.0,
+    "producer": "raytrace",
+    "quadrant_split": 2,
+    "rasters_off": [
+      "heightfield",
+      "oceanmask",
+      "watermask"
+    ],
+    "rig": {
+      "look": {
+        "land_range": [
+          -8600.0,
+          6100.0
+        ],
+        "land_stops": [
+          [
+            0.0,
+            [
+              0.108487,
+              0.045162,
+              0.026101,
+              1.0
+            ]
+          ],
+          [
+            0.17687075,
+            [
+              0.187821,
+              0.078187,
+              0.045186,
+              1.0
+            ]
+          ],
+          [
+            0.30034014,
+            [
+              0.274677,
+              0.114435,
+              0.066626,
+              1.0
+            ]
+          ],
+          [
+            0.46496599,
+            [
+              0.412543,
+              0.171441,
+              0.082283,
+              1.0
+            ]
+          ],
+          [
+            0.62959184,
+            [
+              0.514918,
+              0.246201,
+              0.111932,
+              1.0
+            ]
+          ],
+          [
+            0.81891156,
+            [
+              0.597202,
+              0.366253,
+              0.187821,
+              1.0
+            ]
+          ],
+          [
+            1.0,
+            [
+              0.658375,
+              0.520996,
+              0.337164,
+              1.0
+            ]
+          ]
+        ],
+        "sea_range": null,
+        "sea_stops": null
+      },
+      "rig": {
+        "adaptive_threshold": 0.01,
+        "bounces": {
+          "diffuse_bounces": 4,
+          "glossy_bounces": 4,
+          "max_bounces": 12,
+          "transmission_bounces": 12,
+          "volume_bounces": 0
+        },
+        "bsdf_roughness": 1.0,
+        "camera_clip_end": 100.0,
+        "camera_type": "ORTHO",
+        "clamp_indirect": 10.0,
+        "denoiser": "OPENIMAGEDENOISE",
+        "denoising_input_passes": "RGB_ALBEDO_NORMAL",
+        "denoising_prefilter": "ACCURATE",
+        "denoising_quality": "HIGH",
+        "device": "GPU",
+        "dicing_rate": 1.0,
+        "displacement_method": "DISPLACEMENT",
+        "displacement_midlevel": 0.0,
+        "displacement_space": "OBJECT",
+        "engine": "CYCLES",
+        "fill_angle": 0.17453292519943295,
+        "fill_casts_shadow": false,
+        "fill_rotation": [
+          0.5235987755982988,
+          0.0,
+          0.7853981633974483
+        ],
+        "fill_strength": 0.45,
+        "ice_flatten_floor": 0.0,
+        "image_color_mode": "RGBA",
+        "image_colorspace": "Non-Color",
+        "image_file_format": "PNG",
+        "lake_stops": [
+          [
+            0.0,
+            [
+              0.2704977910130658,
+              0.5647115057049292,
+              0.5520114015120001,
+              1.0
+            ]
+          ],
+          [
+            0.5,
+            [
+              0.12743768043564743,
+              0.3277780980565422,
+              0.3712376804741491,
+              1.0
+            ]
+          ],
+          [
+            1.0,
+            [
+              0.06301001765316767,
+              0.21586050011389926,
+              0.27467731206038465,
+              1.0
+            ]
+          ]
+        ],
+        "map_range_clamp": true,
+        "max_subdivisions": 12,
+        "mix_blend_type": "MIX",
+        "mix_clamp_factor": true,
+        "offscreen_dicing_scale": 16.0,
+        "ramp_interpolation": "EASE",
+        "rowscale_operation": "MULTIPLY",
+        "rowscale_use_clamp": false,
+        "samples": 4096,
+        "sampling_pattern": "TABULATED_SOBOL",
+        "subdivision_levels": 1,
+        "subdivision_render_levels": 2,
+        "subdivision_type": "SIMPLE",
+        "sun_angle": 0.20943951023931956,
+        "sun_rotation": [
+          0.7853981633974483,
+          0.0,
+          -2.356194490192345
+        ],
+        "sun_strength": 3.0,
+        "use_adaptive_sampling": true,
+        "use_adaptive_subdivision": true,
+        "use_denoising": true,
+        "view_transform": "Khronos PBR Neutral",
+        "water_rgba": [
+          0.2704977910130658,
+          0.5647115057049292,
+          0.5520114015120001,
+          1.0
+        ],
+        "world_rgba": [
+          0.808332,
+          0.808332,
+          0.808332,
+          1.0
+        ],
+        "world_strength": 0.3
+      },
+      "sea_texture": null,
+      "textures": {
+        "heightfield.tif": {
+          "extension": "REPEAT",
+          "filename": "heightfield.tif",
+          "interpolation": "Linear",
+          "optional": false
+        },
+        "inlandlake.png": {
+          "extension": "REPEAT",
+          "filename": "inlandlake.png",
+          "interpolation": "Closest",
+          "optional": false
+        },
+        "lakedepth.tif": {
+          "extension": "REPEAT",
+          "filename": "lakedepth.tif",
+          "interpolation": "Linear",
+          "optional": true
+        },
+        "oceanmask.png": {
+          "extension": "REPEAT",
+          "filename": "oceanmask.png",
+          "interpolation": "Closest",
+          "optional": false
+        },
+        "river.png": {
+          "extension": "REPEAT",
+          "filename": "river.png",
+          "interpolation": "Closest",
+          "optional": false
+        },
+        "rowscale.tif": {
+          "extension": "EXTEND",
+          "filename": "rowscale.tif",
+          "interpolation": "Closest",
+          "optional": true
+        },
+        "seaice.png": {
+          "extension": "REPEAT",
+          "filename": "seaice.png",
+          "interpolation": "Linear",
+          "optional": true
+        },
+        "snowmask.png": {
+          "extension": "REPEAT",
+          "filename": "snowmask.png",
+          "interpolation": "Closest",
+          "optional": true
+        }
+      }
+    },
+    "snow_rgb_north": [
+      226,
+      242,
+      253
+    ],
+    "snow_rgb_south": [
+      226,
+      242,
+      253
+    ],
+    "snow_shadow_rgb_north": [
+      185,
+      198,
+      207
+    ],
+    "snow_shadow_rgb_south": [
+      185,
+      198,
+      207
+    ],
+    "white_exclusions": [],
+    "white_union": [
+      "perennial_ice"
+    ]
+  },
+  "tile/relief_scan:earth": {
+    "cell_px": 512,
+    "grid_px": 131072,
+    "rasters_off": [
+      "heightfield",
+      "oceanmask",
+      "watermask"
+    ]
+  },
+  "tile/relief_scan:mars": {
+    "cell_px": 512,
+    "grid_px": 65536,
+    "rasters_off": [
+      "heightfield",
+      "oceanmask",
+      "watermask"
+    ]
+  }
+}
