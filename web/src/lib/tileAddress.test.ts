@@ -1,7 +1,10 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import { BODIES, type BodySlug } from "./bodies";
 import {
+  ARCHIVED,
   LAYERS,
   PUBLISHED,
   TILE_PATH_SEGMENTS,
@@ -354,5 +357,50 @@ describe("the committed archive facts", () => {
   it("is what the registry actually advertises", () => {
     expect(archiveFor("earth", "relief").token).toBe(committed.earth.relief.token);
     expect(archiveFor("earth", "relief").indexLeaves).toBe(committed.earth.relief.indexLeaves);
+  });
+});
+
+const publishedKeys = () =>
+  Object.values(PUBLISHED).flatMap((layers) =>
+    Object.values(layers).filter((archive) => archive).map((archive) => archive!.objectKey));
+
+describe("the archived cuts, which are downloadable but never routed", () => {
+  it("names every superseded object the bucket still holds", () => {
+    // The bucket is additive by decision: a re-cut ships a new key and the old object stays as
+    // provenance rather than as a rollback buffer. PUBLISHED names only what the site addresses,
+    // so a download index built from it alone would describe half of what is downloadable.
+    expect(ARCHIVED.length).toBeGreaterThan(0);
+  });
+
+  it("cannot list a key the site still addresses", () => {
+    const published = new Set(publishedKeys());
+    for (const cut of ARCHIVED) {
+      expect(published.has(cut.key), cut.key).toBe(false);
+    }
+  });
+
+  it("says what each cut was, because a version number is not provenance", () => {
+    for (const cut of ARCHIVED) {
+      expect(cut.note.trim(), cut.key).not.toBe("");
+    }
+  });
+
+  it("chains every cut to one that still exists, so a reader can order them", () => {
+    const known = new Set([...publishedKeys(), ...ARCHIVED.map((cut) => cut.key)]);
+    for (const cut of ARCHIVED) {
+      expect(known.has(cut.supersededBy), `${cut.key} -> ${cut.supersededBy}`).toBe(true);
+      expect(cut.supersededBy, cut.key).not.toBe(cut.key);
+    }
+  });
+
+  it("keeps `objectKey` exclusive to what the site addresses", () => {
+    // check_deploy_sync.ts collects the archives to preflight with /objectKey:\s*"([^"]+)"/g over
+    // this file's source, and that parse is not scoped to PUBLISHED. An archived cut spelling its
+    // key `objectKey` would silently widen the preflight from what the site serves to everything
+    // in the bucket, and it would still pass, so nothing would go red. ARCHIVED spells it `key`.
+    const source = readFileSync(new URL("./tileAddress.ts", import.meta.url), "utf8");
+    const found = [...source.matchAll(/objectKey:\s*"([^"]+)"/g)].map((match) => match[1]);
+    expect(found.length, "the parse found nothing, so it pins nothing").toBeGreaterThan(0);
+    expect(found.toSorted()).toEqual(publishedKeys().toSorted());
   });
 });
