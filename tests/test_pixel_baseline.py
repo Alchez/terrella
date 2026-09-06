@@ -20,6 +20,7 @@ import json
 import numpy as np
 import pytest
 
+from pipeline.look import seaice
 from scripts.pixel_baseline import (
     BASELINE,
     DECLARED_SILENT,
@@ -44,7 +45,7 @@ def _reads(facet: object) -> str:
     identity = facet.get("digest") or facet.get("result") or "?"
     if "mean" not in facet:
         return str(identity)
-    # Mean AND max: most of a fixture window is ice-free, so a curve change dilutes to a small mean
+    # Mean and max: most of a fixture window is ice-free, so a curve change dilutes to a small mean
     # while moving the peak substantially. Reporting the mean alone reads like a rounding artifact.
     return f"{identity} (mean {facet.get('mean')}, max {facet.get('max')})"
 
@@ -98,12 +99,7 @@ def test_the_digest_moves_when_the_arithmetic_does() -> None:
 
 
 def test_the_fixture_still_reaches_both_hemispheres() -> None:
-    """`_earth_sea_ice` selects a different tuning per row, so one window would record half a layer.
-
-    This is the arm that catches a fixture drifting off its subject. An earlier fixture varied the
-    input down rows alongside the masks, which put the ocean band on the ramp's low end alone and
-    collapsed sea ice to `None` — indistinguishable, in the output, from a declared silence.
-    """
+    """`_earth_sea_ice` selects a different tuning per row, so one window records half a layer."""
     computed = baseline()
     ice = computed["earth/sea_ice"]
     north = ice["arctic"]["contribution"]
@@ -112,15 +108,12 @@ def test_the_fixture_still_reaches_both_hemispheres() -> None:
 
 
 def test_the_fixture_spans_the_whole_input_domain() -> None:
-    """A fixture on a curve's flat end still yields digests, and they still differ by hemisphere.
+    """A fixture on a curve's flat end still yields digests that differ by hemisphere, so coverage
+    needs its own arm and that arm has to measure the input.
 
-    So coverage needs its own arm, and it has to measure the INPUT. Output variety does not work
-    and was tried: narrowing the fixture to the ramp's top tenth RAISED the distinct-value count
-    from 13 to 33, because the surviving samples land where the curve is steepest.
-
-    `0` to `10_000` is the full packed domain, `seaice.ICE_SCALE` being 1e-4, so this says the
-    fixture offers every producer its whole range and none has to be trusted to say where its own
-    band is.
+    Counting distinct outputs instead does not work: narrowing the fixture onto the steep part of a
+    curve raises that count rather than lowering it. `0` to `10_000` is the full packed domain,
+    `seaice.ICE_SCALE` being 1e-4.
     """
     for name, (top, bottom) in WINDOWS.items():
         raw = fixture(top, bottom).raw
@@ -128,6 +121,24 @@ def test_the_fixture_spans_the_whole_input_domain() -> None:
         assert (float(raw.min()), float(raw.max())) == (0.0, 10_000.0), (
             f"the {name} fixture no longer spans the packed input domain, so a producer whose "
             f"transition sits outside what it offers is being sampled on a flat end")
+
+
+def test_the_fixture_lands_inside_the_sea_ice_curve_and_not_only_its_flat_ends() -> None:
+    """Spanning the domain is not the same as sampling the part that bends.
+
+    A band narrow enough, or moved far enough, leaves a fixture that still spans `0` to `10_000`
+    with almost every sample pinned at 0 or 1, where a smoothstep and a straight line agree exactly.
+    Derived from `seaice`'s own constants rather than pinned to a number, so a deliberate move of
+    `ICE_LO` or `ICE_BAND` reports that the fixture needs revisiting instead of rotting quietly.
+    """
+    raw = fixture(*WINDOWS["arctic"]).raw
+    assert raw is not None
+    fraction = np.clip(
+        (seaice.unpack_seaice(raw[0]) - seaice.ICE_LO) / max(1e-6, seaice.ICE_BAND), 0.0, 1.0)
+    inside = int(((fraction > 0) & (fraction < 1)).sum())
+    assert inside >= 8, (
+        f"only {inside} of {raw.shape[1]} fixture columns land inside the ice transition, so a "
+        f"change to the curve's shape has almost nothing to move; widen the fixture or add columns")
 
 
 def test_every_subject_computes_something_or_is_a_declared_silence() -> None:
@@ -147,7 +158,7 @@ def test_every_subject_computes_something_or_is_a_declared_silence() -> None:
 
 
 def test_the_subject_set_is_derived_and_matches_the_baseline() -> None:
-    """Set EQUALITY, not containment: a listing whose subject vanished must fail, not pass."""
+    """Set equality, not containment: a listing whose subject vanished must fail, not pass."""
     committed = json.loads(BASELINE.read_text(encoding="utf-8"))
     derived = {key for key, _, _ in subjects()}
     assert derived == set(committed), (
