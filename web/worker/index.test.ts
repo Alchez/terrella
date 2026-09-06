@@ -35,7 +35,7 @@ function fakeR2Source(): Source & { calls: { offset: number; length: number }[] 
   const calls: { offset: number; length: number }[] = [];
   return {
     calls,
-    getKey: () => "planet-v2.pmtiles",
+    getKey: () => "earth/planet-v2.pmtiles",
     async getBytes(offset: number, length: number): Promise<RangeResponse> {
       calls.push({ offset, length });
       // Byte value encodes position, so a caller can prove WHICH bytes it got, not just how many.
@@ -155,7 +155,7 @@ describe("PrefetchedIndexSource", () => {
 
   it("keeps the archive key of the source it wraps", () => {
     const { source } = subject();
-    expect(source.getKey()).toBe("planet-v2.pmtiles");
+    expect(source.getKey()).toBe("earth/planet-v2.pmtiles");
   });
 });
 
@@ -286,7 +286,7 @@ describe("resolveRoute", () => {
   it("sends a countries address to the vector archive", () => {
     const route = resolveRoute("/countries/8/189/107.mvt");
     expect(route?.address).toMatchObject({ z: 8, x: 189, y: 107 });
-    expect(route?.published.objectKey).toBe("countries-v2.pmtiles");
+    expect(route?.published.objectKey).toBe("earth/countries-v2.pmtiles");
     expect(route?.layer.contentType).toBe(VECTOR_CONTENT_TYPE);
     expect(route?.published.zoomConstants).toContain("countryTiles.ts");
   });

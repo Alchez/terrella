@@ -186,11 +186,10 @@ export interface PublishedArchives extends Record<LayerId, PublishedArchive | nu
 /** Which cuts exist, per body. */
 export const PUBLISHED: Record<BodySlug, PublishedArchives> = {
   earth: {
-    // `-v2` was the WebP cut that replaced a PNG one; `-v3` is the raytraced planet, where every
-    // block is a Cycles render rather than a composite. Same rule as Mars below: the bytes changed,
-    // so the key changes.
+    // Same rule as Mars below: the bytes changed, so the key changes. What each superseded cut was
+    // is in `ARCHIVED`, where it is data a test can hold rather than prose that rots here.
     relief: {
-      objectKey: "planet-v3.pmtiles",
+      objectKey: "earth/planet-v3.pmtiles",
       token: TOKENS.earth.relief.token,
       indexLeaves: TOKENS.earth.relief.indexLeaves,
       zoomConstants: "RELIEF_MIN_ZOOM/RELIEF_MAX_ZOOM in web/src/lib/reliefTiles.ts",
@@ -198,18 +197,18 @@ export const PUBLISHED: Record<BodySlug, PublishedArchives> = {
       maxZoom: RELIEF_MAX_ZOOM,
     },
     terrain: {
-      objectKey: "terrain-v2.pmtiles",
+      objectKey: "earth/terrain-v2.pmtiles",
       token: TOKENS.earth.terrain.token,
       indexLeaves: TOKENS.earth.terrain.indexLeaves,
       zoomConstants: "TERRAIN_MIN_ZOOM/TERRAIN_MAX_ZOOM in web/src/lib/terrainSource.ts",
       minZoom: TERRAIN_MIN_ZOOM,
       maxZoom: TERRAIN_MAX_ZOOM,
     },
-    // THE OBJECT KEY KEEPS ITS OLD NAME ON PURPOSE. `objectKey` is recorded rather than derived
-    // precisely so a rename of the layer word costs nothing in R2 — renaming the object would mean
-    // recopying a multi-GB archive for no byte change.
+    // THE KEY STILL SAYS `countries` WHILE THE LAYER WORD IS `vector`, and that is the rule Mars's
+    // vector entry states: the product names the object, the role names the URL. `objectKey` is
+    // recorded rather than derived so renaming a layer word never touches R2 at all.
     vector: {
-      objectKey: "countries-v2.pmtiles",
+      objectKey: "earth/countries-v2.pmtiles",
       token: TOKENS.earth.vector.token,
       indexLeaves: TOKENS.earth.vector.indexLeaves,
       zoomConstants: "COUNTRIES_MIN_ZOOM/COUNTRIES_MAX_ZOOM in web/src/lib/countryTiles.ts",
@@ -290,6 +289,83 @@ export const PUBLISHED: Record<BodySlug, PublishedArchives> = {
     },
   },
 };
+
+/** A cut the site no longer addresses, kept in the bucket as provenance rather than as a rollback.
+ *
+ *  `key` RATHER THAN `objectKey`, and the spelling is load-bearing: `check_deploy_sync.ts` collects
+ *  the archives to preflight with a regex over this file's SOURCE, and that parse is not scoped to
+ *  `PUBLISHED`. Spelling this field `objectKey` would widen the preflight from what the site serves
+ *  to everything in the bucket, and it would still pass, so nothing would go red.
+ *  `tileAddress.test.ts` holds the field name for exactly that reason. */
+export interface ArchivedCut {
+  key: string;
+  body: BodySlug;
+  layer: LayerId;
+  /** The cut that replaced it, so a chain is orderable without reading a date off the bucket. */
+  supersededBy: string;
+  /** What this cut WAS, in one line, because a version number describes nothing on its own. */
+  note: string;
+}
+
+/** Every object in the bucket that no `PUBLISHED` entry names.
+ *
+ *  Downloadable and never routed: the Worker resolves through `PUBLISHED` alone, so nothing listed
+ *  here can answer a tile request. It exists because the bucket is additive by decision, and an
+ *  index built from `PUBLISHED` would therefore describe half of what is downloadable.
+ *
+ *  Each note is read off HISTORY rather than recalled. The prose enumerations these replace had
+ *  gone stale twice, which is the same repair as → HISTORY, *Mars's raytraced pyramid is published,
+ *  and the doc naming what it superseded had been stale since the deploy before*: an enumeration in
+ *  prose has no reader that can go red, so the fix is the query rather than a longer list. */
+export const ARCHIVED: readonly ArchivedCut[] = [
+  {
+    key: "earth/planet-v2.pmtiles",
+    body: "earth",
+    layer: "relief",
+    supersededBy: "earth/planet-v3.pmtiles",
+    note: "the composited pyramid, where a block was assembled from a hillshade rather than "
+      + "rendered in Cycles; the raytraced cut that replaced it is 0.80x its size",
+  },
+  {
+    key: "earth/terrain-v1.pmtiles",
+    body: "earth",
+    layer: "terrain",
+    supersededBy: "earth/terrain-v2.pmtiles",
+    note: "carried the 78 to 85 degree feather that flattened polar tiles toward datum; deleting "
+      + "it moved every polar pixel by 752 to 792 m and 26 equatorial ones by one 8 m step",
+  },
+  {
+    key: "earth/countries-v1.pmtiles",
+    body: "earth",
+    layer: "vector",
+    supersededBy: "earth/countries-v2.pmtiles",
+    note: "cut before the antimeridian seam rule, so Antarctica carried 11.37 degrees of cut edge "
+      + "down the meridian against 0.07 after it, and Russia 10.06 against 1.14",
+  },
+  {
+    key: "mars/relief-v2.pmtiles",
+    body: "mars",
+    layer: "relief",
+    supersededBy: "mars/relief-v3.pmtiles",
+    note: "the z6 to z7 re-cut, and the first Mars pyramid at the ceiling the body ships today",
+  },
+  {
+    key: "mars/relief-v3.pmtiles",
+    body: "mars",
+    layer: "relief",
+    supersededBy: "mars/relief-v4.pmtiles",
+    note: "the antimeridian seam fill, which moved 443 tiles; the last composited Mars cut before "
+      + "every block became a Cycles render",
+  },
+  {
+    key: "mars/features-v1.pmtiles",
+    body: "mars",
+    layer: "vector",
+    supersededBy: "mars/features-v2.pmtiles",
+    note: "drawn before the seam-closure drop, so 13 features still carried the edge that closed "
+      + "them along 180 degrees",
+  },
+];
 
 /** One parsed tile request. */
 export interface TileAddress {
