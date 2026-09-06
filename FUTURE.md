@@ -52,6 +52,10 @@ Ideas deliberately **not** planned: analysed enough to record, parked without co
 
 - [Cloud offload / offsite backup](#cloud-offload--offsite-backup-analysed-2026-07-23-revisit-after-phase-5)
 
+**A render night is booked, or the maintainer takes one of the calls in it.**
+
+- [Render passes and open calls, carried out of the working plan](#render-passes-and-open-calls-carried-out-of-the-working-plan-parked-2026-09-06) · mixed, and its own subsections carry the states
+
 ### OPEN, with nothing named that would reopen them
 
 Not a lower tier. Nobody has written down what would make them worth doing, and that absence is itself the open question.
@@ -639,3 +643,65 @@ The working plan had become the project's only backlog as well as its live state
 
 - **`MARS_MODAL_GROUND` is the authored stop and the tiles ship the RENDERED one**, so the space floor behind a missing tile is cooler than its surroundings. The gap was measured against composited tiles and Mars raytraces now, so re-measure before acting; the defect's shape is unchanged but its size is unverified. Cosmetic, pre-existing, a colour call.
 - **Mars phase 4 is an open product question rather than queued work**: whether the body gets a curated landmark set or a hero per feature. Nothing downstream is waiting on the answer.
+
+## Render passes and open calls, carried out of the working plan (parked 2026-09-06)
+
+> **MIXED**, and the subsections below carry the states. The render items wait on a night and a decision rather than on a finding, so none of them is analysis anyone can advance. Price any pass from PROCESS, never from this file.
+
+The working plan went back to holding one onboarding question at a time, which is what it is for; these are what it had been holding instead. `contributor-docs.md` folded in here with them, so there is one working doc again rather than two competing for a line budget. Every number below was re-derived rather than copied across, and one of them turned out to have been naming the wrong set.
+
+### Passes the tree has already earned
+
+- **The Mars pass is owed rather than parked, being the price of decisions already taken.** `palette.py` carries two ratified look calls, one authored white for both poles and a land ramp ratified on a rendered block, so every block and both caps restage while nothing on the live site has moved.
+  - Whether a pass is owed is answered by diffing `raytrace_params.json` against `params()`, and **that is not a one-liner**: `params()` takes `rasters`, `look`, `rig` and `blocks`, so building those four by hand is the defect that deleted the curve fingerprint. Drive whatever production path assembles them, or the diff answers about a call nobody makes.
+- **The block-row seam wants an Earth pass, for a gain 95% hidden by the polar cap.** `block_render` plus the cut plus both caps plus pack, which is a night.
+  - **The code half is settled and is not on offer again**: `prep_block.ROW_EDGE_MODE` is `"edge"` in the tree and `block_render.params` records it, so what is left is render hours.
+  - **A recipe move re-renders every block rather than the ice ones**: `start_generation` clears the whole marker set, so all 256 on Mars and all 1,024 on Earth.
+- **Does 1 to 4 DN show where the cap feathers into the tiles at 82 degrees?** A look call that rides the Mars pass, with nothing to measure first.
+  - **The cap's own constant at +1.6 DN is moot and must not be re-proposed**, and the 18 DN mismatch behind it is retracted as an estimator artifact. → HISTORY, *the two lanes turn out to obey ONE transfer*.
+  - What is left is that those are fitted transfers on one block (`r00c04`, 97.3% ice) rather than rendered frames at the seam.
+- **The base-grid threshold is unmeasured**: Nepal at 36.8 Mpx renders and Australia at 58.8 fails, and the edge between them needs GPU renders across the range. Inert while the hero re-render is deferred.
+
+### Deferred on a trigger rather than on effort
+
+- **Three items defer with the 203-hero re-render**, each needing a frame rendered under the new sky: `SHADOW_TINT`'s re-derivation, the `locked_hero_hex` re-freeze, and the hero hairline backdrop. The mismatch behind them is real, every hero carrying a warm ambient and the old tone map that the tiles do not, so a country click opens a hero that does not match its globe.
+- **Do two GPU backends render identically?** Blocked on hardware, this box having one card. If they differ, the backend belongs in the recipe rather than in `scene_build`'s module-constant allowlist, and `GPU_BACKENDS`'s own comment says so.
+- **The fold's law is deferred on the composite and cap tiers, and its stated reason is now false**, having rested on both bodies being composited. Re-argue it rather than citing it.
+
+### The full sabotage sweep, the one owed verification
+
+- **Derive the count and the population from `len(SABOTAGES)` at import, every time.** The gate in `tests/test_sabotage_cases.py` is a `>= MINIMUM_CASES` floor and pins nothing.
+- **Two scoped runs completed, 34 of 34 and 56 of 56, and both predate the current table.** Ask `git log` what has landed on `scripts/sabotage.py` since, never this entry.
+- **About 46 minutes measured, and `--audit` is the pre-flight**: it costs a tenth and answers what a sweep cannot, since escalation lets a sibling failure report a mislabelled case as caught. → HISTORY, *`--audit` prices the sweep at 46 minutes*.
+- **It owns the tree while it runs, so a worktree is the isolation.** `sabotage.py` takes `REPO_ROOT` from `__file__` and `tree-is-mutated.py` hardcodes the main checkout, so a run elsewhere blocks nothing. A worktree needs `uv sync`, `pnpm install`, and `MAPS_DATA` left unset, no skipped test being a named guard.
+- **Re-run `--audit` on whatever tree is swept**, since a recorded pass describes the table it was measured on and `sabotage.py` moves most sessions.
+- **The web suite has no narrow path, which is 28.5 of those 46 minutes**: 400 cases each rebuild 71 files' module graphs at 4.27 s, 87% of it transform and import. A file-scoped `vitest run <file>` roughly halves it, and what blocks it is that a case names the sabotaged source rather than the guard's test file, where a pytest guard is a name `-k` takes.
+
+### Changes that want a yes before they are made
+
+- **`fold_white`'s `merge` parameter has no shipped caller**: both sites discard the second return and only `test_prep_block` passes one. Deleting it is a signature change with test surface.
+- **`cap_render`'s remainder is structural rather than a prose pass**: 59 functions in one module across five subjects, so three docstring lines each is 177 lines before anything is explained.
+- **The module family census**: 16 of 16 `verb_object` in `acquire` and `fuse`, against 39 to 10 elsewhere. It needs a verb list from the maintainer, so it is a style opinion rather than a measurement.
+
+### The em-dash population, restated because the old figure named the wrong set
+
+- **316 occurrences in four tracked markdown docs**: `ART` 144, `PROCESS` 102, `ATTRIBUTIONS` 46, `web/DEPLOY` 24. That is every tracked markdown file carrying one, and it is not a single regex, since the rule names which mark replaces each, so `ART` and `PROCESS` are each their own sitting.
+- **The figure had been called "the whole tracked population" and it is not.** The tracked tree carries 4,721, so 4,405 sit in code comments and docstrings across roughly 280 files, led by `scripts/sabotage.py` at 333 and `web/src/components/Globe.astro` at 263.
+  - **Whether the rule reaches a comment is the maintainer's call**, and it separates a two-sitting doc pass from a 4,405-occurrence sweep. Visitor-visible copy is not implicated: every occurrence checked in the page templates and `aboutContent.ts` sat inside a comment.
+
+### Findings from the recipe-seam arc that had nowhere else to live
+
+- **Recipes have 13 writers and no owner**, which is why every count of them drifted, 10 then 14 then 13 then 8, each answering a different question. Two write mechanisms, `freshness.write_if_changed` and a direct `recipe_path().write_text`, and two freshness mechanisms, `is_stale` on mtime and `cap_is_fresh` on text.
+  - **A `recipe_seam` keyed on the artifact's directory would be the third instance of a shape the repo already has twice**, in `planet_seam` and `render_seam`. It touches all 13 stages.
+- **`tests/render_fingerprint.json` covers 8 of those 13**, missing `planet_warp`, `render/prep_block`, `render/prep_cap`, `tile/cut_tiles` and `tile/terrain_rgb`. Its docstring must say 8 of 13 and name them before it ships as anything called global.
+- **A green fingerprint does not mean no re-render is owed, and the pipeline agrees with the fingerprint rather than with the pixels**: `is_stale` gates on the sidecar's mtime and `write_if_changed` only moves it on a real change, so an arithmetic change leaves the output reading fresh and a full pass skips the stage. Measured on `ice_alpha` at 20.3 DN with nothing red. `tests/pixel_baseline.json` now catches that change in review; the pass still skips the stage.
+- **The citation pattern enumerates filenames**, so it goes stale every time a file is added.
+- **`guard-working-docs.py` collides same-second backups**, silently losing one of them.
+- **`rungs.ts` has no test of its own**, and the three pipeline diagrams have only ever been checked as text rather than looked at.
+
+### Rejected here, so it is not re-proposed
+
+- **The tier rule, which would have priced a change from the directory it landed in: dropped, and it must not come back.** The population says it cannot work: it reached 8 of 18 tracked groups plus 3 modules, about a fifth of the tracked files, saying nothing about `web/`, `tests/`, `scripts/`, the repo root or 15 of 18 `pipeline/*.py`.
+  - Wrong at both edges too, since `tile/pack_pmtiles` moves blobs without re-encoding and `mercator.py` defines the tile grid.
+  - **And it had nowhere to be delivered**: a tier is computed from a diff so it cannot be committed, a workflow cannot comment on a fork's pull request, and CI checks out shallow.
+- **The starter kit, all three parts**: the 148 KB manifest into git, a roughly 60 MB pixel fixture, and `PUBLIC_*_BASE` defaults pointing at production. Parked together rather than separately, since any one of them alone still leaves a contributor unable to run the thing.
