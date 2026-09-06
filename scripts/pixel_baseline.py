@@ -19,7 +19,7 @@ What it does not reach, stated so nobody reads a green as more than it is:
 
   * `scene_build.py`, the one stage that does import `bpy`. The rig, the ramps, the sun and the
     exposure live there and no venv-side instrument sees them. → FUTURE.md, *a freshness recipe
-    could be derived from the built scene*, which is the parked answer and hashes the BUILT graph.
+    could be derived from the built scene*, which is the parked answer and hashes the built graph.
   * A rendered frame. Cycles is not bit-deterministic, so no golden over its output can exist.
   * Everything upstream of the look: `pipeline/fuse/`, the warp and the encoders. Same technique
     reaches them and each needs its own fixture; this file is the first subject, not the last.
@@ -63,7 +63,7 @@ FIXTURE_SIZE = 32
 #: Decimal places kept before hashing. See the module docstring: portability, not tolerance.
 ROUNDING = 9
 
-#: The producers whose answer is `None` on every window BY DESIGN, so a `None` from anything else is
+#: The producers whose answer is `None` on every window by design, so a `None` from anything else is
 #: a fixture that stopped reaching its subject rather than a producer with nothing to say. Listed as
 #: exceptions rather than the subjects being listed, so a new producer is covered by default, and
 #: pinned as a value so the day one starts contributing this goes red instead of quietly widening.
@@ -77,10 +77,9 @@ DECLARED_SILENT = frozenset({"earth/antarctic_rock"})
 def fixture(latitude_top: float, latitude_bottom: float) -> layer_producers.LayerWindow:
     """One window whose every mask band sees the whole input range.
 
-    The input varies ACROSS columns and the masks down rows, deliberately. Varying both down rows
-    put the ocean band on the ramp's low end alone, so `gated_alpha` collapsed an all-zero sea-ice
-    result to `None` and the subject read exactly like `antarctic_rock`'s declared `None`: a
-    vacuous row wearing a legitimate one's clothes, which is the failure this file exists to stop.
+    The input varies across columns and the masks down rows. Varying both down rows leaves the
+    ocean band on the ramp's low end alone, where `gated_alpha` collapses an all-zero sea-ice
+    result to a `None` indistinguishable from `antarctic_rock`'s declared one.
     """
     size = FIXTURE_SIZE
     rows = np.arange(size)[:, None]
