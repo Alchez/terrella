@@ -41,16 +41,24 @@ Linux only, so far. CI runs Ubuntu, and the render pipeline expects a Blender ta
 
 Some tests read source data that is not in git. Those skip rather than fail, and `uv run pytest -rs` names the artifact each one wanted, which is how you tell an expected skip from a broken setup. A failure is a different thing and is worth reporting.
 
-## Changing how it looks, without being able to render it
+## Changing the pipeline without the render store
 
-You can run almost all of the pipeline: stage logic is tested against synthetic rasters in a temp directory rather than against the render store. What you cannot do is render, so the question a reviewer needs answered is whether your change moves pixels.
+You can run almost all of it. Stage logic is tested against synthetic rasters built in a temp directory rather than against the store, so with no data at all the Python suite passes but for the skips named above, and the web suite loses nothing. Every one of those skips asks the same question: does the real source behave the way the synthetic fixture assumes.
 
-Part of that is answered without a GPU. `tests/curve_fingerprint.json` holds every pure transform in `pipeline/look/` sampled over a fixed domain, computed from the code alone.
+What you cannot do is render, so the question that matters is whether your change costs a re-render. Two committed files answer most of it without a GPU, each compared against the code by a test.
 
-- **The samples move**: the test fails and names the transforms whose output changed. If that was deliberate, regenerate with `uv run python -m scripts.curve_fingerprint --write` and commit the result in the same change, so the diff says what the change costs.
-- **The samples do not move**: nothing in that registry computes differently. That is not the same as leaving the output alone, and the difference is worth stating in your pull request. A change to how a transform is called, to the Blender shader graph, or to anything under `pipeline/fuse/`, moves pixels and moves no sample here.
+- **`tests/render_fingerprint.json` records the settings** stages write beside their outputs: sun angles, colours, thresholds. It answers whether you moved a value.
+- **`tests/pixel_baseline.json` records what the look layers compute**, by running the shipped producers on a small synthetic window and digesting the result. It answers whether you changed a calculation, which no record of settings can see: changing the sea-ice curve from a smoothstep to a straight line moves every sea-ice pixel on Earth by up to 20.3 DN of white and leaves the settings file byte-identical.
 
-Two things follow. Reviewing a look change means reading the arithmetic, because no gate covers the parts listed above. And a change that alters what the globe looks like needs a rendered frame the maintainer judges by eye, which is a conversation worth having in an issue before you build it.
+Either going red means a pass is owed, and the failure names what moved and points at the cost in PROCESS.md. Regenerate with `uv run python -m scripts.render_fingerprint --write` or `uv run python -m scripts.pixel_baseline --write`, and commit the result in the same change so the diff says what it costs.
+
+**Green on both is a necessary condition and not a sufficient one**, and if your change is in one of the gaps below, say so in your pull request, because nothing here can check it for you.
+
+- **The Blender rig.** `scene_build.py` is the one stage that imports `bpy`, and the ramps, the sun and the exposure live in it. Nothing on a machine without Blender sees a change there.
+- **A rendered frame,** which cannot be compared at all: Cycles is not bit-deterministic, so two runs of unchanged code do not produce identical pixels.
+- **Everything the pixel baseline has no fixture for yet.** It covers the look layers. `pipeline/fuse/`, which welds the land and sea-floor data into the heightfield everything is rendered from, records no settings and has no fixture; the same technique reaches it and nobody has written it. The 203-country hero lane is in the same position.
+
+Two things follow, and neither is a formality. Reviewing a pipeline change means reading the arithmetic the gates do not reach, and they now say which part that is. And a change that alters the look needs a rendered frame the maintainer judges by eye, which is a conversation to have in an issue before you build it.
 
 ## AI-assisted contributions
 
