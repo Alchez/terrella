@@ -114,6 +114,7 @@ def pmtiles_command(cut: VectorCut, source: Path, destination: Path) -> list[str
     return vector_layers.pmtiles_command(
         source, destination,
         name=cut.name,
+        description=attribution.describe(cut.body, "vector"),
         min_zoom=cut.min_zoom,
         max_zoom=cut.max_zoom,
         buffer=cut.buffer,
@@ -135,6 +136,10 @@ def recipe(cut: VectorCut) -> dict[str, Any]:
     """
     return {
         **cut.extra_recipe(),
+        # Both composed strings land in the archive and nowhere else on disk, so an edit to
+        # `attribution.py` leaves a cut archive answering fresh unless the sidecar carries them.
+        "attribution": attribution.for_archive(cut.body, "vector"),
+        "description": attribution.describe(cut.body, "vector"),
         "layers": list(cut.sources()),
         "min_zoom": cut.min_zoom,
         "max_zoom": cut.max_zoom,

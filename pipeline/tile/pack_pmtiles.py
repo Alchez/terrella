@@ -16,8 +16,9 @@ while `gdal raster tile --convention=xyz` wrote XYZ rows (origin top-left) —
 `tms_row` is the single home of that conversion, pinned by tests either way
 (a silent flip error would serve a vertically mirrored planet).
 
-The archive also carries its own credit. `pipeline/attribution.py` composes it per body and layer
-and `pmtiles convert` copies it through, which is the only copy that survives a download.
+The archive also carries its own credit and its own description. `pipeline/attribution.py` composes
+both per body and layer and `pmtiles convert` copies them through, which is the only copy of either
+that survives a download.
 
 Usage: python -m pipeline.tile.pack_pmtiles --body earth --layer relief [--tiles DIR] [--out FILE]
        [--name NAME]
@@ -76,12 +77,13 @@ def iter_tiles(tiles_dir: Path):
                     yield zoom, column, int(tile_path.stem), tile_path
 
 
-def pack_directory(tiles_dir: Path, out_mbtiles: Path, name: str, attribution: str) -> int:
+def pack_directory(tiles_dir: Path, out_mbtiles: Path, name: str, attribution: str,
+                   description: str) -> int:
     """Pack tiles_dir into out_mbtiles (.tmp + atomic replace). Returns the tile count.
 
-    `attribution` has no default for the reason `--body` has none: an archive packed without one
-    is complete, valid and silently uncredited, and the copy on a stranger's disk is the one no
-    later change can reach.
+    Neither string has a default, for the reason `--body` has none: an archive packed without one
+    is complete, valid and silently uncredited or silently anonymous, and the copy on a stranger's
+    disk is the one no later change can reach.
     """
     if not tiles_dir.is_dir():
         sys.exit(f"{tiles_dir} is not a directory — cut the pyramid first "
@@ -130,6 +132,7 @@ def pack_directory(tiles_dir: Path, out_mbtiles: Path, name: str, attribution: s
             ("bounds", BOUNDS),
             ("type", "baselayer"),
             ("attribution", attribution),
+            ("description", description),
         ])
     os.replace(tmp, out_mbtiles)
     print(f"packed {count:,} tiles (z{min(zooms)}-z{max(zooms)}) -> {out_mbtiles} "
@@ -168,7 +171,8 @@ def main() -> int:
     tiles = args.tiles if args.tiles is not None else default_tiles(body)
     out = args.out if args.out is not None else default_out(body)
     pack_directory(tiles, out, name=args.name or f"terrella-{args.layer}",
-                   attribution=attribution.for_archive(body, args.layer))
+                   attribution=attribution.for_archive(body, args.layer),
+                   description=attribution.describe(body, args.layer))
     return 0
 
 

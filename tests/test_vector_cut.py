@@ -27,7 +27,8 @@ from pipeline.compose import (
 #: What every body records, whatever it cuts. `seam_recipe`'s two keys ride along because the
 #: geometry handed to the cut is as much a setting as the cut's own.
 SHARED_KEYS = {"layers", "min_zoom", "max_zoom", "simplification", "simplification_max_zoom",
-               "buffer", "extent", "seam_band_degrees", "seam_twin_latitude_epsilon"}
+               "buffer", "extent", "seam_band_degrees", "seam_twin_latitude_epsilon",
+               "attribution", "description"}
 
 #: Earth names the one GeoJSON its whole pyramid descends from; Mars's four layers come from four
 #: separate gazetteer files and it names none. That asymmetry is the reason `extra_recipe` exists
@@ -192,6 +193,29 @@ class TestTheCutCarriesItsCredit:
         monkeypatch.setattr(vector_cut, "PMTILES_TOOL", tmp_path / "absent/pmtiles")
         with pytest.raises(SystemExit, match="cannot carry its credit"):
             vector_cut.write_credit(countries_pmtiles.CUT, tmp_path / "any.pmtiles")
+
+
+class TestTheCutSaysWhatIsInIt:
+    """The driver's other composed string, and the one GDAL can write itself: `DESCRIPTION` is a
+    creation option where `attribution` is not, so this rides the conversion rather than the
+    rewrite after it.
+    """
+
+    @pytest.mark.parametrize("cut", list(EXPECTED_KEYS), ids=lambda cut: cut.name)
+    def test_the_description_is_the_bodys_vector_description(self, cut):
+        command = " ".join(vector_cut.pmtiles_command(cut, Path("in.gpkg"), Path("out.pmtiles")))
+        assert f"DESCRIPTION={attribution.describe(cut.body, 'vector')}" in command
+
+    @pytest.mark.parametrize("cut", list(EXPECTED_KEYS), ids=lambda cut: cut.name)
+    def test_both_composed_strings_are_recorded_beside_the_archive(self, cut, subtests):
+        """A credit or a description edited in `attribution.py` changes the archive's bytes and
+        nothing else on disk, so without these keys `is_fresh` keeps answering yes for an archive
+        cut under the previous wording and the pass skips the stage that would fix it."""
+        recorded = vector_cut.recipe(cut)
+        with subtests.test("attribution"):
+            assert recorded["attribution"] == attribution.for_archive(cut.body, "vector")
+        with subtests.test("description"):
+            assert recorded["description"] == attribution.describe(cut.body, "vector")
 
 
 class TestTheKnobsStayPerBody:

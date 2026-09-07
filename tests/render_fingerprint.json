@@ -74,7 +74,9 @@
     "srs": "declared EPSG:4326, not transformed from ESRI:104905"
   },
   "compose/vector_cut:countries": {
+    "attribution": "Terrella (https://terrella.alchez.dev), CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/). Made with Natural Earth (naturalearthdata.com).",
     "buffer": 0,
+    "description": "Earth vector geometry drawn as an overlay, from the Terrella pipeline.",
     "extent": 4096,
     "layers": [
       "country_fill",
@@ -90,7 +92,9 @@
     "source": "countries.geojson"
   },
   "compose/vector_cut:features": {
+    "attribution": "Terrella (https://terrella.alchez.dev), CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/). IAU/USGS Gazetteer of Planetary Nomenclature, U.S. Geological Survey Astrogeology Science Center (https://planetarynames.wr.usgs.gov/).",
     "buffer": 0,
+    "description": "Mars vector geometry drawn as an overlay, from the Terrella pipeline.",
     "extent": 4096,
     "layers": [
       "feature_fill",

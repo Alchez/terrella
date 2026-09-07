@@ -7972,6 +7972,16 @@ def _earth_lake_depth''',
         replacement='',
         guard='test_the_archive_states_who_made_the_data_in_it',
     ),
+    # The other row a downloaded file cannot reconstruct. Dropping it leaves an archive whose only
+    # self-description is `name`, which reads `terrella-relief` on both planets.
+    Sabotage(
+        suite='python',
+        label='the packed archive stops saying which planet and which product it holds',
+        path='pipeline/tile/pack_pmtiles.py',
+        needle='            ("description", description),\n',
+        replacement='',
+        guard='test_the_archive_states_what_is_in_it',
+    ),
     # The tempting simplification, since both pyramids come off one heightfield: a terrain cut then
     # states inside its own bytes that snow, glacier, sea-ice and rock-outcrop data are in it.
     Sabotage(
@@ -8002,6 +8012,26 @@ def _earth_lake_depth''',
         needle='    if not PMTILES_TOOL.exists():\n        sys.exit(',
         replacement='    if not PMTILES_TOOL.exists():\n        return print(',
         guard='test_a_missing_pmtiles_binary_stops_the_cut_rather_than_skipping_the_credit',
+    ),
+    # GDAL writes `DESCRIPTION` as an empty string when the option is absent, so dropping it here
+    # produces a valid archive carrying the key with nothing in it rather than a missing key.
+    Sabotage(
+        suite='python',
+        label='the vector cut hands the driver no description and ships the empty one GDAL writes',
+        path='pipeline/compose/vector_layers.py',
+        needle='        "-dsco", f"DESCRIPTION={description}",\n',
+        replacement='',
+        guard='test_every_knob_reaches_the_command',
+    ),
+    # Both composed strings live in `attribution.py` and reach disk only inside the archive, so
+    # without them in the sidecar a reworded credit leaves `is_fresh` answering yes forever.
+    Sabotage(
+        suite='python',
+        label='a reworded credit leaves the vector archive that predates it reading fresh',
+        path='pipeline/compose/vector_cut.py',
+        needle='        "attribution": attribution.for_archive(cut.body, "vector"),\n',
+        replacement='',
+        guard='test_both_composed_strings_are_recorded_beside_the_archive',
     ),
     # --- the shared-dataset seam ------------------------------------------------------------
     # Everything here is invisible on a developer box, because `MAPS_DATA` is unset and the two

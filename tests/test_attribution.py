@@ -223,6 +223,52 @@ class TestThePageListIsDerived:
                 assert len(names) == len(set(names))
 
 
+class TestWhatAnArchiveSaysItIs:
+    """A downloaded archive is otherwise anonymous. `name` reads `terrella-relief` on a raster cut
+    and `countries` on a vector one, and no key in the blob says which planet the tiles are of.
+
+    Authored notes are NOT this. `ARCHIVED[].note` in `tileAddress.ts` says what one cut changed
+    against the one before it, which is a fact about a pair rather than about a file, and lives
+    where it can still be corrected after the bytes are published.
+    """
+
+    def test_every_archive_gets_one(self, subtests):
+        for body in bodies.BODIES.values():
+            for layer in attribution.ARCHIVE_LAYERS:
+                with subtests.test(f"{body.name}/{layer}"):
+                    assert attribution.describe(body, layer).strip()
+
+    def test_it_names_the_body(self, subtests):
+        for body in bodies.BODIES.values():
+            for layer in attribution.ARCHIVE_LAYERS:
+                with subtests.test(f"{body.name}/{layer}"):
+                    assert body.name.title() in attribution.describe(body, layer)
+
+    def test_it_restates_nothing_the_blob_already_carries(self, subtests):
+        """`minzoom`, `maxzoom` and `format` are their own keys in the same metadata. A description
+        repeating them is a second copy that can disagree with the one a reader parses."""
+        for body in bodies.BODIES.values():
+            for layer in attribution.ARCHIVE_LAYERS:
+                with subtests.test(f"{body.name}/{layer}"):
+                    assert not re.search(r"z\d|webp|png|jpe?g|pbf|mvt",
+                                         attribution.describe(body, layer), re.IGNORECASE)
+
+    def test_the_three_pyramids_do_not_share_one_description(self):
+        """The vacuity control, on `for_archive`'s reasoning: a function returning one constant
+        would satisfy every positive assertion above."""
+        composed = {attribution.describe(bodies.EARTH, layer)
+                    for layer in attribution.ARCHIVE_LAYERS}
+        assert len(composed) == len(attribution.ARCHIVE_LAYERS)
+
+    def test_the_two_bodies_do_not_share_one_description(self):
+        assert attribution.describe(bodies.EARTH, "relief") != \
+               attribution.describe(bodies.MARS, "relief")
+
+    def test_an_unknown_layer_raises_rather_than_describing_something(self):
+        with pytest.raises(ValueError, match="not an archive layer"):
+            attribution.describe(bodies.EARTH, "")
+
+
 class TestTheCommittedJsonIsInStep:
     """The site imports a generated file, so the file can go stale against the module it came from.
     Same hazard `tileTokens.json` carries, and the same answer: regenerate and compare."""
