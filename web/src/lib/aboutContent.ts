@@ -18,6 +18,12 @@
 
 import { MARS_RAMP, rampGradient, type RampStop } from "./palette.ts";
 import type { BodySlug } from "./bodies.ts";
+// The cards and the disclaimers, generated from `pipeline/attribution.py` by
+// `scripts/gen_attributions.py` and committed. A stage that stamps an archive needs these in
+// Python and a card needs them here, and only one of those directions can generate: this file
+// used to keep its own list, and the two had drifted in both directions at once. SCAR ADD is
+// CC-BY and was on no card; NSIDC, RGI and OSI SAF were worded differently from the notices.
+import CREDITS from "../data/attributions.json";
 
 /** One numbered stage of a body's pipeline, as a visitor reads it. */
 export interface AboutStep {
@@ -163,72 +169,7 @@ export const ABOUT: Record<BodySlug, BodyAbout> = {
         text: "At the poles, translucent white sea ice floats over the real ocean-floor relief. It is a 1991–2020 average of how often each stretch of sea freezes, not a live snapshot.",
       },
     ],
-    sources: [
-      {
-        name: "Copernicus DEM GLO-30",
-        href: "https://dataspace.copernicus.eu/explore-data/data-collections/copernicus-contributing-missions/collections-description/COP-DEM",
-        role: "Land elevation",
-        license: "Copernicus",
-        // Verbatim, not paraphrased: Article 6(b) of the WorldDEM-30 licence requires this exact
-        // notice for adapted data. ATTRIBUTIONS.md is the source of truth and a test guards the pair.
-        attribution:
-          "produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved",
-      },
-      {
-        name: "GEBCO 2026 Grid",
-        href: "https://www.gebco.net",
-        role: "Bathymetry",
-        license: "Public domain",
-        attribution: "Reproduced from the GEBCO_2026 Grid, GEBCO Compilation Group (2026).",
-      },
-      {
-        name: "GLOBathy",
-        href: "https://springernature.figshare.com/collections/GLOBathy_the_Global_Lakes_Bathymetry_Dataset/5243309",
-        role: "Lake depth",
-        license: "CC0",
-        attribution:
-          "GLOBathy global lakes bathymetry (Khazaei et al., Sci Data 9:36, 2022). Public-domain dedication (CC0). Depth is modelled; see the Lake depth note below.",
-      },
-      {
-        name: "ESA WorldCover 2021",
-        href: "https://esa-worldcover.org",
-        role: "Snow / ice mask",
-        license: "CC-BY 4.0",
-        attribution:
-          "© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021), processed by the ESA WorldCover consortium.",
-      },
-      {
-        name: "NSIDC-0791 Snow Persistence",
-        href: "https://nsidc.org/data/nsidc-0791",
-        role: "Snow persistence",
-        license: "Public domain",
-        attribution:
-          "MODIS snow-persistence climatology (water years 2001–2023), NASA NSIDC DAAC dataset NSIDC-0791.",
-      },
-      {
-        name: "RGI 7.0 Glaciers",
-        href: "https://nsidc.org/data/nsidc-0770/versions/7",
-        role: "Glaciers",
-        license: "CC-BY 4.0",
-        attribution:
-          "Randolph Glacier Inventory 7.0 (RGI Consortium, 2023), NSIDC-0770 v7.",
-      },
-      {
-        name: "OSI SAF Sea Ice (OSI-450-a)",
-        href: "https://osi-saf.eumetsat.int/products/osi-450-a",
-        role: "Sea ice",
-        license: "CC-BY 4.0",
-        attribution:
-          "EUMETSAT Ocean and Sea Ice SAF, Global Sea Ice Concentration Climate Data Record (OSI-450-a), reduced to a 1991–2020 frequency climatology. Copyright EUMETSAT.",
-      },
-      {
-        name: "Natural Earth",
-        href: "https://www.naturalearthdata.com",
-        role: "Borders & coastlines",
-        license: "Public domain",
-        attribution: "naturalearthdata.com.",
-      },
-    ],
+    sources: CREDITS.bodies.earth.sources,
     notes: [
       {
         heading: "Boundaries",
@@ -247,9 +188,7 @@ export const ABOUT: Record<BodySlug, BodyAbout> = {
     ],
     // Article 6(c) of the WorldDEM-30 licence, quoted rather than summarised, and guarded as an
     // exact string by `tests/test_attributions.py`. It belongs to Earth because WorldDEM-30 does.
-    legal: [
-      "The organisations in charge of the Copernicus programme by law or by delegation do not incur any liability for any use of the Copernicus WorldDEM-30.",
-    ],
+    legal: CREDITS.bodies.earth.legal,
   },
 
   mars: {
@@ -285,41 +224,7 @@ export const ABOUT: Record<BodySlug, BodyAbout> = {
         text: "Web Mercator dies before it reaches a pole, so each cap is rendered on its own projection and dropped in. The permanent ice is the mapped cap, graded by how bright the Viking orbiters photographed it.",
       },
     ],
-    sources: [
-      {
-        name: "MOLA / HRSC Blended DEM",
-        href: "https://astrogeology.usgs.gov/search/map/mars_mgs_mola_mex_hrsc_blended_dem_global_200m",
-        role: "Surface elevation",
-        // THE PUBLISHER'S OWN WORDS, not our reading of them. USGS states the blend's inputs as
-        // "MOLA (CC0) and HRSC (CC BY-SA 3.0 IGO)" and its use constraint as "Please cite authors".
-        // The share-alike half is why the whole site's output licence is BY-SA.
-        license: "MOLA CC0 · HRSC CC BY-SA 3.0 IGO",
-        attribution:
-          "Fergason, R. L, Hare, T. M., & Laura, J. (2018). HRSC and MOLA Blended Digital Elevation Model at 200m v2. Astrogeology PDS Annex, U.S. Geological Survey. MOLA flew on NASA's Mars Global Surveyor and HRSC on ESA's Mars Express; HRSC covers 44% of the planet, MOLA the rest.",
-      },
-      {
-        name: "Geologic Map of Mars (SIM 3292)",
-        href: "https://pubs.usgs.gov/sim/3292/",
-        role: "Where the permanent polar ice is",
-        // THE ONE MARS SOURCE WITH A STATED OBLIGATION, and it is an exact-string one: the product's
-        // own metadata reads `Use_Constraints: please cite authors.`, so the citation below is
-        // quoted from its FGDC `Data_Set_Credit` field rather than composed here.
-        license: "Public domain · cite authors",
-        attribution:
-          "K.L. Tanaka, J.A. Skinner, Jr., J.M. Dohm, R.P. Irwin, III, E.J. Kolb, C.M. Fortezzo, Thomas Platz, G.G. Michael, and T.M. Hare, 2014, Geologic Map of Mars, Scale 1:20,000,000, U.S. Geological Survey Scientific Investigations Map SIM 3292, http://pubs.usgs.gov/sim/3292",
-      },
-      {
-        name: "Viking colour mosaic",
-        href: "https://astrogeology.usgs.gov/search/map/mars_viking_colorized_global_mosaic_925m",
-        role: "How bright each part of the ice is, and the planet's hue",
-        // CREDITED BY COURTESY, NOT BY OBLIGATION, and the distinction is the publisher's own: its
-        // constraint fields read `Access Constraints: public domain`, `Use Constraints: None`. That
-        // is why this is absent from `REQUIRED_STRINGS` while SIM 3292 above is in it.
-        license: "Public domain",
-        attribution:
-          "U.S. Geological Survey Astrogeology Science Center, Viking Global Color Mosaic 925m. Built for albedo rather than for relief, which is why the ice grades against it.",
-      },
-    ],
+    sources: CREDITS.bodies.mars.sources,
     notes: [
       {
         // GUARDED BY `aboutCredits.test.ts`, which asserts the CLAIMS rather than the sentences —
@@ -347,6 +252,6 @@ export const ABOUT: Record<BodySlug, BodyAbout> = {
     ],
     // Empty, and that is a statement rather than a gap: every Mars source here is USGS or NASA
     // public domain, and the one with a use constraint asks for a citation, not a disclaimer.
-    legal: [],
+    legal: CREDITS.bodies.mars.legal,
   },
 };

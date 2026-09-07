@@ -148,6 +148,12 @@ MUTABLE_ROOTS = (
     # wrong stage column just moves a key in a recipe nobody re-reads. Neither has an output to
     # inspect, so mutation is the only proof they still fire.
     "pipeline/layers.py",
+    # Joined with the archive credit, which has no observable failure on this box or on the site.
+    # A pyramid packed with the wrong credit, or none, serves byte-identical tiles and draws an
+    # identical globe; the only artifact that disagrees is a file on someone else's disk, written
+    # once and unreachable afterwards. Every guard over it is a substring test over a composed
+    # string, which is the shape that passes most easily for the wrong reason.
+    "pipeline/attribution.py",
     # Joined with the reproject-then-burn owner, whose whole subject is a GDAL command that succeeds
     # while producing nothing. Earth's one caller draws a coastline that is obviously there, so every
     # guard over it passes on this box whether it fires or not; the body it protects is the one that
@@ -7097,9 +7103,11 @@ def _earth_lake_depth''',
         # and is the same defect one layer down, is a source going blank: a card renders, the planet
         # still has an entry, and the credit is gone.
         label="a body's credit goes blank while its card still renders",
-        path='web/src/lib/aboutContent.ts',
-        needle='        name: "MOLA / HRSC Blended DEM",',
-        replacement='        name: "",',
+        # Re-anchored onto the generated cards when `pipeline/attribution.py` became their owner:
+        # this file is what the page imports, so it is where a blank name would actually reach it.
+        path='web/src/data/attributions.json',
+        needle='"name": "MOLA / HRSC Blended DEM"',
+        replacement='"name": ""',
         guard='gives every source a name, a role, a licence and a credit',
     ),
     Sabotage(
@@ -7145,9 +7153,16 @@ def _earth_lake_depth''',
         # truth — the exact drift `test_attributions.py` was written for, now covering a string
         # the publisher asks for in its Use Constraints rather than one a licence compels.
         label="the Mars blend's requested citation is trimmed off the About page",
-        path='web/src/lib/aboutContent.ts',
-        needle='Fergason, R. L, Hare, T. M., & Laura, J. (2018). HRSC and MOLA Blended Digital Elevation Model at 200m v2. Astrogeology PDS Annex, U.S. Geological Survey. ',
-        replacement='',
+        # Re-anchored onto the generated cards, which is what the page renders now. Mutating the
+        # Python owner instead leaves the committed JSON intact, so the PAGE guard passes and only
+        # the staleness check fires — red, but not this case's claim.
+        path='web/src/data/attributions.json',
+        # Carries the page_note tail, because the citation now appears twice in this file: once in
+        # the card and once in the archive credit beside it. The card is this case's subject.
+        needle='Fergason, R. L, Hare, T. M., & Laura, J. (2018). HRSC and MOLA Blended Digital '
+               'Elevation Model at 200m v2. Astrogeology PDS Annex, U.S. Geological Survey. '
+               'MOLA flew',
+        replacement='MOLA flew',
         guard='test_about_page_carries_the_required_string',
     ),
     Sabotage(
@@ -7932,8 +7947,8 @@ def _earth_lake_depth''',
         suite='python',
         label='the archive name is derived from the body, changing every tile URL the site serves',
         path='pipeline/tile/pack_pmtiles.py',
-        needle='    pack_directory(tiles, out, name=args.name)',
-        replacement='    pack_directory(tiles, out, name=f"terrella-{body.name}-relief")',
+        needle='    pack_directory(tiles, out, name=args.name or f"terrella-{args.layer}",',
+        replacement='    pack_directory(tiles, out, name=f"terrella-{body.name}-{args.layer}",',
         guard='test_the_default_name_does_not_vary_with_the_body',
     ),
     # `default_tiles` and `default_out` could both be exactly right while `main` called neither —
@@ -7945,6 +7960,48 @@ def _earth_lake_depth''',
         needle='    tiles = args.tiles if args.tiles is not None else default_tiles(body)',
         replacement='    tiles = args.tiles if args.tiles is not None else default_tiles(bodies.EARTH)',
         guard='test_the_body_selects_the_paths_main_actually_packs',
+    ),
+    # The credit is the one thing in the metadata block that a reader cannot infer from the tiles,
+    # and dropping it is invisible everywhere the archive is served: the site draws the same pixels
+    # and only a downloaded file is left uncredited.
+    Sabotage(
+        suite='python',
+        label='the packed archive stops carrying the credit that survives a download',
+        path='pipeline/tile/pack_pmtiles.py',
+        needle='            ("attribution", attribution),\n',
+        replacement='',
+        guard='test_the_archive_states_who_made_the_data_in_it',
+    ),
+    # The tempting simplification, since both pyramids come off one heightfield: a terrain cut then
+    # states inside its own bytes that snow, glacier, sea-ice and rock-outcrop data are in it.
+    Sabotage(
+        suite='python',
+        label='a terrain archive claims the surface sources only the relief cut bakes in',
+        path='pipeline/attribution.py',
+        needle='    if layer == "terrain":',
+        replacement='    if layer == "terrain-disabled":',
+        guard='test_a_terrain_cut_does_not_claim_the_surface_layers_it_has_none_of',
+    ),
+    # The vector cut writes its credit into the TEMPORARY archive and then promotes. Doing it after
+    # the promote still produces a credited archive, and leaves a window where the live one is being
+    # rewritten in place, which is the state the .tmp convention exists to make impossible.
+    Sabotage(
+        suite='python',
+        label='the vector credit is written to the live archive instead of the temporary one',
+        path='pipeline/compose/vector_cut.py',
+        needle='    write_credit(cut, temporary)\n    temporary.replace(archive)',
+        replacement='    temporary.replace(archive)\n    write_credit(cut, archive)',
+        guard='test_the_credit_is_written_before_the_archive_is_promoted',
+    ),
+    # A missing binary is the one failure that can reasonably be waved through, and waving it
+    # through ships an uncredited archive under the final name with the run reporting success.
+    Sabotage(
+        suite='python',
+        label='a missing pmtiles binary skips the vector credit instead of stopping the cut',
+        path='pipeline/compose/vector_cut.py',
+        needle='    if not PMTILES_TOOL.exists():\n        sys.exit(',
+        replacement='    if not PMTILES_TOOL.exists():\n        return print(',
+        guard='test_a_missing_pmtiles_binary_stops_the_cut_rather_than_skipping_the_credit',
     ),
     # --- the shared-dataset seam ------------------------------------------------------------
     # Everything here is invisible on a developer box, because `MAPS_DATA` is unset and the two
