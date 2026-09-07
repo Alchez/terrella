@@ -272,6 +272,16 @@ RASTER_LAYERS = ("relief", "terrain")
 TERRELLA = ("Terrella (https://terrella.alchez.dev), CC BY-SA 4.0 "
             "(https://creativecommons.org/licenses/by-sa/4.0/).")
 
+#: What each pyramid holds, in the words a stranger holding the file needs. The layer name alone is
+#: this project's vocabulary rather than anyone else's, and `vector` is a role that means countries
+#: on one planet and named features on another, which is why the archive's own `name` still says
+#: which. Nothing here names a zoom or an encoding: those are their own keys in the same blob.
+LAYER_CONTENTS = {
+    "relief": "shaded relief imagery",
+    "terrain": "elevation encoded as Terrain-RGB",
+    "vector": "vector geometry drawn as an overlay",
+}
+
 
 def painted_layers(body: bodies.Body) -> frozenset[str]:
     """The surface layers a relief cut of this body bakes in.
@@ -304,6 +314,21 @@ def for_archive(body: bodies.Body, layer: str) -> str:
     if "glo30" in keys:
         lines.insert(2, COPERNICUS_LIABILITY)
     return " ".join(line if line.endswith(".") else f"{line}." for line in lines)
+
+
+def describe(body: bodies.Body, layer: str) -> str:
+    """The `description` an archive of this body and layer carries, saying what the file holds.
+
+    Derived, with no authored half and no date. An authored sentence is what `ARCHIVED[].note` in
+    `tileAddress.ts` already carries, and it belongs there rather than here for two reasons: it
+    describes a cut against the one it replaced, which is not knowable when the bytes are written,
+    and bytes cannot be corrected afterwards without a re-cut, a re-upload and two Worker deploys.
+    A timestamp is refused on top of that: it would make two packs of one pyramid differ, and
+    reproducible bytes are what proves a re-pack moved no tile.
+    """
+    if layer not in ARCHIVE_LAYERS:
+        raise ValueError(f"{layer!r} is not an archive layer ({', '.join(ARCHIVE_LAYERS)})")
+    return f"{body.name.title()} {LAYER_CONTENTS[layer]}, from the Terrella pipeline."
 
 
 def on_the_page(body: bodies.Body) -> tuple[Source, ...]:

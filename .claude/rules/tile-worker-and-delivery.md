@@ -92,10 +92,23 @@ probing the key you need on a two-tile fixture first.
 **The GDAL PMTiles driver cannot write `attribution` at all.** Its creation options are `NAME`,
 `DESCRIPTION`, `TYPE`, `MINZOOM`, `MAXZOOM`, `CONF`, `SIMPLIFICATION`, `SIMPLIFICATION_MAX_ZOOM`,
 `EXTENT`, `BUFFER`, `MAX_SIZE`, `MAX_FEATURES`, and no more. `DESCRIPTION` is not a substitute:
-`attribution` is the key a renderer displays. The vector cut therefore rewrites the blob afterwards
-with `tools/pmtiles edit --metadata`, which replaces the metadata ENTIRELY, so read it back with
-`pmtiles show --metadata` and merge rather than composing a fresh object. Measured: one key added,
-none lost, tile bytes identical, file 106 bytes smaller because the JSON re-serialises tighter.
+`attribution` is the key a renderer displays, and the two now carry different things, the credit and
+what the archive holds. So the vector cut passes `DESCRIPTION` as a creation option and rewrites the
+blob afterwards for `attribution` alone, with `tools/pmtiles edit --metadata`, which replaces the
+metadata ENTIRELY, so read it back with `pmtiles show --metadata` and merge rather than composing a
+fresh object. Measured: one key added, none lost, tile bytes identical, file 106 bytes smaller
+because the JSON re-serialises tighter.
+
+**A description is DERIVED and carries no date.** `attribution.describe` composes it from the body
+and the layer and nothing else: the zooms and the format are their own keys in the same blob, and a
+timestamp would make two packs of one pyramid differ, which is what proves a re-pack moved no tile.
+The authored half, what one cut changed against the one before it, is `ARCHIVED[].note` in
+`tileAddress.ts`, where it can still be corrected after the bytes are published.
+
+**Both composed strings are inputs no other file on disk records**, so the vector cut's sidecar
+carries them. Without that, rewording a credit leaves every cut archive answering fresh and the
+pass skips the stage that would fix it. The raster pack has no freshness gate at all and needs no
+equivalent: an operator runs it.
 
 **`tools/` is gitignored, so `tools/pmtiles` is a download and not part of a checkout.** Both archive
 chains need it now. A stage that cannot find it must exit rather than skip, or it ships an

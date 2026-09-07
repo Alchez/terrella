@@ -77,7 +77,8 @@ Not a lower tier. Nobody has written down what would make them worth doing, and 
 
 - [A z9 / z10 pyramid](#a-z9--z10-pyramid-z10-is-blocked-on-disk-z9-is-reachable-analysed-2026-07-26) · a bigger disk
 - [Brotli sidecars for the text-like assets](#brotli-sidecars-for-the-text-like-assets-analysed-2026-07-25-blocked) · an R2 `Content-Encoding` probe nobody has run
-- [The polar caps are a texture](#the-polar-caps-are-a-texture-because-maplibre-allows-nothing-else-and-the-ceiling-is-webps-analysed-2026-08-07) · MapLibre gaining a TileMatrixSet source
+- [The polar caps are a texture](#the-polar-caps-are-a-texture-because-maplibre-allows-nothing-else-and-the-ceiling-is-webps-analysed-2026-08-07) · a non-Mercator source usable beside Mercator on a globe
+- [Replacing MapLibre with another engine](#replacing-maplibre-with-another-engine-threejs-is-the-wrong-shape-and-cesium-fixes-one-cost-of-three-analysed-2026-09-07) · REJECTED, on that same event
 - [MapLibre's WebGPU backend](#maplibres-webgpu-backend-irrelevant-to-our-memory-problem-and-not-the-no-op-we-recorded-analysed-2026-07-29) · MapLibre publishing a timeline
 - [A quadtree block partition](#a-quadtree-block-partition-instead-of-the-uniform-grid-analysed-2026-09-03) · a uniform partition shipping a full planet first, as the baseline
 - [GDAL 3.13](#gdal-313-assessed-and-skipped-analysed-2026-07-23) · a full-restage boundary, and rasterio bundling 3.13
@@ -171,14 +172,26 @@ The globe's detail card carries a country's name, its continent and a link, and 
 
 ## The polar caps are a texture because MapLibre allows nothing else, and the ceiling is WebP's (analysed 2026-08-07)
 
-> **BLOCKED** on MapLibre gaining a TileMatrixSet source, or on Antarctic detail being judged short on the sphere. Never on the number alone.
+> **BLOCKED** on MapLibre gaining a non-Mercator source that can sit beside Mercator on a globe, or on Antarctic detail being judged short on the sphere. Never on the number alone.
 
 - **State at analysis:** each pole ships one AEQD texture with a four-rung ladder (1024/2048/4096/8192) picked from the cap's measured on-screen size. It is not a tile pyramid, and the reason has been assumed rather than recorded.
 - **GDAL is not the constraint.** `gdal raster tile --tiling-scheme` offers `APSTILE` and `LINZAntarticaMapTilegrid` alongside `WebMercatorQuad`: both polar stereographic, both able to cut a real pyramid over a pole.
 - **MapLibre is.** Its raster and vector sources are Web Mercator only; `scheme` chooses `xyz` vs `tms` and that is the whole vocabulary. Consuming a polar pyramid means a custom loader, LOD selector and stitcher: most of what the custom cap layer already does, with 8 files instead of thousands.
+- **The trigger is worded narrowly on purpose, because "a TileMatrixSet source" on its own would fire on work that cannot help.** MapLibre's planar-CRS series (upstream issue #168) is landing in slices: the projection seam is merged, `addProjection` over a quad tile matrix is in review, and honouring the CRS in sources, terrain and hillshade is the slice after. Its design comment fences the whole series at "no globe transition; a CRS map stays flat. One CRS per map", and this cap needs a second CRS beside Mercator on a globe, which is both exclusions at once. Check that fence, not the feature's name, before reading the trigger as fired.
 - **The texture ceiling is 16,383 px, and it is a file-format limit, not a taste one.** WebP cannot encode a larger side at all; GPU `MAX_TEXTURE_SIZE` is typically 16,384 on desktop and the mobile budget already clamps to 4096. So the largest cap that could ever ship is 2× today's linear size.
 - **What that would buy, measured against each body's own source:** Mars nothing: its cap already interpolates its 200 m/px blend. Earth's south cap is the one real gap, sitting several times coarser than the land DEM beneath it and than the tiles it feathers into at the seam.
-- **Verdict: parked, and the gap is Earth's, not Mars's.** Revisit only if MapLibre gains a TileMatrixSet source, or if Antarctic detail is judged short on the sphere, never from the number.
+- **Verdict: parked, and the gap is Earth's, not Mars's.** Revisit only if MapLibre gains a non-Mercator source usable beside Mercator on a globe, or if Antarctic detail is judged short on the sphere, never from the number.
+
+## Replacing MapLibre with another engine: three.js is the wrong shape, and Cesium fixes one cost of three (analysed 2026-09-07)
+
+> **REJECTED** on the merits, and it stays because the choice was never recorded and has since been re-proposed twice without being priced. **Reopens on** the same event as the polar caps above, that being the only one of the three costs an engine could remove.
+
+- **Nothing ever recorded why MapLibre was chosen.** It is named as settled in the initial commit's `CLAUDE.md` with no alternative and no reasoning, and of the 24 tracked markdown files the 10 that name it carry only constraint and mechanism notes. Two prior surveys reached for "requires a different engine" as a reason to discard a strategy, so the engine was treated as fixed rather than assessed.
+- **three.js is a scene graph, not a map engine, so it removes nothing.** Adopting it rewrites the covering-tiles quadtree, tile scheduling and cancellation, the globe to Mercator transition, gesture handling, `queryRenderedFeatures` hit testing, the MVT decode worker, the style spec the layer model is authored in, and feature state. The one place custom geometry was actually needed already refused it: a raw-WebGL custom layer with no three.js was what that analysis recommended, and `polarCaps.ts` has never wanted a scene graph since. → HISTORY, *the polar cap: flat fails*.
+- **Three costs are MapLibre's, and Cesium removes one.** The cap is bespoke because sources are Mercator only; the terrain seam is structural because one mesh is shared across tiles; terrain VRAM is unbounded because `releaseRTT` has no cap. Cesium's quantized-mesh removes the seam and nothing else here.
+- **Cesium has no polar projection either, which is the finding that decides it.** Its maintainers answer the polar-imagery request with "not easily possible with the current API", and point at custom WebGL plus independent GPU reprojection. The cap therefore survives the migration, and since it authors GLSL against MapLibre's own projection matrices it is rewritten regardless.
+- **The price is the frontend and not the pipeline, which is the wrong way round.** Grepping `maplibre` across non-test `.ts`, `.astro` and `.css` under `web/src` reaches 20 of 73 files and 8,834 of 17,729 lines. Against that, imagery is WebMercatorQuad and Cesium reads it directly, so the raytraced block render is untouched and only the terrain lane is re-encoded. The migration is cheap where this project is expensive.
+- **Upstream is fixing projections inside MapLibre, which argues for staying rather than leaving.** See the planar-CRS bullet under the polar caps entry above for the series and the fence that keeps it from reaching this cap.
 
 ## MapLibre's WebGPU backend: irrelevant to our memory problem, and NOT the no-op we recorded (analysed 2026-07-29)
 
