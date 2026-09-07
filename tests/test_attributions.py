@@ -11,11 +11,14 @@ public domain or CC0) are deliberately excluded: adding them would make the test
 that are not legal ones, and a check that cries wolf gets deleted.
 """
 
+import json
 import re
 import subprocess
 from pathlib import Path
 
 import pytest
+
+from pipeline import attribution
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ATTRIBUTIONS = REPO_ROOT / "ATTRIBUTIONS.md"
@@ -23,7 +26,10 @@ ABOUT_PAGE = REPO_ROOT / "web/src/pages/about.astro"
 # The credits moved off the page and into a per-body module; the OUTPUT licence did not. Two
 # constants rather than one because the two obligations now live in two files, and pointing both at
 # whichever file happens to hold one of them is how a sweep goes quietly vacuous.
-ABOUT_CONTENT = REPO_ROOT / "web/src/lib/aboutContent.ts"
+# The cards themselves, which moved out of `aboutContent.ts` when `pipeline/attribution.py` became
+# their one owner: that module keeps the page's prose and imports this for its `sources` and
+# `legal`. Committed, so this is what the built page renders.
+ABOUT_CONTENT = REPO_ROOT / "web/src/data/attributions.json"
 
 # The licence on the site's OWN output, as opposed to the input obligations below. Every site listed
 # restates it and, until these two checks, none was verified — which is how a licence change leaves a
@@ -71,55 +77,45 @@ def tracked_license_bearing_files() -> list[Path]:
         and (REPO_ROOT / name).is_file()
     ]
 
-# Each entry: (label, the exact string the licence requires).
-# Sourced from ATTRIBUTIONS.md § Required / requested attribution strings, which records that the
-# Copernicus terms were verified against the primary licence PDF rather than a secondary summary.
+# DERIVED, and it was the fourth hand-kept copy of one fact until it was.
+#
+# The list said which notices are obligations; `Source.obligation` says the same thing beside the
+# notice itself, so the two could disagree and did: SCAR ADD is CC-BY, is named required in
+# ATTRIBUTIONS.md, and was in neither this list nor the About page.
+#
+# Each entry is now the FULL notice rather than a distinguishing fragment. The fragments were chosen
+# to be robust against wording that has since stopped being allowed to vary.
+#
+# The courtesy citations are still excluded, by the same rule and now structurally: a public-domain
+# source carries `obligation=False`, so asserting it would take a deliberate edit rather than an
+# oversight. The Viking mosaic is the case that keeps this honest — acquired in the same arc as
+# SIM 3292 and credited beside it, but its fields read public domain with no use constraint, so
+# listing it would assert an obligation the publisher does not make.
 REQUIRED_STRINGS: list[tuple[str, str]] = [
-    (
-        "Copernicus WorldDEM-30 Art. 6(b) notice",
-        ("produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and "
-         "Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all "
-         "rights reserved"),
-    ),
-    (
-        "Copernicus WorldDEM-30 Art. 6(c) liability sentence",
-        ("The organisations in charge of the Copernicus programme by law or by delegation do not "
-         "incur any liability for any use of the Copernicus WorldDEM-30"),
-    ),
-    (
-        "ESA WorldCover CC-BY notice",
-        "© ESA WorldCover project 2021",
-    ),
-    (
-        "RGI 7.0 CC-BY creator credit",
-        "Randolph Glacier Inventory 7.0",
-    ),
-    (
-        "OSI SAF CC-BY creator credit",
-        "EUMETSAT Ocean and Sea Ice",
-    ),
-    # Not a courtesy, which is why it is in this list rather than excluded with GEBCO and GLOBathy.
-    # The USGS product page states a Use Constraint of "Please cite authors" — the publisher asking
-    # in its own terms field, where the excluded ones are public-domain sources asking for nothing.
-    # Held to the same standard as the notices above: the exact citation, on the page a reader sees.
-    (
-        "MOLA / HRSC blend requested citation",
-        ("Fergason, R. L, Hare, T. M., & Laura, J. (2018). HRSC and MOLA Blended Digital "
-         "Elevation Model at 200m v2. Astrogeology PDS Annex, U.S. Geological Survey."),
-    ),
-    # ADMITTED ON THE SAME RULE AS THE BLEND ABOVE, and the rule is what keeps this list honest:
-    # `Use_Constraints: please cite authors.` is the publisher asking in its own terms field. The
-    # Viking mosaic, acquired in the same arc and credited beside this one, is deliberately ABSENT —
-    # its fields read public domain and no use constraint, so listing it would assert an obligation
-    # the publisher does not make.
-    (
-        "SIM 3292 requested citation",
-        ("K.L. Tanaka, J.A. Skinner, Jr., J.M. Dohm, R.P. Irwin, III, E.J. Kolb, C.M. Fortezzo, "
-         "Thomas Platz, G.G. Michael, and T.M. Hare, 2014, Geologic Map of Mars, Scale "
-         "1:20,000,000, U.S. Geological Survey Scientific Investigations Map SIM 3292, "
-         "http://pubs.usgs.gov/sim/3292"),
-    ),
+    (source.name, source.notice)
+    for source in attribution.SOURCES.values()
+    if source.obligation
 ]
+# Plus the one required string that is not any source's citation: Article 6(c) is a disclaimer the
+# licence obliges alongside 6(b), rendered under Earth's cards rather than on the DEM's own.
+REQUIRED_STRINGS.append(
+    ("Copernicus WorldDEM-30 Art. 6(c) liability sentence", attribution.COPERNICUS_LIABILITY)
+)
+
+
+def test_the_obligations_are_the_ones_the_registry_marks() -> None:
+    """Set EQUALITY, so a source losing `obligation=True` fails here rather than going unasserted.
+
+    One-way containment is satisfied by a derivation that produced nothing, which is exactly the
+    failure that let SCAR ADD sit uncredited while every licence test passed.
+    """
+    marked = {name for name, source in attribution.SOURCES.items() if source.obligation}
+    assert marked == {"glo30", "worldcover", "rgi", "addrock", "seaice", "mars_dem",
+                      "mars_sim3292"}, (
+        "the set of licence-required sources changed. That is a legal claim, not a refactor: "
+        "confirm it against ATTRIBUTIONS.md § Required / requested attribution strings, then "
+        "update this literal."
+    )
 
 
 #: A line whose first non-space characters are `//`. Anchored at the start on purpose: `https://`
@@ -160,7 +156,15 @@ def test_about_page_carries_the_required_string(label: str, required: str) -> No
     way this can pass, and searching one file would make the guard turn on where prose happens to
     sit rather than on whether it is there at all.
     """
-    haystack = f"{_normalised(ABOUT_CONTENT)} {_normalised(ABOUT_PAGE)}"
+    # The CARDS and the page, never the whole generated file: it also carries the archive credits,
+    # and those hold every notice too, so searching the file would let a card lose a citation and
+    # still match. Found by a sabotage case escalating instead of reporting CAUGHT.
+    cards = json.loads(ABOUT_CONTENT.read_text(encoding="utf-8"))["bodies"]
+    rendered = " ".join(
+        [card["attribution"] for body in cards.values() for card in body["sources"]]
+        + [line for body in cards.values() for line in body["legal"]]
+    )
+    haystack = f"{re.sub(r'\\s+', ' ', rendered)} {_normalised(ABOUT_PAGE)}"
     assert re.sub(r"\s+", " ", required) in haystack, (
         f"{label}: ATTRIBUTIONS.md records this as licence-REQUIRED, but neither "
         f"web/src/lib/aboutContent.ts nor web/src/pages/about.astro contains it verbatim.\n"
@@ -180,15 +184,72 @@ def test_attributions_file_still_records_the_required_string(label: str, require
     )
 
 
+#: The one required notice no ARCHIVE owes. WorldCover is the heroes' snow mask and the tiles
+#: replaced it with NSIDC-0791 plus RGI, so a pyramid crediting it would name a source not in it.
+#: It stays in `REQUIRED_STRINGS` because the heroes are published and still owe it.
+# EMPTY, and the entry it used to hold is why the list is exceptions rather than targets. WorldCover
+# was exempted here as "the heroes' snow mask, replaced in the tiles by NSIDC-0791 plus RGI", which
+# is true of the SNOW mask and not of the dataset: it also synthesises the watermask for the void
+# GLO-30 tiles, which reaches every Earth raster archive through the fused heightfield. An exemption
+# stated in a standing brief's own words survived until the acquisition chain was read.
+NOT_IN_ANY_ARCHIVE: set[str] = set()
+
+
+def every_archive_credit() -> str:
+    """What the four raster pyramids say about themselves, composed the way a pack composes it.
+
+    Values rather than source text: the notices are built from adjacent string literals, so a
+    substring search over this module's own file would be matching across the quote seams.
+    """
+    from pipeline import attribution, bodies
+
+    return " ".join(
+        attribution.for_archive(body, layer)
+        for body in bodies.BODIES.values()
+        for layer in attribution.ARCHIVE_LAYERS
+    )
+
+
+@pytest.mark.parametrize("label,required", REQUIRED_STRINGS, ids=[e[0] for e in REQUIRED_STRINGS])
+def test_an_archive_carries_the_required_string_in_its_own_bytes(label: str, required: str) -> None:
+    """The third place the same obligation has to hold, and the only one that survives a download.
+
+    The About page discharges it for a visitor and ATTRIBUTIONS.md records it for us, but both are
+    on a host a downloaded `.pmtiles` has left behind. `pmtiles convert` copies the MBTiles
+    `attribution` row into the archive metadata, so this is the copy that travels with the file.
+    """
+    if label in NOT_IN_ANY_ARCHIVE:
+        pytest.skip(f"{label} is baked into heroes, never into a tile pyramid")
+    assert re.sub(r"\s+", " ", required) in every_archive_credit(), (
+        f"{label}: ATTRIBUTIONS.md records this as licence-required and no published archive "
+        "carries it. Add it to the right entry in pipeline/attribution.py — a notice that reaches "
+        "only the website does not travel with a file someone downloaded."
+    )
+
+
+def test_the_archive_credit_check_can_fail(monkeypatch) -> None:
+    """The control for the sweep above, which is a substring test over a long composed string and
+    would pass just as quietly against a credit that had lost a notice."""
+    assert "a notice no licence has ever required" not in every_archive_credit()
+
+
 def test_every_source_on_the_about_page_declares_a_licence() -> None:
-    """A missing licence badge is the failure mode that reads as 'no licence needed'."""
-    about = ABOUT_CONTENT.read_text(encoding="utf-8")
-    names = re.findall(r'^\s*name: "([^"]+)",', about, re.MULTILINE)
-    licences = re.findall(r'^\s*license: "([^"]+)",', about, re.MULTILINE)
-    assert names, "no source entries parsed — the aboutContent.ts `sources` shape changed"
-    assert len(names) == len(licences), (
-        f"{len(names)} data sources but {len(licences)} licence fields — every source card must "
-        f"declare one. Sources: {names}"
+    """A missing licence badge is the failure mode that reads as 'no licence needed'.
+
+    Reads the generated cards rather than the module that renders them: every field is required on
+    `attribution.Source`, so an omission can no longer be a blank line, but a card can still carry
+    a data CENTRE where a licence belongs, which is a wrong answer rather than a missing one.
+    """
+    cards = [card
+             for body in json.loads(ABOUT_CONTENT.read_text(encoding="utf-8"))["bodies"].values()
+             for card in body["sources"]]
+    assert cards, "no source cards parsed — the attributions.json shape changed"
+    licences = [card["license"] for card in cards]
+    assert all(card["name"] and card["href"] and card["role"] and card["attribution"]
+               for card in cards), f"a card is missing a field: {cards}"
+    assert len(cards) == len(licences), (
+        f"{len(cards)} data sources but {len(licences)} licence fields — every source card must "
+        f"declare one."
     )
     assert "NSIDC" not in licences and "EUMETSAT" not in licences, (
         "a data CENTRE is not a licence: NSIDC-0791 is public domain and OSI SAF is CC-BY 4.0. "

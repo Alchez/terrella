@@ -32,8 +32,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from pipeline import bodies, freshness
+from pipeline import attribution, bodies, freshness, paths
 from pipeline.compose import vector_layers
+
+#: The vendored go-pmtiles CLI, which is how a credit reaches a vector archive at all: the GDAL
+#: PMTiles driver's creation options are NAME, DESCRIPTION, TYPE, the zooms and the tiler knobs,
+#: with nothing for `attribution`. `tools/` is gitignored, so this is a download rather than a
+#: checkout, and `write_credit` says so when it is missing instead of shipping an uncredited cut.
+PMTILES_TOOL = paths.ROOT / "tools/pmtiles"
 
 
 @dataclass(frozen=True)
@@ -213,6 +219,36 @@ def stage(cut: VectorCut) -> None:
         subprocess.run(command, check=True)
 
 
+def credit_command(archive: Path, metadata: Path) -> list[str]:
+    """Rewrite an archive's whole metadata blob from a JSON file. Exposed pure for tests."""
+    return [str(PMTILES_TOOL), "edit", str(archive), f"--metadata={metadata}"]
+
+
+def write_credit(cut: VectorCut, archive: Path) -> None:
+    """Put this body's `attribution` into a freshly cut archive, reading the rest back first.
+
+    A read-modify-write because `edit` replaces the metadata entirely, and the driver has already
+    written `vector_layers`, `tilestats` and the zooms that MapLibre needs.
+
+    Runs on the TEMPORARY path, before the promote, so a failure here leaves no archive rather than
+    an uncredited one under the final name.
+    """
+    if not PMTILES_TOOL.exists():
+        sys.exit(f"{PMTILES_TOOL} is missing, so this cut cannot carry its credit. `tools/` is "
+                 f"gitignored: download go-pmtiles for your platform from "
+                 f"https://github.com/protomaps/go-pmtiles/releases and put it there.")
+    shown = subprocess.run([str(PMTILES_TOOL), "show", "--metadata", str(archive)],
+                           capture_output=True, check=True, text=True)
+    metadata = dict(json.loads(shown.stdout),
+                    attribution=attribution.for_archive(cut.body, "vector"))
+    metadata_path = archive.with_suffix(".metadata.json")
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+    command = credit_command(archive, metadata_path)
+    print(" ".join(command), flush=True)
+    subprocess.run(command, check=True)
+    metadata_path.unlink()
+
+
 def cut_archive(cut: VectorCut) -> None:
     """The conversion, promoted atomically, with its recipe stamped beside it."""
     archive = out(cut)
@@ -221,6 +257,7 @@ def cut_archive(cut: VectorCut) -> None:
     command = pmtiles_command(cut, staged(cut), temporary)
     print(" ".join(command), flush=True)
     subprocess.run(command, check=True)
+    write_credit(cut, temporary)
     temporary.replace(archive)  # atomic promote
     recipe_path(cut).write_text(json.dumps(recipe(cut), indent=2) + "\n", encoding="utf-8")
     print(f"wrote {archive} ({archive.stat().st_size / 1e6:.1f} MB)")
