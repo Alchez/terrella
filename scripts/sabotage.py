@@ -123,6 +123,12 @@ MUTABLE_ROOTS = (
     # what the guard actually IS — a scanner nobody can narrow is a scanner nobody can prove is
     # still looking at numbers, tuples and attributes no one has ruled on.
     "tests/test_scene_build_sync.py",
+    # Joined with the two guards over what a clone is told a download IS: the layer names, which are
+    # a TypeScript union here and a sentence there, and the format name, which is the one place a
+    # reader is handed a decode that returns a plausible wrong number instead of erroring. Both
+    # guards are absences over this one file, and an absence nobody can fill is an absence nobody
+    # can prove is being watched.
+    "README.md",
     # Joined for the body registry. Its whole safety story is a set of bridge tests holding the
     # duplicated constants (`EARTH_RADIUS` twice, `EXAGGERATION` once) to the registry's copy until
     # each original is deleted — and a bridge nobody can mutate is a bridge nobody can prove is
@@ -9717,6 +9723,26 @@ def _earth_lake_depth''',
         needle='    return blender_proc.env(\n        PATH=',
         replacement='    return dict(\n        os.environ, PATH=',
         guard='test_the_stage_environment_names_the_temp_root',
+    ),
+    # Both names a reader would search for return a plausible wrong number off these bytes rather
+    # than erroring, so naming one in a doc a clone lands on is worse than naming nothing.
+    Sabotage(
+        suite='python',
+        label='the README calls the elevation archive Terrain-RGB again, which decodes it to six-figure metres',
+        path='README.md',
+        needle='(relief, terrain, vector)',
+        replacement='(relief, terrain-RGB, vector)',
+        guard='test_names_no_format_that_would_decode_an_archive_wrongly',
+    ),
+    # The layer names are a union in TypeScript and a sentence in markdown, and only the sentence
+    # can go stale silently: a renamed layer leaves the README describing addresses nobody can build.
+    Sabotage(
+        suite='python',
+        label="the README's layer list drifts from the union a tile URL is actually built from",
+        path='README.md',
+        needle='(relief, terrain, vector)',
+        replacement='(relief, elevation, vector)',
+        guard='test_the_readme_lists_the_layer_names_a_tile_url_actually_takes',
     ),
 ]
 
