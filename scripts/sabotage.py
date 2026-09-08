@@ -261,6 +261,12 @@ MUTABLE_ROOTS = (
     # directions are also both expensive and neither is a crash at the edit: too high refuses a pass
     # the box could have run, too low OOM-kills hours in.
     "pipeline/profile",
+    # Joined with the parking lot's tag list, on `docs/pipeline.md`'s reasoning: the tags are a
+    # CLAIM ABOUT WHO MAY PICK EACH ENTRY UP, written twice, once on the index row and once on the
+    # entry's own stanza. Nothing about the file misbehaves when the two disagree, and the reader who
+    # notices is a stranger filtering the index for what they could start today, who simply gets a
+    # shorter list than the file holds. So the only proof the guard fires is writing the drift.
+    "FUTURE.md",
 )
 
 # Set for the duration of one case, so the backup THIS run is holding does not trip the leftover
@@ -2880,6 +2886,49 @@ SABOTAGES: list[Sabotage] = [
         needle='HISTORY, *both caps raytraced at edge 84*, which carries',
         replacement='HISTORY, which carries',
         guard='test_a_decision_archive_pointer_names_its_heading',
+    ),
+    # The parking lot writes each tag twice, and this is the copy a stranger reads: the index is
+    # where you filter for what you could start today. This exact drift was live on three entries,
+    # and the file gave no sign of it from either side.
+    Sabotage(
+        suite='python',
+        label='an index row drops the tag its own entry carries, shortening the pickable list',
+        path='FUTURE.md',
+        needle='and-the-metric-matched-fallback-is-inert-analysed-2026-08-02) · no-data-needed',
+        replacement='and-the-metric-matched-fallback-is-inert-analysed-2026-08-02)',
+        guard='test_the_index_and_the_entry_carry_the_same_tags',
+    ),
+    # A stanza that stops declaring a state stops being parseable as one, which is how an entry
+    # goes quiet without losing a word. One entry had no stanza at all while the file claimed
+    # every entry does.
+    Sabotage(
+        suite='python',
+        label='an entry stops declaring its state, so nothing can tell if anyone may act on it',
+        path='FUTURE.md',
+        needle='> **OPEN** · no-data-needed · **reopens when** an accessibility pass is run. Do it',
+        replacement='> Open · no-data-needed · **reopens when** an accessibility pass is run. Do it',
+        guard='test_every_entry_someone_could_pick_up_says_who_can_act',
+    ),
+    # A heading rename is the ordinary edit here, and it strands the index link silently: markdown
+    # anchors fail by scrolling nowhere rather than by erroring.
+    Sabotage(
+        suite='python',
+        label='an entry is renamed and its index link stops reaching it',
+        path='FUTURE.md',
+        needle='## Metatile batching: collapse round trips',
+        replacement='## Metatile batching: collapsing round trips',
+        guard='test_every_index_row_and_entry_find_each_other',
+    ),
+    # The vocabulary is the referent for every tag, so a term dropped from it leaves the entries
+    # carrying a word that now defines nothing. Both directions fail: an undefined tag in use, and
+    # a defined tag no entry carries, which is the `good first issue` failure one file over.
+    Sabotage(
+        suite='python',
+        label='the tag vocabulary loses a term entries still carry',
+        path='FUTURE.md',
+        needle='`maintainer-only` needs this project',
+        replacement='`maintainer-alone` needs this project',
+        guard='test_every_tag_in_use_is_one_the_file_defines',
     ),
     # The defect that shipped: the block frame's payload stopped answering the whole vocabulary,
     # and nothing ran the shipping path until a real prep crashed on it.
@@ -9197,6 +9246,26 @@ def _earth_lake_depth''',
         needle='  return joined ? [joined, ...word.split(/[^a-z0-9]+/).filter(Boolean)] : [];',
         replacement='  return joined ? [joined] : [];',
         guard='keeps both readings of a punctuated word, because different queries want different ones',
+    ),
+    # The two below widen the tokeniser to every script, which is the shape the declined multilingual
+    # names would arrive in. The first moves nothing a query can observe, since the query side still
+    # yields no term to match with, and is why that guard reads the module's classes as well as its
+    # answers.
+    Sabotage(
+        suite='web',
+        label='the index side alone accepts every script, which no behaviour assertion can see',
+        path='web/src/lib/catalogueSearch.ts',
+        needle='  const joined = word.replace(/[^a-z0-9]+/g, "");',
+        replacement='  const joined = word.replace(/[^\\p{L}\\p{N}]+/gu, "");',
+        guard='produces no token at all for another script, on both sides of the match',
+    ),
+    Sabotage(
+        suite='web',
+        label='the query side accepts every script, so a rejected idea half-lands with nothing said',
+        path='web/src/lib/catalogueSearch.ts',
+        needle='  return foldForSearch(query)\n    .split(/[^a-z0-9]+/)',
+        replacement='  return foldForSearch(query)\n    .split(/[^\\p{L}\\p{N}]+/u)',
+        guard='produces no token at all for another script, on both sides of the match',
     ),
     Sabotage(
         suite='web',

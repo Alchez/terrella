@@ -4,15 +4,17 @@ Ideas deliberately **not** planned: analysed enough to record, parked without co
 
 ## How this file is organised
 
-- **Every entry carries a one-line stanza under its heading**: its state, who can act on it, and the event that would reopen it. `grep -n "^> " FUTURE.md` lists all of them at once.
+- **Every entry carries a one-line stanza under its heading**: its state, the event that would reopen it, and, on every OPEN one, a tag saying who can act. `grep -n "^> " FUTURE.md` lists all of them at once, and `tests/test_parking_lot.py` holds each stanza to its index row, which is the only other place the tags are written.
+  - **A BLOCKED entry names its precondition instead of a tag**, because until that lands the honest answer to who can act is nobody. An OBSERVED one owes a measurement rather than an owner.
 - **Physical order in the body carries no meaning.** It is the order things were written down. The index below is the only place order says anything.
 - **Three states, and the boundary between them is what an entry needs before anyone can start.**
   - **OPEN**: analysed and parked on a choice. Someone could begin today.
   - **BLOCKED**: a named precondition has to land first, and wanting it more does not move it. A bigger disk, an upstream release, a probe nobody has run.
   - **OBSERVED, NOT ANALYSED**: seen once and written down before it was forgotten. The next action is a measurement, not a decision.
 - **An idea that ships, gets fixed or gets built leaves this file entirely**, and its record is the HISTORY entry written when it landed. Kept here past that point it reads as open work to everyone except the person who closed it.
+  - **An entry filed as an issue STAYS, and says so on its stanza.** The issue names the defect and points here for the analysis rather than copying it, so deleting the entry guts the issue, and a clone has this file and not the issue tracker. It leaves on the same rule as everything else: when the work lands, not when someone starts it.
 - **An idea that was REJECTED is the exception and stays**, because the reasoning that killed it is what stops it being proposed again, and nothing else in a clone carries that.
-- **Tags say who can act, never what it is worth.** `no-data-needed` runs on a fresh clone; `needs-render-store` and `needs-gpu` do not, per the table in CONTRIBUTING; `look-call` changes what the site looks like, which is a judgement the maintainer makes by eye; `product` is a question rather than a piece of work.
+- **Tags say who can act, never what it is worth.** `no-data-needed` runs on a fresh clone; `needs-render-store`, `needs-gpu` and `needs-data` do not, per the table in CONTRIBUTING; `maintainer-only` needs this project's own Cloudflare account or store and is the one nobody else can take; `look-call` changes what the site looks like, which is a judgement the maintainer makes by eye; `product` is a question rather than a piece of work. **An outsider may take any of the rest, with the shape agreed in an issue first**, per CONTRIBUTING's opening: these are analysed ideas rather than assigned work, and the analysis is what an issue starts from.
 - **There is deliberately no impact or effort ranking.** Most entries state in their own words that they are unmeasured or uncosted, so a rank would be invented rather than recorded, and nothing would go red when it drifted.
 - **The reopening trigger is the axis worth having instead, because it clusters.** One event makes several unrelated entries worth doing at once, which no ranking can show you, and the index groups them that way.
 
@@ -50,7 +52,7 @@ Ideas deliberately **not** planned: analysed enough to record, parked without co
 
 **The finer-re-fuse question gets settled, either way.**
 
-- [Cloud offload / offsite backup](#cloud-offload--offsite-backup-analysed-2026-07-23-revisit-after-phase-5)
+- [Cloud offload / offsite backup](#cloud-offload--offsite-backup-analysed-2026-07-23-revisit-after-phase-5) · product · needs-render-store
 
 **A render night is booked, or the maintainer takes one of the calls in it.**
 
@@ -61,16 +63,16 @@ Ideas deliberately **not** planned: analysed enough to record, parked without co
 Not a lower tier. Nobody has written down what would make them worth doing, and that absence is itself the open question.
 
 - [Shadow saturation on the land is a shading term](#shadow-saturation-on-the-land-is-a-shading-term-and-the-sea-that-was-ratified-rides-mostly-on-lit-pixels-analysed-2026-08-27) · look-call · needs-gpu
-- [The display face swaps in at a different width](#the-display-face-swaps-in-at-a-different-width-and-the-metric-matched-fallback-is-inert-analysed-2026-08-02)
+- [The display face swaps in at a different width](#the-display-face-swaps-in-at-a-different-width-and-the-metric-matched-fallback-is-inert-analysed-2026-08-02) · no-data-needed · look-call
 - [Flat ice saturates the snow ramp](#flat-ice-saturates-the-snow-ramp-and-the-curve-was-fitted-before-antarctica-existed-analysed-2026-07-29) · look-call · needs-render-store
 - [The snow persistence source paints salt playas white](#the-snow-persistence-source-paints-salt-playas-white-and-nobody-has-counted-them-analysed-2026-08-25) · look-call · needs-render-store
 - [Look presets: user-selectable globe styles](#look-presets-user-selectable-globe-styles-analysed-2026-07-23) · look-call · product
 - [Hero presentation: geography-conditional](#hero-presentation-geography-conditional-and-no-universal-design-exists-analysed-2026-07-09) · product
 - [Kiribati presentation](#kiribati-presentation-the-one-antimeridian-deferred-country-analysed-2026-07-24) · product
-- [Worker placement hint near the APAC bucket](#worker-placement-hint-near-the-apac-bucket-the-prize-shrank-when-lever-a-shipped-analysed-2026-07-26)
+- [Worker placement hint near the APAC bucket](#worker-placement-hint-near-the-apac-bucket-the-prize-shrank-when-lever-a-shipped-analysed-2026-07-26) · maintainer-only
 - [Landing-page "poster mode"](#landing-page-poster-mode-deferred-2026-07-26-never-scoped) · product
 - [Raster tile resolution vs device pixel ratio](#raster-tile-resolution-vs-device-pixel-ratio-analysed-2026-07-25) · look-call
-- [Metatile batching](#metatile-batching-collapse-round-trips-instead-of-running-more-of-them-analysed-2026-08-01)
+- [Metatile batching](#metatile-batching-collapse-round-trips-instead-of-running-more-of-them-analysed-2026-08-01) · maintainer-only
 - [Small debts and open calls](#small-debts-and-open-calls-carried-out-of-the-working-plan-parked-2026-08-24) · mixed, and its own subsections carry the states
 - [Doc and guard debts](#doc-and-guard-debts-carried-out-of-the-working-plan-parked-2026-09-08) · mixed, and its own subsections carry the states
 
@@ -80,8 +82,9 @@ Not a lower tier. Nobody has written down what would make them worth doing, and 
 - [Brotli sidecars for the text-like assets](#brotli-sidecars-for-the-text-like-assets-analysed-2026-07-25-blocked) · an R2 `Content-Encoding` probe nobody has run
 - [The polar caps are a texture](#the-polar-caps-are-a-texture-because-maplibre-allows-nothing-else-and-the-ceiling-is-webps-analysed-2026-08-07) · a non-Mercator source usable beside Mercator on a globe
 - [Replacing MapLibre with another engine](#replacing-maplibre-with-another-engine-threejs-is-the-wrong-shape-and-cesium-fixes-one-cost-of-three-analysed-2026-09-07) · REJECTED, on that same event
+- [Multilingual search names](#multilingual-search-names-measured-and-declined-and-the-blocker-is-the-tokeniser-analysed-2026-08-14) · REJECTED, on the country manifest ceasing to be a chunk both bodies download
 - [MapLibre's WebGPU backend](#maplibres-webgpu-backend-irrelevant-to-our-memory-problem-and-not-the-no-op-we-recorded-analysed-2026-07-29) · MapLibre publishing a timeline
-- [A quadtree block partition](#a-quadtree-block-partition-instead-of-the-uniform-grid-analysed-2026-09-03) · a uniform partition shipping a full planet first, as the baseline
+- [A quadtree block partition](#a-quadtree-block-partition-instead-of-the-uniform-grid-analysed-2026-09-03) · needs-render-store · a uniform partition shipping a full planet first, as the baseline
 - [GDAL 3.13](#gdal-313-assessed-and-skipped-analysed-2026-07-23) · a full-restage boundary, and rasterio bundling 3.13
 - [The layer-rename alias cannot be deleted yet](#the-layer-rename-alias-cannot-be-deleted-yet-and-the-clock-is-longer-than-it-reads-analysed-2026-08-31) · a year of `immutable` URLs expiring, then a production log read
 
@@ -91,6 +94,8 @@ Not a lower tier. Nobody has written down what would make them worth doing, and 
 - [Tiles "jump" a little when panning around a pole](#tiles-jump-a-little-when-panning-around-a-pole-observed-2026-08-11-not-analysed)
 
 ## The detail card cannot state an elevation the DEM does not know (analysed 2026-08-27)
+
+> **OPEN** · product · needs-data · **reopens when** an authoritative summit source is adopted, which is the only thing that would settle the frame error and the raster clip together.
 
 The globe's detail card carries a country's name, its continent and a link, and nothing else. Elevation is the fact that would actually belong on a relief site, so it was scoped and then dropped, on the rule that a card reporting a wrong value for any country should not ship. What follows is the measurement, so nobody re-derives it.
 
@@ -106,7 +111,7 @@ The globe's detail card carries a country's name, its continent and a link, and 
 
 ## The display face swaps in at a different width, and the metric-matched fallback is inert (analysed 2026-08-02)
 
-> **OPEN** · no-data-needed. Options priced, none taken. Nothing named would reopen it, and the entry says which measurement comes first.
+> **OPEN** · no-data-needed · look-call, because `display: 'optional'` stops the display face rendering at all on a cold slow visit. Options priced, none taken. Nothing named would reopen it, and the entry says which measurement comes first. Filed as #61.
 
 - **State at analysis:** Fraunces is self-hosted at `font-display: swap`, so the browser lays text out in a substitute and re-lays it when the real face arrives. Measured on the gallery heading: **103 px in the fallback, 117 px in Fraunces**: a 13.6% width change after first paint.
 - **The mitigation is present and does nothing.** Astro generates a metric-matched fallback face at `size-adjust: 115.4462%` with `ascent-override`/`descent-override`, which is exactly the right mechanism, but its source is **`src: local("Times New Roman")`**, and that family resolves on neither Linux nor Android, so the face errors and the browser falls through to plain `Georgia, serif` at 100%. Confirmed in the built page: the fallback faces report `status: "error"` while the real ones report `"loaded"`.
@@ -133,7 +138,7 @@ The globe's detail card carries a country's name, its continent and a link, and 
 
 ## `forced-colors` is unhandled, and the rail's icons are the thing it breaks (analysed 2026-08-02)
 
-> **OPEN** · no-data-needed · **reopens when** an accessibility pass is run. Do it alongside the tier picker, for one round of judgement.
+> **OPEN** · no-data-needed · **reopens when** an accessibility pass is run. Do it alongside the tier picker, for one round of judgement. Filed as #60.
 
 - **State at analysis:** no `forced-colors` or `prefers-contrast` rule exists anywhere in `web/src`. Grepped, not assumed.
 - **Why the rail specifically:** its icons are alpha stencils: `mask-image` shapes a box painted by `background-color: currentColor`. Windows High Contrast overrides `background-color`, so the *paint* is exactly what the mode takes away. Every other surface degrades to "wrong colours"; this one can degrade to "no glyph" or "solid slab", which is the same failure class `railIcons.browser.test.ts` was written for: reached through a door that guard cannot see, since it asserts the authored cascade and not the UA's override of it.
@@ -193,6 +198,14 @@ The globe's detail card carries a country's name, its continent and a link, and 
 - **Cesium has no polar projection either, which is the finding that decides it.** Its maintainers answer the polar-imagery request with "not easily possible with the current API", and point at custom WebGL plus independent GPU reprojection. The cap therefore survives the migration, and since it authors GLSL against MapLibre's own projection matrices it is rewritten regardless.
 - **The price is the frontend and not the pipeline, which is the wrong way round.** Grepping `maplibre` across non-test `.ts`, `.astro` and `.css` under `web/src` reaches 20 of 73 files and 8,834 of 17,729 lines. Against that, imagery is WebMercatorQuad and Cesium reads it directly, so the raytraced block render is untouched and only the terrain lane is re-encoded. The migration is cheap where this project is expensive.
 - **Upstream is fixing projections inside MapLibre, which argues for staying rather than leaving.** See the planar-CRS bullet under the polar caps entry above for the series and the fence that keeps it from reaching this cap.
+
+## Multilingual search names: measured and declined, and the blocker is the tokeniser (analysed 2026-08-14)
+
+> **REJECTED** on the measurement, and it stays because searching for a country in its own language is an obvious thing to want and nothing else in a clone says it was tried. **Reopens on** the country manifest ceasing to be a chunk Mars visitors also download, which is the only fact that would move the half that works.
+
+- **Every non-Latin spelling is unreachable, and the tokeniser is why rather than the data.** The catalogue matcher keeps `[a-z0-9]` and drops the rest, so all 2,498 Cyrillic, CJK and Arabic spellings produce no token at all: none of them reachable, for **+25,808 gz** of payload that could never match anything. Widening it is a change to the matcher rather than a config edit, and `catalogueSearch.test.ts` goes red on the first move toward it.
+- **The Latin-script half works perfectly and is still declined, on where the bytes land.** All 1,264 spellings matched, with zero ranking damage across 1,039 queries, for **+7,858 gz and +75.5% of the manifest**, on a chunk Mars visitors download too and get nothing from.
+- **What shipped instead is ten authored aliases in `config/countries.toml`**, under `also`, covering the former and colloquial names a search actually failed on. The rest of the realistic surface measured zero failures already: name prefixes, distinctive words and ASCII spellings. → HISTORY, *the names no column publishes*.
 
 ## MapLibre's WebGPU backend: irrelevant to our memory problem, and NOT the no-op we recorded (analysed 2026-07-29)
 
@@ -314,7 +327,7 @@ Presets decompose into **three kinds by where the variation lives**: costs diffe
 
 ## Cloud offload / offsite backup (analysed 2026-07-23; revisit after Phase 5)
 
-> **OPEN** · **reopens when** the finer-re-fuse question is settled either way, since a firm no-go is what would let 551 GB drop to on-demand.
+> **OPEN** · product · needs-render-store · **reopens when** the finer-re-fuse question is settled either way, since a firm no-go is what would let 551 GB drop to on-demand.
 
 - **Trigger:** could stores move to S3/R2 to free local disk? **Answer: ~0 GB usefully**; the taxonomy is the finding:
   - ~680 GB of raw sources are *caches of free public clouds* (GLO-30 = AWS Open Data, WorldCover = ESA's bucket, etc.): the offload is deletion + on-demand re-fetch, already gated by the INVENTORY reclaim picture, never an upload.
@@ -419,7 +432,7 @@ Not a look change in the locked-constants sense: the sun, ramps and exaggeration
 
 ## Worker placement hint near the APAC bucket: the prize shrank when lever A shipped (analysed 2026-07-26)
 
-> **OPEN**, maintainer-only: it is a config line on this Cloudflare account. Cheap to try, and the expected win is now uncertain in sign rather than zero.
+> **OPEN** · maintainer-only, being a config line on this project's own Cloudflare account. Cheap to try, and the expected win is now uncertain in sign rather than zero.
 
 - **Was the second delivery lever; demoted the day Workers Caching shipped.** Not rejected: the expected win is now uncertain in sign and size, which is not the same as zero, and it is one config line to try.
 - **What changed:** pre-lever-A a cold tile paid **three sequential Marseille↔APAC reads**, so an explicit `placement.region` hint collapsed three long-haul round trips into roughly one: the basis of the 07-25 "380 ms → ~100 ms" estimate. Lever A left **one** read, and placement does not remove that leg, it **moves** it: today the request lands at MRS and the read crosses to APAC; under placement the request crosses to APAC and the read is local. **The tile bytes cross the same ocean exactly once either way.** What remains is R2's long-haul read overhead minus Cloudflare's backbone RTT.
@@ -452,7 +465,7 @@ Not a look change in the locked-constants sense: the sun, ramps and exaggeration
 
 ## The tier picker is a radiogroup made of toggle buttons (analysed 2026-07-27, DEFERRED)
 
-> **OPEN** · no-data-needed · **reopens when** an accessibility pass is run. Not the attribute swap it looks like: one fill selector is shared with Borders, Spin and Focus.
+> **OPEN** · no-data-needed · **reopens when** an accessibility pass is run. Not the attribute swap it looks like: one fill selector is shared with Borders, Spin and Focus. Filed as #59.
 
 - **Trigger:** found while adding tooltips to Lite / Globe / Full. Verified in the live DOM, not read off the source: `.quality-fab` carries `role="radiogroup"`, and its three children have **`role: null`, `aria-pressed`, and no `aria-checked`**.
 - **Why it is wrong:** an ARIA `radiogroup` must own elements with `role="radio"`. A plain button with `aria-pressed` inside one is announced as a *toggle button within a radio group*, incoherent, and the group loses the positional "1 of 3" that makes a radio group worth using in the first place. The three tiers are genuinely mutually exclusive, so radiogroup is the right *intent*; only the children are wrong.
@@ -508,7 +521,7 @@ Not a look change in the locked-constants sense: the sun, ramps and exaggeration
 
 ## Metatile batching: collapse round trips instead of running more of them (analysed 2026-08-01)
 
-> **OPEN**, maintainer-only: it needs a new Worker route. Deliberately unquantified, because two predicted effect sizes here were already falsified on measurement.
+> **OPEN** · maintainer-only, needing a new Worker route on that same account. Deliberately unquantified, because two predicted effect sizes here were already falsified on measurement.
 
 - **Trigger:** the concurrency sweep answered "run more requests at once" and shipped it: MapLibre's parallel image-request cap went 16 → 32, worth ~2.1× the achieved concurrency. This is the *other* half of the same cost, and the cap cannot touch it: the queue limits how many requests are in flight, not how many are needed.
 - **The measurement that argues for it**, from `server-timing` on cold z7 tiles: `worker;dur=280` of a **760 ms** tile, `worker;dur=383` of a **1030 ms** tile. Roughly **half of every tile is client↔edge round trip**, paid once per tile: 119 times on one cold z5 load.
@@ -571,7 +584,7 @@ Deferred past the 22h Earth pass deliberately: every part of it is a HERO defici
 
 ## Doc and guard debts, carried out of the working plan (parked 2026-09-08)
 
-> **MIXED**, and the subsections below carry the states. Four of these are maintainer calls rather than work; the two guard repairs need a clone and nothing else.
+> **MIXED**, and the subsections below carry the states. Most is a maintainer call or needs this project's own account; the doc-pointer widening below is the exception and needs a clone and nothing else. See also *One concept with two homes* in the entry below.
 
 The same reason as the entry below it: the working plan is live state and one question in hand, not a backlog, and these had no deadline and no relation to the arc that carried them. None is urgent. Each is here so it is greppable rather than compressed away.
 
@@ -581,7 +594,11 @@ The same reason as the entry below it: the working plan is live state and one qu
   - **Generalising that scan to a `(constant, prose pattern)` table is the fix, and it is a maintainer call**, since it puts six existing lines under a guard for the first time and each needs its owner named first.
   - **The trigger is the next value that drifts, not a sweep.** → HISTORY, *the deploy runbook had drifted in four places at once*, where four such copies were wrong at once and every one read as correct to anyone without the source open.
 
-### Guard repairs, each needing a clone and nothing else
+### A guard axis that stops at the language boundary
+
+- **`test_doc_pointers` scans `pipeline`, `scripts` and `web/scripts`, so no citation in frontend code is checked by anything.** Grepping `web/src` for document names and `test_` identifiers reaches 30 of them across 20 files, and the Python side has already shipped the exact defect this catches: `cap_pass.py` named a test that had been renamed under it, and the one line telling a reader what enforced a flag pointed at nothing. Widening `SCANNED_ROOTS` is the whole mechanism; the cost is however many of those 30 turn out to dangle, which nobody has counted, plus teaching the comment stripper `.astro` syntax.
+
+### An audit finding that is not a repair
 
 - **The sabotage classifier's remaining comment-anchored needles are its own lexer miscounting** `//`, `/*`, `///` and `{/*`. No needle anchors a code mutation on a comment any more, python and web both, so what an audit still lists under that heading is instrument error rather than a case to repair.
 
