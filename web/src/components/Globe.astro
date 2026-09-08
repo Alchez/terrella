@@ -16,7 +16,7 @@
 // `data-astro-cid-...` attribute on both halves, so leaving either behind leaves selectors that
 // match nothing — the globe renders unstyled and every gate stays green.
 import "../styles/globe.css";
-import { REPO_URL } from "../lib/siteLinks";
+import { GITHUB_MARK, REPO_URL } from "../lib/siteLinks";
 ---
 
 {/* Static space backdrop: a sparse starfield painted behind the transparent
@@ -50,10 +50,8 @@ import { REPO_URL } from "../lib/siteLinks";
     aria-label="Source on GitHub"
     title="Source on GitHub"
   >
-    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-      <path
-        d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8z"
-      ></path>
+    <svg viewBox={GITHUB_MARK.viewBox} aria-hidden="true" focusable="false">
+      <path d={GITHUB_MARK.path}></path>
     </svg>
   </a>
 </nav>
@@ -1173,7 +1171,7 @@ import { REPO_URL } from "../lib/siteLinks";
   // there is no terrain source and null is the honest answer, not zero.
   let coveringTileCount: () => number | null = () => null;
   // Re-apply the DEM bound. Needed because a WebGL context restore silently drops it: MapLibre
-  // rebuilds the style from line 23533 of _contextRestored, which fires `style.load` BEFORE
+  // rebuilds the style from line 23982 of _contextRestored, which fires `style.load` BEFORE
   // _setupPainter() has run, so the terrain tile manager the cap is written to does not exist yet —
   // then setTerrain builds a fresh, uncapped one. Measured 4/4 forced losses: 381 slots -> 1155,
   // i.e. straight back to the ~1.14 GiB ceiling the cap exists to remove (1155 x demSlotBytes(512)
@@ -1449,7 +1447,7 @@ import { REPO_URL } from "../lib/siteLinks";
   // The caps must be RE-ADDED after a context restore, and specifically not from `style.load`.
   // MapLibre says so itself on every loss ("Custom layer ... cannot be restored ... you will need
   // to re-add it manually"), but the timing is the part that bites: _contextRestored calls
-  // setStyle() at line 23533 and _setupPainter() only at 23546, so a cap added from `style.load`
+  // setStyle() at line 23982 and _setupPainter() only at 23995, so a cap added from `style.load`
   // binds its buffers and textures to the GL context from BEFORE the painter came back. It renders
   // as a black disc over the pole — present, wrong, and silent. Re-adding once the map reads
   // healthy is the only ordering that holds, so the re-add is driven from there.
@@ -1829,10 +1827,10 @@ import { REPO_URL } from "../lib/siteLinks";
       GL_RESTORE_GRACE_MS,
     );
     // WATCH FROM THE LOSS, NOT FROM THE RESTORE. `webglcontextrestored` is not guaranteed to
-    // arrive: MapLibre's _contextRestored calls this.resize() at line 23551, which fires `move`,
+    // arrive: MapLibre's _contextRestored calls this.resize() at line 24000, which fires `move`,
     // which reaches its own Hash plugin (we pass hash:"map") -> unproject -> the terrain depth pass
     // -> useProgram on a style that is still mid-rebuild, and it THROWS — three lines before
-    // fire("webglcontextrestored") at 23554. Observed both ways on the same build, so anything
+    // fire("webglcontextrestored") at 24003. Observed both ways on the same build, so anything
     // hung off that event is a coin toss. Polling the STATE converges either way.
     startRecoveryWatch(performance.now() + GL_RESTORE_GRACE_MS);
   });
