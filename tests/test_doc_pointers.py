@@ -84,6 +84,27 @@ SELF = Path("tests/test_doc_pointers.py")
 #: table holds its needles verbatim, so it names unfollowable pointers without shipping one.
 EXEMPT = {Path("scripts/sabotage.py")}
 
+#: A path a doc names, in the other direction from every check above. Code extensions only: a doc
+#: naming a `.json` or a `.tif` is a claim about an OUTPUT, which lives under gitignored `data/`
+#: where absence is the normal state and proves nothing. Unbackticked too, because two of the
+#: original defects were heading tails, `Fill sun — TILES (..., tile/shade.py)`.
+CODE_PATH = re.compile(
+    r"(?<![\w/.-])([A-Za-z0-9_][A-Za-z0-9_./-]*\.(?:py|ts|tsx|astro|sh|mjs))(?![\w-])"
+)
+
+#: What a doc says when it names a gone module ON PURPOSE. Taken from the sites already doing it:
+#: CLAUDE.md's producer-seam note, PROCESS.md's two superseded rows, the prose-pass skill.
+DELETION_MARKER = re.compile(r"deleted|superseded|orphan", re.IGNORECASE)
+
+#: `FUTURE.md` names modules nobody has written yet and tooling outside the checkout, both by
+#: design; requiring either to resolve would make the parking lot unwritable.
+NAMES_WHAT_DOES_NOT_EXIST_YET = {Path("FUTURE.md")}
+
+#: The ratified decision-archive pointer is `→ HISTORY, *the heading*`. The archive is gitignored,
+#: so the heading is the whole of what a reader outside this checkout can follow, and a bare
+#: pointer names nothing. The suffixed spelling is the clone check's to reject, not this one's.
+ARCHIVE_POINTER = re.compile(r"\bHISTORY\b(?!\.md)(?!\s*,\s*\*[^*]{4,}\*)(.{0,40})")
+
 
 def scanned_files() -> list[Path]:
     """Every Python file under a scanned root, repo-relative, minus this file and the exemptions."""
@@ -166,6 +187,70 @@ def resolve(name: str) -> Path | None:
         if relative in tracked():
             return REPO_ROOT / relative
     return None
+
+
+def scanned_docs() -> list[Path]:
+    """Every tracked markdown and diagram file whose paths are claims about the current tree."""
+    named = (Path(name) for name in tracked() if name.endswith((".md", ".mmd")))
+    return sorted(doc for doc in named if doc not in NAMES_WHAT_DOES_NOT_EXIST_YET and doc != SELF)
+
+
+def names_a_tracked_file(token: str) -> bool:
+    """Whether a doc's path token reaches a file, by full path or by basename.
+
+    Basenames count because docs name `palette.py` far more often than they spell its directory,
+    and a bare name that matches nothing is the defect either way.
+    """
+    name = token.lstrip("./")
+    return name in tracked() or any(path.endswith(f"/{name}") for path in tracked())
+
+
+def unfollowable_archive_pointers(text: str) -> list[str]:
+    """Every decision-archive pointer in `text` that names no heading."""
+    return [f"{match.group(0)}".strip() for match in ARCHIVE_POINTER.finditer(text)]
+
+
+def test_every_module_a_doc_names_still_exists() -> None:
+    """A doc naming a gone module points a reader at a file, which outranks merely stale prose.
+
+    `ART.md` said `shade.py` held `LAKE_CURVE` when the constant had moved to `look/lake_depth.py`,
+    which its own lever table already said, and gave three tuning recipes for a `--knob` flag the
+    same file states twice was removed with the compositor. Nothing could go red: every check above
+    follows code pointing at a document, and this is a document pointing at code.
+    """
+    offenders = [
+        f"{doc}:{lineno}: {token}"
+        for doc in scanned_docs()
+        for lineno, line in enumerate((REPO_ROOT / doc).read_text().splitlines(), 1)
+        if not DELETION_MARKER.search(line)
+        for token in CODE_PATH.findall(line)
+        if not names_a_tracked_file(token)
+    ]
+    assert not offenders, (
+        "doc names a module that is not in the tree — point at its new home, or say on the same "
+        "line that it is gone:\n  " + "\n  ".join(offenders)
+    )
+
+
+def test_a_decision_archive_pointer_names_its_heading() -> None:
+    """A bare `→ HISTORY` resolves for the author and for nobody else.
+
+    THE SYNTHETIC PAIR IS THE WHOLE PROOF, and it is not decoration. All three pointers in the tree
+    are already in the ratified form, so the repo scan below cannot go red today and a green from it
+    alone would say nothing about whether the pattern separates the two forms at all.
+    """
+    assert unfollowable_archive_pointers("the reasoning is in HISTORY, which you cannot open")
+    assert not unfollowable_archive_pointers("→ HISTORY, *the caps raytrace at edge 84*, measured")
+
+    offenders = [
+        f"{path}: {pointer}"
+        for path in scanned_files()
+        for pointer in unfollowable_archive_pointers(flattened(path))
+    ]
+    assert not offenders, (
+        "decision-archive pointer names no heading, so it is unfollowable from a clone — write "
+        "`→ HISTORY, *the heading*`:\n  " + "\n  ".join(offenders)
+    )
 
 
 def test_no_pointer_cites_a_line_number() -> None:
@@ -267,3 +352,9 @@ def test_the_scan_reaches_the_pointers_it_claims_to_cover() -> None:
     }
     assert len(cited_tests) >= 20, f"expected many test citations, found {len(cited_tests)}"
     assert len(known_test_names()) > 100, "the test-name collector found almost nothing"
+
+    named_modules = {
+        token for doc in scanned_docs() for token in CODE_PATH.findall((REPO_ROOT / doc).read_text())
+    }
+    assert len(scanned_docs()) > 20, "the doc scan found almost nothing; check the tracked listing"
+    assert len(named_modules) >= 100, f"expected many modules named in docs, found {len(named_modules)}"

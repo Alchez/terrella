@@ -581,18 +581,8 @@ The same reason as the entry below it: the working plan is live state and one qu
   - **Generalising that scan to a `(constant, prose pattern)` table is the fix, and it is a maintainer call**, since it puts six existing lines under a guard for the first time and each needs its owner named first.
   - **The trigger is the next value that drifts, not a sweep.** → HISTORY, *the deploy runbook had drifted in four places at once*, where four such copies were wrong at once and every one read as correct to anyone without the source open.
 
-### Three ART.md sections document a knob registry that was deleted with the compositor
-
-**Population derived this session** by listing all 33 headings in `ART.md` and resolving every module and constant each one names against the tree. Three fail, and they fail differently, which is why this is not one edit:
-
-- **§ *Fill sun, TILES*** names `KNOBS["fill_strength"]` in `tile/shade.py`. The module is gone; the value survives as `fill_strength` in `pipeline/render/scene_build.py`. **Wrong owner, live decision**, and correcting the pointer is mechanical.
-- **§ *Ambient floor, TILES*** (`KNOBS["ambient"]`, `KNOBS["ambient_knee"]`) and **§ *Snow curve, TILES*** (`KNOBS["snow_curve"]`) name values that resolve **nowhere in the tree**. Those knobs died with the compositor when every body moved to Cycles, so the sections document decisions that may no longer apply. **Whether each is dead or moved is a look judgement and the maintainer's**, which is why they are not simply deleted.
-- The same passage carries the reasoning too: "A hillshade has no cast shadows, so shadowless reproduces for free" was the compositor's argument for porting the hero's fill, and no tile is hillshaded now.
-- **Nothing could have caught this.** `test_doc_pointers` checks that a document a COMMENT names exists and that a cited SECTION exists inside it; no guard asks whether a MODULE a doc names still exists. That is the mirror of the dangling test citation fixed on 2026-09-08, on the doc side.
-
 ### Guard repairs, each needing a clone and nothing else
 
-- **The pointer guard cannot separate a bare decision-archive pointer from the ratified `, *heading*` form**, so the unfollowable one passes. `relief_scan.py` used to pass only because it capitalised a letter the pattern did not, and its citation is gone now, so nothing in the tree exercises the distinction either way. The repair is a lookahead in `test_doc_pointers`, and it wants a failing test first.
 - **The sabotage classifier's remaining comment-anchored needles are its own lexer miscounting** `//`, `/*`, `///` and `{/*`. No needle anchors a code mutation on a comment any more, python and web both, so what an audit still lists under that heading is instrument error rather than a case to repair.
 
 ### Archives that cannot say when they were cut
@@ -617,9 +607,6 @@ The working plan had become the project's only backlog as well as its live state
 
 ### Stated numbers that are wrong, and cannot go red
 
-- **The cap's elevation resolution is wrong in two files and the error is load-bearing.**
-  - `CAP_ELEV_PX`'s comment says the disc is "2,668 km diameter, ~5.2 km/px" and `polarCaps.ts`'s `RINGS` comment repeats the 5.2. Both are edge-78 figures; the truth is 2,223.9 km and 4.34 km/px.
-  - Those same two comments are the mesh ladder's ONLY sizing argument: `RINGS = 160` is justified as sitting "just under" 5.2 km/px, and against the real 4.34 the mesh is no longer the limit it claims to be. So correcting the comment also reopens whether 160 is right.
 - **The TERRAIN staleness claim is unverified**: its sidecar is not at `planet_terrain/terrain_params.json`, so the claim rests on a path that does not exist.
 - **The Mars DEM ships a `.tif.md5` its acquirer ignores**, and the mosaic host now has two spellings that nothing ties together.
 

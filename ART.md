@@ -12,11 +12,11 @@
 - **`shade.KNOBS` IS DELETED AND THIS FILE IS THE ONLY RECORD OF IT.** Every `KNOBS["..."]` spelling
   below names a value the deleted numpy compositor read; the sections are kept because each records
   how a ratified look was chosen and that reasoning transfers, but none of them is a lever and none
-  can be edited in code. `shade.py` holds `LAKE_CURVE` alone, which the HERO reads. What follows was
+  can be edited in code. `lake_depth.py` holds `LAKE_CURVE` alone, which the HERO reads. What follows was
   the exception that was NOT per body: tone, saturation and the
   highlight ceiling applied to every planet alike, which is a shared house style rather than an
   oversight, but it means a body cannot soften its own highlights without that changing first. Canonical renders: `blender/renders/heroes/<country>.png` (203 posters — 204 countries are in scope, Kiribati deferred).
-- The A/Bs and rationale behind every value live in HISTORY (cited by § heading); this file is
+- This file carries the ratified value and what moving it costs, never the A/B that chose it; it is
   the operational view.
 
 ## Where levers live (the "how" for every Adjust line below)
@@ -53,8 +53,8 @@
 ## Lever index (every tunable, by what a pull costs)
 
 - The quick-scan view of every lever: home, ratified value, and the restage bill for moving it
-  (measured — PROCESS.md § "what a change costs"). The sections below carry the operational
-  detail; HISTORY carries the A/Bs that chose each value.
+  (measured, PROCESS.md § What a look change costs). The sections below carry the operational
+  detail, and the A/Bs that chose each value are not restated in this repo.
 - Two rules keep this index honest: **changing a lever means updating its row in the same edit**
   — a lagging index is worse than none — and **the code is the single home**: if a row and the
   code disagree, the code is right and the row is the bug.
@@ -187,11 +187,11 @@ carries the measured row; never price one from this table.
 - **Adjust:** `fill_strength` / `fill_angle` / `fill_rotation` on `RIG`; in-blend A/B: mute the
   "Fill" light or scale its Strength.
 
-### Fill sun — TILES (`KNOBS["fill_strength"]`, tile/shade.py)
+### Fill sun — TILES (`KNOBS["fill_strength"]`)
 
 - The hero fill, ported as a ratio. Baseline **0.15** = the hero's own `fill_strength 0.45 /
   sun_strength 3`. Geometry is the hero's too: 60° up, azimuth 135° (SE), in
-  `look/hillshade.py` as `FILL_ALTITUDE`/`FILL_AZIMUTH`. A hillshade has no cast shadows, so
+  the deleted compositor as `FILL_ALTITUDE`/`FILL_AZIMUTH`. A hillshade has no cast shadows, so
   "shadowless" reproduces for free.
 - **Why the tiles need it:** a single 45° sun on the 15×-exaggerated grid makes the slope term
   `arctan(15 · gradient)`, so a 4° real slope presents as 46° — past the sun — and the face goes
@@ -205,9 +205,8 @@ carries the measured row; never price one from this table.
 - **Do NOT reach for `fill_strength` as a softness lever.** 0.15 is not a tuned value, it is the
   hero's own ratio — the tile look's single principled anchor. Moving it breaks the anchor and
   compresses the same axis `ambient_knee` already compresses.
-- **Adjust:** `--knob fill_strength=…` for a region A/B (`shade.py --cells` runs the same light
-  model as the planet path, verified to 2 DN); past ~0.20 the compression reads flat rather than
-  soft. Hillshade-stage: ~46 min to live tiles.
+- **The lever is § Fill sun — shadow floor**, the hero's own `fill_strength` on the rig, which
+  every tile pixel now takes.
 
 ### Ambient floor — TILES (`KNOBS["ambient"]` + `KNOBS["ambient_knee"]`)
 
@@ -224,10 +223,8 @@ carries the measured row; never price one from this table.
 - **The floor is asymptotic**: darkest reachable light 0.5519, just above `snow_lo` 0.55 — shaded
   snow survives on a 0.9%-of-ramp margin, pinned by test. A future knee raise bleaches snow
   first.
-- **Not adjustable any more.** `ambient_knee` was the compositor's and reaches no pixel; there is no
-  `--knob` flag left either. The record below is why 0.30 was chosen, kept because the reasoning
-  transfers to whatever term next plays this role. Judge any successor on `/earth` at planet scale:
-  region crops and contrast metrics both got this one wrong.
+- **Judge any successor to this term on `/earth` at planet scale.** Region crops and contrast
+  metrics both got this one wrong.
 
 ### Hero → tile parameter map
 
@@ -296,7 +293,7 @@ carries the measured row; never price one from this table.
 - **Adjust colour:** `palette.SNOW_RGB` (both surfaces). **A/B in-blend:** mute the Mix node
   labeled "Snow". **The mask itself is not a lever** — dataset and class are pinned provenance.
 
-### Snow curve — TILES (`KNOBS["snow_curve"]`, tile/shade.py)
+### Snow curve — TILES (`KNOBS["snow_curve"]`)
 
 - **The one thing to understand, as the compositor did it:** over full snow it multiplied `base_rgb`
   by zero, discarding all hillshade and SVF modelling. Relief reached an ice sheet through **one** channel
@@ -309,8 +306,6 @@ carries the measured row; never price one from this table.
 - **`gamma8` chosen:** Greenland Summit contrast ×6.0, and nearly free because rugged snow's
   light is bimodal (mostly pinned at the floor) — but that's luck, not design: **if a future
   re-tune un-pins the floor, the bill arrives.**
-- **Adjust:** `KNOBS["snow_curve"]` — `linear` (kept as the A/B control) | `gamma4` | `gamma8` |
-  `knee`. Composite-stage, ~29 min; the hillshade cannot see it.
 - **What this does NOT fix:** the ice has whatever relief the DEM gives it. REMA/ArcticDEM is
   not the first lever — better elevation feeds a stage that was discarding 93% of what it had.
   Antarctica inherits every word of this.
@@ -576,7 +571,7 @@ from the cap's **projected size on the globe**, which is the same idea arrived a
 - Reference image on one screen, render on the other. **One lever per iteration.**
 - Cheap arms: the scripted-A/B pattern above at `resolution_percentage 27` (~2K, under a minute
   per arm). Matched full-frame crops beat memory every time, one image per arm as above.
-  Tile-side: `--knob` + `shade.py --cells` region runs.
+  Tile-side there is no in-process arm: a checkout plus a scratch mosaic, per § Tiles + caps.
 - Keeper renders go to `renders/archive/` with self-describing names
   (`<country>_<lever>_<value>.png`); `renders/heroes/<country>.png` stays canonical-current.
 - Watch for scroll-wheel drift in the GUI: hovering a value field and scrolling silently edits
