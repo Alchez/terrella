@@ -23,28 +23,45 @@ sys.path.insert(0, str(REPO_ROOT))
 from pipeline import attribution, bodies  # noqa: E402
 
 
+def card(source: attribution.Source) -> dict:
+    """One dataset as the site draws it, on a card or in an archive's source list."""
+    return {
+        "name": source.name,
+        "href": source.href,
+        "role": source.role,
+        "license": source.licence,
+    }
+
+
 def payload() -> dict:
     """Per body: the cards in order, and the disclaimers its own licences oblige.
 
     `archives` is for a caller that must stamp a `.pmtiles` without a Python interpreter, so it
     cannot call the composer. Keyed `{body}/{layer}`, the pair every archive address is built from.
+
+    Each archive carries `credit` AND the sources it was composed from, because the two answer
+    different questions. `credit` is the string inside the file, verbatim, which is what a
+    downloader has to reproduce; `sources` is what a reader is actually asking when they want to
+    know what went into a pyramid, and a 1,524-character paragraph cannot answer that by being
+    read. Nothing splits one into the other: the composer joins notices with `COPERNICUS_LIABILITY`
+    among them, and the abbreviations, DOIs and initials in a citation make sentence boundaries a
+    guess.
     """
     return {
         "archives": {
-            f"{name}/{layer}": attribution.for_archive(body, layer)
+            f"{name}/{layer}": {
+                "credit": attribution.for_archive(body, layer),
+                "sources": [
+                    card(attribution.SOURCES[key]) for key in attribution.keys_for(body, layer)
+                ],
+            }
             for name, body in sorted(bodies.BODIES.items())
             for layer in attribution.ARCHIVE_LAYERS
         },
         "bodies": {
             name: {
                 "sources": [
-                    {
-                        "name": source.name,
-                        "href": source.href,
-                        "role": source.role,
-                        "license": source.licence,
-                        "attribution": source.page_attribution(),
-                    }
+                    {**card(source), "attribution": source.page_attribution()}
                     for source in attribution.on_the_page(body)
                 ],
                 "legal": list(attribution.CREDITS[name].legal),

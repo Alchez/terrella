@@ -52,6 +52,19 @@ export const BORDERS_BASE = resolveAssetBase(import.meta.env.PUBLIC_BORDERS_BASE
 /** Root of the relief tile endpoint — a tile server, not a directory listing. */
 export const TILE_BASE = resolveAssetBase(import.meta.env.PUBLIC_TILE_BASE, "/tiles/");
 
+/** Where a whole PMTiles archive is downloaded from, which is a different access path to
+ *  `TILE_BASE` rather than a second spelling of it.
+ *
+ *  NO WORKER IN FRONT OF THIS ONE. It is an R2 custom domain on the same bucket, so a request
+ *  here is one object read billed as a Class B operation, while a request to `TILE_BASE` is a
+ *  Worker invocation against a daily account cap. That difference is the whole reason the site
+ *  can offer the archives at all, and it is why the two are separate constants rather than one
+ *  base with two paths under it.
+ *
+ *  A public bucket cannot list itself, which is what `pages/archives.astro` is for: the registry
+ *  is the index, and this is only the prefix its links are built on. */
+export const ARCHIVE_BASE = resolveAssetBase(import.meta.env.PUBLIC_ARCHIVE_BASE, "/archives/");
+
 /** A MapLibre source template — where one body's cut of one layer is addressed.
  *
  *  ALL THREE PYRAMIDS RIDE `TILE_BASE`, and none gets a `PUBLIC_` base of its own. They are not

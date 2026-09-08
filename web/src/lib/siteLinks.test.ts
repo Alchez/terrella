@@ -143,6 +143,37 @@ describe("the on-map credit", () => {
   });
 });
 
+describe("the site footer", () => {
+  const footer = readFileSync(new URL("../components/Footer.astro", import.meta.url), "utf8");
+  const base = readFileSync(new URL("../layouts/Base.astro", import.meta.url), "utf8");
+
+  it("is the site's map, and names every page a visitor cannot otherwise find", () => {
+    // `/archives/` was reachable from ONE mid-sentence anchor on `/about/` and from nothing else,
+    // because the gallery masthead is the only nav that reaches the front page and its row is full.
+    // Asserted as hrefs on the component, not as the word anywhere in the file, which its own
+    // explanatory comment would satisfy.
+    for (const href of ["/", "/about/", "/archives/"]) {
+      expect(footer, `the footer no longer offers ${href}`).toContain(`href: "${href}"`);
+    }
+    expect(footer, "the footer no longer links the repository").toContain("REPO_URL");
+  });
+
+  it("is drawn on every page that has a bottom to reach", () => {
+    // Keyed on the role rather than opted into per page: a page added without remembering the
+    // footer would be the next one nothing links out of, which is the defect this closes.
+    expect(base).toMatch(/pageRole !== "globe" && <Footer/);
+    expect(base).toMatch(/import Footer from "\.\.\/components\/Footer\.astro"/);
+  });
+
+  it("asks for the view bar's clearance from the condition that draws the bar", () => {
+    // Two readers of one condition. Re-derived in the footer instead, a fifth control added to the
+    // bar would leave the last row of some page underneath it, silently.
+    expect(base).toMatch(/const hasViewBar = highlight \|\| borders \|\| spotlight \|\| quality;/);
+    expect(base).toContain("<Footer clearsViewBar={hasViewBar} />");
+    expect(base).toMatch(/\n {6}hasViewBar && \(/);
+  });
+});
+
 /** The CREDITS expression as written in earth.astro, spanning however many lines it takes. */
 function creditsMarkup(): string {
   const match = globe.match(/const CREDITS =([\s\S]*?);\n/);

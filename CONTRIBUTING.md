@@ -11,11 +11,18 @@ No rendered asset or elevation tile is in git, so a clone gets the code and none
 | To do this | You need | Costs |
 | :-- | :-- | :-- |
 | Run every check the project has | git, uv, pnpm | minutes |
-| See the site in a browser | a local render store, which nothing ships: the gallery manifest, hero images, three tile archives | the two rows below |
+| See the globe in a browser | the three tile archives for one body, downloaded | minutes, plus a few GB of disk |
+| See the gallery too | a local render store, which nothing ships: the manifest and the hero images | the two rows below |
 | Change how the globe's tiles look | the source data and the fused heightfield, an NVIDIA GPU and Blender: every tile block is raytraced | a night per body, then a re-cut and a deploy |
 | Change how the gallery's renders look | the above, at 8K per country | days |
 
-The first row runs on a fresh clone with nothing configured, and it is both test suites, the type checkers and the linters. Everything under it needs the render store, and since nothing ships one, the bottom two rows are how you get the second.
+The first row runs on a fresh clone with nothing configured, and it is both test suites, the type checkers and the linters. The second is the cheap way to see something: the tile archives are published, so a globe needs a download rather than a render store. Everything below that needs the store itself, and since nothing ships one, the bottom two rows are how you get it.
+
+## Getting a globe without rendering one
+
+The three archives for a body are downloadable from [terrella.alchez.dev/archives](https://terrella.alchez.dev/archives/), which lists each one with its size. Earth is about 5 GB across relief, terrain and vectors; Mars is under 2 GB. Put them where `web/README.md` says the dev server looks and the globe runs off your own disk.
+
+**Do not point a build at the production tile endpoint.** It is open and it will answer you, so nothing stops you, which is why this says so. Every tile is one worker request against a daily allowance for the whole account, shared with the live site: a few sessions of panning can spend the day for everybody, and there is nobody to notice but the maintainer. Downloading an archive costs the project nothing and is faster for you.
 
 ## Setup
 

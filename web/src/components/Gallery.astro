@@ -248,7 +248,7 @@ const indexLetters = [...byLetter.keys()];
   .gallery {
     max-width: min(2200px, 94vw);
     margin: 0 auto;
-    padding: clamp(1.4rem, 3vw, 2rem) clamp(1.1rem, 4vw, 2.5rem) 4rem;
+    padding: clamp(1.4rem, 3vw, 2rem) var(--page-gutter) 4rem;
     /* masonry: column *width* drives the count, so more relief cards fill wider
        screens (≈6 columns at 2K, 1 on mobile) without cropping varied aspects. */
     columns: 320px;
@@ -373,7 +373,7 @@ const indexLetters = [...byLetter.keys()];
     z-index: 1;
     max-width: min(2200px, 94vw);
     margin: 0 auto;
-    padding: clamp(1rem, 3vw, 1.6rem) clamp(1.1rem, 4vw, 2.5rem) 0.4rem;
+    padding: clamp(1rem, 3vw, 1.6rem) var(--page-gutter) 0.4rem;
     background: color-mix(in srgb, var(--bg) 90%, transparent);
     -webkit-backdrop-filter: blur(8px);
     backdrop-filter: blur(8px);
@@ -413,7 +413,7 @@ const indexLetters = [...byLetter.keys()];
   .index-groups {
     max-width: min(2200px, 94vw);
     margin: 0 auto;
-    padding: clamp(1rem, 3vw, 1.6rem) clamp(1.1rem, 4vw, 2.5rem) 5rem;
+    padding: clamp(1rem, 3vw, 1.6rem) var(--page-gutter) 5rem;
   }
   .az-rail a {
     color: var(--muted);

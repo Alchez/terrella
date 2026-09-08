@@ -1,0 +1,398 @@
+---
+import Base from "../layouts/Base.astro";
+import Masthead from "../components/Masthead.astro";
+import { archiveIndex } from "../lib/archiveIndex";
+import { pageTitle } from "../lib/pageTitle";
+
+// THIS PAGE EXISTS BECAUSE A PUBLIC BUCKET CANNOT LIST ITSELF. Cloudflare serves an R2 custom
+// domain object by object and answers nothing at the root, so without an index here every archive
+// is reachable and none is discoverable.
+//
+// The rows come from `archiveIndex`, which is a module rather than frontmatter so that a guard can
+// call it: what can break here is a list quietly going short, and no assertion about this file's
+// text can see that.
+
+const worlds = archiveIndex();
+---
+
+{/* `body="earth"` and `pageRole="plain"` for the reasons about.astro states: the attribute drives
+    the chrome accent alone on a plain page, and the body switcher sends you to a globe, which is
+    the wrong destination from a page whose subject is both planets' files. What makes the accent
+    right here is `all-bodies` on the main and `data-body` on each section below. */}
+<Base
+  title={pageTitle("Archives")}
+  description="Download Terrella's tile archives: PMTiles for relief, terrain and vector geometry, on both bodies."
+  body="earth"
+  pageRole="plain"
+>
+  <Masthead
+    eyebrow="Downloads"
+    heading="Archives"
+    back="/"
+    maxWidth="min(1500px, 92vw)"
+    legend={false}
+  >
+    <p class="lede">
+      Every pyramid this site draws from, as the <a
+        href="https://github.com/protomaps/PMTiles"
+        target="_blank"
+        rel="noopener noreferrer">PMTiles</a
+      > archive it is served out of. Each file carries its own credit and a line saying what is in it,
+      so a copy on your disk stays attributable to whatever you make from it.
+    </p>
+  </Masthead>
+
+  <main class="archives all-bodies">
+    <section class="note">
+      <p>
+        <strong>Take an archive rather than the tile endpoint.</strong> A download is one read straight
+        off the bucket and costs nothing to serve. The tile endpoint runs a worker per tile against a
+        daily allowance shared with this site, so a build pointed at it can exhaust the day for everyone.
+        Point a local server at a downloaded file instead.
+      </p>
+      <p>
+        Imagery is <a
+          href="https://creativecommons.org/licenses/by-sa/4.0/"
+          target="_blank"
+          rel="noopener noreferrer">CC BY-SA 4.0</a
+        >: use it for anything, credit Terrella, share what you make under the same license. The source
+        datasets keep their own licenses, listed inside each file and on the <a href="/about/">About</a
+        > page. Nothing here is promised to stay at the same address.
+      </p>
+    </section>
+
+    {
+      worlds.map((world) => (
+        <section class="world" data-body={world.slug}>
+          <h2>{world.label}</h2>
+          <ul class="cuts">
+            {world.current.map((row) => (
+              <li class="cut">
+                <div class="head">
+                  <h3>{row.layer}</h3>
+                  <span class="size">{row.size}</span>
+                </div>
+                <p class="role">{row.role}</p>
+                <dl>
+                  <dt>Zooms</dt>
+                  <dd>{row.zooms}</dd>
+                  <dt>Tiles</dt>
+                  <dd class="mono">{row.tiles}</dd>
+                  {row.decode && (
+                    <Fragment>
+                      <dt>Metres</dt>
+                      <dd class="mono">{row.decode}</dd>
+                    </Fragment>
+                  )}
+                </dl>
+                {/* THE DATASETS AS A LIST, and the composed paragraph behind a disclosure. Both are
+                    the same obligation: the paragraph is the string inside the file and is what a
+                    downloader reproduces, while the list is what someone deciding whether to take a
+                    2.35 GB file is actually asking. Earth's relief credit is 1,524 characters, which
+                    answers that question only to a reader who finishes it. */}
+                <div class="sources">
+                  <h4>Built from</h4>
+                  <ul>
+                    {row.sources.map((source) => (
+                      <li>
+                        <a href={source.href} target="_blank" rel="noopener noreferrer">
+                          {source.name}
+                        </a>
+                        <span class="what">{source.role}</span>
+                        <span class="lic">{source.license}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <details class="credit">
+                    <summary>The exact credit inside the file</summary>
+                    <p>{row.credit}</p>
+                  </details>
+                </div>
+                <a class="get" href={row.href}>
+                  Download <span class="mono">{row.key}</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+
+          {world.superseded.length > 0 && (
+            /* COLLAPSED, AND THE COUNT IS IN THE SUMMARY. The bucket is additive by decision, so
+               this list only ever grows: every re-cut adds a row and none is ever removed. Open, it
+               is the tallest thing on the page and it describes files nothing serves. */
+            <details class="older">
+              <summary>
+                Superseded cuts <span class="count">{world.superseded.length}</span>
+              </summary>
+              <p class="role">
+                Kept as provenance, not as a rollback. Nothing on this site serves them, and each note
+                says what that cut was.
+              </p>
+              <ul>
+                {world.superseded.map((cut) => (
+                  <li>
+                    <a class="mono" href={cut.href}>
+                      {cut.key}
+                    </a>
+                    <span class="note-text">{cut.note}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </section>
+      ))
+    }
+  </main>
+</Base>
+
+<style>
+  .archives {
+    max-width: min(1500px, 92vw);
+    margin: 0 auto;
+    padding: clamp(1.2rem, 2.5vw, 1.8rem) var(--page-gutter) 5rem;
+    display: grid;
+    gap: 3rem;
+  }
+
+  .lede {
+    font-family: var(--serif);
+    font-size: clamp(1.02rem, 1.8vw, 1.22rem);
+    line-height: 1.5;
+    max-width: 62ch;
+    margin: 0.9rem 0 0;
+  }
+
+  .note {
+    display: grid;
+    gap: 0.75rem;
+    border-left: 2px solid var(--accent);
+    padding: 0.25rem 0 0.25rem 1.25rem;
+    max-width: 68ch;
+  }
+
+  .note p {
+    margin: 0;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+
+  .note strong {
+    color: var(--text);
+  }
+
+  h2 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 1.5rem;
+    margin: 0 0 1.25rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--line);
+  }
+
+  /* `start` rather than the grid's default stretch: a body's three cards credit 8, 3 and 1 datasets,
+     so stretched they are one card's height with 150px of nothing under two of them. */
+  .cuts {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    align-items: start;
+    gap: 1rem;
+    grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
+  }
+
+  .cut {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 1.1rem 1.2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+
+  .head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .cut h3 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 1.1rem;
+    margin: 0;
+    text-transform: capitalize;
+  }
+
+  .size {
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .role {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.9rem;
+    line-height: 1.5;
+  }
+
+  dl {
+    margin: 0;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.2rem 0.9rem;
+    font-size: 0.8rem;
+  }
+
+  dt {
+    color: var(--muted);
+  }
+
+  dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .mono {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+  }
+
+  .sources {
+    border-top: 1px solid var(--line);
+    padding-top: 0.7rem;
+  }
+
+  .sources h4 {
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-size: 0.64rem;
+    font-weight: 500;
+    color: var(--muted);
+    margin: 0 0 0.35rem;
+  }
+
+  .sources ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .sources li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.15rem 0.5rem;
+    padding: 0.28rem 0;
+    font-size: 0.78rem;
+  }
+
+  .sources li + li {
+    border-top: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+  }
+
+  .sources .what {
+    flex: 1 1 auto;
+    color: var(--muted);
+    font-size: 0.72rem;
+  }
+
+  .sources .lic {
+    font-family: var(--mono);
+    font-size: 0.64rem;
+    color: var(--muted);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 0.05rem 0.35rem;
+    white-space: nowrap;
+  }
+
+  .credit {
+    margin-top: 0.6rem;
+    font-size: 0.75rem;
+  }
+
+  .credit summary {
+    cursor: pointer;
+    color: var(--muted);
+  }
+
+  .credit p {
+    margin: 0.5rem 0 0;
+    font-size: 0.72rem;
+    line-height: 1.5;
+    color: var(--muted);
+  }
+
+  .get {
+    align-self: flex-start;
+    display: inline-flex;
+    gap: 0.4rem;
+    align-items: baseline;
+    padding: 0.45rem 0.9rem;
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    color: var(--accent);
+    text-decoration: none;
+  }
+
+  .get:hover,
+  .get:focus-visible {
+    background: var(--chip);
+  }
+
+  .older {
+    margin-top: 1.75rem;
+  }
+
+  .older summary {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 1rem;
+    cursor: pointer;
+  }
+
+  .older .count {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    font-weight: 400;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .older .role {
+    margin: 0.5rem 0 0;
+  }
+
+  .older ul {
+    list-style: none;
+    margin: 0.9rem 0 0;
+    padding: 0;
+    display: grid;
+    gap: 0.55rem;
+  }
+
+  .older li {
+    display: grid;
+    grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+    gap: 0.3rem 1rem;
+    font-size: 0.82rem;
+    align-items: baseline;
+  }
+
+  .note-text {
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  @media (max-width: 640px) {
+    .older li {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

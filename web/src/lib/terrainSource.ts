@@ -200,6 +200,31 @@ export function terrainEncoding(quantisationMetres: number = TERRAIN_QUANTISATIO
   };
 }
 
+/** The same decode written for a person, since the archives page hands these files to strangers.
+ *
+ *  COMPOSED FROM `terrainEncoding`'s OWN FACTORS so the sentence and the style spec cannot disagree,
+ *  and a channel whose factor is zero is left out rather than written as `+ blue * 0`: blue carries
+ *  no elevation at any step this encoder produces.
+ *
+ *  It is needed at all because neither name a reader would search for decodes these bytes. Mapbox's
+ *  Terrain-RGB and plain Terrarium both apply cleanly to them and both return a number, which is
+ *  the failure this project refuses lossy tiles to avoid. → HISTORY, *the terrain card stops
+ *  naming a format that would decode it wrongly*
+ */
+export function terrainDecodeExpression(quantisationMetres: number = TERRAIN_QUANTISATION_M): string {
+  const spec = terrainEncoding(quantisationMetres);
+  if (spec.encoding === "terrarium") return "red * 256 + green + blue / 256 - 32768";
+  const channels: [string, number][] = [
+    ["red", spec.redFactor],
+    ["green", spec.greenFactor],
+    ["blue", spec.blueFactor],
+  ];
+  const terms = channels
+    .filter(([, factor]) => factor !== 0)
+    .map(([channel, factor]) => (factor === 1 ? channel : `${channel} * ${factor}`));
+  return `${terms.join(" + ")} - ${spec.baseShift}`;
+}
+
 /**
  * The `raster-dem` source spec for one body's elevation pyramid.
  *

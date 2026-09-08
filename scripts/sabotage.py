@@ -6183,9 +6183,97 @@ def _earth_lake_depth''',
         suite='web',
         label='a bare :root accent returns, making a page that declares no body silently Earth',
         path='web/src/styles/global.css',
-        needle=':root[data-body="earth"] {\n  --accent: #3a6e7d;',
+        needle='[data-body="earth"] {\n  --accent: #3a6e7d;',
         replacement=':root {\n  --accent: #3a6e7d;',
         guard='leaves the accent undefined when no body is declared, rather than defaulting to Earth',
+    ),
+    # The dark override of the both-bodies neutral, which has no symptom when it goes: the page
+    # keeps the LIGHT neutral, which is a colour and not an absence, so a dark visitor sees a
+    # slightly odd grey and nothing anywhere disagrees.
+    Sabotage(
+        suite='web',
+        label='the neutral for a page about every body loses its dark scheme',
+        path='web/src/styles/global.css',
+        needle='  :root:has(.all-bodies) {\n    --accent: #a49b8a;\n  }\n',
+        replacement='',
+        guard='gives a page about all of them a neutral, in both schemes, that is neither body\'s',
+    ),
+    # A page listing two planets takes the root's one body for all of it, and both colours it can
+    # land on are the site's own. Nothing downstream reads an accent, so there is no invalid value
+    # to catch and no frame that looks broken: a section wearing the wrong planet renders perfectly.
+    Sabotage(
+        suite='web',
+        label="the archives page stops giving each body's section its own accent",
+        path='web/src/pages/archives.astro',
+        needle='<section class="world" data-body={world.slug}>',
+        replacement='<section class="world">',
+        guard='stamps the body on each section, on both pages that have them',
+    ),
+    Sabotage(
+        suite='web',
+        label='a page colours sections per body while its own chrome keeps one planet',
+        path='web/src/pages/archives.astro',
+        needle='<main class="archives all-bodies">',
+        replacement='<main class="archives">',
+        guard='neutralises its own chrome wherever it stamps a section',
+    ),
+    # The footer is the site's only nav that reaches every page, and each of these three mutations
+    # renders perfectly: a page with no way out still answers 200, and a link under a fixed pill is
+    # drawn, styled and unclickable in the one place a pointer lands on it.
+    Sabotage(
+        suite='web',
+        label='the footer stops offering the one page nothing else links to',
+        path='web/src/components/Footer.astro',
+        needle='  { href: "/archives/", label: "Archives" },\n',
+        replacement='',
+        guard="is the site's map, and names every page a visitor cannot otherwise find",
+    ),
+    Sabotage(
+        suite='web',
+        label='a page role loses the footer, so a whole class of page has no way out of itself',
+        path='web/src/layouts/Base.astro',
+        needle='pageRole !== "globe" && <Footer clearsViewBar={hasViewBar} />',
+        replacement='pageRole === "plain" && <Footer clearsViewBar={hasViewBar} />',
+        guard='is drawn on every page that has a bottom to reach',
+    ),
+    Sabotage(
+        suite='web',
+        label='the footer stops clearing the view bar, which floats over its last row',
+        path='web/src/styles/global.css',
+        needle='  --view-bar-clear: 4.5rem;',
+        replacement='  --view-bar-clear: 0rem;',
+        guard='keeps every link out from under the view bar, at every width the site serves',
+    ),
+    # The decode is the one line on the downloads page that a stranger APPLIES, and both mutations
+    # below leave it reading plausibly. A hardcoded expression is correct at today's step and stays
+    # printed after a re-cut at another one; the format name sends a reader to a formula that
+    # returns six-figure metres off these bytes without erroring.
+    Sabotage(
+        suite='web',
+        label='the elevation decode is spelled out instead of composed from the shipped step',
+        path='web/src/lib/terrainSource.ts',
+        needle='  return `${terms.join(" + ")} - ${spec.baseShift}`;',
+        replacement='  return "red * 2048 + green * 8 - 32768";',
+        guard='composes that decode from the shipped step rather than spelling one',
+    ),
+    Sabotage(
+        suite='web',
+        label="the terrain card names Mapbox's format, which decodes this archive to wrong metres",
+        path='web/src/lib/archiveIndex.ts',
+        needle='    `Elevation in Terrarium channel order, quantised to ${TERRAIN_QUANTISATION_M} m steps.`,',
+        replacement='    "Elevation as Terrain-RGB, which is what gives the globe its height.",',
+        guard='names no format that would decode an archive wrongly',
+    ),
+    # The gutter goes back to being spelled at the site that needs it, which is how it came to be
+    # spelled seven times: each copy is correct on its own page and only disagrees with a component
+    # nobody was comparing it against.
+    Sabotage(
+        suite='web',
+        label='a page spells the content gutter itself instead of reading the one that owns it',
+        path='web/src/pages/archives.astro',
+        needle='padding: clamp(1.2rem, 2.5vw, 1.8rem) var(--page-gutter) 5rem;',
+        replacement='padding: clamp(1.2rem, 2.5vw, 1.8rem) clamp(1.1rem, 4vw, 2.5rem) 5rem;',
+        guard='is spelled nowhere else, so no two containers can disagree about it',
     ),
     # The copied colour drifts. This is the WATER_RGB failure one layer up: the stylesheet and the
     # descriptor both state the accent, and only a test comparing them can notice they stopped agreeing.
@@ -7109,6 +7197,23 @@ def _earth_lake_depth''',
         needle='"name": "MOLA / HRSC Blended DEM"',
         replacement='"name": ""',
         guard='gives every source a name, a role, a licence and a credit',
+        # The archives section lists its own sources and lists this one twice, so the About card is
+        # the LAST match rather than the only one. Mutating the first would blank an archive's list
+        # and leave this guard, which reads the cards, green.
+        expected_matches=3,
+        mutate_match=3,
+    ),
+    # The same blank one section up, where the archives page reads it: two lists of the same dataset
+    # with two readers, and only the second of them has ever had a guard.
+    Sabotage(
+        suite='web',
+        label="an archive's source list loses a dataset's name while the card still renders",
+        path='web/src/data/attributions.json',
+        needle='"name": "MOLA / HRSC Blended DEM"',
+        replacement='"name": ""',
+        guard='names every dataset an archive owes a credit to, with a licence and somewhere to read it',
+        expected_matches=3,
+        mutate_match=1,
     ),
     Sabotage(
         suite='python',
@@ -8032,6 +8137,16 @@ def _earth_lake_depth''',
         needle='        "attribution": attribution.for_archive(cut.body, "vector"),\n',
         replacement='',
         guard='test_both_composed_strings_are_recorded_beside_the_archive',
+    ),
+    # The index for a bucket that cannot list itself. Dropping the superseded half renders a
+    # complete, plausible page that omits exactly what a reader came to the page to discover.
+    Sabotage(
+        suite='web',
+        label='the archives index lists only what the site still serves',
+        path='web/src/lib/archiveIndex.ts',
+        needle='    superseded: ARCHIVED.filter((cut) => cut.body === body.slug).map((cut) =>',
+        replacement='    superseded: ARCHIVED.filter(() => false).map((cut) =>',
+        guard='carries every superseded cut, so a re-cut cannot drop a row from the index',
     ),
     # --- the shared-dataset seam ------------------------------------------------------------
     # Everything here is invisible on a developer box, because `MAPS_DATA` is unset and the two

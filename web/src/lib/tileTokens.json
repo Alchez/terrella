@@ -2,29 +2,35 @@
   "earth": {
     "relief": {
       "token": "15fc82dd",
-      "indexLeaves": 22
+      "indexLeaves": 22,
+      "bytes": 2353330123
     },
     "terrain": {
       "token": "2fb0f96b",
-      "indexLeaves": 22
+      "indexLeaves": 22,
+      "bytes": 2720356084
     },
     "vector": {
       "token": "de1e8c8a",
-      "indexLeaves": 7
+      "indexLeaves": 7,
+      "bytes": 10239263
     }
   },
   "mars": {
     "relief": {
       "token": "da0f87d6",
-      "indexLeaves": 6
+      "indexLeaves": 6,
+      "bytes": 963017956
     },
     "terrain": {
       "token": "b616d6a3",
-      "indexLeaves": 6
+      "indexLeaves": 6,
+      "bytes": 805682248
     },
     "vector": {
       "token": "2acd8084",
-      "indexLeaves": 5
+      "indexLeaves": 5,
+      "bytes": 7232440
     }
   }
 }

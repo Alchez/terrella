@@ -27,6 +27,12 @@ Everything is pre-rendered, so there is no compute at request time, and no rende
 
 Code [MIT](LICENSE). Imagery [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/): attribution, and adaptations share alike. Underlying data has its own terms and required credits.
 
+## Getting the data
+
+Every pyramid the site draws from is downloadable as the PMTiles archive it is served out of, listed at [terrella.alchez.dev/archives](https://terrella.alchez.dev/archives/). Each file states its own credit and what is in it, so a copy stays attributable once it leaves here.
+
+The tile endpoint is open as well, and it is the wrong thing to build on. It runs a worker per tile against a daily allowance shared with the site itself, and no address is promised to stay put: a re-cut ships under a new key and every tile URL moves with it. Take an archive and serve it yourself.
+
 ## Read next
 
 - Running the checks, which need no data or GPU → [`CONTRIBUTING.md`](CONTRIBUTING.md)
@@ -37,6 +43,7 @@ Code [MIT](LICENSE). Imagery [CC BY-SA 4.0](https://creativecommons.org/licenses
 - Aesthetic decisions → [`ART.md`](ART.md)
 - Measured stage runtimes → [`PROCESS.md`](PROCESS.md)
 - Data sources & licenses → [`ATTRIBUTIONS.md`](ATTRIBUTIONS.md)
+- Downloading a tile archive instead of rendering one → [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - Parked ideas, and what was deliberately not built → [`FUTURE.md`](FUTURE.md)
 - Driving Blender, and the shader gotchas → [`.claude/skills/blender-rig/`](.claude/skills/blender-rig/SKILL.md)
 - Acquiring or refetching a source dataset → [`.claude/skills/acquire-data/`](.claude/skills/acquire-data/SKILL.md)
