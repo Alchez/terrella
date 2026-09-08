@@ -200,6 +200,14 @@ const hasViewBar = highlight || borders || spotlight || quality;
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <Font cssVariable="--font-serif" />
     <title>{title}</title>
+    {/* By hand rather than the dashboard's automatic injection, which on this plan cannot be scoped
+        to one host. `is:inline` or Astro bundles the tag and drops `data-cf-beacon`. */}
+    <script
+      is:inline
+      type="module"
+      src="https://static.cloudflareinsights.com/beacon.min.js"
+      data-cf-beacon='{"token": "ca195a30bfad44ae887ae2d0bddcbece"}'
+    ></script>
     {/* For stylesheets a page wants discovered by the preload scanner but NOT blocking paint.
         A page could put the same <link> in its own body and the scanner would still find it, but
         a stylesheet in the body is the kind of thing a later reader "tidies" back into the head

@@ -4,6 +4,10 @@ Terrella is one person's project for learning how relief maps get made, publishe
 
 By opening a pull request you license your contribution under this project's MIT license, and confirm you have the right to do so.
 
+## What needs doing
+
+Two lists, and neither is a queue. The [open issues](https://github.com/Alchez/terrella/issues) are the short one, and `good first issue` marks what needs nothing but a clone. `FUTURE.md` is the long one: ideas analysed and parked, each carrying a tag for what it needs and who can act, which the file's opening section defines. Anything not tagged `maintainer-only` is yours to take, with the shape agreed in an issue first, because a parked entry is analysis rather than assigned work and some of them are parked on a judgement nobody else can make.
+
 ## What runs without the imagery
 
 No rendered asset or elevation tile is in git, so a clone gets the code and none of the output.

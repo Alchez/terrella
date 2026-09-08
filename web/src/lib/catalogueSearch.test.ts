@@ -61,6 +61,27 @@ describe("the fold sees what a keyboard can type", () => {
     const unreachable = featureIndex.filter((row) => /[^a-z0-9 .'-]/.test(foldForSearch(row.name)));
     expect(unreachable.map((row) => row.name)).toEqual([]);
   });
+
+  it("produces no token at all for another script, on both sides of the match", () => {
+    // THE TRIPWIRE UNDER A REJECTED IDEA. Publishing each country's own-language name was measured
+    // and declined, and the blocker is this tokeniser rather than the data: a spelling in another
+    // script yields no token and can never be matched, while the entry carrying it still costs its
+    // bytes. FUTURE.md holds the measurement and what the Latin-script half would cost.
+    const search = createCatalogueSearch([entry({ name: "Ukraine", terms: ["Україна"] })]);
+    expect(queryTerms("Україна")).toEqual([]);
+    expect(names(search.search("україна", 5))).toEqual([]);
+    // The control: the same entry IS reachable, so the two empty answers above are the tokeniser
+    // rather than a fixture that never loaded.
+    expect(names(search.search("ukr", 5))).toEqual(["Ukraine"]);
+
+    // THE SOURCE HALF, because the behaviour above needs BOTH splits widened to change and the
+    // index side alone would move nothing a query can see. Every class the module tokenises on is
+    // read out rather than listed, so widening any one of them goes red at the first edit rather
+    // than the last, which is the point at which reading the entry is still cheap.
+    const tokenClasses = [...CODE.matchAll(/\/\[\^([^\]]*)\]\+\//g)].map((match) => match[1]);
+    expect(tokenClasses.length).toBeGreaterThanOrEqual(4);
+    expect(new Set(tokenClasses)).toEqual(new Set(["a-z0-9"]));
+  });
 });
 
 describe("a punctuated name is reachable the way it is typed", () => {
