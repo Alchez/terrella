@@ -13,8 +13,7 @@ The **current** map of on-disk data stores: what each is, who reads it, whether 
 | `web/public/caps/` | **12.3 MB** | the only rendered assets inside the site build |
 
 - **This file is maintained, not a snapshot: re-measure when the chain moves, and if a row and the
-  disk disagree, the row is the bug.** Past states live in git history; reclaim passes and their
-  lessons live in HISTORY.
+  disk disagree, the row is the bug.** Past states live in git history.
 - Four gitignored stores hold everything above, and no assets or DEM data are in git.
   `web/public/caps/` is gitignored at `web/.gitignore:26`.
 
@@ -115,7 +114,7 @@ flowchart LR
 | `borders/` | 21 MB | `countries.geojson` + `boundary_lines.geojson` (NE to GeoJSON emitters), served at `/borders/` | Keep (tiny); regenerable from `naturalearth/` |
 | `planet_vector/` | **10.2 MB** | Earth's VECTOR tiles (MVT), cut by `compose/countries_pmtiles.py` from `borders/countries.geojson` plus the two layers it derives. One archive, three source-layers (`country_fill`, `country_outline`, `country_hit`), z0-8, stamped `countries_tiles_params.json`. **Three orders of magnitude smaller than the raster pyramids**: it is geometry, not pixels | Keep. Re-cuts from `countries.geojson` in **17 s**; the recipe sidecar is what makes a settings change visible, since the filename cannot carry one |
 | `_profile_tiles/` · `_profile_pass/` · `_profile_mars_tiles/` · `_profile_tiles_earth_z8/` | 41 MB | `pass.log` (stage timings) + `samples.jsonl` per run label. `samples.jsonl` is rewritten every run; `pass.log` is ROTATED to `pass-<timestamp>.log`, because a producer that resumes across nights would otherwise keep only the last night's record of which blocks failed | **Keep: the source of every number in PROCESS.md.** These are the four directories a reclaim must never sweep along with their leading-underscore siblings |
-| `_*/` experiment scratch | 0 now | A/B and investigation output, by convention leading-underscore | **Reclaim as soon as the decision lands in HISTORY**: the finding is the product, the pixels are not |
+| `_*/` experiment scratch | 0 now | A/B and investigation output, by convention leading-underscore | **Reclaim as soon as the decision is written down**: the finding is the product, the pixels are not |
 
 ### `planet_tiles/` breakdown (Earth, 112 GB)
 

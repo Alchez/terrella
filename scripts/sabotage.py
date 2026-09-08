@@ -382,18 +382,16 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='clip the closing pipe off a markdown table row',
         path='PROCESS.md',
-        needle='| 1 | warp height → 3857 | **6:49** | ~0 s | `height_3857.tif` 44 GB | `is_stale` |',
-        replacement='| 1 | warp height → 3857 | **6:49** | ~0 s | `height_3857.tif` 44 GB | `is_stale`',
+        needle='| 1 | warp height → 3857 | **6:49** | **4:37** | ~0 s | `height_3857.tif` 44 GB | `is_stale` |',
+        replacement='| 1 | warp height → 3857 | **6:49** | **4:37** | ~0 s | `height_3857.tif` 44 GB | `is_stale`',
         guard='test_markdown_table_rows_are_terminated',
     ),
     Sabotage(
         suite='python',
         label='leave a code fence unclosed',
         path='PROCESS.md',
-        # Anchored past the fence itself: PROCESS carries TWO mermaid blocks now, the superseded
-        # composited cost model and the live one, so a bare '```mermaid' matches both.
-        needle='```mermaid\nflowchart LR\n  HK([',
-        replacement='```mermaid\n```extra\nflowchart LR\n  HK([',
+        needle='```mermaid\nflowchart LR\n  LK([',
+        replacement='```mermaid\n```extra\nflowchart LR\n  LK([',
         guard='test_code_fences_are_balanced',
     ),
     Sabotage(
@@ -2859,6 +2857,29 @@ SABOTAGES: list[Sabotage] = [
         needle='# § Borders): width in render',
         replacement='# § Boundaries): width in render',
         guard='test_every_section_citation_lands_on_a_heading',
+    ),
+    # The same rot in the other direction: the doc points at code. ART.md carried four of these at
+    # once, naming `shade.py` as `LAKE_CURVE`'s home and giving tuning recipes for a flag the same
+    # file said twice had been removed. The realistic mutation is a revert to the producer's old
+    # name; it is planted here because ART.md is not a MUTABLE_ROOT and the defect has no
+    # preferred site.
+    Sabotage(
+        suite='python',
+        label='a doc names the module a stage used to live in, which is no longer in the tree',
+        path='PROCESS.md',
+        needle='| 4 | `tile/block_render.py`, the raytraced producer',
+        replacement='| 4 | `tile/shade.py`, the raytraced producer',
+        guard='test_every_module_a_doc_names_still_exists',
+    ),
+    # The archive is gitignored, so a pointer without its heading resolves for the author and for
+    # nobody else. A brevity pass is what takes the heading off.
+    Sabotage(
+        suite='python',
+        label='a decision-archive pointer loses the heading that is all a clone can follow',
+        path='pipeline/tile/cap_raytrace.py',
+        needle='HISTORY, *both caps raytraced at edge 84*, which carries',
+        replacement='HISTORY, which carries',
+        guard='test_a_decision_archive_pointer_names_its_heading',
     ),
     # The defect that shipped: the block frame's payload stopped answering the whole vocabulary,
     # and nothing ran the shipping path until a real prep crashed on it.
