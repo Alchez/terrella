@@ -11,6 +11,9 @@ where the reader is someone with the source in front of them.
 
 The archives' EMBEDDED description still carries the wrong name and is not in scope here: changing
 it means re-cutting six keys, which is owed to nobody yet.
+
+The last test has a different subject and a different reader: an internal rule, and whether it
+denies an access path the deploy script configures.
 """
 
 import re
@@ -59,3 +62,20 @@ def test_the_readme_lists_the_layer_names_a_tile_url_actually_takes() -> None:
     listed = re.search(r"three PMTiles archives per body \(([^)]*)\)", (ROOT / "README.md").read_text(encoding="utf-8"))
     assert listed, "README no longer lists the archives per body"
     assert [name.strip() for name in listed.group(1).split(",")] == layers
+
+
+def test_no_doc_denies_the_download_path_the_deploy_script_configures() -> None:
+    """`build:deploy` points `PUBLIC_ARCHIVE_BASE` at a custom domain on the tile bucket, so whole
+    archives are fetchable without the site. A doc still saying they are not reads as a decision
+    against publishing rather than as a line that expired, and this rule loads whenever Worker or
+    deploy code is opened."""
+    package = (ROOT / "web/package.json").read_text(encoding="utf-8")
+    assert re.search(r"PUBLIC_ARCHIVE_BASE=https://\S+", package), (
+        "build:deploy no longer supplies an archive base, so this guard has no subject"
+    )
+
+    rule = (ROOT / ".claude/rules/tile-worker-and-delivery.md").read_text(encoding="utf-8").lower()
+    for denial in ("no custom domain", "no whole archive is reachable"):
+        assert denial not in rule, (
+            f"the delivery rule says {denial!r} while the deploy script publishes an archive base"
+        )
