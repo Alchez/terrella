@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import {
-  DEFAULT_RTT_POOL_BOUND,
+  DEFAULT_RTT_POOL_SPARE_RATIO,
   attachRttPoolTrim,
   renderableTerrainTiles,
   rttHeldBy,
@@ -19,6 +19,12 @@ const mapWithRenderable = (keys: string[]) => ({
   on: () => {},
   off: () => {},
   terrain: { tileManager: { _renderableTilesKeys: keys } },
+});
+
+/** Terrain tiles holding `count` objects between them, so `rttHeldBy` reports a known in-use
+ *  figure. The bound is a RATIO of that, so a test that omits tiles is testing bound zero. */
+const tilesHolding = (count: number) => ({
+  a: { rttObjects: Array.from({ length: count }, () => object()) },
 });
 
 /** A pooled object that records whether its texture was destroyed, and in what order. */
@@ -171,9 +177,9 @@ describe("reading MapLibre's private state", () => {
 describe("attachRttPoolTrim", () => {
   it("trims after the camera settles, not on the moveend itself", () => {
     const objects = pool(10);
-    const map = fakeMap({ pool: objects });
+    const map = fakeMap({ pool: objects, tiles: tilesHolding(8) });
     const scheduler = fakeScheduler();
-    attachRttPoolTrim(map, { bound: 4, scheduler });
+    attachRttPoolTrim(map, { spareRatio: 0.5, scheduler });
 
     map.emit("moveend");
     expect(objects, "trim must wait for the settle timer").toHaveLength(10);
@@ -184,9 +190,9 @@ describe("attachRttPoolTrim", () => {
   it("debounces a burst of moveends into ONE trim", () => {
     // The spin is a permanent chain of eases, so moveend fires forever; trimming per event would
     // destroy and reallocate on every spin step.
-    const map = fakeMap({ pool: pool(10) });
+    const map = fakeMap({ pool: pool(10), tiles: tilesHolding(8) });
     const scheduler = fakeScheduler();
-    attachRttPoolTrim(map, { bound: 4, scheduler });
+    attachRttPoolTrim(map, { spareRatio: 0.5, scheduler });
     map.emit("moveend");
     map.emit("moveend");
     map.emit("idle");
@@ -195,9 +201,9 @@ describe("attachRttPoolTrim", () => {
 
   it("refuses to trim while the map is still moving", () => {
     const objects = pool(10);
-    const map = fakeMap({ pool: objects, moving: true });
+    const map = fakeMap({ pool: objects, moving: true, tiles: tilesHolding(8) });
     const scheduler = fakeScheduler();
-    attachRttPoolTrim(map, { bound: 4, scheduler });
+    attachRttPoolTrim(map, { spareRatio: 0.5, scheduler });
     map.emit("moveend");
     scheduler.runAll();
     expect(objects).toHaveLength(10);
@@ -206,16 +212,16 @@ describe("attachRttPoolTrim", () => {
   it("clears the shared FBO colour attachment before destroying", () => {
     // A destroyed texture left as the attachment can be skipped by the cached BaseValue if GL
     // recycles the name. One call closes that window.
-    const map = fakeMap({ pool: pool(10) });
+    const map = fakeMap({ pool: pool(10), tiles: tilesHolding(8) });
     const scheduler = fakeScheduler();
-    const handle = attachRttPoolTrim(map, { bound: 4, scheduler });
+    const handle = attachRttPoolTrim(map, { spareRatio: 0.5, scheduler });
     handle.trimNow();
     expect(map.attachmentSets).toEqual([null]);
   });
 
   it("does not touch the attachment when there is nothing to trim", () => {
-    const map = fakeMap({ pool: pool(3) });
-    const handle = attachRttPoolTrim(map, { bound: 4, scheduler: fakeScheduler() });
+    const map = fakeMap({ pool: pool(3), tiles: tilesHolding(8) });
+    const handle = attachRttPoolTrim(map, { spareRatio: 0.5, scheduler: fakeScheduler() });
     handle.trimNow();
     expect(map.attachmentSets).toEqual([]);
   });
@@ -232,9 +238,9 @@ describe("attachRttPoolTrim", () => {
 
   it("detaches every listener and cancels a pending trim", () => {
     const objects = pool(10);
-    const map = fakeMap({ pool: objects });
+    const map = fakeMap({ pool: objects, tiles: tilesHolding(8) });
     const scheduler = fakeScheduler();
-    const handle = attachRttPoolTrim(map, { bound: 4, scheduler });
+    const handle = attachRttPoolTrim(map, { spareRatio: 0.5, scheduler });
     map.emit("moveend");
     handle.detach();
     scheduler.runAll();
@@ -246,13 +252,13 @@ describe("attachRttPoolTrim", () => {
   it("reports a census whose peak survives the trim that reduced it", () => {
     const map = fakeMap({ pool: pool(10), tiles: { a: { rttObjects: [object(), object()] } } });
     const scheduler = fakeScheduler();
-    const handle = attachRttPoolTrim(map, { bound: 4, scheduler });
+    const handle = attachRttPoolTrim(map, { spareRatio: 0.5, scheduler });
     expect(handle.stats()).toMatchObject({ pooled: 10, held: 2, heldTiles: 1, peakTotal: 12 });
     handle.trimNow();
     const after = handle.stats();
-    expect(after.pooled).toBe(4);
+    expect(after.pooled, "2 in use at ratio 0.5 rounds up to a bound of 1").toBe(1);
     expect(after.peakTotal, "peak is the diagnostic — it must not reset").toBe(12);
-    expect(after.destroyedTotal).toBe(6);
+    expect(after.destroyedTotal).toBe(9);
   });
 });
 
@@ -359,25 +365,38 @@ describe("canary — the private MapLibre surface this module depends on", () =>
 });
 
 describe("defaults", () => {
-  it("bounds the pool well above the measured working set", () => {
-    // 78 objects at a settled camera (26 tiles x 3 stacks), measured 2026-07-30 at 2560x1265.
-    expect(DEFAULT_RTT_POOL_BOUND).toBeGreaterThan(78);
+  it("keeps spares without keeping a second working set", () => {
+    // Below 1 or the pool holds as much as the scene does; above 0 or every gesture reallocates.
+    // The old default was a fixed 512 objects, which measured against a live pool of 190 at the
+    // globe view meant the trim could never run at all.
+    expect(DEFAULT_RTT_POOL_SPARE_RATIO).toBeGreaterThan(0);
+    expect(DEFAULT_RTT_POOL_SPARE_RATIO).toBeLessThan(1);
+  });
+
+  it("clears the pool entirely once terrain is off, since nothing is in use", () => {
+    const objects = pool(10);
+    const map = fakeMap({ pool: objects });
+    const handle = attachRttPoolTrim(map, { scheduler: fakeScheduler() });
+    expect(handle.trimNow()).toBe(10);
+    expect(objects).toHaveLength(0);
   });
 });
 
 describe("the ?nortt disable arm", () => {
-  it("is a no-op at MAX_SAFE_INTEGER without relying on an early return", () => {
-    // earth.astro disables trimming with this exact bound. `trimRttPool` demands an integer, so
-    // Infinity would throw if the length guard above it were ever reordered away.
-    const objects = pool(10);
-    expect(trimRttPool(objects, Number.MAX_SAFE_INTEGER)).toBe(0);
-    expect(objects).toHaveLength(10);
-  });
-
   it("still reports a census while trimming nothing", () => {
-    const map = fakeMap({ pool: pool(10) });
-    const handle = attachRttPoolTrim(map, { bound: Number.MAX_SAFE_INTEGER, scheduler: fakeScheduler() });
+    // Tiles are present on purpose: the bound would be a real number here, so this proves the
+    // disable is the flag rather than an accident of the pool being under the bound anyway.
+    const map = fakeMap({ pool: pool(10), tiles: tilesHolding(8) });
+    const handle = attachRttPoolTrim(map, { enabled: false, scheduler: fakeScheduler() });
     expect(handle.trimNow()).toBe(0);
     expect(handle.stats().pooled).toBe(10);
+  });
+
+  it("would have trimmed that same map with the flag left alone", () => {
+    // The control for the test above: without it, `enabled: false` could be passing because
+    // nothing needed trimming rather than because the flag was read.
+    const map = fakeMap({ pool: pool(10), tiles: tilesHolding(8) });
+    const handle = attachRttPoolTrim(map, { scheduler: fakeScheduler() });
+    expect(handle.trimNow()).toBe(6);
   });
 });

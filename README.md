@@ -6,6 +6,8 @@ Ray-traced relief maps of every country on Earth, and of Mars. A static site tha
 
 A *terrella*, a "little Earth", is the model globe early scientists spun to study the whole planet at once. This one is rendered from real elevation, not drawn.
 
+Terrella is one person's project for learning how relief maps get made, published so it can be read, run and reused.
+
 ## Three tiers
 
 A capability probe picks one pessimistically and upgrades from there; the visitor can override it.
@@ -45,6 +47,7 @@ The tile endpoint is open as well, and it is the wrong thing to build on. It run
 - Data sources & licenses → [`ATTRIBUTIONS.md`](ATTRIBUTIONS.md)
 - Downloading a tile archive instead of rendering one → [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - Parked ideas, and what was deliberately not built → [`FUTURE.md`](FUTURE.md)
+- What changed, when, and how long this has taken → [the commit history](https://github.com/Alchez/terrella/commits/main/)
 - Driving Blender, and the shader gotchas → [`.claude/skills/blender-rig/`](.claude/skills/blender-rig/SKILL.md)
 - Acquiring or refetching a source dataset → [`.claude/skills/acquire-data/`](.claude/skills/acquire-data/SKILL.md)
 - Reclaiming disk, and what must never be deleted → [`.claude/skills/reclaim-pass/`](.claude/skills/reclaim-pass/SKILL.md)

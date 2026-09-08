@@ -30,6 +30,13 @@ destroying anything a future reader would want.
 - **Check for scripts and tracked files before removing a `work/` directory.** `ls` it for `.py` and `.sh`, and check `git ls-files`.
 - **Deletion under gitignored `data/` is permanent.** There is no backup tier under it by design, so the decision has to be right the first time.
 
+## Which scratch roots are protected, and how to ask
+
+**Protection lives at the sites, not in a list somewhere.** A root carrying a `KEEP.md` is protected
+and every other one is reclaimable, so `find ~/terrella-scratch -maxdepth 2 -name KEEP.md` is the
+whole inventory and it cannot go stale behind a doc. The precedent the archive has settled: `.pmtiles`
+and `.webp` trees go, while judged PNGs, the scripts and small `.tif` files stay.
+
 ## Delete by FILE, never by directory
 
 A scratch root is not one thing: it is heavy data sitting beside the only copy of the instruments

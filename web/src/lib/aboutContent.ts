@@ -140,14 +140,20 @@ export const ABOUT: Record<BodySlug, BodyAbout> = {
         title: "Fusion",
         text: "Copernicus GLO-30 land elevation is fused with GEBCO bathymetry into one seamless heightfield. The sea floor is part of the picture, so shelves and trenches read as terrain.",
       },
-      // THE ONE STEP THAT FORKS, WHICH IS WHY THERE IS STILL ONE LIST. Earth ends in two surfaces,
-      // the gallery's Cycles stills and the globe's tiles, and everything above and below this is
-      // shared between them: one heightfield, one pair of ramps, one sun geometry, borders never
-      // baked either way. A per-step "which surface" field was rejected on that — it would exist
-      // for one body, since Mars has no heroes at all.
+      // NO STEP FORKS ANY MORE, WHICH IS WHY THERE IS STILL ONE LIST. Earth ends in two surfaces,
+      // the gallery's Cycles stills and the globe's tiles, and every step is shared between them:
+      // one heightfield, one pair of ramps, one sun geometry, one renderer, borders never baked
+      // either way. A per-step "which surface" field was rejected and should stay rejected: it
+      // would exist for one body, since Mars has no heroes at all.
+      //
+      // KEEP THIS CARD SHORT. The grid is `align-items: stretch`, so the longest step pads all six
+      // to its height; this one ran 370 characters against neighbours at 144 and cost 338px of row
+      // for four lines. The temptation is that this is the most interesting step and deserves more
+      // words. It is the one that can least afford them, and prose about what was REJECTED belongs
+      // in a note below, which is not in the grid. The sky-view burn is hero-only and is ART.md's.
       {
         title: "Light",
-        text: "A low north-west sun, a fill from the opposite side, and a sky-view term for enclosed valleys, shared by both surfaces. Only the gallery's stills are ray-traced in Blender's Cycles, so only they cast real shadows.",
+        text: "A low north-west sun with a fill from the opposite side. Both surfaces are ray traced in Blender's Cycles off one rig, so the globe's tiles cast the same real shadows the gallery's stills do.",
       },
       {
         title: "Colour",
@@ -212,8 +218,8 @@ export const ABOUT: Record<BodySlug, BodyAbout> = {
         text: "The grid is declared to be lon/lat rather than reprojected. That is an identity on the angles, so not one pixel is resampled and no copy of 10.6 GB is made.",
       },
       {
-        title: "Shade",
-        text: "One low sun for relief shadows, plus a sky-view term that darkens the insides of craters and canyons the way ambient light really falls off inside them.",
+        title: "Light",
+        text: "One low sun, ray traced in Blender's Cycles on the same rig Earth uses, so craters and canyons carry the real shadows they cast rather than an approximation of them.",
       },
       {
         title: "Colour",
