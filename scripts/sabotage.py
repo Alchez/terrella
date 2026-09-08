@@ -129,6 +129,15 @@ MUTABLE_ROOTS = (
     # guards are absences over this one file, and an absence nobody can fill is an absence nobody
     # can prove is being watched.
     "README.md",
+    # Joined on the same footing, for a rule that can rot in one direction only: the deploy script
+    # publishes an access path and prose here can go on denying it, which reads as a decision not to
+    # publish rather than as a line that expired. The guard is an absence over this one file.
+    ".claude/rules/tile-worker-and-delivery.md",
+    # The deploy runbook restates values this repo owns, because a runbook has to read without the
+    # source open. Every restatement had drifted at once, so what earns mutation coverage is that
+    # each guard reads the OWNER rather than a second literal: rewrite the doc and the guard fires,
+    # rename the constant and it fires too.
+    "web/DEPLOY.md",
     # Joined for the body registry. Its whole safety story is a set of bridge tests holding the
     # duplicated constants (`EARTH_RADIUS` twice, `EXAGGERATION` once) to the registry's copy until
     # each original is deleted — and a bridge nobody can mutate is a bridge nobody can prove is
@@ -6302,6 +6311,42 @@ def _earth_lake_depth''',
         replacement='  return "red * 2048 + green * 8 - 32768";',
         guard='composes that decode from the shipped step rather than spelling one',
     ),
+    # The runbook's four copies of values this repo owns. Each was wrong at once, and each in the
+    # direction that reads as correct: a count from before Mars, the object's product name where the
+    # URL takes the layer's role, one declared tile size standing in for two, and an origin list that
+    # never grew. A reader following any of them builds a URL that 404s or prices the wrong ceiling.
+    Sabotage(
+        suite='web',
+        label="the runbook counts one body's archives as the whole bucket's",
+        path='web/DEPLOY.md',
+        needle='serves **six** archives out of one bucket',
+        replacement='serves **three** archives out of one bucket',
+        guard='counts the archives the tile Worker serves, rather than a body',
+    ),
+    Sabotage(
+        suite='web',
+        label="the layer segment goes back to the object key's product name, which no URL takes",
+        path='web/DEPLOY.md',
+        needle='the layer segment is `relief`, `terrain` or\n`vector`',
+        replacement='the layer segment is `relief`, `terrain` or\n`countries`',
+        guard='spells the layer segment with the names a tile URL takes',
+    ),
+    Sabotage(
+        suite='web',
+        label="one declared tile size stands in for the two that differ",
+        path='web/DEPLOY.md',
+        needle='relief declares `tileSize: 256` and terrain\n    declares `tileSize: 128`',
+        replacement='both declare `tileSize: 256`',
+        guard='keeps the two declared tile sizes apart',
+    ),
+    Sabotage(
+        suite='web',
+        label='the origin list stops counting the archive domain the build script addresses',
+        path='web/DEPLOY.md',
+        needle='production is four origins',
+        replacement='production is three origins',
+        guard='names every origin the built site addresses',
+    ),
     Sabotage(
         suite='web',
         label="the terrain card names Mapbox's format, which decodes this archive to wrong metres",
@@ -9743,6 +9788,27 @@ def _earth_lake_depth''',
         needle='(relief, terrain, vector)',
         replacement='(relief, elevation, vector)',
         guard='test_the_readme_lists_the_layer_names_a_tile_url_actually_takes',
+    ),
+    # The sentence was true until a custom domain went on the bucket, and nothing could see it turn.
+    # A doc that denies an access path the deploy script configures is worse than one that omits it.
+    Sabotage(
+        suite='python',
+        label='the delivery rule goes back to saying no whole archive is reachable',
+        path='.claude/rules/tile-worker-and-delivery.md',
+        needle='`r2.dev` stays disabled.',
+        replacement='`r2.dev` is disabled, so no whole archive is reachable.',
+        guard='test_no_doc_denies_the_download_path_the_deploy_script_configures',
+    ),
+    # A comment naming the test that holds a line is the cheapest anti-redo note there is, and the
+    # only half of it that can be checked is whether the name still resolves. One did not: the shade
+    # pass became the planet pass and its test went along, leaving the comment naming nothing.
+    Sabotage(
+        suite='python',
+        label='a comment names a test that was renamed out from under it',
+        path='pipeline/tile/cap_pass.py',
+        needle='`test_the_pass_hands_its_own_body_down_to_the_cap_pass`',
+        replacement='`test_the_shade_pass_hands_its_own_body_down_to_the_cap_pass`',
+        guard='test_every_test_a_comment_names_still_exists',
     ),
 ]
 

@@ -63,6 +63,16 @@ SECTION_CITATION = re.compile(r"((?:docs/)?[A-Za-z][\w-]*\.md)\s*§\s*(.{4,120})
 #: A heading line in a markdown file.
 HEADING = re.compile(r"^#+\s+(.*?)\s*$", re.MULTILINE)
 
+#: A comment naming the test that guards the code it sits beside. Same trade as a document pointer,
+#: and the same half is checkable: the name either resolves to a test or it does not.
+TEST_CITATION = re.compile(r"\btest_[A-Za-z0-9_]{6,}")
+
+#: A cited name wrapped across two lines leaves a trailing underscore before the break, which
+#: `flattened` turns into `_ `. No identifier ends in an underscore and no prose puts a space after
+#: one, so rejoining here is unambiguous, where joining on any break would fuse a name to the next
+#: sentence. Both wrapped citations in `pipeline/` name tests that exist.
+WRAPPED_NAME = re.compile(r"_\s+(?=[A-Za-z0-9_])")
+
 #: Below this, a shared opening is a stray letter rather than a word. It bounds the SMALLEST legal
 #: citation, `§ Snow`; what rejects a vague one is uniqueness, in `identifies_a_heading`.
 MIN_OPENING_CHARS = 4
@@ -200,6 +210,38 @@ def test_every_section_citation_lands_on_a_heading() -> None:
     )
 
 
+@cache
+def known_test_names() -> frozenset[str]:
+    """Every name a citation may legally resolve to: a test module, or a test function inside one.
+
+    Both forms are cited in the tree and both are followable by grep, so both count.
+    """
+    names: set[str] = set()
+    for path in sorted((REPO_ROOT / "tests").rglob("test_*.py")):
+        names.add(path.stem)
+        names.update(re.findall(r"^\s*def (test_\w+)", path.read_text(), re.MULTILINE))
+    return frozenset(names)
+
+
+def test_every_test_a_comment_names_still_exists() -> None:
+    """A comment saying which test stops a mistake is worthless when the test was renamed under it.
+
+    `cap_pass.py` named `test_the_shade_pass_hands_its_own_body_down_to_the_cap_pass` after the
+    shade pass became the planet pass and the test went with it, so the one line telling a reader
+    what holds `--body` required pointed at nothing.
+    """
+    offenders = [
+        f"{path}: {name}"
+        for path in scanned_files()
+        for name in sorted(set(TEST_CITATION.findall(WRAPPED_NAME.sub("_", flattened(path)))))
+        if name not in known_test_names()
+    ]
+    assert not offenders, (
+        "comment names a test that does not exist — grep tests/ for the current name:\n  "
+        + "\n  ".join(offenders)
+    )
+
+
 def test_the_scan_reaches_the_pointers_it_claims_to_cover() -> None:
     """A positive control: prove the scan finds real citations rather than an empty set.
 
@@ -217,3 +259,11 @@ def test_the_scan_reaches_the_pointers_it_claims_to_cover() -> None:
     assert len(scanned_files()) > 50, "the file scan found almost nothing; check SCANNED_ROOTS"
     assert {"ART.md", "ATTRIBUTIONS.md"} <= documents, f"expected pointers missing: {documents}"
     assert sections >= 3, f"expected several section citations, found {sections}"
+
+    cited_tests = {
+        name
+        for path in scanned_files()
+        for name in TEST_CITATION.findall(WRAPPED_NAME.sub("_", flattened(path)))
+    }
+    assert len(cited_tests) >= 20, f"expected many test citations, found {len(cited_tests)}"
+    assert len(known_test_names()) > 100, "the test-name collector found almost nothing"

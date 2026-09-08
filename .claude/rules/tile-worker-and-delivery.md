@@ -134,11 +134,10 @@ URL, and that is a re-cut's worth of deploy rather than a metadata edit.
 
 ## What is public, which is not what the bucket setting says
 
-**The bucket is private and the tiles are not.** `terrella-tiles` has no custom domain and its
-`r2.dev` URL is disabled, so no whole archive is reachable. But `ALLOWED_ORIGIN` only decides whether
-the Worker emits `Access-Control-Allow-Origin`: it is not an access gate, and a request with no
-`Origin` header is answered in full. Verified against production on every published pyramid.
+**The bucket setting reads private and both the tiles and the whole archives are public**, by two paths that share nothing.
 
-So CORS stops a browser on another site from reading a tile into JavaScript, and stops nothing else.
-Any non-browser client already has every tile. Treat "the tiles are private" as false whenever it
-comes up.
+A whole archive comes off `archives.terrella.alchez.dev`, a custom domain on `terrella-tiles`, so a download is a plain object read with the Worker nowhere in it. The response carries no `Server-Timing` and no `X-Terrella-Cache`, which is how to tell which path answered you. `r2.dev` stays disabled.
+
+A single tile goes through the Worker, where `ALLOWED_ORIGIN` only decides whether it emits `Access-Control-Allow-Origin`: it is not an access gate, and a request with no `Origin` header is answered in full. Verified against production on every published pyramid.
+
+So CORS stops a browser on another site from reading a tile into JavaScript, and stops nothing else. Any non-browser client already has every tile, and anyone at all can take the archive whole. Treat "the tiles are private" as false whenever it comes up.
