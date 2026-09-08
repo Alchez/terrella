@@ -170,8 +170,8 @@ importers:
         specifier: ^7.3.2
         version: 7.3.2(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(@types/node@26.5.1)(yaml@2.9.0)
       maplibre-gl:
-        specifier: 6.7.0
-        version: 6.7.0
+        specifier: 6.8.0
+        version: 6.8.0
       pmtiles:
         specifier: 4.5.0
         version: 4.5.0
@@ -992,8 +992,8 @@ packages:
     resolution: {integrity: sha512-I/qcIKVFHFSg1Meu/eqHrkSTjIez0gCsSaK56TNPutM3TkE61aSq6F1cZ4Kg4KiNs3cpViLtubDjfyRcQCdEJQ==}
     hasBin: true
 
-  '@maplibre/mlt@1.2.0':
-    resolution: {integrity: sha512-g45M8gEI4sMO3X9ib4K7n3ZKFf0qQOL+NMkHCnEK51lOrYFHiEssOuZncx1+miIgi1IEE2NcbRMcq8RBkL+QHA==}
+  '@maplibre/mlt@1.2.1':
+    resolution: {integrity: sha512-5n5dgolE2EYxwCKgx8vlwURCB8A+kyfJJyThlYimjlGgOcOe2Bhw9VxxnnHC91OC9PgHg+nVdgVPTYPkIo62vg==}
 
   '@maplibre/vt-pbf@4.3.2':
     resolution: {integrity: sha512-j6p0AdjvAR19Z3XaCysle7A4ZSo08tYOzxD0Y9NQylwPAkwJJeYub5b2eVucdeDh7erhv69DahoLOevDRERRUw==}
@@ -1818,8 +1818,8 @@ packages:
   magicast@0.5.5:
     resolution: {integrity: sha512-UicdXN8zQ3JHlxVq+28afMXPr1z7WNY6+7EJnzTdQWkTAlMLF5fNCCKxJHBQwGaNGR11581EiQmQzx73+MvszA==}
 
-  maplibre-gl@6.7.0:
-    resolution: {integrity: sha512-Y1Q1+UP9WXou0DUrnaFdDsoMqiMCWy6aS968IBUaQ2eZi6H1/kPCfpfZOWXFJZbeKMkX9Wo6OFzY/k48qqPf3Q==}
+  maplibre-gl@6.8.0:
+    resolution: {integrity: sha512-+ZkjKTodsVLY0ewQThvXRxXQsclcsSgOm5LlnrBM3G8AloMJKt6Haw8mY4xrOl8T0WMqH6DTYjktZ9zGQXZd4w==}
     engines: {node: '>=16.14.0', npm: '>=8.1.0'}
 
   mdast-util-to-hast@13.2.1:
@@ -3147,7 +3147,7 @@ snapshots:
       quickselect: 3.0.0
       tinyqueue: 3.0.0
 
-  '@maplibre/mlt@1.2.0':
+  '@maplibre/mlt@1.2.1':
     dependencies:
       '@mapbox/point-geometry': 1.1.0
 
@@ -3979,7 +3979,7 @@ snapshots:
       '@babel/types': 7.29.8
       source-map-js: 1.2.1
 
-  maplibre-gl@6.7.0:
+  maplibre-gl@6.8.0:
     dependencies:
       '@mapbox/point-geometry': 1.1.0
       '@mapbox/tiny-sdf': 2.2.0
@@ -3987,7 +3987,7 @@ snapshots:
       '@mapbox/vector-tile': 3.0.0
       '@maplibre/geojson-vt': 6.1.1
       '@maplibre/maplibre-gl-style-spec': 26.4.1
-      '@maplibre/mlt': 1.2.0
+      '@maplibre/mlt': 1.2.1
       '@maplibre/vt-pbf': 4.3.2
       '@types/geojson': 7946.0.16
       earcut: 3.2.3

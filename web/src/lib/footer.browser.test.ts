@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import "../styles/global.css";
 import globalCss from "../styles/global.css?raw";
 import footerComponent from "../components/Footer.astro?raw";
+import { GITHUB_MARK } from "./siteLinks";
 
 /**
  * The site's footer, and the fixed pill that floats over the bottom of the page it sits on.
@@ -49,8 +50,11 @@ function mount() {
   filler.style.height = "1600px";
   const footer = document.createElement("footer");
   footer.className = "site-footer clears-bar";
+  // The last link is the mark, not a word, because that is what the row has to fit and clear: a
+  // padded icon is a different height and width from the text beside it.
   footer.innerHTML = `<nav aria-label="Site">
-    <a href="/">Gallery</a><a href="/about/">About</a><a href="/archives/">Archives</a><a href="#">Source</a>
+    <a href="/">Gallery</a><a href="/about/">About</a><a href="/archives/">Archives</a>
+    <a class="source" href="#" aria-label="Source on GitHub"><svg viewBox="${GITHUB_MARK.viewBox}" aria-hidden="true"><path d="${GITHUB_MARK.path}"></path></svg></a>
   </nav>`;
   const bar = document.createElement("div");
   bar.className = "view-bar";

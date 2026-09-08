@@ -41,7 +41,13 @@ const nativeSpotlight = country.hasSpotlight
   spotlight={country.hasSpotlight}
   pageRole="plain"
 >
-  <Masthead heading={country.name} eyebrow={country.continent} back="/" maxWidth="min(1500px, 92vw)" />
+  <Masthead
+    heading={country.name}
+    eyebrow={country.continent}
+    back="/"
+    backLabel="← All countries"
+    maxWidth="min(1500px, 92vw)"
+  />
 
   <main class="stage">
     {

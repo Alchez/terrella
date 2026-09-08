@@ -19,11 +19,20 @@ const globeStyles = readFileSync(new URL("../styles/globe.css", import.meta.url)
  *  link is in neither of them. */
 const gallery = readFileSync(new URL("../components/Gallery.astro", import.meta.url), "utf8");
 
+const footer = readFileSync(new URL("../components/Footer.astro", import.meta.url), "utf8");
+const siteLinksModule = readFileSync(new URL("./siteLinks.ts", import.meta.url), "utf8");
+
 /** The two views that carry a link back to the repository, each named by the file that draws it. */
 const LINKED_VIEWS: [string, string][] = [
   ["Gallery.astro", gallery],
   ["Globe.astro", globe],
 ];
+
+/** Every surface that draws the GitHub mark. */
+const MARK_SURFACES: [string, string][] = [...LINKED_VIEWS, ["Footer.astro", footer]];
+
+/** The opening of the octicon's path data. Enough to identify it, short enough to read. */
+const MARK_PATH_HEAD = "M8 0C3.58 0";
 
 describe("the repository link", () => {
   it("is an absolute https URL, since it is rendered into an href verbatim", () => {
@@ -143,8 +152,33 @@ describe("the on-map credit", () => {
   });
 });
 
+describe("the GitHub mark", () => {
+  it("has one owner, so the surfaces that draw it cannot drift into different logos", () => {
+    // Seven hundred characters of path data, and nothing about a build can see two copies of it
+    // disagree. It was spelled in the gallery masthead and in the globe's chrome before the footer
+    // wanted it as well, which is the point at which a third copy stops being a nuisance.
+    expect(siteLinksModule.match(new RegExp(MARK_PATH_HEAD, "g")), "siteLinks.ts does not own the mark")
+      .toHaveLength(1);
+    for (const [name, source] of MARK_SURFACES) {
+      expect(source, `${name} spells the path data instead of importing it`).not.toContain(
+        MARK_PATH_HEAD,
+      );
+    }
+  });
+
+  it("is what the footer draws for its source link, matching the masthead's", () => {
+    // The two nav surfaces spelled one destination two ways: a mark up top, the word below. The
+    // header's row cannot afford the word — 28 to 37px of slack with the mark against 8 to -5
+    // across the system faces `system-ui` resolves to — so the footer takes the mark instead.
+    expect(footer, "the footer no longer draws the mark").toContain("GITHUB_MARK");
+    expect(
+      footer,
+      "the footer's source link has no accessible name, and its only content is a hidden SVG",
+    ).toContain('aria-label="Source on GitHub"');
+  });
+});
+
 describe("the site footer", () => {
-  const footer = readFileSync(new URL("../components/Footer.astro", import.meta.url), "utf8");
   const base = readFileSync(new URL("../layouts/Base.astro", import.meta.url), "utf8");
 
   it("is the site's map, and names every page a visitor cannot otherwise find", () => {

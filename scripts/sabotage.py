@@ -2513,6 +2513,27 @@ SABOTAGES: list[Sabotage] = [
         replacement='',
         guard='gives the source link an accessible name, since its only content is a decorative SVG',
     ),
+    # A default written for one caller's context is inherited by every other caller, and each page
+    # reads correctly on its own: About offered to take you back to all countries for weeks.
+    Sabotage(
+        suite='web',
+        label='the back link default names countries again, so About offers to return you to all of them',
+        path='web/src/components/Masthead.astro',
+        needle='  backLabel = "← Gallery",',
+        replacement='  backLabel = "← All countries",',
+        guard="names the destination, not what some other page's parent happened to list",
+    ),
+    # The other direction, and the one a fix aimed only at the pages that were wrong would take:
+    # a default that stops mentioning countries satisfies the guard above by taking the specific
+    # label off the single page it was right on.
+    Sabotage(
+        suite='web',
+        label='the country page loses its own label, so a list of countries calls itself the gallery',
+        path='web/src/pages/[slug].astro',
+        needle='    backLabel="← All countries"\n',
+        replacement='',
+        guard='lets the country page keep the phrasing the default was written for',
+    ),
     # The second of the two shifts, restored: a post-paint DOM change to the nav.
     Sabotage(
         suite='web',
@@ -6227,6 +6248,25 @@ def _earth_lake_depth''',
         needle='  { href: "/archives/", label: "Archives" },\n',
         replacement='',
         guard="is the site's map, and names every page a visitor cannot otherwise find",
+    ),
+    # Three surfaces draw the octicon and each one renders whatever path data it was given, so two
+    # copies that have drifted apart look like two logos and read like neither.
+    Sabotage(
+        suite='web',
+        label='the footer inlines the mark again, putting a third copy of the path data in the tree',
+        path='web/src/components/Footer.astro',
+        needle='<path d={GITHUB_MARK.path}></path>',
+        replacement='<path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59z"></path>',
+        guard='has one owner, so the surfaces that draw it cannot drift into different logos',
+    ),
+    # An icon link whose content is `aria-hidden` has NO accessible name — it announces as its URL.
+    Sabotage(
+        suite='web',
+        label="the footer's mark loses its accessible name, announcing as a bare github.com URL",
+        path='web/src/components/Footer.astro',
+        needle='      aria-label="Source on GitHub"\n',
+        replacement='',
+        guard="is what the footer draws for its source link, matching the masthead's",
     ),
     Sabotage(
         suite='web',

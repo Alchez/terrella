@@ -3,3 +3,5 @@ allowBuilds:
   sharp: true
   workerd: true
 minimumReleaseAgeStrict: true
+minimumReleaseAgeExclude:
+  - maplibre-gl@6.8.0
