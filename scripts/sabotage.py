@@ -9789,6 +9789,16 @@ def _earth_lake_depth''',
         replacement='(relief, elevation, vector)',
         guard='test_the_readme_lists_the_layer_names_a_tile_url_actually_takes',
     ),
+    # A brevity pass is the realistic mutation here: it cannot see that one sentence is a second
+    # copy, so the two files a stranger lands on drift apart on what this project even is.
+    Sabotage(
+        suite='python',
+        label="a trim to README's identity sentence leaves the two front doors disagreeing",
+        path='README.md',
+        needle='published so it can be read, run and reused.',
+        replacement='published so it can be read and reused.',
+        guard='test_the_readme_carries_the_identity_claim_contributing_opens_with',
+    ),
     # The sentence was true until a custom domain went on the bucket, and nothing could see it turn.
     # A doc that denies an access path the deploy script configures is worse than one that omits it.
     Sabotage(

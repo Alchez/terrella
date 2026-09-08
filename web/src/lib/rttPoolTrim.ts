@@ -96,12 +96,18 @@ export interface RttPoolStats {
 }
 
 /**
- * Objects to keep in the pool. 512 MiB of slack against a measured working set of 78 objects at a
- * settled camera — generous enough that ordinary panning re-uses rather than reallocates, small
- * enough that a resting tab returns the card. Tunable: the cost of going lower is GPU allocation
- * churn on the next gesture, which is exactly what upstream PR #7549 bought by growing this pool.
+ * Idle objects to keep, as a multiple of those the scene is currently using.
+ *
+ * A multiple rather than a count, because the working set moves with the camera: 22 objects at the
+ * globe view against 80 zoomed in, so one number cannot be right at both. Measured per rendered
+ * frame, an ordinary pan or zoom needs new objects for about half the tiles on screen at its
+ * ninetieth percentile, and a flick needs close to one per tile. 0.5 covers pan and zoom and
+ * deliberately does not cover a flick, which stalls rarely and is already the least smooth moment.
+ *
+ * The cost of going lower is a GPU reallocation on the next gesture, measured at roughly 7 ms each
+ * and landing inside one frame, which is what upstream PR #7549 bought by growing this pool.
  */
-export const DEFAULT_RTT_POOL_BOUND = 512;
+export const DEFAULT_RTT_POOL_SPARE_RATIO = 0.5;
 
 /** How long after the last `moveend` to trim. Long enough that a flick of several eases settles. */
 export const RTT_TRIM_SETTLE_MS = 400;
@@ -186,7 +192,10 @@ function detachSharedFboColour(painter: RttPainter): void {
 }
 
 export interface RttPoolTrimOptions {
-  bound?: number;
+  /** Idle objects to keep per object in use. Defaults to {@link DEFAULT_RTT_POOL_SPARE_RATIO}. */
+  spareRatio?: number;
+  /** `false` keeps the census and skips every trim, for the `?nortt` A/B arm. */
+  enabled?: boolean;
   settleMs?: number;
   /** Injected by tests; defaults to the real timers. */
   scheduler?: { setTimeout(fn: () => void, ms: number): number; clearTimeout(handle: number): void };
@@ -207,7 +216,8 @@ export interface RttPoolTrimHandle {
  * 295x tile overdraw underneath it becomes invisible, which is how it went unnoticed for weeks.
  */
 export function attachRttPoolTrim(map: RttMap, options: RttPoolTrimOptions = {}): RttPoolTrimHandle {
-  const bound = options.bound ?? DEFAULT_RTT_POOL_BOUND;
+  const spareRatio = options.spareRatio ?? DEFAULT_RTT_POOL_SPARE_RATIO;
+  const enabled = options.enabled ?? true;
   const settleMs = options.settleMs ?? RTT_TRIM_SETTLE_MS;
   const timers = options.scheduler ?? {
     setTimeout: (fn: () => void, ms: number) => window.setTimeout(fn, ms),
@@ -236,7 +246,10 @@ export function attachRttPoolTrim(map: RttMap, options: RttPoolTrimOptions = {})
   const trimNow = (): number => {
     const pool = rttPoolOf(map);
     if (pool === null) return 0;
+    if (!enabled) return 0;
     if (map.isMoving?.() === true) return 0; // a moving map is about to re-acquire; let it settle
+    // Read demand at trim time, not at attach: the working set moves with the camera.
+    const bound = Math.ceil(rttHeldBy(map).held * spareRatio);
     if (pool.length <= bound) return 0;
     const painter = map.painter;
     if (painter !== undefined) detachSharedFboColour(painter);

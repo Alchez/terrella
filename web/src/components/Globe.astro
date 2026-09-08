@@ -1390,12 +1390,12 @@ import { GITHUB_MARK, REPO_URL } from "../lib/siteLinks";
       // `?nortt` keeps the census and skips the trimming, so the A/B that justifies this module
       // stays runnable against the shipped build rather than against a build we no longer have —
       // the same reason `?nocaps` exists.
-      // MAX_SAFE_INTEGER rather than Infinity: `trimRttPool` requires an integer bound, and today
-      // the early return means it is never reached — but a disable that depends on an early return
-      // staying where it is would break silently if the guards were ever reordered.
+      // An explicit flag rather than a huge ratio: the bound is the ratio times the in-use count,
+      // and with terrain off that count is zero, so any ratio however large still rounds to a
+      // bound of zero and would trim the whole pool. A disable has to say so directly.
       const rttTrim = attachRttPoolTrim(
         map,
-        urlFlags.has("nortt") ? { bound: Number.MAX_SAFE_INTEGER } : {},
+        urlFlags.has("nortt") ? { enabled: false } : {},
       );
       describeRttPool = () => rttPoolLine(rttTrim.stats());
       // The same census the panel row formats, handed over unformatted so the exported file carries

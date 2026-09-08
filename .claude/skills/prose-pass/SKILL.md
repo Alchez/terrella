@@ -40,6 +40,14 @@ Stays:
 - The anti-redo, and it names the temptation rather than the prohibition: say what the rejected thing was, why re-adding it looks right, and what breaks.
 - The silent-failure clause. "This renders as a plausible wrong planet" is why a reader should care, and no test carries it.
 
+## What the pass has not reached yet
+
+Pick the target from `prose_report`, never from this list, which says only where nobody has been. What is left is dense rather than repetitive, so the honest yield on a well-worked module is a refusal rather than a line count. **Verify each sentence against the code**: every batch so far has found a claim that was false, and grepping the vocabulary instead of reading the claim is what misses them.
+
+- **`tests/` and `scripts/` have never been passed**, and they are the bulk of what remains.
+- **TypeScript is not read by the instrument at all.** `prose_report`'s `web/` sweep covers that tree's Python only, so the whole frontend is unmeasured rather than clean.
+- **Three rules whose files the pass has not met**: `tile-worker-and-delivery`, `browser-map-tests`, `mars-brief-is-untracked`. Step 2 above is the one that matters on these, since a rule and the file it loads on are the likeliest pair to hold one concept twice.
+
 ## Where prose hides that is not a docstring
 
 - **`help=` strings in an argparse parser.** One flag told a reader the run "declares no producer" when no run declares one at all. These reach a user, so they rot louder than a comment.

@@ -72,6 +72,7 @@ Not a lower tier. Nobody has written down what would make them worth doing, and 
 - [Raster tile resolution vs device pixel ratio](#raster-tile-resolution-vs-device-pixel-ratio-analysed-2026-07-25) · look-call
 - [Metatile batching](#metatile-batching-collapse-round-trips-instead-of-running-more-of-them-analysed-2026-08-01)
 - [Small debts and open calls](#small-debts-and-open-calls-carried-out-of-the-working-plan-parked-2026-08-24) · mixed, and its own subsections carry the states
+- [Doc and guard debts](#doc-and-guard-debts-carried-out-of-the-working-plan-parked-2026-09-08) · mixed, and its own subsections carry the states
 
 ### BLOCKED, on a precondition that has to land first
 
@@ -567,6 +568,46 @@ Deferred past the 22h Earth pass deliberately: every part of it is a HERO defici
 - **It is NOT a raytracing defect and it is live in production.** The same pixels in the previous composite pyramid are already 100% near-white at Sirjan and 66% at Gavkhouni. The raytraced pass moved them 239 to 244 and 227 to 234 luminance, so it brightened them slightly and did not create them.
 - **The next action is a measurement, not a fix.** 4,931 near-white pixels is 0.049% of a 3641 x 2742 Iran window, and nobody has swept the planet. Every low-latitude playa is a candidate: Etosha, Uyuni, the Lut, the Australian salt lakes. **The answer at five sites and the answer at five hundred are different decisions**, and the sweep is a real job on the 30 GB master.
 - **Why a fix is not obvious even once sized.** The layer is a persistence percentage with no class information, so nothing in it distinguishes salt from snow. Masking by latitude would take real snow off mid-latitude ranges, which is the failure that made the tiles drop WorldCover class 70 in the first place. A separate playa mask is a new dataset and a new licence.
+
+## Doc and guard debts, carried out of the working plan (parked 2026-09-08)
+
+> **MIXED**, and the subsections below carry the states. Four of these are maintainer calls rather than work; the two guard repairs need a clone and nothing else.
+
+The same reason as the entry below it: the working plan is live state and one question in hand, not a backlog, and these had no deadline and no relation to the arc that carried them. None is urgent. Each is here so it is greppable rather than compressed away.
+
+### Values a doc spells that a constant owns
+
+- **`CLAUDE.md` spells six code-owned values and nothing watches any of them.** Exactly one value in that file is guarded, and the guard asserts an ABSENCE (`test_no_module_outside_the_owner_spells_the_cap`). The pattern to copy is the cgroup bullet, which names `pass_memory.HEAVY_JOB_GIB` as the owner and spells nothing.
+  - **Generalising that scan to a `(constant, prose pattern)` table is the fix, and it is a maintainer call**, since it puts six existing lines under a guard for the first time and each needs its owner named first.
+  - **The trigger is the next value that drifts, not a sweep.** → HISTORY, *the deploy runbook had drifted in four places at once*, where four such copies were wrong at once and every one read as correct to anyone without the source open.
+
+### Three ART.md sections document a knob registry that was deleted with the compositor
+
+**Population derived this session** by listing all 33 headings in `ART.md` and resolving every module and constant each one names against the tree. Three fail, and they fail differently, which is why this is not one edit:
+
+- **§ *Fill sun, TILES*** names `KNOBS["fill_strength"]` in `tile/shade.py`. The module is gone; the value survives as `fill_strength` in `pipeline/render/scene_build.py`. **Wrong owner, live decision**, and correcting the pointer is mechanical.
+- **§ *Ambient floor, TILES*** (`KNOBS["ambient"]`, `KNOBS["ambient_knee"]`) and **§ *Snow curve, TILES*** (`KNOBS["snow_curve"]`) name values that resolve **nowhere in the tree**. Those knobs died with the compositor when every body moved to Cycles, so the sections document decisions that may no longer apply. **Whether each is dead or moved is a look judgement and the maintainer's**, which is why they are not simply deleted.
+- The same passage carries the reasoning too: "A hillshade has no cast shadows, so shadowless reproduces for free" was the compositor's argument for porting the hero's fill, and no tile is hillshaded now.
+- **Nothing could have caught this.** `test_doc_pointers` checks that a document a COMMENT names exists and that a cited SECTION exists inside it; no guard asks whether a MODULE a doc names still exists. That is the mirror of the dangling test citation fixed on 2026-09-08, on the doc side.
+
+### Guard repairs, each needing a clone and nothing else
+
+- **The pointer guard cannot separate a bare decision-archive pointer from the ratified `, *heading*` form**, so the unfollowable one passes. `relief_scan.py` used to pass only because it capitalised a letter the pattern did not, and its citation is gone now, so nothing in the tree exercises the distinction either way. The repair is a lookahead in `test_doc_pointers`, and it wants a failing test first.
+- **The sabotage classifier's remaining comment-anchored needles are its own lexer miscounting** `//`, `/*`, `///` and `{/*`. No needle anchors a code mutation on a comment any more, python and web both, so what an audit still lists under that heading is instrument error rather than a case to repair.
+
+### Archives that cannot say when they were cut
+
+- **The six superseded archives are unstamped**, and five of them exist nowhere but R2, so stamping means 7.17 GB down and back up. Safe and mechanical: no runtime reader touches any of them.
+
+### Sweeps that are priced and unstarted
+
+- **The dataset sweep is priced and would not have caught the one real error it was proposed for.** Three maintainer calls if it goes ahead: whether `cop30_void` takes its own credit or sits under GLO-30, `datasets.mars()` returning one directory for two datasets, and six raw-form functions whose derived sibling is what production actually reads.
+- **Shouted runs across the tree, against the standing no-all-caps rule**, the lead now in `tests/` and `web/` rather than `pipeline/`. **Re-derive before quoting any total**: the last two readings disagreed and grew, a detector counts runs rather than sites, and any total is a floor, since two consecutive capitals is the trigger and the usual roots miss `web/scripts` and every tracked `.md`.
+  - **"Do it with each file's prose pass" has stopped reaching it**, four fifths of the runs being in files no remaining prose target opens. Maintainer call, and unruled: its own item, or accepted as slow.
+
+### A rig whose guard shipped without it
+
+- **The spin rig under `web/.perf/` is the promotion case `SPIN_REFERENCE_DEGREES`'s docstring names**, and tracking it is a maintainer call. That directory is gitignored, which is why no file inside it is named here and why `git status` never mentions it.
 
 ## Small debts and open calls, carried out of the working plan (parked 2026-08-24)
 
