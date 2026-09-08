@@ -1,6 +1,7 @@
 ---
 import "../styles/global.css";
 import { Font } from "astro:assets";
+import Footer from "../components/Footer.astro";
 import { BODIES, type BodySlug } from "../lib/bodies";
 import { bodyRoutes } from "../lib/bodyRoutes";
 
@@ -64,6 +65,10 @@ const {
 // becomes the DOM, so the guard reads facts rather than restating them, and a third planet
 // changes no script.
 const routes = bodyRoutes(body);
+
+// Whether this page floats the view bar, written once because two things now depend on it: the bar
+// itself, and the footer's clearance under it.
+const hasViewBar = highlight || borders || spotlight || quality;
 ---
 
 <!doctype html>
@@ -235,6 +240,14 @@ const routes = bodyRoutes(body);
     }
     <slot />
     {
+      /* The site's map, on every page that scrolls.
+         KEYED ON `pageRole`, NOT ON A PROP OF ITS OWN. A globe is one viewport with nothing under
+         it, so a footer there is unreachable markup; every other role is a document you can get to
+         the bottom of. That is the same reasoning the body switcher uses one line up, and it means
+         a new page gets the site's navigation by declaring what it is. */
+      pageRole !== "globe" && <Footer clearsViewBar={hasViewBar} />
+    }
+    {
       /* The view bar — ONE floating pill for what the globe SHOWS. Layer toggles (Borders,
          Focus) and the tier picker share a single visual system: filled = on. The hairline
          divider separates what-the-globe-shows from what-tier-you-get.
@@ -243,7 +256,7 @@ const routes = bodyRoutes(body);
          globe's top-right rail holds where you are looking FROM. Anything that moves or frames
          the camera goes in the rail (see railControls.ts) — putting it here would sort controls
          by which layer built them rather than by what they do. */
-      (highlight || borders || spotlight || quality) && (
+      hasViewBar && (
         // DO NOT ADD A PHONE COLLAPSE. The controls measure 229.7 px and the bar is allowed
         // 281.6 px at 320 px, so they sit on one row at every width the site serves — and a
         // trigger costs more than it saves: adding one back puts 320 px onto two rows, because

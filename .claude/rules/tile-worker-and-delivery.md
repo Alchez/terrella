@@ -44,10 +44,22 @@ whichever Worker is behind decides what the other serves:
 - Site first: new-token URLs return the OLD archive, and tiles are cached `immutable` for a year.
   Nothing short of another token change can clear them, so this is the order that does real damage.
 
-**Regenerating a token re-anchors a sabotage needle.** `scripts/sabotage.py` pins one case to a
-literal token value in `tileTokens.json`, the one generated file the table names, so a re-cut turns
-the gate red with nothing else wrong. Update the needle in the same change as the token, or the
-failure lands on CI after the deploy has already shipped.
+**A key bump touches FIVE places and only one of them is generated.** Derive the list rather than
+recall it: grep every tracked source, test, doc and config for `tileTokens` and `objectKey`, then
+keep the hits holding a value rather than a reference. As of the last bump that is
+`tileAddress.ts` (the `objectKey`s, plus a new `ARCHIVED` entry per superseded key),
+`tileTokens.json` (regenerated), THREE needles in `scripts/sabotage.py` (one token literal and two
+object keys), and one bare key literal in `web/worker/index.test.ts`. A needle left stale turns the
+gate red after the deploy has already shipped.
+
+**Regenerate tokens AFTER the new archives are in the work tree, never before.**
+`gen_tile_tokens.ts` hashes `archivePath(...)`, which is the local store, so the file it reads has
+to be the file being uploaded. `bytes` rides in the same generated record for the same reason.
+
+**Nothing forces a superseded key into `ARCHIVED`.** The guards check that a note is non-empty and
+that `supersededBy` chains to something real; none of them notices a bucket object that neither
+list names, and the archives page is built from both. So the entry is written by hand and its note
+is authored, which is the one part of a re-cut no tool can do for you.
 
 **`No targets deployed for terrella-tiles` is normal output, not a failure.** It means the deploy
 created no new route bindings; the custom domain persists across versions. The check that actually

@@ -25,6 +25,7 @@ const NOBODYS_ARCHIVE = {
   objectKey: "nobody/nothing-v9.pmtiles",
   token: "00000000",
   indexLeaves: 1,
+  bytes: 1,
   zoomConstants: "nowhere — this archive exists only in this test",
   minZoom: 3,
   maxZoom: 5,

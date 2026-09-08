@@ -152,6 +152,9 @@ export interface PublishedArchive {
    *  archive alongside the token, for the reason the hand tally deserves no trust — it was wrong,
    *  recording terrain's 22 leaves as 21. */
   indexLeaves: number;
+  /** The archive's size, so the download page can price a click before it is made. Generated
+   *  beside the token off the same file, which is what makes it unable to go stale on its own. */
+  bytes: number;
   /** Where THIS BODY's copy of the two zooms below lives, quoted into the message a server logs
    *  when an archive's header disagrees with them.
    *
@@ -192,6 +195,7 @@ export const PUBLISHED: Record<BodySlug, PublishedArchives> = {
       objectKey: "earth/planet-v4.pmtiles",
       token: TOKENS.earth.relief.token,
       indexLeaves: TOKENS.earth.relief.indexLeaves,
+      bytes: TOKENS.earth.relief.bytes,
       zoomConstants: "RELIEF_MIN_ZOOM/RELIEF_MAX_ZOOM in web/src/lib/reliefTiles.ts",
       minZoom: RELIEF_MIN_ZOOM,
       maxZoom: RELIEF_MAX_ZOOM,
@@ -200,6 +204,7 @@ export const PUBLISHED: Record<BodySlug, PublishedArchives> = {
       objectKey: "earth/terrain-v3.pmtiles",
       token: TOKENS.earth.terrain.token,
       indexLeaves: TOKENS.earth.terrain.indexLeaves,
+      bytes: TOKENS.earth.terrain.bytes,
       zoomConstants: "TERRAIN_MIN_ZOOM/TERRAIN_MAX_ZOOM in web/src/lib/terrainSource.ts",
       minZoom: TERRAIN_MIN_ZOOM,
       maxZoom: TERRAIN_MAX_ZOOM,
@@ -211,6 +216,7 @@ export const PUBLISHED: Record<BodySlug, PublishedArchives> = {
       objectKey: "earth/countries-v3.pmtiles",
       token: TOKENS.earth.vector.token,
       indexLeaves: TOKENS.earth.vector.indexLeaves,
+      bytes: TOKENS.earth.vector.bytes,
       zoomConstants: "COUNTRIES_MIN_ZOOM/COUNTRIES_MAX_ZOOM in web/src/lib/countryTiles.ts",
       minZoom: COUNTRIES_MIN_ZOOM,
       maxZoom: COUNTRIES_MAX_ZOOM,
@@ -239,6 +245,7 @@ export const PUBLISHED: Record<BodySlug, PublishedArchives> = {
       objectKey: "mars/relief-v5.pmtiles",
       token: TOKENS.mars.relief.token,
       indexLeaves: TOKENS.mars.relief.indexLeaves,
+      bytes: TOKENS.mars.relief.bytes,
       // The one entry that names no browser module, which is the whole reason this field is per
       // body: Mars's ceiling is a pipeline number, so the reader has to be sent past the registry.
       zoomConstants:
@@ -258,6 +265,7 @@ export const PUBLISHED: Record<BodySlug, PublishedArchives> = {
       objectKey: "mars/terrain-v2.pmtiles",
       token: TOKENS.mars.terrain.token,
       indexLeaves: TOKENS.mars.terrain.indexLeaves,
+      bytes: TOKENS.mars.terrain.bytes,
       zoomConstants:
         "minZoom/maxZoom in PUBLISHED.mars.terrain, restating terrain_rgb.master_zoom_for in "
         + "pipeline/tile/terrain_rgb.py",
@@ -273,6 +281,7 @@ export const PUBLISHED: Record<BodySlug, PublishedArchives> = {
       objectKey: "mars/features-v3.pmtiles",
       token: TOKENS.mars.vector.token,
       indexLeaves: TOKENS.mars.vector.indexLeaves,
+      bytes: TOKENS.mars.vector.bytes,
       // THE PRODUCT NAMES THE OBJECT, THE ROLE NAMES THE URL. Earth's key says `countries` and this
       // one says `features` because an R2 key is a permanent statement about which bytes these are,
       // and the two archives hold different products under one role.

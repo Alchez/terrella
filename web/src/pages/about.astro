@@ -18,7 +18,6 @@ const worlds = Object.values(BODIES).map((body) => ({
   slug: body.slug,
   label: body.label,
   about: ABOUT[body.slug],
-  accent: body.accent,
   // THIS PAGE HOLDS THE SITE'S ONLY CRAWLABLE LINKS TO THE GLOBES, which is a fact about the rest
   // of the site rather than about this one: `.no-js .view-bar` is `display: none` and there is no
   // sitemap integration, so without an ordinary anchor here a globe is unreachable to a crawler
@@ -86,7 +85,7 @@ const licenceHtml = [
     </p>
   </Masthead>
 
-  <main class="about">
+  <main class="about all-bodies">
     {/* THE TOGGLE IS RADIO INPUTS, NOT LINKS, and that is two decisions rather than a style.
         Semantically this is a choice between mutually exclusive views, which is what a radio group
         IS — so the keyboard gets arrow-key navigation for free and a screen reader announces the
@@ -113,7 +112,7 @@ const licenceHtml = [
     <nav class="worlds" role="radiogroup" aria-label="Which body">
       {
         worlds.map((world) => (
-          <label class="world-chip" data-world={world.slug} for={`w-${world.slug}`}>
+          <label class="world-chip" data-body={world.slug} for={`w-${world.slug}`}>
             <span class="dot" aria-hidden="true" />
             {world.label}
             <span class="sub">
@@ -126,7 +125,7 @@ const licenceHtml = [
 
     {
       worlds.map((world) => (
-        <section class="panel" data-world={world.slug} aria-label={world.label}>
+        <section class="panel" data-body={world.slug} aria-label={world.label}>
           <p class="panel-lede">
             {world.about.lede}{" "}
             <a class="to-globe" href={world.globe}>
@@ -217,6 +216,25 @@ const licenceHtml = [
             </p>
           </div>
         </section>
+
+        {/* SITE-9 is answered here rather than on the archives page, because a visitor asking
+            "can I get the tiles?" is standing on the globe and never goes looking for a downloads
+            page they have not been told about. The page it links to is the index, since a public
+            bucket answers nothing at its own root. */}
+        <section class="note-block">
+          <h2 class="eyebrow">Getting the data</h2>
+          <div class="note">
+            <p>
+              There is no API. What there is instead is every pyramid this site draws from, as a
+              file: see <a href="/archives/">Archives</a>. Each one carries its own credit inside it.
+            </p>
+            <p>
+              The tile endpoint those files are served through is open too, and it is the wrong
+              thing to build on. It runs a worker per tile against a daily allowance this site
+              shares, so a downloaded archive is both kinder and faster.
+            </p>
+          </div>
+        </section>
       </div>
 
       <div class="block">
@@ -251,29 +269,14 @@ const licenceHtml = [
   </main>
 </Base>
 
-<style
-  define:vars={{
-    earthLight: BODIES.earth.accent.light,
-    earthDark: BODIES.earth.accent.dark,
-    marsLight: BODIES.mars.accent.light,
-    marsDark: BODIES.mars.accent.dark,
-  }}
->
-  /* THE PAGE'S OWN ACCENT IS NEUTRAL, and the panels below put a planet's back. `data-body` on the
-     root stamps Earth's teal over everything, which is right on every other page and wrong here:
-     this page is about both planets, so the chrome carries neither and the two tabs own all the
-     colour on it. The neutral is the ink desaturated rather than a third hue, so nothing here
-     competes with the accents when both chips are on screen at once. */
+<style>
+  /* The page's own accent is neutral and the panels put a planet's back, both from global.css:
+     `.all-bodies` on the main below is what asks for the first, and `data-body` on each panel for
+     the second. */
   .about {
-    --accent: #5d564a;
     max-width: min(1500px, 92vw);
     margin: 0 auto;
-    padding: 0 clamp(1.1rem, 4vw, 2.5rem) 5rem;
-  }
-  @media (prefers-color-scheme: dark) {
-    .about {
-      --accent: #a49b8a;
-    }
+    padding: 0 var(--page-gutter) 5rem;
   }
 
   .lede {
@@ -321,9 +324,12 @@ const licenceHtml = [
 
   /* The signature element: two chips, each wearing its OWN body accent. It is the only place on the
      site where both accents appear at once, which is what makes it read as "choose a world" rather
-     than as a generic tab bar. */
+     than as a generic tab bar.
+     The accent arrives because the chip carries `data-body`, which is the same attribute the
+     stylesheet's per-body block keys on; `--chip` exists only so the checked and hover states can
+     name one colour instead of repeating `var(--accent)` in six declarations. */
   .world-chip {
-    --chip: var(--muted);
+    --chip: var(--accent);
     display: inline-flex;
     align-items: baseline;
     gap: 0.5rem;
@@ -339,20 +345,6 @@ const licenceHtml = [
       background 0.18s ease,
       color 0.18s ease,
       border-color 0.18s ease;
-  }
-  .world-chip[data-world="earth"] {
-    --chip: var(--earthLight);
-  }
-  .world-chip[data-world="mars"] {
-    --chip: var(--marsLight);
-  }
-  @media (prefers-color-scheme: dark) {
-    .world-chip[data-world="earth"] {
-      --chip: var(--earthDark);
-    }
-    .world-chip[data-world="mars"] {
-      --chip: var(--marsDark);
-    }
   }
   .world-chip .dot {
     width: 0.62rem;
@@ -376,45 +368,31 @@ const licenceHtml = [
   .world-input:focus-visible + .worlds .world-chip {
     outline: none;
   }
-  .world-input:nth-of-type(1):focus-visible ~ .worlds .world-chip[data-world="earth"],
-  .world-input:nth-of-type(2):focus-visible ~ .worlds .world-chip[data-world="mars"] {
+  .world-input:nth-of-type(1):focus-visible ~ .worlds .world-chip[data-body="earth"],
+  .world-input:nth-of-type(2):focus-visible ~ .worlds .world-chip[data-body="mars"] {
     outline: 2px solid var(--chip);
     outline-offset: 2px;
   }
-  .world-input:nth-of-type(1):checked ~ .worlds .world-chip[data-world="earth"],
-  .world-input:nth-of-type(2):checked ~ .worlds .world-chip[data-world="mars"] {
+  .world-input:nth-of-type(1):checked ~ .worlds .world-chip[data-body="earth"],
+  .world-input:nth-of-type(2):checked ~ .worlds .world-chip[data-body="mars"] {
     background: var(--chip);
     border-color: var(--chip);
     color: var(--bg);
   }
-  .world-input:nth-of-type(1):checked ~ .worlds .world-chip[data-world="earth"] .dot,
-  .world-input:nth-of-type(2):checked ~ .worlds .world-chip[data-world="mars"] .dot {
+  .world-input:nth-of-type(1):checked ~ .worlds .world-chip[data-body="earth"] .dot,
+  .world-input:nth-of-type(2):checked ~ .worlds .world-chip[data-body="mars"] .dot {
     background: var(--bg);
   }
 
-  /* EACH PANEL SCOPES `--accent` TO ITS OWN BODY, and that one override is the whole theming
-     mechanism: the step numerals, the note borders, the licence pills and the links below all read
-     `var(--accent)` already, so they re-tint together and no rule anywhere is per-body. A third
-     planet adds a declaration and two lines here. */
+  /* EACH PANEL WEARS ITS OWN BODY, and that one attribute is the whole theming mechanism: the step
+     numerals, the note borders, the licence pills and the links below all read `var(--accent)`
+     already, so they re-tint together and no rule anywhere is per-body. A third planet adds a
+     `data-body` block to the stylesheet and nothing here. */
   .panel {
     display: none;
   }
-  .panel[data-world="earth"] {
-    --accent: var(--earthLight);
-  }
-  .panel[data-world="mars"] {
-    --accent: var(--marsLight);
-  }
-  @media (prefers-color-scheme: dark) {
-    .panel[data-world="earth"] {
-      --accent: var(--earthDark);
-    }
-    .panel[data-world="mars"] {
-      --accent: var(--marsDark);
-    }
-  }
-  .world-input:nth-of-type(1):checked ~ .panel[data-world="earth"],
-  .world-input:nth-of-type(2):checked ~ .panel[data-world="mars"] {
+  .world-input:nth-of-type(1):checked ~ .panel[data-body="earth"],
+  .world-input:nth-of-type(2):checked ~ .panel[data-body="mars"] {
     display: block;
   }
 
