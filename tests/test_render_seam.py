@@ -139,8 +139,8 @@ class TestTheSpellingsHaveOneOwner:
                        | {render_seam.OCEANMASK_TIF, render_seam.WATERMASK,
                           render_seam.DECLARATION_NAME})
         # a name at the start of the string or after a path separator is one of ours; the same
-        # characters as the TAIL of a longer basename (the region preview's `{cell}_oceanmask.tif`)
-        # are a different file in a different vocabulary
+        # characters as the TAIL of a longer basename, as a prefixed sibling like
+        # `planet_oceanmask` would be, are a different file in a different vocabulary
         spells = re.compile("(^|/)(" + "|".join(re.escape(name) for name in owned) + ")")
         modules = sorted(PIPELINE_ROOT.rglob("*.py"))
         assert any(module.name == "render_seam.py" for module in modules), \

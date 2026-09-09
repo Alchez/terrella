@@ -3462,9 +3462,9 @@ SABOTAGES: list[Sabotage] = [
     # equality held under the mutation. Surfaced by a `--changed` sweep, not by anything that ran
     # before. `EXAG` went with the region preview that read it; a derived-vs-literal claim needs a
     # source scan, which `test_bodies.test_neither_shading_module_carries_its_own_exaggeration` is.
-    # Byte-identical output TODAY, which is the whole hazard: the region path is where every look
-    # A/B is judged, so a private copy only diverges once someone re-tunes the shared constant — and
-    # then the previews that ratified the change were rendered at the value it replaced.
+    # Byte-identical output, which was the whole hazard: the region path was where every look A/B
+    # was judged, so a private copy diverged only once someone re-tuned the shared constant, and by
+    # then the previews that ratified the change had been rendered at the value it replaced.
     # A case stood here and went with `look/hillshade.py`. It planted a multiplied ground scale in
     # the per-row z-factor, and its guard lived in that module's own test file. The module was the
     # composite's last leaf: nothing in production imported it once the compositor went, so the case

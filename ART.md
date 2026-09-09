@@ -73,7 +73,7 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 | `SNOW_RGB` / `SNOW_SHADOW_RGB` | `E8F1F6` / `B0C7DB` | § Snow |
 | `ICE_RGB` / `ICE_SHADOW_RGB` | `D4E4F0` / `9CB8D2` | § Sea ice |
 | `SUN_ALT_DEG` | 45.0 — hero X-tilt and tile `alt` both derive from it | § Sun altitude |
-| `EXAGGERATION` | 15.0 — the hero's and the region preview's; the tiles read `Body.exaggeration`, pinned equal to it for Earth | § Vertical exaggeration |
+| `EXAGGERATION` | 15.0, the authored value, read by no path; heroes and tiles both read `Body.exaggeration`, pinned equal to it for Earth | § Vertical exaggeration |
 | `LUT_STEP_M` | 1.0 m — ramp LUT resolution (fidelity, not hue) | § Land color ramp |
 
 ### Hero only (`scene_build.py`, `render_prep.py`) — the 203-country sweep, ~10–13 h
@@ -144,7 +144,7 @@ carries the measured row; never price one from this table.
 
 ### Vertical exaggeration — global constant, per-country number
 
-- Baseline **15× on Earth** (`exaggeration` on the body in `bodies.py`, which every multi-body path reads; `EXAGGERATION` in `palette.py` is the authored constant Earth's field is pinned to, and the region preview is the last reader of it). The number in the scene is
+- Baseline **15× on Earth** (`exaggeration` on the body in `bodies.py`, which every multi-body path reads; `EXAGGERATION` in `palette.py` is the authored constant Earth's field is pinned to, and nothing in production reads it directly). The number in the scene is
   per-frame: `displacement_scale = 15 ÷ (extent_w_m / 2)` because the plane is always 2 units
   wide (India 8.0e-6, Nepal 3.3e-5, Sri Lanka 1.0e-4 — docs/framing-math.md). Copying one
   country's scale onto another multiplies exaggeration by the frame-width ratio.

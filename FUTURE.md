@@ -555,7 +555,7 @@ Raised while reviewing the gallery after the sea-sync sweep (the sea look was ap
 ### Small steep islands look like "pinecones" (Saint Lucia, Dominica)
 
 - **Measured root cause:** exaggeration is a global **15×** applied to real height ÷ width, so visual steepness = `15 × (relief / frame-width)`. A 950 m peak on a 30 km island → ~0.47 (peak stands ~half the frame tall → bristly); a continent → ~0.025 (gentle). Same constant, wildly different look.
-- **The principled fix = adaptive exaggeration:** taper the factor for small high-relief-ratio frames. This makes the *visual* relief MORE consistent across the gallery, not less: the "tuned once, applied globally" rule (ART.md) is what currently makes the look *inconsistent*. Bounded cost: only ~20-30 small steep islands re-render (~1 h, not a planet sweep). Touches the FROZEN `render_prep.py` (`EXAGGERATION = 15.0`), so it wants the sea-sync freeze lifted (ratified) first.
+- **The principled fix = adaptive exaggeration:** taper the factor for small high-relief-ratio frames. This makes the *visual* relief MORE consistent across the gallery, not less: the "tuned once, applied globally" rule (ART.md) is what currently makes the look *inconsistent*. Bounded cost: only ~20-30 small steep islands re-render (~1 h, not a planet sweep). Touches the FROZEN `render_prep.py`, which takes the 15.0 off `Body.exaggeration` rather than carrying a constant of its own, so it wants the sea-sync freeze lifted (ratified) first.
 - **Note:** validated that atoll/island heroes themselves read well (Maldives/Marshall are striking): the problem is only over-exaggeration of *steep* small islands, not small frames per se.
 
 ## Hero and block renders differ in their contents, when only their projection should (raised 2026-08-24)
@@ -658,26 +658,25 @@ The working plan had become the project's only backlog as well as its live state
   - `render_prep` and `prep_block` are the same category of stage: build a render directory, then shell into `scene_build`. Nothing in HISTORY justifies the difference, so it is drift.
   - `pipeline/render/__init__.py` says "the rest of this package is the hero path" and enumerates four modules. `prep_block.py` sits in that package, is not the hero path, and is not enumerated.
   - Renaming changes no recipe, so it is neither cheaper nor dearer after the render pass.
-- **17 mutation cases name a guard that does not catch them**, found by `sabotage.py --audit` on 2026-08-24. Each is a guard repair rather than a pipeline change, and none of them changes a rendered pixel, so none gates a render pass. HISTORY's *the audit runs* entry carries every conclusion about the audit and none of the items, which is why they are enumerated here.
-  - **The list is re-derivable in 8.5 min** by re-running `--audit`, and a re-run is the honest list rather than this one, which rots as the table changes. Prefer it if any of the 17 has been touched since.
+- **15 mutation cases name a guard that does not catch them**, found by `sabotage.py --audit` on 2026-08-24. Each is a guard repair rather than a pipeline change, and none of them changes a rendered pixel, so none gates a render pass. HISTORY's *the audit runs* entry carries every conclusion about the audit and none of the items, which is why they are enumerated here.
+  - **The list is re-derivable in 8.5 min** by re-running `--audit`, and a re-run is the honest list rather than this one, which rots as the table changes. Prefer it if any of the 15 has been touched since.
+  - **It was 17, and two went with the compositor rather than being fixed**: a region preview regrowing its own exaggeration and a hillshade forgetting the ground scale, both mutating modules that no longer exist. Matching the list back against the live labels is a prefix match, since each item here is the first clause of a longer one.
   - The 394 web and collection cases could not be audited at all, since neither suite can be narrowed to one guard, so their guards remain unproven and are not counted here.
   1. *a refactor moves a needle out from under its case*. A regression from the same day: the in-flight skip keys on the mutated PATH, so every needle pointing at that file is skipped, the moved one included. Fix is to key it on the in-flight CASE.
-  2. *the region preview regrows its own exaggeration*, `test_exaggeration_is_shared`.
-  3. *the hillshade forgets the ground scale*. The guard captures `exaggeration` and not `ground_scale`, on a body whose ground ratio is exactly 1.0.
-  4. *the warp asks the disk before the body*, caught by three other tests and naming a fourth.
-  5. *the reprojection stops removing its target*. CONFIRMED WRONG against the full suite; the real catcher is `test_a_corrupt_intermediate_does_not_survive_into_the_burn`.
-  6. *the brightness recipe stops recording its weights*, `test_changed_weights_are_STALE`.
-  7. *the recipe drops the source edition*, `test_a_republished_source_edition_is_STALE`.
-  8. *the cap recipe stops recording which layers are off*, `test_turning_a_layer_off_restages_although_its_source_stops_being_a_dependency`.
-  9. *the gazetteer extracts as it verifies*, `test_a_bad_digest_writes_NOTHING_not_even_the_members_before_it`.
-  10. *an edge ACROSS the meridian counts as one along it*. CONFIRMED MISSED against the full suite; nothing catches it.
-  11. *the writer re-derives the law instead of calling it*. The replacement is numerically identical, so only asserting `row_scale` is CALLED can catch it.
-  12. *the context is sized at the block centre*, `test_no_block_row_is_narrower_than_sizing_at_its_centre`.
-  13. *the scratch VRT is built outside the directory*, `test_an_unchanged_source_set_leaves_the_file_untouched`.
-  14. *served assets are resolved against the data store*, `test_served_assets_follow_the_checkout_not_the_data_store`.
-  15. *the About page keeps the superseded output licence*, `test_every_site_states_the_output_license`.
-  16. *gen_spotlight restates the ladder instead of importing it*, `test_the_ladder_matches_the_spotlight_overlay`.
-  17. *the render dir drifts from the work dir*, `test_it_follows_a_relocated_store`.
+  2. *the warp asks the disk before the body*, caught by three other tests and naming a fourth.
+  3. *the reprojection stops removing its target*. CONFIRMED WRONG against the full suite; the real catcher is `test_a_corrupt_intermediate_does_not_survive_into_the_burn`.
+  4. *the brightness recipe stops recording its weights*, `test_changed_weights_are_STALE`.
+  5. *the recipe drops the source edition*, `test_a_republished_source_edition_is_STALE`.
+  6. *the cap recipe stops recording which layers are off*, `test_turning_a_layer_off_restages_although_its_source_stops_being_a_dependency`.
+  7. *the gazetteer extracts as it verifies*, `test_a_bad_digest_writes_NOTHING_not_even_the_members_before_it`.
+  8. *an edge ACROSS the meridian counts as one along it*. CONFIRMED MISSED against the full suite; nothing catches it.
+  9. *the writer re-derives the law instead of calling it*. The replacement is numerically identical, so only asserting `row_scale` is CALLED can catch it.
+  10. *the context is sized at the block centre*, `test_no_block_row_is_narrower_than_sizing_at_its_centre`.
+  11. *the scratch VRT is built outside the directory*, `test_an_unchanged_source_set_leaves_the_file_untouched`.
+  12. *served assets are resolved against the data store*, `test_served_assets_follow_the_checkout_not_the_data_store`.
+  13. *the About page keeps the superseded output licence*, `test_every_site_states_the_output_license`.
+  14. *gen_spotlight restates the ladder instead of importing it*, `test_the_ladder_matches_the_spotlight_overlay`.
+  15. *the render dir drifts from the work dir*, `test_it_follows_a_relocated_store`.
 - **A freshness recipe could be derived from the built scene rather than enumerated by hand.** `scene_dump.py` already dumps the graph exhaustively, including sampled ramp evaluations, and it reads the BUILT graph rather than the source, so it sees values written inline. Hashing it would have caught all three instances of the enumeration going short. The obstacle is that it needs real Blender, where the freshness check today runs with `bpy` stubbed; the graph is body-shaped rather than block-shaped, so one invocation per pass would do.
 - **CLOSED, and by deletion rather than by doing the work: every live tier now records the white law.** `block_render.params` and `cap_raytrace.params` both spread `layer_producers.white_law`. The two recipes that folded the law without recording it were the compositor's and the composited cap's, and both are deleted. Do not re-park this: the entry said it "does not retire with the switch", which was written while a second producer still existed and is the reason it is worth saying so here.
 - **No test pins that `PERENNIAL_ICE` and `GLACIERS` are IN `WHITE_UNION`.** Every membership assertion in the suite is negative, so a layer silently ceasing to be white is caught by nothing. Belongs with the guard repairs above rather than with the recipe work, since it changes no recipe.
