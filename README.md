@@ -52,12 +52,8 @@ The tile endpoint is open as well, and it is the wrong thing to build on. It run
 - What changed, when, and how long this has taken → [the commit history](https://github.com/Alchez/terrella/commits/main/)
 - Driving Blender, and the shader gotchas → [`.claude/skills/blender-rig/`](.claude/skills/blender-rig/SKILL.md)
 - Acquiring or refetching a source dataset → [`.claude/skills/acquire-data/`](.claude/skills/acquire-data/SKILL.md)
-- Reclaiming disk, and what must never be deleted → [`.claude/skills/reclaim-pass/`](.claude/skills/reclaim-pass/SKILL.md)
 - Serving, the tile Worker and its landmine → [`.claude/rules/tile-worker-and-delivery.md`](.claude/rules/tile-worker-and-delivery.md)
 
 ## Prior art
 
-Daniel Huffman, "Creating Shaded Relief in Blender", is the canonical technique this is built on.
-For land and sea fusion: ETOPO 2022 (NOAA), Tozer et al. 2019 (SRTM15+), the GMT `grdblend` docs and
-Tom Patterson's shadedrelief.com. The globe and the tile archive follow the MapLibre globe
-projection docs and the PMTiles spec (Protomaps).
+Daniel Huffman, "Creating Shaded Relief in Blender", is the canonical technique this is built on. For land and sea fusion: ETOPO 2022 (NOAA), Tozer et al. 2019 (SRTM15+), the GMT `grdblend` docs and Tom Patterson's shadedrelief.com. The globe and the tile archive follow the MapLibre globe projection docs and the PMTiles spec (Protomaps).

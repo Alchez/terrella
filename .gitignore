@@ -34,6 +34,15 @@ blender/*.blend
 # archive it could only fail, and it keeps running locally where the file does exist.
 tests/test_history_integrity.py
 
+# Reclaiming disk needs the 1.1 TB store, the render outputs and the superseded worktrees, so this
+# skill describes work no clone can do; it stays here because the maintainer's machine has all
+# three. `test_repo_integrity.IGNORED_PATHS` mirrors this line and refuses a pointer at it.
+#
+# NOT SNAPSHOTTED, unlike the four names above, so the clobber warning above applies to it with no
+# net: other branches still track this path, and checking one out rewrites the working copy
+# silently. It is also the only copy that exists anywhere once this line lands.
+/.claude/skills/reclaim-pass/
+
 __pycache__/
 *.pyc
 .venv/
