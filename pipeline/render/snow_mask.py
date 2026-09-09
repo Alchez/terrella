@@ -11,11 +11,10 @@ Runs after render_prep.py, once per country. Known gap: WorldCover stops
 short of Antarctica (Sentinel-2 southern limit) — that hero is a special
 case regardless.
 
-The bucket, the tile naming and the fetch are `pipeline/worldcover.py`'s, which
-`fuse/build_void_wbm.py` reads for a different class of the same rasters. What stays here is what
-this stage does with them: the bucket ships land tiles only, so a 404 is a legitimate "ocean cell"
-(absent tile = no snow there), but if EVERY tile in the frame is absent the naming pattern itself
-is broken and the run aborts.
+The bucket, the tile naming and the fetch are `acquire/earth/download_worldcover.py`'s. What stays
+here is what this stage does with them: the bucket ships land tiles only, so a 404 is a legitimate
+"ocean cell" (absent tile = no snow there), but if every tile in the frame is absent the naming
+pattern itself is broken and the run aborts.
 
 License: CC-BY 4.0 — "(c) ESA WorldCover project 2021 / Contains modified
 Copernicus Sentinel data (2021) processed by ESA WorldCover consortium".
@@ -36,7 +35,8 @@ import numpy as np
 import rasterio
 from rasterio.warp import transform_bounds
 
-from pipeline import datasets, worldcover
+from pipeline import datasets
+from pipeline.acquire.earth import download_worldcover
 from pipeline.look import palette
 from pipeline.render import render_seam
 
@@ -100,10 +100,10 @@ def main():
           f"lon/lat window {west:.2f} {south:.2f} {east:.2f} {north:.2f}",
           flush=True)
 
-    names = worldcover.tiles_for_bounds(west, south, east, north)
+    names = download_worldcover.tiles_for_bounds(west, south, east, north)
     print(f"{len(names)} candidate WorldCover tiles in the frame", flush=True)
 
-    counts = worldcover.fetch_tiles(names, progress_every=10)
+    counts = download_worldcover.fetch_tiles(names, progress_every=10)
     if counts["ok"] + counts["skipped"] == 0:
         sys.exit("every tile in the frame is absent — the tile-name pattern "
                  "or bucket layout must have changed; stop and check")

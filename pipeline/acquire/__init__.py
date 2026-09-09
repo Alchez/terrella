@@ -1,4 +1,5 @@
-"""Fetch published data and reshape none of it: `data/raw/` is written here and nowhere else.
+"""Fetch published data and reshape none of it: `data/raw/` is written here and nowhere else, and
+`test_fetch.test_only_an_acquirer_reaches_a_server` makes that checkable rather than aspirational.
 
 One module per source, owning that source's access quirks and the constraints its licence imposes.
 Whether a fetch is even possible is a property of the publisher, not of us, which is why the awkward
@@ -12,6 +13,7 @@ stage packages stay grouped by stage because a body is data there: nothing under
 missing `bodies.Body` field does. Do not read this split as licence to repeat it upstream.
 
 `install_geotools.sh` sits at this level and not under a body: it fetches a TOOL rather than a
-dataset, so it answers for neither. A dataset two stages share does not live here either, having no
-single acquirer to own it; `pipeline/naturalearth.py` and `pipeline/worldcover.py` are those.
+dataset, so it answers for neither. Having several readers does not move a module out of here, and
+`download_worldcover.py` and `download_glo30.py` are both read by two stages for their naming rules;
+what sits above is the read side of a source nobody fetches there, which is `naturalearth.py`.
 """

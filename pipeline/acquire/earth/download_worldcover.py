@@ -1,26 +1,19 @@
-"""The one home for ESA WorldCover: the bucket, its tile naming, and the fetch.
+"""ESA WorldCover 2021 v200: the bucket, its tile naming, and the fetch.
 
-WHY THIS MODULE EXISTS. WorldCover has two readers and neither is an acquirer, so it had no owner
-and the second reader imported the first: `render/snow_mask.py` takes class 70 for a hero's snow
-mask, and `fuse/build_void_wbm.py` takes class 80 to synthesise the watermask OpenTopography's void
-DEM tiles ship without, reaching into the render stage for the bucket URL, the worker count and the
-tile-selection rule. A fuse stage depending on a render stage is the shape that says the fact
-belongs to neither. This is the module `naturalearth.py`'s own docstring predicts: when a raw source
-gains a second reader it wants a home rather than a second constant.
+Two stages read different classes of the same rasters, `render/snow_mask.py` class 70 for a hero's
+snow mask and `fuse/build_void_wbm.py` class 80 for the watermask OpenTopography's void DEM tiles
+ship without. Each one's class and its mosaic stay beside the code choosing them: they VRT over
+different sets, every held tile against only the ones overlapping the void extent.
 
-WHAT IS DELIBERATELY NOT HERE: the class each caller wants, and the mosaic each builds. One reads
-snow and one reads water, and they VRT over different sets (every held tile against only the ones
-overlapping the void extent), so those are local decisions that belong beside the code making them.
-
-WHY THE FETCH IS SHARED AND THE VERDICT IS NOT. Ocean cells legitimately 404, so the fetch asks for
-'absent' rather than failing, and every tile coming back absent means the bucket layout moved. What
-counts as "every" differs between a country frame and a void extent, so `fetch_tiles` reports the
+Ocean cells legitimately 404, so the fetch asks for 'absent' rather than failing. What counts as
+"every tile absent" differs between a country frame and a void extent, so `fetch_tiles` returns the
 counts and each caller decides what an empty result means.
 
-Not an entry point: `acquire/` holds the runnable acquirers, and this is a shared fact two stages
-read, which is why it sits here beside `naturalearth.py` rather than there.
+`--extent` is required, as it is on `download_glo30`: the global land set is ~114 GB and no caller
+wants it, so there is no shape of this command that fetches a planet by default.
 """
 
+import argparse
 import concurrent.futures as cf
 import math
 import sys
@@ -92,3 +85,23 @@ def held(names: list[str]) -> list[Path]:
     window rather than the whole store."""
     store = datasets.worldcover()
     return [store / name for name in names if (store / name).exists()]
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--extent", nargs=4, type=float, required=True,
+                        metavar=("W", "S", "E", "N"),
+                        help="lon/lat window; overlapping 3x3 degree tiles are fetched")
+    args = parser.parse_args()
+
+    names = tiles_for_bounds(*args.extent)
+    print(f"{len(names)} candidate tiles in extent", flush=True)
+    counts = fetch_tiles(names, progress_every=25)
+    print(f"ok={counts['ok']} skipped={counts['skipped']} absent(ocean)={counts['absent']}",
+          flush=True)
+    print("complete", flush=True)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
