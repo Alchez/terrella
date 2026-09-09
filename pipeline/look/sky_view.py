@@ -36,45 +36,6 @@ from pipeline import render_files
 warnings.filterwarnings("ignore")
 
 
-# The ONE occlusion resolution, in ground metres per pixel, shared by every raster path.
-#
-# It exists because the two tile paths silently disagreed by 12.9x (found): the region
-# preview resolved ~1.5 km features while the planet it was supposed to predict resolved ~20 km, so
-# every region A/B -- including the tuning that set `svf_strength` and `svf_threshold` -- was judged
-# at a resolution production does not have. Deriving both from ONE ground scale makes that
-# divergence unrepresentable rather than merely fixed.
-#
-# 9784 is today's PLANET value (Earth's grid pixel x 32), chosen here to keep production
-# byte-identical while
-# the foundation lands; it is the number the softness work then moves. The hero path is deliberately
-# NOT on this constant: it shades per-country in an equal-area projection at its own tuned scale,
-# and folding it in would restage 204 renders to answer a tile question.
-OCCLUSION_TARGET_M_PER_PX = 9784.0
-
-
-def occlusion_shape(width: int, height: int, full_res_m_per_px: float,
-                    target: float = OCCLUSION_TARGET_M_PER_PX) -> tuple[int, int]:
-    """Downsample (rows, cols) that lands closest to `target` GROUND metres per pixel.
-
-    Callers pass the full-resolution *ground* scale, not the map-unit scale — in Web Mercator those
-    differ by cos(latitude), which is exactly the correction the planet path was missing. Never
-    upsamples: a source already coarser than the target is used as-is.
-    """
-    factor = max(1.0, target / full_res_m_per_px)
-    return max(1, round(height / factor)), max(1, round(width / factor))
-
-
-def normalised_occlusion(low: np.ndarray, m_per_px: float) -> np.ndarray:
-    """Sky-view factor -> occlusion in 0 (open) .. 1 (enclosed), linearly renormalised.
-
-    The renormalisation is global and affine, so it absorbs a uniform scale error and CANNOT
-    absorb a latitude-varying one — measured, occ mean 0.3213 vs 0.2934 for the same
-    grid at two m_per_px. That is why `m_per_px` must already be a ground scale.
-    """
-    svf = horizon_svf(low, m_per_px)
-    return 1.0 - (svf - svf.min()) / (svf.max() - svf.min() + 1e-6)
-
-
 def horizon_svf(heights: np.ndarray, m_per_px: float, n_dir: int = 16,
                 max_px: int = 42, exag: float = 22.0) -> np.ndarray:
     """Sky-view factor 0..1 (1 = fully open sky, lower = occluded/valley).
@@ -106,6 +67,12 @@ def main() -> int:
                     help="max valley darkening (0..1); ~0.38 is the tuned default")
     ap.add_argument("--threshold", type=float, default=0.45,
                     help="only darken occlusion above this (keeps open ground clean)")
+    # A per-country pixel count, so the ground scale varies with the country. That reads like the
+    # 12.9x divergence a shared `OCCLUSION_TARGET_M_PER_PX` was once built to abolish, and it is not:
+    # that constant tied two TILE raster paths to one ground scale, both of which went with the
+    # compositor, and a hero warps into an equal-area projection at its own tuned scale. Occlusion
+    # resolution was also falsified as a route to softness. → HISTORY, *the two shade paths were
+    # occluding at different resolutions*
     ap.add_argument("--svf-long", type=int, default=2200,
                     help="SVF compute resolution (upsampled to the hero)")
     args = ap.parse_args()

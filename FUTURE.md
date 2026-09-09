@@ -759,9 +759,9 @@ The working plan went back to holding one onboarding question at a time, which i
 
 ### The em-dash population, restated because the old figure named the wrong set
 
-- **316 occurrences in four tracked markdown docs**: `ART` 144, `PROCESS` 102, `ATTRIBUTIONS` 46, `web/DEPLOY` 24. That is every tracked markdown file carrying one, and it is not a single regex, since the rule names which mark replaces each, so `ART` and `PROCESS` are each their own sitting.
-- **The figure had been called "the whole tracked population" and it is not.** The tracked tree carries 4,721, so 4,405 sit in code comments and docstrings across roughly 280 files, led by `scripts/sabotage.py` at 333 and `web/src/components/Globe.astro` at 263.
-  - **Whether the rule reaches a comment is the maintainer's call**, and it separates a two-sitting doc pass from a 4,405-occurrence sweep. Visitor-visible copy is not implicated: every occurrence checked in the page templates and `aboutContent.ts` sat inside a comment.
+- **65 occurrences in two tracked markdown docs**: `ATTRIBUTIONS` 46 and `web/DEPLOY` 19. `ART` and `PROCESS` carried 144 and 102 and are now at zero, each having taken its own sitting, which is what the remaining two need: the rule names which mark replaces each, so it is not a single regex.
+- **The figure had been called "the whole tracked population" and it is not.** The tracked tree carries 4,447, so 4,382 sit in code comments and docstrings across roughly 280 files, led by `scripts/sabotage.py` and `web/src/components/Globe.astro`.
+  - **Whether the rule reaches a comment is the maintainer's call**, and it separates a two-sitting doc pass from a four-thousand-occurrence sweep. Visitor-visible copy is not implicated: every occurrence checked in the page templates and `aboutContent.ts` sat inside a comment.
 
 ### Findings from the recipe-seam arc that had nowhere else to live
 
