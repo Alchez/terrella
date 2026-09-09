@@ -35,11 +35,11 @@ from typing import Any
 from pipeline import attribution, bodies, freshness, paths
 from pipeline.compose import vector_layers
 
-#: The vendored go-pmtiles CLI, which is how a credit reaches a vector archive at all: the GDAL
-#: PMTiles driver's creation options are NAME, DESCRIPTION, TYPE, the zooms and the tiler knobs,
-#: with nothing for `attribution`. `tools/` is gitignored, so this is a download rather than a
-#: checkout, and `write_credit` says so when it is missing instead of shipping an uncredited cut.
-PMTILES_TOOL = paths.ROOT / "tools/pmtiles"
+#: The go-pmtiles CLI, which is how a credit reaches a vector archive at all: the GDAL PMTiles
+#: driver's creation options are NAME, DESCRIPTION, TYPE, the zooms and the tiler knobs, with
+#: nothing for `attribution`. `paths` owns where it lives, since `install_geotools.sh` puts it there
+#: and `write_credit` says so when it is missing instead of shipping an uncredited cut.
+PMTILES_TOOL = paths.PMTILES
 
 
 @dataclass(frozen=True)

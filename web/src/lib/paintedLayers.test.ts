@@ -7,6 +7,7 @@ import { CAP_POLES, capLayerId } from "./polarCaps";
 import { featureFillLayer, featureLinearHitLayer } from "./featureOverlay";
 import { hitLayer } from "./countryHighlight";
 import { VECTOR_BINDING } from "./countryHighlight";
+import { BODIES, type BodySlug } from "./bodies";
 
 /**
  * THE CONSENT GATE. Every other guard in this repo asks whether the code is CORRECT; this one asks
@@ -201,8 +202,28 @@ describe("the ledger is readable as a record of what was approved", () => {
 
   it("names bodies that exist", () => {
     for (const layer of RATIFIED_LAYERS) {
-      if (layer.bodies === "all") continue;
-      expect(layer.bodies.length, `${layer.id} lists no bodies and is not "all"`).toBeGreaterThan(0);
+      expect(layer.bodies.length, `${layer.id} lists no bodies`).toBeGreaterThan(0);
     }
+  });
+
+  it("approves no body that did not exist when the layer was seen", () => {
+    // THE ONE DIRECTION A CONSENT LEDGER MUST NOT DEFAULT IN. `bodies: "all"` read as "every planet,
+    // including the ones nobody has rendered yet", so a third body would have arrived carrying
+    // approval for five layers on pixels the maintainer had never seen — which is the exact failure
+    // this file was written after. Silent EXCLUSION is the safe direction here and needs no guard:
+    // a body in no entry gets nothing painted, which is what an un-consented body should get.
+    const blanket = RATIFIED_LAYERS.filter((layer) => !Array.isArray(layer.bodies));
+    expect(blanket.map((layer) => layer.id)).toEqual([]);
+  });
+
+  it("says so when a body has been added and nothing in the ledger mentions it", () => {
+    // The companion to the rule above, and the reason exclusion can stay silent in the code but not
+    // here: a third body legitimately starts with nothing approved, and this is what turns that from
+    // an oversight into a prompt. It goes red the day `BodySlug` widens and stays red until someone
+    // has actually looked at that planet.
+    const mentioned = new Set(RATIFIED_LAYERS.flatMap((layer) => layer.bodies));
+    const unmentioned = Object.keys(BODIES).filter((slug) => !mentioned.has(slug as BodySlug));
+    expect(unmentioned, "a body appears in no ledger entry, so nothing has been approved for it")
+      .toEqual([]);
   });
 });

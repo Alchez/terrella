@@ -90,7 +90,6 @@ own skill (`.claude/skills/acquire-data/`).
 - Blender's own version, path, interpreter boundary and crash recipe are in `.claude/skills/blender-rig/`, which loads when a session touches the rig.
 - **One heavy job at a time, under the ratified cgroup cap that `pipeline/profile/pass_memory.py` owns as `HEAVY_JOB_GIB`**, which is where the number lives and why it is not spelled here. The category that matters is "touches a full-planet raster" rather than "is a pipeline stage", so third-party tools and ad-hoc measurements are in scope, while the hero lane's per-country windowed stages sit outside it by that same category rather than by exemption. `run_pass.sh` sizes it per body from that owner and a hook refuses an unwrapped heavy command; `batch.py`'s cap is best effort, and where systemd user scopes cannot enforce one it says so loudly and runs on.
 - Keep project data and temp on ext4, never tmpfs `/tmp` and never large rasters on NTFS.
-- A separate home server runs the pipeline and is not the site's origin.
 - Keep intermediates out of backups. INVENTORY.md is the storage map: current sizes, what each store feeds, and which are reclaimable.
 
 ## Working conventions
@@ -114,7 +113,7 @@ own skill (`.claude/skills/acquire-data/`).
 - Plan first (Plan Mode) before any multi-file or architectural task.
 - CONTRIBUTING.md is the entry point for anyone working here, human or agent: what runs without the render store, the one gate command, and the AI-assistance policy.
 - Knowledge needed only sometimes lives in `.claude/skills/` when a TASK calls for it, or `.claude/rules/` when a matching FILE is opened. Neither belongs here, and content moves between them rather than being copied.
-- The other docs, so facts are looked up rather than re-guessed: **PROCESS.md** measured runtimes (the authority, read it before estimating), **INVENTORY.md** the storage map, **ART.md** the aesthetic decisions, **FUTURE.md** the v2 parking lot (check it before designing a "new" feature), **docs/*.mmd** the pipeline diagrams. A body seam is read from `pipeline/bodies.py` and its web twin, which own every per-body fact between them.
+- The other docs, so facts are looked up rather than re-guessed: **PROCESS.md** measured runtimes (the authority, read it before estimating), **INVENTORY.md** the storage map, **ART.md** the aesthetic decisions, **FUTURE.md** the v2 parking lot (check it before designing a "new" feature), **docs/pipeline.md** how to run a pass, **docs/adding-a-body.md** what a new planet must answer for, **docs/pipeline-layout.md** where a module goes, **docs/*.mmd** the pipeline diagrams. A body seam is read from `pipeline/bodies.py` and its web twin, which own every per-body fact between them.
 
 Working in Blender, the 5.1.2 shader gotchas and the OptiX crash recipe are their own skill
 (`.claude/skills/blender-rig/`), loaded when a session actually touches the rig.

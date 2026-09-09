@@ -184,6 +184,10 @@ MUTABLE_ROOTS = (
     # every one of them to check it. A doc nobody can mutate is a doc whose guard cannot be shown to
     # fire, and this sentence carried a module that had stopped having a CLI for a whole arc.
     "docs/pipeline.md",
+    # Joined for the same reason one document over: its producer names and its true-sphere
+    # precondition are what a reader follows into the tree, and a name that moved is the defect this
+    # doc has already shipped once, in ART.md, against a constant that had changed modules.
+    "docs/adding-a-body.md",
     # Joined with the stage sentinel, whose subject is a PRINT: the pass runs correctly whichever
     # way this module is broken, and what changes is only what a reader learns about a night that
     # takes 22 hours. Dropping the marker leaves every call site printing what it printed before,
@@ -8743,6 +8747,47 @@ def _earth_lake_depth''',
         needle='**The four planet-raster stages take a required `--body`**: `planet_pass`,',
         replacement='**The four planet-raster stages take a required `--body`**: `cut_tiles`,',
         guard='test_every_stage_the_docs_name_actually_refuses_an_empty_argv',
+    ),
+    # The body-contract paragraph answers "could I run this for the Moon" by naming the two producers
+    # a body can have, so a reader follows those names into the tree. A name that moved is the defect
+    # this doc has already shipped once, in ART.md, against a constant that had changed modules.
+    Sabotage(
+        suite='python',
+        label='the body contract names a planet producer that is not in the tree',
+        path='docs/adding-a-body.md',
+        needle='`fuse/relabel_mars.py`, a few lines that declare a published lon/lat raster',
+        replacement='`fuse/relabel_mars_dem.py`, a few lines that declare a published lon/lat raster',
+        guard='test_every_module_a_doc_names_still_exists',
+    ),
+    # The two below are the third-body dry run's own control. `look_for`'s docstring already names
+    # the first as "the tempting kindness", and says it renders a plausible pyramid in another
+    # planet's colours with every gate passing — which was true of this repo until that file existed.
+    Sabotage(
+        suite='python',
+        label='the look registry falls back to Earth for a body nobody registered',
+        path='pipeline/look/palette.py',
+        needle='    try:\n        return LOOK_BY_BODY[body]\n    except KeyError:',
+        replacement='    if body not in LOOK_BY_BODY:\n        return EARTH_LOOK\n'
+                    '    try:\n        return LOOK_BY_BODY[body]\n    except KeyError:',
+        guard='test_a_body_nobody_registered_is_refused_rather_than_given_earths_answer',
+    ),
+    Sabotage(
+        suite='python',
+        label='a registered body loses its entry in a per-body registry',
+        path='pipeline/look/palette.py',
+        needle='LOOK_BY_BODY: dict[str, Look] = {"earth": EARTH_LOOK, "mars": MARS_LOOK}',
+        replacement='LOOK_BY_BODY: dict[str, Look] = {"earth": EARTH_LOOK}',
+        guard='test_every_registry_answers_for_every_body_that_is_registered',
+    ),
+    # The consent ledger's own third-body arm. A blanket here is not a rendering default, it is
+    # inherited APPROVAL, which is the one thing this file was written to make impossible.
+    Sabotage(
+        suite='web',
+        label='the consent ledger takes a blanket again, so an unrendered body arrives approved',
+        path='web/src/lib/paintedLayers.ts',
+        needle='    id: "space-floor",\n    bodies: ["earth", "mars"],',
+        replacement='    id: "space-floor",\n    bodies: "all" as unknown as BodySlug[],',
+        guard='approves no body that did not exist when the layer was seen',
     ),
     Sabotage(
         suite='python',
