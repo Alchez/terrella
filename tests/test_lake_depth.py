@@ -126,12 +126,16 @@ class TestLakesOnly:
     def test_mixed_window_masks_per_pixel(self):
         watercode = np.array([[2, 1], [3, 0]], dtype="uint8")
         result = lake_depth.lakes_only(self._depth(), watercode)
-        assert result is not None  # lakes_only returns None only for a None depth; not this case
         assert result.tolist() == [[40.0, 0.0], [0.0, 0.0]]
 
-    def test_none_passes_through(self):
-        """warp_depth returns None when the VRT is absent, so shading still runs flat-only."""
-        assert lake_depth.lakes_only(None, np.full((2, 2), 2, "uint8")) is None
+    def test_a_missing_depth_is_refused_rather_than_carried(self):
+        """Absence is the producer tier's to answer, and `np.where` cannot be trusted to notice.
+
+        Dropping the check does not raise: `np.where(code == 2, None, 0.0)` yields a correctly
+        shaped float32 raster of NaN, which reaches the ramp looking like data.
+        """
+        with pytest.raises(TypeError, match="depth is required"):
+            lake_depth.lakes_only(None, np.full((2, 2), 2, "uint8"))
 
 
 class TestInlandWater:

@@ -162,16 +162,6 @@ class TestSeaiceWarpOnceEqualsPerWindow:
         shifted = seaice.unpack_seaice(packed[64:192])
         assert not np.array_equal(top, shifted)  # the Fram Strait edge has a real ice gradient
 
-    def test_wrapper_preserves_read_then_unpack(self, tmp_path):
-        """warp_seaice (whole-grid wrapper) must equal raster-then-unpack, byte-for-byte."""
-        bounds, width, rows = _ice_edge_grid()
-        wrapped = seaice.warp_seaice(bounds, width, rows, tmp_path / "wrapped.tif")
-        raster = tmp_path / "raster.tif"
-        seaice.warp_seaice_raster(bounds, width, rows, raster)
-        with rasterio.open(raster) as dataset:
-            refactored = seaice.unpack_seaice(dataset.read(1))
-        assert np.array_equal(wrapped, refactored)
-
     def test_banded_mosaic_equals_single_band_warp(self, tmp_path):
         """Banding must change only whether the coarse source is decimated, never a value: warp-in-
         bands + mosaic == a single-band warp of the same grid. band_rows=128 forces 4 bands here."""

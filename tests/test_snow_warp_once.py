@@ -143,7 +143,7 @@ class TestPersistenceWarpOnceEqualsPerWindow:
 
     def test_a_tall_grid_is_actually_banded(self, tmp_path):
         """Companion: prove band_rows really splits the warp (else the test above is vacuous). With
-        band_rows >= height it must be ONE warp (region path); the two must agree regardless."""
+        band_rows >= height it must be ONE warp; the two must agree regardless."""
         bounds, width, rows = _alps_grid()
         one_band = tmp_path / "one.tif"
         snow.warp_persistence_raster(bounds, width, rows, one_band, band_rows=rows * 2)  # single

@@ -630,11 +630,6 @@ class TestFoldingCellsUpToBlocks:
             block_plan.relief_from_cells(self._grid(), np.zeros((self.cells * 2,
                                                                 self.cells * 2)))
 
-    def test_ocean_share_folds_by_mean_because_every_cell_covers_the_same_pixels(self):
-        share = self._grid()
-        share[0, :] = 1.0
-        assert block_plan.share_from_cells(share)[0, 0] == pytest.approx(1.0 / self.cells)
-
     def test_the_folded_pair_is_what_plan_accepts(self):
         """The two ends of the contract, joined — a fold whose shape `plan` rejects is no bridge."""
         cells = block_plan.CELLS_PER_BLOCK * 2

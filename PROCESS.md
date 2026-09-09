@@ -45,7 +45,7 @@ One program runs on both bodies. A body is seven differing values on `bodies.Bod
 | 6 | `cap_pass`, both discs | **3:11** | **~1:15** *(isolated)* | ~2 s fresh check | `web/public/caps/` | recipe sidecar + source mtimes |
 | 7 | pack + convert | **0:16** | **~4 s** | n/a | `planet.pmtiles`, 2.50 GB / 1.40 GB | n/a |
 | T | `tile/terrain_rgb.py`, terrain-RGB encode + cut, 8 m, lossless WebP *(separate lane, reads `height_3857.tif` directly)* | **30:14** cold, of which cutting is 8:08 (z8 alone 5:31). z0–6 is ~4 min once the chain exists | **8:15** cold, **6:03** re-cut with the chain on disk | skip | `bathy_s8_webp/tiles/` 2.72 GB / 0.77 GB | `tiles.done` + `terrain_params.json` |
-| R | `tile/relief_scan.py`, the block partition's per-cell cache *(separate lane, feeds `block_plan`)* | **3:07**, 1.5 GB peak | **0:41** | ~0 s | `relief_cells.tif` + `ocean_cells.tif` | `is_stale` + `relief_params.json` |
+| R | `tile/relief_scan.py`, the block partition's per-cell cache *(separate lane, feeds `block_plan`)* | **3:07**, 1.5 GB peak | **0:41** | ~0 s | `relief_cells.tif` | `is_stale` + `relief_params.json` |
 
 No single run produced every column: the cut and memory figures come from one instrumented pass, the seam and whole-pass figures from the seam rebuild, and Mars's warp is carried from a cold z7 pass whose log was overwritten, making it the one number that cannot be re-derived without a rebuild.
 
@@ -59,7 +59,6 @@ Traps, each one earned:
 - Never tile a many-source VRT: materialise a tiled GTiff with overviews first.
 - BigTIFF is mandatory past z6, and both `terrain_rgb.py` sinks pass `bigtiff: "IF_SAFER"`. A classic TIFF caps at 4 GB and cannot surface the failure below z7.
 - The elevation chain keys on `.done` markers rather than `exists()`: rasterio creates its target at write-start, and a truncated float32 raster reads as a very flat planet rather than as an error.
-- The region path is not windowed, so cell count is a direct multiplier: four cells is roughly 14.5 GiB and gets OOM-killed under a 12 G cap. Scale the cell count to the cap. The planet path is windowed and has no such failure mode.
 
 Four things about the pass that no row can carry:
 

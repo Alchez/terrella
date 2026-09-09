@@ -84,7 +84,7 @@ def main():
     print(f"grid from {heightfield_path.name}: {width} x {height}, {xres:.0f} m/px",
           flush=True)
 
-    # Bilinear/Float32, the tile warp's own reasoning (lake_depth.warp_depth): depth is
+    # Bilinear/Float32, the tile warp's own reasoning (lake_depth.warp_depth_raster): depth is
     # continuous — halfway between 40 m and 0 m really is 20 m — and -srcnodata keeps
     # GLOBathy's -9999 out of the kernel so no false trench bleeds across a shoreline.
     # Streamed via gdalwarp -wm (the snow_mask russia lesson: an in-process warp of a
