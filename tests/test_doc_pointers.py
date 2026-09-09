@@ -327,6 +327,34 @@ def test_every_test_a_comment_names_still_exists() -> None:
     )
 
 
+def docs_that_name_tests() -> list[Path]:
+    """Every tracked markdown, `FUTURE.md` included.
+
+    The parking lot is exempt from the path checks above because it names modules nobody has
+    written yet. A test name is the opposite kind of citation: it names the guard that already
+    covers a case, so there is nothing forward-looking for the exemption to protect.
+    """
+    return sorted(Path(name) for name in tracked() if name.endswith(".md") and Path(name) != SELF)
+
+
+def test_every_test_a_doc_names_still_exists() -> None:
+    """The same citation, one population over: a doc naming the guard that covers a case.
+
+    `FUTURE.md`'s audit list named `test_exaggeration_is_shared` for months after the mutation case
+    it belonged to was deleted, and the scan above could not reach it, its population being code.
+    """
+    offenders = [
+        f"{path}: {name}"
+        for path in docs_that_name_tests()
+        for name in sorted(set(TEST_CITATION.findall(WRAPPED_NAME.sub("_", flattened(path)))))
+        if name not in known_test_names()
+    ]
+    assert not offenders, (
+        "a doc names a test that does not exist — grep tests/ for the current name:\n  "
+        + "\n  ".join(offenders)
+    )
+
+
 #: A skill and the doc it routes to, where the skill must stay a strict subset. Both fire on one
 #: task, so nothing can cut them apart by trigger and both fill up; the doc is the copy a clone
 #: reads without a skill loader, so it is the one that owns the facts.
