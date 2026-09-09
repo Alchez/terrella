@@ -37,6 +37,21 @@ def pipeline_sources() -> list[Path]:
     )
 
 
+def acquire_files() -> list[Path]:
+    """Every acquirer, whatever language it happens to be written in.
+
+    Listed by walking the tree rather than by globbing a suffix, which is what let an acquisition
+    written in bash sit outside this file's scan while the scan's own anti-vacuity check reported
+    full coverage of it. Recursive because the acquirers are grouped by body, and a scan that
+    stopped at the top level would see one shell script and call the directory covered.
+    """
+    return sorted(
+        entry for entry in (paths.ROOT / "pipeline/acquire").rglob("*")
+        if entry.is_file() and entry.name != "__init__.py"
+        and "__pycache__" not in entry.parts
+    )
+
+
 def imports_urllib_request(source: Path) -> bool:
     """True if this module imports `urllib.request` in any spelling.
 
@@ -69,15 +84,47 @@ def test_the_scan_reaches_the_whole_package_rather_than_a_handful_of_files():
     # over thirty modules and would still report clean forever, because clean code is clean under
     # any subset — a shrunken scope is only visible against a scope stated independently. Derived
     # from the package rather than listed, so a new acquirer is covered the day it is written.
-    acquirers = {
-        module for module in (paths.ROOT / "pipeline/acquire").glob("*.py")
-        if "__pycache__" not in module.parts
-    }
+    acquirers = {entry for entry in acquire_files() if entry.suffix == ".py"}
     assert acquirers, "pipeline/acquire has no modules — the path must have moved"
     assert acquirers <= set(sources), (
         f"the scan does not cover {sorted(str(m.name) for m in acquirers - set(sources))} — "
         f"every module that talks to a server must be in scope"
     )
+
+
+def test_an_acquirer_outside_python_carries_the_identity_itself():
+    """`fetch` reaches a Python caller and nothing else, so an acquirer in another language has to
+    spell the agent, and reading it off `fetch` here is what stops the two drifting.
+
+    THE SCAN ABOVE CANNOT SEE THIS BY CONSTRUCTION. It parses imports, and a shell script has none,
+    so a `*.py` population reported full coverage while a sibling talked to a server anonymously.
+    """
+    offenders = [
+        script.name for script in acquire_files()
+        if script.suffix != ".py" and fetch.USER_AGENT not in script.read_text(encoding="utf-8")
+    ]
+    assert offenders == [], (
+        f"{offenders} reach a server without the pipeline's identity — send {fetch.USER_AGENT!r}, "
+        "which this assertion reads off `fetch` so a bump there goes red here"
+    )
+
+
+def test_the_language_scan_can_see_a_violation(tmp_path, monkeypatch):
+    """The control, because the assertion above is satisfied by an empty non-Python population and
+    by a directory that no longer exists."""
+    acquire = tmp_path / "pipeline/acquire"
+    acquire.mkdir(parents=True)
+    (acquire / "__init__.py").touch()
+    (acquire / "download_thing.py").write_text("from pipeline import fetch\n")
+    anonymous = acquire / "download_thing.sh"
+    anonymous.write_text('curl -fsSL "$url" -o "$dest"\n')
+    monkeypatch.setattr(paths, "ROOT", tmp_path)
+
+    assert [entry.name for entry in acquire_files()] == ["download_thing.py", "download_thing.sh"]
+    assert anonymous.read_text().find(fetch.USER_AGENT) == -1
+
+    anonymous.write_text(f'curl -fsSL -A "{fetch.USER_AGENT}" "$url" -o "$dest"\n')
+    assert fetch.USER_AGENT in anonymous.read_text()
 
 
 def test_no_pipeline_module_reaches_urllib_request_directly():
@@ -205,14 +252,15 @@ class TestDownloadOne:
     """The atomic-write rule. The default-off 404 branch is the assertion that matters."""
 
     def test_a_404_is_a_FAILURE_by_default(self, tmp_path: Path, monkeypatch):
-        """Eight of ten callers test `startswith("failed")`; 'absent' by default would make a
-        missing file a silent success. Do not flip this default."""
+        """Most callers test `startswith("failed")`; 'absent' by default would make a missing file
+        a silent success. Do not flip this default."""
         _serving(monkeypatch, _http_error(404))
         assert fetch.download_one("https://example.invalid/x",
                                   tmp_path / "out.bin").startswith("failed")
 
     def test_a_404_is_absent_only_when_the_caller_asks(self, tmp_path: Path, monkeypatch):
-        """The opt-in half, for the two WorldCover callers whose ocean cells 404."""
+        """The opt-in half, where a 404 answers about the data: WorldCover's ocean cells, and the
+        components Natural Earth ships for some layers and not others."""
         _serving(monkeypatch, _http_error(404))
         assert fetch.download_one("https://example.invalid/x", tmp_path / "out.bin",
                                   absent_on_404=True) == "absent"

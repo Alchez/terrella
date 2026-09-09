@@ -28,7 +28,7 @@ from rasterio.crs import CRS
 from rasterio.transform import from_origin
 
 from pipeline import bodies, paths
-from pipeline.acquire import download_viking_mosaic as viking
+from pipeline.acquire.mars import download_viking_mosaic as viking
 
 #: The published CRS: SimpleCylindrical metres on the unflattened Mars sphere.
 MARS_SPHERE_CRS = CRS.from_proj4("+proj=eqc +R=3396190 +units=m +no_defs")

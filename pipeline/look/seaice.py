@@ -7,7 +7,7 @@ structural difference downstream is the mask -- ice alpha is gated on `ocean`, s
 `~(ocean|water)` -- applied by whichever producer builds the alpha, not here.
 
 Source: `data/raw/seaice/seaice_frequency_1991-2020_4326.tif`, the annual frequency-of-occurrence
-climatology built by pipeline/acquire/download_seaice.py (OSI SAF OSI-450-a, 1991-2020), packed
+climatology built by pipeline/acquire/earth/download_seaice.py (OSI SAF OSI-450-a, 1991-2020), packed
 IDENTICALLY to snow persistence (0..10000 = 0..1, fill 65535) so this warp/unpack is a copy of
 snow's. Two deliberate simplifications versus snow:
   - no latitude ramp: sea ice is intrinsically polar, so the field itself says where ice is -- there

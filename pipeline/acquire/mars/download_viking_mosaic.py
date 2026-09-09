@@ -68,9 +68,9 @@ then atomically renamed (`fetch.download_one`, one home for that rule), so a fil
 name is always complete and a re-run skips the transfer — but still re-digests what it found.
 
 Usage:
-  python3 -m pipeline.acquire.download_viking_mosaic --check    # preflight only, downloads nothing
-  python3 -m pipeline.acquire.download_viking_mosaic            # preflight, then ~761 MiB
-  python3 -m pipeline.acquire.download_viking_mosaic --verify   # digest the file already on disk
+  python3 -m pipeline.acquire.mars.download_viking_mosaic --check    # preflight only, downloads nothing
+  python3 -m pipeline.acquire.mars.download_viking_mosaic            # preflight, then ~761 MiB
+  python3 -m pipeline.acquire.mars.download_viking_mosaic --verify   # digest the file already on disk
 """
 
 import argparse

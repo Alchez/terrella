@@ -26,7 +26,7 @@ import sys
 from pathlib import Path
 
 from pipeline import datasets
-from pipeline.acquire.download_glo30 import WORKERS, fetch_tile_list
+from pipeline.acquire.earth.download_glo30 import WORKERS, fetch_tile_list
 from pipeline.fetch import download_one
 
 OT_ENDPOINT = "https://opentopography.s3.sdsc.edu"

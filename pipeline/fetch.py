@@ -63,9 +63,10 @@ def download_one(url: str, dest: Path, *, timeout: float = 60,
     The one home for "stream to .part, size-check against Content-Length, atomically rename", so a
     file under its final name is always complete and `exists()` is a valid resume.
 
-    `absent_on_404` MUST STAY DEFAULT-OFF. Eight of its ten callers test
-    `status.startswith("failed")`, so returning 'absent' to one of them turns a missing file into a
-    silent success; only the two WorldCover callers, whose ocean cells legitimately 404, pass True.
+    `absent_on_404` MUST STAY DEFAULT-OFF. Most callers test `status.startswith("failed")`, so
+    returning 'absent' to one of them turns a missing file into a silent success. It is passed only
+    where a 404 is a real answer about the data rather than a fault: WorldCover's ocean cells, and
+    the components Natural Earth ships for some layers and not others.
     """
     if dest.exists():
         return "skipped"

@@ -58,7 +58,7 @@ import rasterio
 from rasterio.windows import Window
 
 from pipeline import bodies, freshness
-from pipeline.acquire import download_viking_mosaic
+from pipeline.acquire.mars import download_viking_mosaic
 from pipeline.look import mars_ice
 from pipeline.raster_io import row_bands
 
@@ -220,7 +220,7 @@ def main() -> int:
     mosaic = download_viking_mosaic.mosaic_path()
     if not mosaic.exists():
         sys.exit(f"{mosaic} is not on disk — run "
-                 f"`python3 -m pipeline.acquire.download_viking_mosaic` first")
+                 f"`python3 -m pipeline.acquire.mars.download_viking_mosaic` first")
 
     print(f"collapsing {mosaic.name} -> Rec. 709 luma on a 4326 grid ...", flush=True)
     out, valid_fraction = build(mosaic)

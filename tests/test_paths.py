@@ -622,7 +622,7 @@ class TestTheStoreIsWhereTheStoreIs:
         ).replace('f"{module.name}.{attribute} = {value}"', "module.name")
         reached = set(run_probe(listing, {"MAPS_DATA": str(tmp_path / "elsewhere")}).split("\n"))
         for module in ("pipeline.tile.cap_pass", "pipeline.compose.gen_spotlight",
-                       "pipeline.frame.frame_country", "pipeline.acquire.download_gebco"):
+                       "pipeline.frame.frame_country", "pipeline.acquire.earth.download_gebco"):
             assert module in reached, f"{module} was never imported by the probe"
 
 

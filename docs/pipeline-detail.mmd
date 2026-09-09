@@ -19,13 +19,13 @@ flowchart TD
   end
 
   subgraph ACQ["Acquisition: done"]
-    D1["acquire/download_glo30.py<br/>idempotent: .part, size check, atomic rename"]
+    D1["acquire/earth/download_glo30.py<br/>idempotent: .part, size check, atomic rename"]
     R1[("raw/glo30: dem + wbm<br/>Float32 elevation + Byte water class<br/>0 dry / 1 ocean / 2 lake / 3 river, ~551 GB")]
-    D3["acquire/download_gebco.py<br/>self-pinning by version"]
+    D3["acquire/earth/download_gebco.py<br/>self-pinning by version"]
     R3[("raw/gebco: 7.3 GB<br/>Int16 bathymetry + TID provenance")]
-    D2["acquire/download_naturalearth.sh"]
+    D2["acquire/earth/download_naturalearth.py"]
     R4[("raw/naturalearth: boundary lines,<br/>maritime indicators, countries, coastline")]
-    D4["acquire/download_globathy.py + extract_globathy.py<br/>figshare v1 pinned by size+md5;<br/>selective unzip of rasters >= 10 KB"]
+    D4["acquire/earth/download_globathy.py + extract_globathy.py<br/>figshare v1 pinned by size+md5;<br/>selective unzip of rasters >= 10 KB"]
     R5[("work/globathy/lakedepth.vrt<br/>83,357 per-lake rasters (Caspian excluded)")]
   end
 
@@ -107,10 +107,10 @@ flowchart TD
   PH --> CP
 
   subgraph MARS["Mars: enters pre-fused, no fusion tier"]
-    MS1["USGS MOLA/HRSC blended DEM, 200 m<br/>acquire/download_mars_dem.py<br/>share-alike, which is why the whole site's output is CC BY-SA 4.0"]
-    MS2["USGS SIM 3292<br/>acquire/download_sim3292.py<br/>where the permanent polar ice is"]
-    MS3["Viking colour mosaic<br/>acquire/download_viking_mosaic.py<br/>ice brightness + the hue the land ramp is measured from"]
-    MS4["IAU gazetteer<br/>acquire/download_nomenclature.py<br/>1,919 named features"]
+    MS1["USGS MOLA/HRSC blended DEM, 200 m<br/>acquire/mars/download_mars_dem.py<br/>share-alike, which is why the whole site's output is CC BY-SA 4.0"]
+    MS2["USGS SIM 3292<br/>acquire/mars/download_sim3292.py<br/>where the permanent polar ice is"]
+    MS3["Viking colour mosaic<br/>acquire/mars/download_viking_mosaic.py<br/>ice brightness + the hue the land ramp is measured from"]
+    MS4["IAU gazetteer<br/>acquire/mars/download_nomenclature.py<br/>1,919 named features"]
     MH[("work/mars/planet/*.vrt<br/>the blend IS the heightfield: no ocean mask, no water mask,<br/>so the planet stage DECLARES what it emitted rather than<br/>leaving a consumer to infer it from what is on disk")]
   end
 

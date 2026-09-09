@@ -41,7 +41,7 @@ import numpy as np
 import rasterio
 
 from pipeline import bodies, freshness
-from pipeline.acquire import download_sim3292, download_viking_mosaic
+from pipeline.acquire.mars import download_sim3292, download_viking_mosaic
 from pipeline.look import mars_ice, viking_luma
 from pipeline.tile import cap_render
 

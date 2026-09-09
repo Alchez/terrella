@@ -55,9 +55,9 @@ Idempotency: an acquisition whose extracted members all match their pinned diges
 object's headers and compares them to the archive on disk, downloading nothing.
 
 Usage:
-  python3 -m pipeline.acquire.download_nomenclature --verify   # re-assert on-disk copy, no network
-  python3 -m pipeline.acquire.download_nomenclature --check    # HEAD the source, write nothing
-  python3 -m pipeline.acquire.download_nomenclature            # fetch and extract if not fresh
+  python3 -m pipeline.acquire.mars.download_nomenclature --verify   # re-assert on-disk copy, no network
+  python3 -m pipeline.acquire.mars.download_nomenclature --check    # HEAD the source, write nothing
+  python3 -m pipeline.acquire.mars.download_nomenclature            # fetch and extract if not fresh
 """
 
 import argparse

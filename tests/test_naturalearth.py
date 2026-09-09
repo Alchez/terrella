@@ -2,75 +2,55 @@
 
 Two things under test. The layer NAMING RULE, because Natural Earth repeats each layer's name as
 its directory and as every component's stem, and hand-writing that doubling is what five call sites
-used to do. And the VOCABULARY PARITY between this module and `download_naturalearth.sh`, which is
-the writer — shell cannot import Python, so the list exists twice and only a test can hold the two
-copies together.
+used to do. And that the ACQUIRER writes where these readers look, which is a claim about a whole
+run rather than about a path expression.
+
+THE VOCABULARY IS NO LONGER TWO COPIES, so the pair of parity assertions that used to stand here
+is gone rather than kept as a tautology. `naturalearth.LAYERS` is built from the acquirer's own
+table, and the parser that used to read a bash array went with the script it parsed.
 """
 
 import os
-import re
 import subprocess
 import sys
 
 import pytest
 
 from pipeline import datasets, naturalearth, paths
+from pipeline.acquire.earth import download_naturalearth
 
-ACQUIRER = paths.ROOT / "pipeline/acquire/download_naturalearth.sh"
-
-
-def acquired_layers() -> set[str]:
-    """The layer names `download_naturalearth.sh` actually fetches, read out of its own array.
-
-    Parsed rather than restated: a second hand-kept list here would be a third copy of the fact,
-    and the drift it exists to catch is precisely someone editing one list and not the other.
-    """
-    script = ACQUIRER.read_text(encoding="utf-8")
-    block = re.search(r"^LAYERS=\((.*?)^\)", script, re.MULTILINE | re.DOTALL)
-    assert block is not None, f"no LAYERS=( … ) array in {ACQUIRER} — the parser needs updating"
-    return {line.rsplit("/", 1)[-1] for line in re.findall(r'"([^"]+)"', block.group(1))}
+ACQUIRER = ("python", "-m", "pipeline.acquire.earth.download_naturalearth")
 
 
-class TestTheVocabularyMatchesTheAcquirer:
-    def test_every_layer_this_module_knows_is_actually_downloaded(self):
-        """The direction that bites at runtime: a name here the acquirer never fetches resolves to
-        a path that will not exist, and fails at `shapefile.Reader` looking like a failed download
-        rather than like a name that was never going to work."""
-        assert naturalearth.LAYERS <= acquired_layers()
-
-    def test_every_downloaded_layer_is_addressable(self):
-        """The other direction, which fails quietly instead: a layer the acquirer fetches and this
-        module does not know is disk nobody can reach through `layer()`, so the next reader that
-        wants it re-invents the longhand join this module exists to delete."""
-        assert acquired_layers() <= naturalearth.LAYERS
-
-    def test_the_parser_is_reading_a_real_array(self):
-        """The control. Both assertions above are satisfied by two empty sets, which is exactly
-        what a parser aimed at a renamed variable would produce."""
-        found = acquired_layers()
-        assert len(found) >= 5
-        assert all(name.startswith("ne_10m_") for name in found)
+def test_the_vocabulary_is_derived_and_not_empty():
+    """The control the derivation still needs: `frozenset()` of a renamed table is an empty
+    vocabulary, and `layer()` would then refuse every name rather than resolve one."""
+    assert naturalearth.LAYERS == frozenset(download_naturalearth.LAYERS)
+    assert len(naturalearth.LAYERS) >= 5
+    assert all(name.startswith("ne_10m_") for name in naturalearth.LAYERS)
 
 
 class TestTheAcquirerWritesWhereThisModuleReads:
-    """The writer and the readers must resolve one directory, and they resolve it in two languages.
-
-    DRIVES THE REAL SCRIPT, and it can do so without touching the network because the acquirer is
+    """DRIVES THE REAL ACQUIRER, and can do so without touching the network because it is
     idempotent: a layer whose directory already exists is skipped. Pre-creating all seven in a
     throwaway store means every branch short-circuits.
 
-    THE ASSERTION IS ON WHAT THE SCRIPT REPORTS, not on what it skipped, and that distinction is
-    the whole test. On a developer box BOTH roots are populated, so "it skipped everything" is
-    equally true of a script writing into the checkout — the check would pass while measuring
-    nothing. The final line names `DEST`, which is the one observable that differs.
+    THE ASSERTION IS ON WHAT THE RUN REPORTS, not on what it skipped, and that distinction is the
+    whole test. On a developer box BOTH roots are populated, so "it skipped everything" is equally
+    true of an acquirer writing into the checkout, and the check would pass while measuring
+    nothing. The final line names the destination, which is the one observable that differs.
     """
 
-    def test_maps_data_moves_the_acquirers_destination(self, tmp_path):
+    def _prepared(self, tmp_path):
         store = tmp_path / "store"
         for name in naturalearth.LAYERS:
             (store / "raw/naturalearth" / name).mkdir(parents=True)
-        result = subprocess.run(["bash", str(ACQUIRER)], capture_output=True, text=True,
-                                env={**os.environ, "MAPS_DATA": str(store)}, check=False)
+        return store, subprocess.run([sys.executable, *ACQUIRER[1:]], capture_output=True,
+                                     text=True, cwd=paths.ROOT, check=False,
+                                     env={**os.environ, "MAPS_DATA": str(store)})
+
+    def test_maps_data_moves_the_acquirers_destination(self, tmp_path):
+        store, result = self._prepared(tmp_path)
         assert result.returncode == 0, result.stderr
         assert f"done: {store / 'raw/naturalearth'} " in result.stdout
         assert result.stdout.count("skip ") == len(naturalearth.LAYERS), (
@@ -78,20 +58,12 @@ class TestTheAcquirerWritesWhereThisModuleReads:
             f"the network:\n{result.stdout}")
 
     def test_it_lands_exactly_where_python_looks(self, tmp_path):
-        """The two languages agreeing, asserted rather than assumed: same override, same answer."""
-        store = tmp_path / "store"
-        for name in naturalearth.LAYERS:
-            (store / "raw/naturalearth" / name).mkdir(parents=True)
-        result = subprocess.run(["bash", str(ACQUIRER)], capture_output=True, text=True,
-                                env={**os.environ, "MAPS_DATA": str(store)}, check=False)
-        # Asserted rather than parsed straight through: without this a failing acquirer writes no
-        # `done:` line, `written` becomes whatever the last line happened to be, and the comparison
-        # below fails as a mismatch between two paths instead of saying the script did not run.
+        """Asserted rather than assumed, because the acquirer being Python is not the same claim as
+        it resolving the store through `datasets`: a module-level path built at import would answer
+        this differently, and a subprocess is what makes the override real rather than patched."""
+        store, result = self._prepared(tmp_path)
         assert result.returncode == 0, result.stderr
         written = result.stdout.strip().rsplit("\n", 1)[-1].removeprefix("done: ").split(" (")[0]
-        # A subprocess because the SHELL acquirer is the other half being compared: it reads
-        # MAPS_DATA from the environment, so the Python side has to be asked in that environment
-        # too rather than through an in-process monkeypatch.
         reader = subprocess.run(
             [sys.executable, "-c", "from pipeline import datasets; print(datasets.naturalearth())"],
             capture_output=True, text=True, check=True, cwd=paths.ROOT,

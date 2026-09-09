@@ -22,8 +22,8 @@ is the one lake we can check GLOBathy's cone against, so it is worth having on d
 Idempotent: a raster already extracted is skipped; --vrt-only rebuilds the index alone.
 
 Usage:
-  python3 -m pipeline.acquire.extract_globathy            # extract + build the VRT
-  python3 -m pipeline.acquire.extract_globathy --vrt-only
+  python3 -m pipeline.acquire.earth.extract_globathy            # extract + build the VRT
+  python3 -m pipeline.acquire.earth.extract_globathy --vrt-only
 """
 
 import argparse

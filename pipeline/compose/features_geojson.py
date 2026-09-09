@@ -47,7 +47,7 @@ from pathlib import Path
 from typing import Any
 
 from pipeline import bodies, freshness
-from pipeline.acquire import download_nomenclature
+from pipeline.acquire.mars import download_nomenclature
 
 
 def out_dir() -> Path:
@@ -267,7 +267,7 @@ def translate(force: bool) -> None:
     for layer, destination in geometry_outputs().items():
         source = download_nomenclature.layer_path(layer)
         if not source.exists():
-            sys.exit(f"missing {source} — run pipeline.acquire.download_nomenclature first")
+            sys.exit(f"missing {source} — run pipeline.acquire.mars.download_nomenclature first")
         assert_geographic_source(layer)
         temporary = destination.with_suffix(".geojson.tmp")
         temporary.unlink(missing_ok=True)

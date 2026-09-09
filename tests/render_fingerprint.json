@@ -1,5 +1,5 @@
 {
-  "acquire/download_nomenclature": {
+  "acquire/mars/download_nomenclature": {
     "archive": "MARS_nomenclature_geometries.zip",
     "dbf_encoding": "UTF-8, declared by a .cpg this pipeline writes; the archive ships none",
     "host": "https://asc-planetarynames-data.s3.us-west-2.amazonaws.com",
@@ -35,7 +35,7 @@
     "url": "https://asc-planetarynames-data.s3.us-west-2.amazonaws.com/MARS_nomenclature_geometries.zip",
     "use_constraints": "Public domain."
   },
-  "acquire/download_sim3292": {
+  "acquire/mars/download_sim3292": {
     "collection": "mars/sim3292_global_geologic_map/units",
     "host": "https://astrogeology.usgs.gov/pygeoapi",
     "query_limit": 200,

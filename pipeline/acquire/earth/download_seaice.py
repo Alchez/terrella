@@ -35,9 +35,9 @@ release -- a renamed/withdrawn file 404s and aborts the run -- and assert_editio
 first file's global attributes to refuse a silently re-versioned record.
 
 Usage:
-  python3 -m pipeline.acquire.download_seaice                 # download 720 files + build
-  python3 -m pipeline.acquire.download_seaice --download-only # fetch the monthly files only
-  python3 -m pipeline.acquire.download_seaice --build-only    # rebuild the climatology on disk
+  python3 -m pipeline.acquire.earth.download_seaice                 # download 720 files + build
+  python3 -m pipeline.acquire.earth.download_seaice --download-only # fetch the monthly files only
+  python3 -m pipeline.acquire.earth.download_seaice --build-only    # rebuild the climatology on disk
 """
 
 import argparse

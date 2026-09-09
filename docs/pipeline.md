@@ -6,24 +6,27 @@ Its two siblings answer the questions this file does not: [`pipeline-layout.md`]
 
 ## Environment setup (fresh machine)
 
-Ubuntu, natively. Nothing in the pipeline is specific to one machine.
+Linux; [CONTRIBUTING](../CONTRIBUTING.md) owns the portability status and what a port would be worth.
 
 1. **Blender 5.1.2**, official tarball. `paths.BLENDER` finds it, `MAPS_BLENDER` overrides.
 2. **Python venv**: `uv sync`, then `source .venv/bin/activate` before every command. Blender's own interpreter cannot import it, which is why numbers reach the scene through `frame.json`.
 3. **`pmtiles`**: `bash pipeline/acquire/install_geotools.sh`. Globe only, skip it for heroes. **Not the PyPI `pmtiles`**, a different project with no `edit`, the only writer of a vector cut's `attribution`.
+4. **A data store**, hundreds of GB for a planet. `paths.DATA` defaults to `<repo>/data`; `MAPS_DATA` moves it, and the dev server reads the same variable.
 
-Run every stage from the repo root as `python -m pipeline.<sub>.<module>`. Keep project data on ext4; never read or write large rasters from NTFS.
+**A stage is one module**, run from the repo root as `python -m pipeline.<sub>.<module>`. `batch` and `attribution` sit one level up, and four entry points are shell scripts run by path.
 
-## Data bootstrap (once per machine)
+## Earth's data bootstrap (once per machine)
 
-Two global datasets are fetched once and reused by every country. The batch runner does this on first run; by hand:
+Two global datasets are fetched once and reused by every Earth stage, heroes and tiles alike. The batch runner does this on first run; by hand:
 
 ```bash
-bash pipeline/acquire/download_naturalearth.sh   # borders, framing polygons, coastline oracle (pinned release)
-python -m pipeline.acquire.download_gebco        # global bathymetry
+python -m pipeline.acquire.earth.download_naturalearth  # borders, framing polygons, coastline oracle (pinned release)
+python -m pipeline.acquire.earth.download_gebco         # global bathymetry
 ```
 
 **Copernicus GLO-30 land tiles are not bootstrapped**, being hundreds of GB for a planet. They are fetched per country, only for the tiles a frame needs: Russia alone pulls ~4900.
+
+**Mars shares none of it**, no dataset serving two planets, and its four acquire stages sit with the tile pyramid below, which is its only lane. `ATTRIBUTIONS.md` is the per-dataset list for both bodies.
 
 ## Regenerating a hero
 
@@ -51,8 +54,8 @@ The chain `country_config` prints per country, in order. Each stage finalizes it
 
 | # | Stage | Module / script | Produces |
 |---|---|---|---|
-| 0 | Bootstrap *(once)* | `acquire/download_naturalearth.sh`, `pipeline.acquire.download_gebco` | Global vectors + bathymetry |
-| 1 | Download land DEM | `pipeline.acquire.download_glo30` | GLO-30 tiles for the frame |
+| 0 | Bootstrap *(once)* | `pipeline.acquire.earth.download_naturalearth`, `pipeline.acquire.earth.download_gebco` | Global vectors + bathymetry |
+| 1 | Download land DEM | `pipeline.acquire.earth.download_glo30` | GLO-30 tiles for the frame |
 | 2 | Build mosaics | `fuse/build_mosaics.sh` | VRT mosaics of DEM + water-body mask |
 | 3 | Fuse heightfield | `pipeline.fuse.fuse_heightfield` | Seamless land+sea heightfield + ocean/lake/river masks |
 | 4 | Render prep | `pipeline.render.render_prep` | Projected rasters + `frame.json` (every derived number) |
@@ -88,13 +91,13 @@ pipeline/profile/run_pass.sh --body earth --tiles    # shade (skipped when fresh
 | Module | Produces |
 |---|---|
 | `pipeline.fuse.fuse_planet` | Earth's planet heightfield, pole to pole (10×10° cells at 10″, `data/work/planet/*.vrt`). **Earth only**: Mars arrives pre-fused, so it has no fusion tier at all |
-| `pipeline.acquire.download_mars_dem` | the USGS MOLA/HRSC blended DEM at 200 m, which *is* Mars's heightfield rather than an input to one |
-| `pipeline.acquire.download_sim3292` | SIM 3292, the geologic map that says where Mars's permanent polar ice is |
-| `pipeline.acquire.download_viking_mosaic` | the Viking colour mosaic: the ice's brightness, and the hue Mars's land ramp is measured against |
-| `pipeline.acquire.download_nomenclature` | the IAU gazetteer, the source of Mars's named features |
+| `pipeline.acquire.mars.download_mars_dem` | the USGS MOLA/HRSC blended DEM at 200 m, which *is* Mars's heightfield rather than an input to one |
+| `pipeline.acquire.mars.download_sim3292` | SIM 3292, the geologic map that says where Mars's permanent polar ice is |
+| `pipeline.acquire.mars.download_viking_mosaic` | the Viking colour mosaic: the ice's brightness, and the hue Mars's land ramp is measured against |
+| `pipeline.acquire.mars.download_nomenclature` | the IAU gazetteer, the source of Mars's named features |
 | NSIDC-0791 snow persistence | the snow-persistence NetCDF, obtained from NSIDC via Earthdata (earthaccess/CMR) and placed at `data/raw/snow/`. **No committed acquire script** (unlike RGI / sea ice) |
-| `pipeline.acquire.download_rgi` | RGI 7.0 glacier shapefiles merged to `data/raw/rgi/rgi7_g_3857.gpkg` |
-| `pipeline.acquire.download_seaice` | OSI SAF monthly sea-ice concentration → the annual ice-frequency climatology |
+| `pipeline.acquire.earth.download_rgi` | RGI 7.0 glacier shapefiles merged to `data/raw/rgi/rgi7_g_3857.gpkg` |
+| `pipeline.acquire.earth.download_seaice` | OSI SAF monthly sea-ice concentration → the annual ice-frequency climatology |
 | `pipeline.look.snow` | tile snow: persistence → latitude-ramped soft alpha, unioned with RGI glaciers |
 | `pipeline.look.seaice` | sea-ice alpha over the ocean (translucent white, seafloor glows through) |
 | `pipeline.look.lake_depth` | GLOBathy lake depth on the tile grid (depth-keyed lake tint) |

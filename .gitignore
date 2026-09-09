@@ -38,7 +38,8 @@ __pycache__/
 *.pyc
 .venv/
 
-# Phase 2 geotools binaries — vendored, reinstall with pipeline/install_geotools.sh
+# The pmtiles binary: fetched and pinned, never vendored, so nothing here is tracked.
+# pipeline/acquire/install_geotools.sh refills it.
 /tools/
 
 # Machine-local config and secrets — never commit. Matches at any depth, so `web/.env`

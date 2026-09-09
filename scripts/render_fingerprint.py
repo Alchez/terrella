@@ -61,7 +61,7 @@ from pathlib import Path
 from typing import Any
 
 from pipeline import bodies, layers
-from pipeline.acquire import download_nomenclature, download_sim3292
+from pipeline.acquire.mars import download_nomenclature, download_sim3292
 from pipeline.compose import (
     countries_pmtiles,
     features_geojson,
@@ -112,8 +112,8 @@ def fingerprint() -> dict[str, dict[str, Any]]:
     be written.
     """
     recorded: dict[str, dict[str, Any]] = {
-        "acquire/download_nomenclature": _as_dict(download_nomenclature.build_recipe()),
-        "acquire/download_sim3292": _as_dict(download_sim3292.build_recipe()),
+        "acquire/mars/download_nomenclature": _as_dict(download_nomenclature.build_recipe()),
+        "acquire/mars/download_sim3292": _as_dict(download_sim3292.build_recipe()),
         "compose/features_geojson": _as_dict(features_geojson.recipe()),
         "compose/vector_cut:countries": _as_dict(vector_cut.recipe(countries_pmtiles.CUT)),
         "compose/vector_cut:features": _as_dict(vector_cut.recipe(features_pmtiles.CUT)),

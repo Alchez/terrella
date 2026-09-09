@@ -7,7 +7,7 @@ IHP-WINS CKAN portal serves the identical regional shapefiles as direct download
 REGIONS ARE TAKEN, and this file is where that is enforced rather than assumed — see `shp_urls`.
 Idempotent at every step (download, unzip, merge).
 
-    python -m pipeline.acquire.download_rgi
+    python -m pipeline.acquire.earth.download_rgi
     -> data/raw/rgi/*.zip (+ unzipped) and data/raw/rgi/rgi7_g_3857.gpkg (layer 'glaciers')
 """
 

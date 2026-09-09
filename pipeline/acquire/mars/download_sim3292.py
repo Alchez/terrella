@@ -60,9 +60,9 @@ is skipped. `--verify` re-reads the files without touching the network; `--check
 and compares digests without writing.
 
 Usage:
-  python3 -m pipeline.acquire.download_sim3292 --verify   # re-check what is on disk, no network
-  python3 -m pipeline.acquire.download_sim3292 --check    # fetch and compare, write nothing
-  python3 -m pipeline.acquire.download_sim3292            # fetch what is missing or drifted
+  python3 -m pipeline.acquire.mars.download_sim3292 --verify   # re-check what is on disk, no network
+  python3 -m pipeline.acquire.mars.download_sim3292 --check    # fetch and compare, write nothing
+  python3 -m pipeline.acquire.mars.download_sim3292            # fetch what is missing or drifted
 """
 
 import argparse

@@ -22,7 +22,7 @@ import rasterio
 import rasterio.transform  # rasterio's __init__ pulls this in at runtime; name it for the checker
 
 from pipeline import bodies, datasets
-from pipeline.acquire import download_rgi
+from pipeline.acquire.earth import download_rgi
 from pipeline.look import snow
 
 # --- shared geometry: a small WMQ-aligned 3857 target over a snowy region (the Alps) ---
