@@ -19,7 +19,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from pipeline import bodies, datasets, paths, planet_seam
+from pipeline import bodies, datasets, paths, planet_seam, render_files
 from pipeline.render import prep_cap, render_seam
 from pipeline.tile import cap_render
 
@@ -264,8 +264,8 @@ class TestWhatTheCapPrepWrites:
         """Existence is not re-asserted here: `render_seam.declare` refuses to name an image that
         is not on disk, so a declaration that came back at all has already paid for that."""
         declared = _stages(prepped())[render_seam.CAP]
-        assert set(declared) >= {render_seam.HEIGHTFIELD, render_seam.OCEANMASK,
-                                 render_seam.INLANDLAKE, render_seam.RIVER}
+        assert set(declared) >= {render_files.HEIGHTFIELD, render_files.OCEANMASK,
+                                 render_files.INLANDLAKE, render_files.RIVER}
 
     def test_it_writes_no_rowscale_and_that_absence_is_declared(self, prepped):
         """AEQD is equidistant from its centre by construction, so there is nothing to correct.
@@ -275,8 +275,8 @@ class TestWhatTheCapPrepWrites:
         is the one `render_seam` exists to carry.
         """
         outdir = prepped()
-        assert render_seam.ROWSCALE not in _stages(outdir)[render_seam.CAP]
-        assert not (outdir / render_seam.ROWSCALE).exists()
+        assert render_files.ROWSCALE not in _stages(outdir)[render_seam.CAP]
+        assert not (outdir / render_files.ROWSCALE).exists()
 
     def test_the_painted_masks_carry_their_colour(self, prepped):
         """The rig cannot ask a body for a white; the prep resolves it and declares it here.

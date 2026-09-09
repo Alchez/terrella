@@ -26,9 +26,17 @@ from typing import Any
 import numpy as np
 import rasterio
 
-from pipeline import bodies, freshness, layers, paths, planet_seam, progress
+from pipeline import (
+    bodies,
+    freshness,
+    layers,
+    paths,
+    planet_seam,
+    progress,
+    render_files,
+)
 from pipeline.look import layer_producers
-from pipeline.render import blender_proc, prep_block, prep_cap, render_seam
+from pipeline.render import blender_proc, prep_block, prep_cap
 from pipeline.tile import block_render, cap_render
 
 #: Bearings the ring is rendered at, evenly spaced. RATIFIED AT 24 on both poles against 12 and 1:
@@ -311,7 +319,7 @@ def render(grid: cap_render.CapGrid, rasters: frozenset[str]) -> Path:
                                         params(grid, rasters))
     fresh_after = freshness.newest_mtime(recipe, *cap_render.cap_sources(grid, rasters))
 
-    heightfield = render_dir / render_seam.HEIGHTFIELD
+    heightfield = render_dir / render_files.HEIGHTFIELD
     if not (heightfield.exists() and heightfield.stat().st_mtime > fresh_after):
         progress.stage(f"cap {grid.name}: cutting the rig's inputs")
         prep_cap.cut(grid, rasters, render_dir)

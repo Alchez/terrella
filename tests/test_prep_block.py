@@ -443,7 +443,7 @@ class TestTheRecipeRecordsWhatExistenceCannotSee:
         monkeypatch.setattr(prep_block.planet_seam, "declared",
                             lambda _body: frozenset({"heightfield"}))
         window = plane_window(0, 4096, 2048, 256)
-        prep_block.write_recipe(body, window, tmp_path, [prep_block.render_seam.HEIGHTFIELD])
+        prep_block.write_recipe(body, window, tmp_path, [prep_block.render_files.HEIGHTFIELD])
         return json.loads((tmp_path / prep_block.RECIPE_NAME).read_text())
 
     def test_the_two_terms_that_are_the_identity_on_earth_are_both_recorded(
@@ -465,7 +465,7 @@ class TestTheRecipeRecordsWhatExistenceCannotSee:
                             lambda _body: frozenset({"heightfield", "oceanmask", "watermask"}))
         window = plane_window(0, 4096, 2048, 256)
         prep_block.write_recipe(bodies.EARTH, window, tmp_path,
-                                [prep_block.render_seam.HEIGHTFIELD])
+                                [prep_block.render_files.HEIGHTFIELD])
         recipe = json.loads((tmp_path / prep_block.RECIPE_NAME).read_text())
         assert recipe["layers_off"] == [] and recipe["rasters_off"] == []
 
@@ -713,7 +713,7 @@ class TestTheCutReadsTheWorkDirectoryItWasGiven:
         override, _ = self._both_stores(monkeypatch, tmp_path)
         outdir = tmp_path / "render"
         prep_block.cut(bodies.EARTH, self.BLOCK, outdir, work=override)
-        with rasterio.open(outdir / prep_block.render_seam.HEIGHTFIELD) as cut:  # pyright: ignore[reportCallIssue]
+        with rasterio.open(outdir / prep_block.render_files.HEIGHTFIELD) as cut:  # pyright: ignore[reportCallIssue]
             assert np.unique(cut.read(1)).tolist() == [111.0]
 
     def test_the_default_is_a_reachable_directory_with_different_ground(
@@ -750,7 +750,7 @@ class TestTheCutReadsTheWorkDirectoryItWasGiven:
         assert (store / prep_block.planet_warp.OCEAN_3857).exists(), (
             "the fixture stopped writing the ocean raster, so this proves nothing: the whole "
             "question is what happens when the FILE is present and the DECLARATION is not")
-        assert not (outdir / prep_block.render_seam.OCEANMASK).exists(), (
+        assert not (outdir / prep_block.render_files.OCEANMASK).exists(), (
             "an undeclared oceanmask reached the render directory, so the gate is reading the "
             "filesystem instead of the seam")
 
@@ -768,7 +768,7 @@ class TestTheCutReadsTheWorkDirectoryItWasGiven:
 
         prep_block.cut(bodies.EARTH, self.BLOCK, outdir, work=store)
 
-        assert (outdir / prep_block.render_seam.OCEANMASK).exists()
+        assert (outdir / prep_block.render_files.OCEANMASK).exists()
 
     def test_a_declared_layer_whose_raster_is_absent_is_read_as_ABSENT_not_as_an_error(
             self, monkeypatch, tmp_path):
@@ -789,11 +789,11 @@ class TestTheCutReadsTheWorkDirectoryItWasGiven:
 
         prep_block.cut(bodies.EARTH, self.BLOCK, outdir, work=store)
 
-        assert (outdir / prep_block.render_seam.HEIGHTFIELD).exists(), (
+        assert (outdir / prep_block.render_files.HEIGHTFIELD).exists(), (
             "the cut did not complete against a store holding only the three planet rasters, so "
             "an absent built layer is no longer being read as absent")
-        for name in (prep_block.render_seam.SNOWMASK, prep_block.render_seam.LAKEDEPTH,
-                     prep_block.render_seam.SEAICE):
+        for name in (prep_block.render_files.SNOWMASK, prep_block.render_files.LAKEDEPTH,
+                     prep_block.render_files.SEAICE):
             assert not (outdir / name).exists(), (
                 f"{name} was written from a raster that is not in the store, so the layer read is "
                 f"no longer gated on the file existing")

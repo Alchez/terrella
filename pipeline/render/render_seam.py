@@ -1,12 +1,13 @@
-"""What images a render directory holds, declared by the stage that filled it.
+"""Which images a render directory's stages declared they emitted, and which never ran.
 
 `planet_seam` one tier down, and for the same reason: the rig loads several images out of a render
 directory, some of which its producers legitimately skip, and `Path.exists()` is the only thing that
 has ever decided which. Skipped and crashed look the same on disk. The standing brief owns the rule
 and names both tiers.
 
-No counts in that sentence, deliberately: a total is a fact about `KNOWN_IMAGES` below, and nothing
-goes red when the set and the prose disagree.
+The spellings themselves are `pipeline/render_files.py`, which is at the top level because five
+packages read them and only this package reads the declaration. `planet_seam` is not split that way
+because both of its halves have the same five-package readership.
 
 Stdlib only, and that is a hard constraint rather than a preference. `scene_build` runs inside
 Blender's interpreter, which cannot import this project's virtual environment, which is also why the
@@ -14,46 +15,17 @@ rig takes a body slug and not a `Body`. So this module may not import `bodies`, 
 `planet_seam`, and cannot answer any question that needs them. It records filenames, which is
 exactly what both interpreters can agree about.
 
+    from pipeline import render_files
     from pipeline.render import render_seam
     present = render_seam.declared(render_dir)      # raises if the prep never finished
-    if render_seam.SNOWMASK in present: ...
+    if render_files.SNOWMASK in present: ...
 """
 
 import json
 from collections.abc import Iterable
 from pathlib import Path
 
-#: The rig's four mandatory images. A directory missing one of these is not a partial scene.
-HEIGHTFIELD = "heightfield.tif"
-OCEANMASK = "oceanmask.png"
-INLANDLAKE = "inlandlake.png"
-RIVER = "river.png"
-
-#: The three a prep may legitimately not write, being measurements of the region rather than of
-#: the planet: a block with no snow in it, no lake bed in it, or no sea ice on its ocean. The ice
-#: image is a continuous 0..1 alpha, already confined to ocean pixels by the prep that cut it.
-SNOWMASK = "snowmask.png"
-LAKEDEPTH = "lakedepth.tif"
-SEAICE = "seaice.png"
-
-#: The per-row Mercator correction, one pixel wide and as tall as the plane. Named beside the three
-#: optional images above but unlike them in kind: those are absent when a region has no snow or no
-#: lake bed to measure, where this is a property of the projection. So the block path always writes
-#: one and the hero path, which is not in Mercator at all, never does.
-ROWSCALE = "rowscale.tif"
-
-#: Prep byproducts on the hero path: analytical masks the post stages read and the rig never
-#: loads, which is why they are named here but stay outside the declaration vocabulary below.
-OCEANMASK_TIF = "oceanmask.tif"
-WATERMASK = "watermask.tif"
-
-#: The whole vocabulary a declaration may name.
-#:
-#: The one owner for these spellings, on the rule that a second reader with no owner is the defect.
-#: No projection suffix: the hero path writes Albers cuts and the block path writes EPSG:3857 ones
-#: under these same names, so no such suffix can be true for both writers.
-KNOWN_IMAGES = frozenset({HEIGHTFIELD, OCEANMASK, INLANDLAKE, RIVER, SNOWMASK, LAKEDEPTH, SEAICE,
-                          ROWSCALE})
+from pipeline.render_files import HEIGHTFIELD, KNOWN_IMAGES, SEAICE, SNOWMASK
 
 #: The file every stage that fills a render directory records itself in.
 DECLARATION_NAME = "render_inputs.json"
@@ -105,8 +77,8 @@ def _require_known(image: str) -> None:
 PAINTED_IMAGES = frozenset({SNOWMASK, SEAICE})
 
 #: One 8-bit sRGB colour on the wire. Spelled here rather than imported from `palette`, which owns
-#: the identical alias: `palette` is Blender-shared, and that set is exactly three files, pinned by
-#: `scripts/check_blender_drift.sh`. Borrowing a type name is not worth widening it to four.
+#: the identical alias: both are in the Blender-shared set that `scripts/check_blender_drift.sh`
+#: pins, and an import between two of its members is a coupling a type name does not earn.
 RGB8 = tuple[int, int, int]
 
 #: The `(sunlit, shadowed)` pair a mask is painted in.

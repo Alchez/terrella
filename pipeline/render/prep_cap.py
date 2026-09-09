@@ -34,7 +34,7 @@ from typing import Any
 import numpy as np
 import rasterio
 
-from pipeline import bodies, freshness, layers, planet_seam
+from pipeline import bodies, freshness, layers, planet_seam, render_files
 from pipeline.look import layer_producers, seaice
 from pipeline.raster_io import GTIFF_CREATE
 from pipeline.render import prep_block, render_prep, render_seam
@@ -60,36 +60,36 @@ def build(grid: cap_render.CapGrid, rasters: frozenset[str], outdir: Path) -> li
     ocean, water = cap_render._cap_masks(grid, rasters, heights.shape)
     _, latitude = cap_render._lonlat_grid(grid)
 
-    written = [render_seam.HEIGHTFIELD]
-    with rasterio.open(outdir / render_seam.HEIGHTFIELD, "w", driver="GTiff",  # pyright: ignore[reportCallIssue]
+    written = [render_files.HEIGHTFIELD]
+    with rasterio.open(outdir / render_files.HEIGHTFIELD, "w", driver="GTiff",  # pyright: ignore[reportCallIssue]
                        width=grid.px, height=grid.px, count=1, dtype="float32",
                        **GTIFF_CREATE) as out:
         out.write(heights.astype(np.float32), 1)
 
-    prep_block.write_mask(outdir / render_seam.OCEANMASK, ocean.astype(float))
+    prep_block.write_mask(outdir / render_files.OCEANMASK, ocean.astype(float))
     # The cap tier collapses watercode 2 and 3 into one boolean, so lake and river cannot be told
     # apart on this grid. The river mask is written EMPTY rather than skipped: the rig reads both,
     # and an absent one would be the statement "this body has no rivers" instead of "this tier
     # cannot separate them", which is a different fact about a different subject.
-    prep_block.write_mask(outdir / render_seam.INLANDLAKE, water.astype(float))
-    prep_block.write_mask(outdir / render_seam.RIVER, np.zeros(heights.shape))
-    written += [render_seam.OCEANMASK, render_seam.INLANDLAKE, render_seam.RIVER]
+    prep_block.write_mask(outdir / render_files.INLANDLAKE, water.astype(float))
+    prep_block.write_mask(outdir / render_files.RIVER, np.zeros(heights.shape))
+    written += [render_files.OCEANMASK, render_files.INLANDLAKE, render_files.RIVER]
 
     snow_a, snow_paint = cap_render._cap_perennial_ice(
         grid, ocean, water, latitude, f"the raytraced {grid.name} cap paints no ice")
     if snow_a is not None and snow_a.any() and snow_paint is not None:
-        prep_block.write_mask(outdir / render_seam.SNOWMASK, snow_a)
-        render_seam.declare_paint(outdir, render_seam.SNOWMASK, *snow_paint)
-        written.append(render_seam.SNOWMASK)
+        prep_block.write_mask(outdir / render_files.SNOWMASK, snow_a)
+        render_seam.declare_paint(outdir, render_files.SNOWMASK, *snow_paint)
+        written.append(render_files.SNOWMASK)
 
     # ARRIVES GATED FROM ITS PRODUCER, and this prep has no option to forget. The first version of
     # this file, as an arm, applied the gate itself and an earlier draft omitted it: 99.92% of the
     # north disc's land painted ice-white and flattened to 0.46x relief, with nothing red anywhere.
     ice_a = cap_render._cap_sea_ice(grid, ocean, f"the raytraced {grid.name} cap paints no pack ice")
     if ice_a is not None and ice_a.any():
-        prep_block.write_mask(outdir / render_seam.SEAICE, ice_a)
-        render_seam.declare_paint(outdir, render_seam.SEAICE, *seaice.ice_paint())
-        written.append(render_seam.SEAICE)
+        prep_block.write_mask(outdir / render_files.SEAICE, ice_a)
+        render_seam.declare_paint(outdir, render_files.SEAICE, *seaice.ice_paint())
+        written.append(render_files.SEAICE)
     return written
 
 

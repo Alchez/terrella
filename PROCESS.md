@@ -105,7 +105,7 @@ Any look value that reaches a recipe restages the whole planet through Cycles, a
 
 A cap is priced per pole per body, and 45:35 is neither. Mars's south is **22:12**: 68.7 s prep, 28 frames in 19.9 min, a 58.1 s blend, 12.6 s of rungs.
 
-A cap can be previewed at reduced resolution. `CapGrid.px` is a field and `frame_plan` derives from longitudes, so a disc renders at any side: Mars at 1024 px is **28 frames at 1.6 s each, 54 s end to end**. It needs an isolated store and that is not optional, since `frames_dir` and `cap_render_dir` key on the pole alone while `px` rides in `cap_raytrace.params`: redirect `MAPS_DATA` and run from an arm worktree. The harness and its refuse-to-render guard are in `~/terrella-scratch/mars-south-preview/`, which carries a KEEP.md.
+A cap can be previewed at reduced resolution. `CapGrid.px` is a field and `frame_plan` derives from longitudes, so a disc renders at any side: Mars at 1024 px is **28 frames at 1.6 s each, 54 s end to end**. It needs an isolated store and that is not optional, since `frames_dir` and `cap_render_dir` key on the pole alone while `px` rides in `cap_raytrace.params`: redirect `MAPS_DATA` and run from an arm worktree. The harness and its refuse-to-render guard live in a scratch root carrying a KEEP.md.
 
 Drop `--tiles` while iterating and take frames off `planet_rgb.tif` directly. Nothing about the colour is decided by the tiler, so `gdal_translate -srcwin` shows the ratified pixels with no browser resampling, projection or atmosphere, off the same raster the tiles are cut from. Run `--tiles` once, at the end, on the variant that won.
 

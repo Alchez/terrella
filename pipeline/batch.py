@@ -44,7 +44,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
-from pipeline import paths
+from pipeline import paths, render_files
 from pipeline.frame.country_config import (
     build_scope,
     country_render_dir,
@@ -56,7 +56,7 @@ from pipeline.frame.country_config import (
     stage_commands,
 )
 from pipeline.profile import pass_memory
-from pipeline.render import blender_proc, render_seam
+from pipeline.render import blender_proc
 
 #: The CHECKOUT, and the working directory every stage subprocess is run from — so the
 #: checkout-relative paths in those commands (`pipeline/…`, `blender/…`) resolve. Data paths do NOT
@@ -156,7 +156,7 @@ def run_country(slug, resolved, through, force, dry, cap_gib, use_cap, floor,
     """Run one country's stages; return a short outcome string."""
     do_clean = clean and through == "render" and not dry
     target = (ROOT / f"blender/renders/heroes/{slug}.png" if through == "render"
-              else country_render_dir(slug) / render_seam.LAKEDEPTH)
+              else country_render_dir(slug) / render_files.LAKEDEPTH)
     if target.exists() and not force:
         if do_clean:
             prune_intermediates(slug)

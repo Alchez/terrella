@@ -31,7 +31,7 @@ import rasterio
 from rasterio.enums import Resampling
 from scipy.ndimage import zoom
 
-from pipeline.render import render_seam
+from pipeline import render_files
 
 warnings.filterwarnings("ignore")
 
@@ -99,7 +99,7 @@ def horizon_svf(heights: np.ndarray, m_per_px: float, n_dir: int = 16,
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--render-dir", type=Path, required=True,
-                    help=f"dir with {render_seam.HEIGHTFIELD} + {render_seam.OCEANMASK_TIF}")
+                    help=f"dir with {render_files.HEIGHTFIELD} + {render_files.OCEANMASK_TIF}")
     ap.add_argument("--hero", type=Path, required=True, help="rendered hero PNG")
     ap.add_argument("--out", type=Path, help="output (default: overwrite --hero)")
     ap.add_argument("--strength", type=float, default=0.38,
@@ -111,8 +111,8 @@ def main() -> int:
     args = ap.parse_args()
     out = args.out or args.hero
 
-    hf_path = args.render_dir / render_seam.HEIGHTFIELD
-    om_path = args.render_dir / render_seam.OCEANMASK_TIF
+    hf_path = args.render_dir / render_files.HEIGHTFIELD
+    om_path = args.render_dir / render_files.OCEANMASK_TIF
 
     with rasterio.open(args.hero) as hero_src:
         hero = hero_src.read()               # (bands, H, W) uint8

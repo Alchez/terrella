@@ -45,6 +45,7 @@ import bpy  # pyright: ignore[reportMissingImports] — exists only in Blender's
 # design (numpy only, which Blender bundles) precisely so BOTH interpreters can
 # import it. parents[2] = the repo root, regardless of cwd.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from pipeline import render_files
 from pipeline.look import palette
 from pipeline.render import render_seam
 
@@ -320,19 +321,19 @@ class TextureSpec:
 #: in this sequence and the optional four at their own sites, where their mixes and ramps are wired.
 TEXTURES = {
     spec.name: spec for spec in (
-        TextureSpec("Heightfield", render_seam.HEIGHTFIELD, "Linear", "REPEAT", optional=False),
-        TextureSpec("Ocean Mask", render_seam.OCEANMASK, "Closest", "REPEAT", optional=False),
-        TextureSpec("Inland Lake", render_seam.INLANDLAKE, "Closest", "REPEAT", optional=False),
-        TextureSpec("River", render_seam.RIVER, "Closest", "REPEAT", optional=False),
+        TextureSpec("Heightfield", render_files.HEIGHTFIELD, "Linear", "REPEAT", optional=False),
+        TextureSpec("Ocean Mask", render_files.OCEANMASK, "Closest", "REPEAT", optional=False),
+        TextureSpec("Inland Lake", render_files.INLANDLAKE, "Closest", "REPEAT", optional=False),
+        TextureSpec("River", render_files.RIVER, "Closest", "REPEAT", optional=False),
         # Closest because snow is a hard-edged mask; the softening it ships with is baked into the
         # raster by `snow.soften_source_cells`, never asked of the sampler.
-        TextureSpec("Snow Mask", render_seam.SNOWMASK, "Closest", "REPEAT", optional=True),
+        TextureSpec("Snow Mask", render_files.SNOWMASK, "Closest", "REPEAT", optional=True),
         # Linear on both of these: a continuous field, like the heightfield.
-        TextureSpec("Lake Depth", render_seam.LAKEDEPTH, "Linear", "REPEAT", optional=True),
-        TextureSpec("Sea Ice", render_seam.SEAICE, "Linear", "REPEAT", optional=True),
+        TextureSpec("Lake Depth", render_files.LAKEDEPTH, "Linear", "REPEAT", optional=True),
+        TextureSpec("Sea Ice", render_files.SEAICE, "Linear", "REPEAT", optional=True),
         # The rowscale column is one texel wide, so there is nothing to interpolate across u, and
         # EXTEND rather than REPEAT is what stops one pole's row wrapping into the other's.
-        TextureSpec("Row Scale", render_seam.ROWSCALE, "Closest", "EXTEND", optional=True),
+        TextureSpec("Row Scale", render_files.ROWSCALE, "Closest", "EXTEND", optional=True),
     )
 }
 
@@ -696,14 +697,14 @@ def build_material(ob, render_dir, displacement_scale, look, present):
     constants = look_constants(look)
     # The optional four, looked up unconditionally: a DECLARATION exists whether or not the raster
     # does, and only the node below is conditional on `present`.
-    snow_spec = texture_for(render_seam.SNOWMASK)
-    lake_depth_spec = texture_for(render_seam.LAKEDEPTH)
-    ice_spec = texture_for(render_seam.SEAICE)
-    rowscale_spec = texture_for(render_seam.ROWSCALE)
+    snow_spec = texture_for(render_files.SNOWMASK)
+    lake_depth_spec = texture_for(render_files.LAKEDEPTH)
+    ice_spec = texture_for(render_files.SEAICE)
+    rowscale_spec = texture_for(render_files.ROWSCALE)
     # The two inland-water masks, looked up the same way, because they are no longer guaranteed:
     # a body whose seam declares no watermask has neither, and the mixes they drive are skipped.
-    lake_spec = texture_for(render_seam.INLANDLAKE)
-    river_spec = texture_for(render_seam.RIVER)
+    lake_spec = texture_for(render_files.INLANDLAKE)
+    river_spec = texture_for(render_files.RIVER)
 
     tex = {}
     for name, spec in textures_for(look, present).items():
@@ -740,11 +741,11 @@ def build_material(ob, render_dir, displacement_scale, look, present):
 
     # optional data-driven snow/ice (render/snow_mask.py); layer not declared -> no snow node
     snow = None
-    if render_seam.SNOWMASK in present:
+    if render_files.SNOWMASK in present:
         tex[snow_spec.name] = make_texture(nt, render_dir, snow_spec)
         snow = make_mix(nt, "Snow Mix", "Snow")
-        mix_socket(snow, "B").default_value = declared_albedo(render_dir, render_seam.SNOWMASK)
-        print(f"{render_seam.SNOWMASK} declared — wiring Snow mix", flush=True)
+        mix_socket(snow, "B").default_value = declared_albedo(render_dir, render_files.SNOWMASK)
+        print(f"{render_files.SNOWMASK} declared — wiring Snow mix", flush=True)
 
     # optional depth-keyed lake tint (render/lake_mask.py); raster absent -> the Lake mix keeps the
     # flat RGB node, which is stop 0 of this ramp, so a lake without depth data degrades to that
@@ -752,10 +753,10 @@ def build_material(ob, render_dir, displacement_scale, look, present):
     # Rivers stay flat by decision, there being no global bed data. Depth is tint-only and must
     # never reach displacement: at 15x a carved bed makes a crater of the lake.
     lake_ramp = None
-    if render_seam.LAKEDEPTH in present:
+    if render_files.LAKEDEPTH in present:
         tex[lake_depth_spec.name] = make_texture(nt, render_dir, lake_depth_spec)
         lake_ramp = make_ramp(nt, "Lake Ramp", "Lake Bed", RIG.lake_stops)
-        print(f"{render_seam.LAKEDEPTH} declared — wiring depth-keyed Lake ramp", flush=True)
+        print(f"{render_files.LAKEDEPTH} declared — wiring depth-keyed Lake ramp", flush=True)
 
     # optional sea ice (block prep only today): one continuous ocean-gated alpha drives both arms,
     # an ice-white mix over the finished sea colour and the displacement pulled toward sea level,
@@ -764,27 +765,27 @@ def build_material(ob, render_dir, displacement_scale, look, present):
     # shelf colour, deleting the see-through the alpha's ceiling exists for.
     ice = None
     ice_flatten = None
-    if render_seam.SEAICE in present:
+    if render_files.SEAICE in present:
         tex[ice_spec.name] = make_texture(nt, render_dir, ice_spec)
         ice = make_mix(nt, "Ice Mix", "Ice")
-        mix_socket(ice, "B").default_value = declared_albedo(render_dir, render_seam.SEAICE)
+        mix_socket(ice, "B").default_value = declared_albedo(render_dir, render_files.SEAICE)
         ice_flatten = make_float_mix(nt, "Ice Flatten", "Ice Flatten")
         float_socket(ice_flatten, "B").default_value = RIG.ice_flatten_floor  # sea level
-        print(f"{render_seam.SEAICE} declared — wiring Ice mix + displacement damp", flush=True)
+        print(f"{render_files.SEAICE} declared — wiring Ice mix + displacement damp", flush=True)
 
     # The driven socket is Scale and not Height, for two reasons that outlast today's constants.
     # `disp = (Height - Midlevel) * Scale`, so multiplying Scale is right at any midlevel where
     # multiplying Height is right only while `RIG.displacement_midlevel` is 0.0; and it leaves the
     # Height chain alone, so the sea-ice damp above and the ramps' raw metres both need no thought.
     rowscale = None
-    if render_seam.ROWSCALE in present:
+    if render_files.ROWSCALE in present:
         tex[rowscale_spec.name] = make_texture(nt, render_dir, rowscale_spec)
         rowscale = nt.nodes.new("ShaderNodeMath")
         rowscale.name = "Row Scale Multiply"
         rowscale.operation = RIG.rowscale_operation
         rowscale.use_clamp = RIG.rowscale_use_clamp  # leaves 1.0 in both directions
         rowscale.inputs[1].default_value = displacement_scale
-        print(f"{render_seam.ROWSCALE} declared — wiring per-row displacement scale", flush=True)
+        print(f"{render_files.ROWSCALE} declared — wiring per-row displacement scale", flush=True)
 
     bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
     bsdf.name = "Principled BSDF"
@@ -796,7 +797,7 @@ def build_material(ob, render_dir, displacement_scale, look, present):
     if rowscale is not None:
         link(tex[rowscale_spec.name].outputs["Color"], rowscale.inputs[0])
         link(rowscale.outputs["Value"], disp.inputs["Scale"])
-    hf = tex[texture_for(render_seam.HEIGHTFIELD).name]
+    hf = tex[texture_for(render_files.HEIGHTFIELD).name]
     if ice_flatten is not None:
         link(hf.outputs["Color"], float_socket(ice_flatten, "A"))
         link(tex[ice_spec.name].outputs["Color"], ice_flatten.inputs["Factor"])
@@ -983,7 +984,7 @@ def main():
     tile = "none" if args.tile is None else f"{args.tile[0]},{args.tile[1]}"
     print(f"TILE {tile} camera at {offset[0]:+.6f},{offset[1]:+.6f}", flush=True)
 
-    probe = load_image(render_dir, texture_for(render_seam.HEIGHTFIELD).filename)
+    probe = load_image(render_dir, texture_for(render_files.HEIGHTFIELD).filename)
     if tuple(probe.size) != (frame["width_px"], frame["height_px"]):
         sys.exit(f"heightfield is {tuple(probe.size)} px but frame.json says "
                  f"({frame['width_px']}, {frame['height_px']}) — stale or "

@@ -61,7 +61,7 @@ from rasterio.vrt import WarpedVRT
 from rasterio.warp import transform_bounds
 from rasterio.windows import Window
 
-from pipeline import bodies
+from pipeline import bodies, render_files
 from pipeline.render import render_seam
 
 FRAME_MARGIN = 1.0006  # the hero path's `camera_fraction`: camera overshoot, so the plane
@@ -235,8 +235,8 @@ def main():
     ap.add_argument("--heightfield", type=Path, required=True)
     ap.add_argument("--mask", type=Path, required=True)
     ap.add_argument("--watermask", type=Path,
-                    help=f"4-class water mask; adds {render_seam.WATERMASK} + "
-                         f"{render_seam.INLANDLAKE} + {render_seam.RIVER}")
+                    help=f"4-class water mask; adds {render_files.WATERMASK} + "
+                         f"{render_files.INLANDLAKE} + {render_files.RIVER}")
     ap.add_argument("--outdir", type=Path, required=True)
     ap.add_argument("--width", type=int, default=16384)
     ap.add_argument("--hero-long-edge", type=int, default=HERO_LONG_EDGE,
@@ -249,13 +249,13 @@ def main():
                          "config/countries.toml resolution_floor_m is the home")
     ap.add_argument("--frame", nargs=4, type=float, metavar=("W", "S", "E", "N"),
                     help="padded lon/lat frame from frame_country.py; "
-                         f"required unless {render_seam.HEIGHTFIELD} already exists")
+                         f"required unless {render_files.HEIGHTFIELD} already exists")
     args = ap.parse_args()
     body = bodies.BODIES[args.body]
 
-    out_h = args.outdir / render_seam.HEIGHTFIELD
-    out_m = args.outdir / render_seam.OCEANMASK_TIF
-    out_w = args.outdir / render_seam.WATERMASK
+    out_h = args.outdir / render_files.HEIGHTFIELD
+    out_m = args.outdir / render_files.OCEANMASK_TIF
+    out_w = args.outdir / render_files.WATERMASK
     out_f = args.outdir / "frame.json"
     args.outdir.mkdir(parents=True, exist_ok=True)
 
@@ -321,9 +321,9 @@ def main():
              dtype, pred, floor_m=fm)
         wrote += 1
 
-    png_jobs = [(out_m, 1, render_seam.OCEANMASK)]
+    png_jobs = [(out_m, 1, render_files.OCEANMASK)]
     if args.watermask:
-        png_jobs += [(out_w, 2, render_seam.INLANDLAKE), (out_w, 3, render_seam.RIVER)]
+        png_jobs += [(out_w, 2, render_files.INLANDLAKE), (out_w, 3, render_files.RIVER)]
     for src_tif, cls, name in png_jobs:
         out_png = args.outdir / name
         if out_png.exists():
@@ -336,7 +336,7 @@ def main():
     # statement about this stage having finished rather than about it having written bytes. A resume
     # that skipped every warp has still produced the directory the rig is about to read.
     print(f"declared {render_seam.declare(args.outdir, render_seam.PREP,
-                                          [render_seam.HEIGHTFIELD] + [n for _, _, n in png_jobs])}",
+                                          [render_files.HEIGHTFIELD] + [n for _, _, n in png_jobs])}",
           flush=True)
     print("complete" if wrote else "nothing to do — all outputs exist",
           flush=True)
