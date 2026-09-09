@@ -38,7 +38,15 @@ from numpy.typing import NDArray
 from rasterio.transform import from_origin
 from rasterio.windows import Window
 
-from pipeline import block_plan, bodies, freshness, layers, planet_seam, planet_warp
+from pipeline import (
+    block_plan,
+    bodies,
+    freshness,
+    layers,
+    planet_seam,
+    planet_warp,
+    render_files,
+)
 from pipeline.block_plan import Block
 from pipeline.look import lake_depth, layer_producers, snow
 from pipeline.raster_io import GTIFF_CREATE
@@ -283,32 +291,32 @@ def build(body: bodies.Body, window: Window, outdir: Path, *, work: Path) -> lis
     """
     rasters = planet_seam.declared(body)
     outdir.mkdir(parents=True, exist_ok=True)
-    written = [render_seam.HEIGHTFIELD]
+    written = [render_files.HEIGHTFIELD]
 
     with rasterio.open(work / planet_warp.HEIGHT_3857) as height:  # pyright: ignore[reportCallIssue]
         elevation = _read_cyclic(height, window)
         transform = height.window_transform(window)
-    with rasterio.open(outdir / render_seam.HEIGHTFIELD, "w", driver="GTiff",  # pyright: ignore[reportCallIssue]
+    with rasterio.open(outdir / render_files.HEIGHTFIELD, "w", driver="GTiff",  # pyright: ignore[reportCallIssue]
                        width=window.width, height=window.height, count=1, dtype="float32",
                        crs="EPSG:3857", transform=transform, **GTIFF_CREATE) as out:
         out.write(elevation.astype(np.float32), 1)
 
     # Unconditional, and unlike every other optional image below it that is not a measurement: the
     # correction is a property of the projection, so every block has one and no block declines.
-    _write_rowscale(outdir / render_seam.ROWSCALE, window, body)
-    written.append(render_seam.ROWSCALE)
+    _write_rowscale(outdir / render_files.ROWSCALE, window, body)
+    written.append(render_files.ROWSCALE)
 
     shape = elevation.shape
     ocean = (_read(work / planet_warp.OCEAN_3857, window).astype(bool)
              if "oceanmask" in rasters else np.zeros(shape, bool))
     watercode = _read(work / planet_warp.WATER_3857, window) if "watermask" in rasters else None
     if "oceanmask" in rasters:
-        write_mask(outdir / render_seam.OCEANMASK, ocean.astype(float))
-        written.append(render_seam.OCEANMASK)
+        write_mask(outdir / render_files.OCEANMASK, ocean.astype(float))
+        written.append(render_files.OCEANMASK)
     if watercode is not None:
-        write_mask(outdir / render_seam.INLANDLAKE, (watercode == 2).astype(float))
-        write_mask(outdir / render_seam.RIVER, (watercode == 3).astype(float))
-        written += [render_seam.INLANDLAKE, render_seam.RIVER]
+        write_mask(outdir / render_files.INLANDLAKE, (watercode == 2).astype(float))
+        write_mask(outdir / render_files.RIVER, (watercode == 3).astype(float))
+        written += [render_files.INLANDLAKE, render_files.RIVER]
 
     top = block_plan.mercator.MERCATOR_HALF_M - window.row_off * body.map_units_per_pixel
     bottom = top - window.height * body.map_units_per_pixel
@@ -332,28 +340,28 @@ def build(body: bodies.Body, window: Window, outdir: Path, *, work: Path) -> lis
     # inference, the rig having to read meaning into an absent file.
     white, _ = layer_producers.fold_white(contributions, shape, exclusions=exclusions)
     if white.any():
-        write_mask(outdir / render_seam.SNOWMASK, white)
-        written.append(render_seam.SNOWMASK)
+        write_mask(outdir / render_files.SNOWMASK, white)
+        written.append(render_files.SNOWMASK)
         snow_paint = merged_paint(paints, layer_producers.WHITE_UNION, "the white union")
         if snow_paint is None:
             raise ValueError(
                 f"{body.name} wrote a snow mask for this window but no producer declared what "
                 f"colour it is. A mask the rig cannot paint is not a usable render input.")
-        render_seam.declare_paint(outdir, render_seam.SNOWMASK, *snow_paint)
+        render_seam.declare_paint(outdir, render_files.SNOWMASK, *snow_paint)
     depth = contributions.get(layers.LAKE_DEPTH.name)
     if depth is not None and bool((depth > 0).any()):
-        with rasterio.open(outdir / render_seam.LAKEDEPTH, "w", driver="GTiff",  # pyright: ignore[reportCallIssue]
+        with rasterio.open(outdir / render_files.LAKEDEPTH, "w", driver="GTiff",  # pyright: ignore[reportCallIssue]
                            width=window.width, height=window.height, count=1,
                            dtype="float32", **GTIFF_CREATE) as out:
             out.write(depth.astype(np.float32), 1)
-        written.append(render_seam.LAKEDEPTH)
+        written.append(render_files.LAKEDEPTH)
     # Already gated on ocean by its producer, and None here means the layer reaches no pixel in this
     # window: `seaice.gated_alpha` collapses an all-zero result to None precisely so this stays the
     # question of whether to write a mask at all rather than a second place the law is applied.
     ice = contributions.get(layers.SEA_ICE.name)
     if ice is not None:
-        write_mask(outdir / render_seam.SEAICE, ice)
-        written.append(render_seam.SEAICE)
+        write_mask(outdir / render_files.SEAICE, ice)
+        written.append(render_files.SEAICE)
         # Its own image and so its own paint: `WHITE_UNION` deliberately excludes sea ice, because
         # its producer gates it on the ocean selector where the union paints land.
         ice_paint = merged_paint(paints, (layers.SEA_ICE,), "sea ice")
@@ -361,7 +369,7 @@ def build(body: bodies.Body, window: Window, outdir: Path, *, work: Path) -> lis
             raise ValueError(
                 f"{body.name} wrote a sea-ice mask for this window but its producer declared no "
                 f"colour for it.")
-        render_seam.declare_paint(outdir, render_seam.SEAICE, *ice_paint)
+        render_seam.declare_paint(outdir, render_files.SEAICE, *ice_paint)
     return written
 
 

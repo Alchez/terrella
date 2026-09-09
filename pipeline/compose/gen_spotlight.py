@@ -64,10 +64,9 @@ from scipy.ndimage import (
     label,
 )
 
-from pipeline import naturalearth, paths
+from pipeline import naturalearth, paths, render_files
 from pipeline.compose.overlay_borders import render_mapping
 from pipeline.frame.country_config import country_render_dir
-from pipeline.render import render_seam
 
 warnings.filterwarnings("ignore", category=NotGeoreferencedWarning)  # hero PNGs
 
@@ -228,8 +227,8 @@ def load_parts(shp_path, bbox, want_slug, exclude=False):
 def render_one(slug, dim, desat, force, outline_div=OUTLINE_DIV_DEFAULT, halo=HALO_ALPHA_DEFAULT):
     hero_path = HEROES / f"{slug}.png"
     render_dir = country_render_dir(slug)
-    ocean_path = render_dir / render_seam.OCEANMASK_TIF
-    heightfield_path = render_dir / render_seam.HEIGHTFIELD
+    ocean_path = render_dir / render_files.OCEANMASK_TIF
+    heightfield_path = render_dir / render_files.HEIGHTFIELD
     if not hero_path.exists() or not ocean_path.exists() or not heightfield_path.exists():
         print(f"  {slug}: skip (no hero / oceanmask / heightfield)", flush=True)
         return

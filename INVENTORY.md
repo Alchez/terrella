@@ -128,7 +128,7 @@ flowchart LR
   composite arm is the only control for judging what the producer switch changed, and rotation
   destroys it silently: the directory is the right size and the wrong contents, so an `ls` says
   nothing. It survives in R2 as the deployed `planet-v2.pmtiles`, and as **64 z8 tiles in
-  `~/terrella-scratch/cap-join/composite/`, which is the only local copy and must not be reclaimed**
+  a scratch root outside the checkout, which is the only local copy and must not be reclaimed**
   while the polar disc is open.
 - `pack_pmtiles.py` emits an intermediate `planet.mbtiles` that `pmtiles convert` reads:
   **transient by design**, currently absent, and it rebuilds from `tiles/` in ~10 s.
@@ -248,7 +248,7 @@ Dev-prod differences that matter:
 - **Re-measure this file after any reclaim or build.** That is its maintenance contract, and it is
   the one this file keeps failing.
 - **Reclaim FILE-SELECTIVELY inside a scratch root, never `rm -rf` on the directory.** The
-  `~/terrella-scratch/` roots hold ~40 instrument scripts that `git ls-files` confirms live nowhere
+  scratch roots hold ~40 instrument scripts that `git ls-files` confirms live nowhere
   else, sitting beside the heavy data. Match the data by extension and size, and read the manifest
   before deleting it: a find expression is the only form you can review for what it does NOT match.
 - **Before reclaiming any `work/` directory:** `ls` it for `.py`/`.sh` and check `git ls-files`.

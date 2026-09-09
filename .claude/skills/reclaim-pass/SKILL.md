@@ -33,14 +33,14 @@ destroying anything a future reader would want.
 ## Which scratch roots are protected, and how to ask
 
 **Protection lives at the sites, not in a list somewhere.** A root carrying a `KEEP.md` is protected
-and every other one is reclaimable, so `find ~/terrella-scratch -maxdepth 2 -name KEEP.md` is the
-whole inventory and it cannot go stale behind a doc. The precedent the archive has settled: `.pmtiles`
+and every other one is reclaimable, so a `find` for `KEEP.md` two levels into the scratch root is
+the whole inventory and it cannot go stale behind a doc. The precedent the archive has settled: `.pmtiles`
 and `.webp` trees go, while judged PNGs, the scripts and small `.tif` files stay.
 
 ## Delete by FILE, never by directory
 
 A scratch root is not one thing: it is heavy data sitting beside the only copy of the instruments
-that produced it. A sweep found ~40 `.py` and `.sh` files under `~/terrella-scratch/` that
+that produced it. A sweep found ~40 `.py` and `.sh` files under the scratch roots that
 `git ls-files` could not match anywhere in the repo, in the same directories as 45 GiB of
 reclaimable rasters and tile trees.
 

@@ -2,13 +2,12 @@
 
 Both rigs read this package and neither owns it, which is why it is a package rather than a folder
 inside one of them. The tile lane imports nearly all of it; the hero's Blender scene imports the
-palette. Nothing here may import the RIG: the dependency runs one way, upward, and a cycle is the
-signal that a module has been placed on the wrong side of the seam.
+palette. Nothing here may import `pipeline/render/`: the dependency runs one way, upward, and a
+cycle is the signal that a module has been placed on the wrong side of the seam.
+`tests/test_render_seam.py` holds it.
 
-`render/render_seam.py` is not the rig and is the one thing here that may be imported from it.
-It names the files a render directory holds, and `sky_view` reads two of those names for the same
-reason `batch`, `compose/gen_spotlight` and `tile/cap_raytrace` do: a filename with four readers in
-four packages needs one owner, and it happens to live under `render/`.
+The names a render directory's images go by are `pipeline/render_files.py`, at the top level rather
+than in the rig's package because five packages read them, `sky_view` among them.
 
 Two kinds of thing live here. SURFACE LAYERS are what gets painted over the heightfield, each one a
 `layers.Layer` that a body either declares or does not: snow, sea ice, lake bathymetry, the Martian

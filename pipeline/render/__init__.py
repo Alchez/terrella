@@ -4,8 +4,9 @@ What the look is made of lives in `pipeline/look/`, which this package reads and
 to. What is here is the machinery around a single Cycles render: the frame arithmetic that projects
 a fused heightfield and its masks into the scene's grid (`render_prep`), the two mask stages the
 material needs (`snow_mask`, `lake_mask`), the scene itself (`scene_build`), the exhaustive dump
-that verifies it (`scene_dump`), the declaration of what a render directory holds (`render_seam`),
-and the preps that fill one (`prep_block`, `prep_cap`).
+that verifies it (`scene_dump`), the declaration of which images a stage actually wrote
+(`render_seam`), and the preps that fill one (`prep_block`, `prep_cap`). The names those images go
+by are `pipeline/render_files.py`, above this package because five of them read it.
 
 THE UNIT THIS PACKAGE IS ORGANISED BY IS THE RENDER DIRECTORY, NOT THE HERO. It used to be the
 hero, and that stopped being true when a second and third prep arrived: `render_prep` cuts a

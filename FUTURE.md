@@ -243,7 +243,7 @@ The raytraced rig's look was ratified with one reservation named: slightly too m
 
 **The unpriced third term.** Those levers work by lifting ambient into shadow, and shadow contrast is what carries the relief modelling. Cast shadows were rejected twice, the second time on precisely this mechanism: scaling light amplitude scales fine detail with it. These are fill and world rather than the main sun, so the objection does not transfer automatically, and it does not obviously fail either.
 
-**The cheap way to close it, and the reason this is parked rather than abandoned.** `~/terrella-scratch/seam-block/` holds a prepped block plus its `arm.py`; prep is the expensive half because it reads the 1.1 TB store, so an arm is a two-minute render rather than a 12-hour pass. Render two or three fill/world settings, measure the high-pass detail in shadowed land, and the third term stops being a guess. Only then is a pass worth committing.
+**The cheap way to close it, and the reason this is parked rather than abandoned.** a scratch root holds a prepped block plus its `arm.py`; prep is the expensive half because it reads the 1.1 TB store, so an arm is a two-minute render rather than a 12-hour pass. Render two or three fill/world settings, measure the high-pass detail in shadowed land, and the third term stops being a guess. Only then is a pass worth committing.
 
 ## Flat ice saturates the snow ramp, and the curve was fitted before Antarctica existed (analysed 2026-07-29)
 
@@ -683,7 +683,7 @@ The working plan had become the project's only backlog as well as its live state
 - **The RGI glacier path is spelled twice and its burn argv has no owner.**
   - `snow.RGI_GPKG` and `download_rgi.GPKG` are one path written in two places, and `rasterize_glaciers_raster` carries a copy of the argv `vector_raster.rasterize_argv` now owns.
   - The rock layer deliberately has one of each, so this is the last instance rather than a pattern.
-- **INVENTORY does not track `~/terrella-scratch`**, so roughly 20 GB of arc scratch is invisible to the file that calls itself the storage map, and no reclaim rule reaches it.
+- **INVENTORY does not track the scratch roots**, so roughly 20 GB of arc scratch is invisible to the file that calls itself the storage map, and no reclaim rule reaches it.
 
 ### Rejected, with the reason, so it is not re-proposed
 

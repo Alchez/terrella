@@ -4772,13 +4772,13 @@ def _earth_lake_depth''',
         guard='test_no_declaration_at_all_raises_rather_than_returning_nothing',
     ),
     # A reader bypasses the owner and spells the filename itself — the defect that reached seven
-    # modules before render_seam owned the spellings, reintroduced at one of the exact sites the
+    # modules before render_files owned the spellings, reintroduced at one of the exact sites the
     # rename cleaned.
     Sabotage(
         suite='python',
         label='a stage spells a render filename instead of importing its owner',
         path='pipeline/render/lake_mask.py',
-        needle='    heightfield_path = render_dir / render_seam.HEIGHTFIELD',
+        needle='    heightfield_path = render_dir / render_files.HEIGHTFIELD',
         replacement='    heightfield_path = render_dir / "heightfield.tif"',
         guard='test_no_pipeline_module_spells_a_render_filename',
     ),
@@ -5387,8 +5387,8 @@ def _earth_lake_depth''',
         # runtime arm of the scan that has to catch it rather than the AST one.
         label='a texture node takes Blender\'s auto-name again',
         path='pipeline/render/scene_build.py',
-        needle='TextureSpec("Ocean Mask", render_seam.OCEANMASK',
-        replacement='TextureSpec("Image Texture.001", render_seam.OCEANMASK',
+        needle='TextureSpec("Ocean Mask", render_files.OCEANMASK',
+        replacement='TextureSpec("Image Texture.001", render_files.OCEANMASK',
         guard='test_no_node_name_carries_the_auto_suffix',
     ),
     Sabotage(

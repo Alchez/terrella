@@ -22,7 +22,7 @@ import types
 import numpy as np
 import pytest
 
-from pipeline import bodies, layers
+from pipeline import bodies, layers, render_files
 from pipeline.look import layer_producers, palette
 from pipeline.render import prep_block, render_seam
 
@@ -102,8 +102,8 @@ def rig_white(scene_build, body: bodies.Body, render_dir) -> tuple:
             resolved[layer.name] = answered
     paint = prep_block.merged_paint(resolved, layer_producers.WHITE_UNION, "the white union")
     assert paint is not None, f"{body.name} declares no white for the union"
-    render_seam.declare_paint(render_dir, render_seam.SNOWMASK, *paint)
-    linear = scene_build.declared_albedo(render_dir, render_seam.SNOWMASK)[:3]
+    render_seam.declare_paint(render_dir, render_files.SNOWMASK, *paint)
+    linear = scene_build.declared_albedo(render_dir, render_files.SNOWMASK)[:3]
     return tuple(round(255 * (12.92 * channel if channel <= 0.0031308
                               else 1.055 * channel ** (1 / 2.4) - 0.055))
                  for channel in linear)
@@ -225,7 +225,7 @@ class TestTheRigHoldsNoWhiteOfItsOwn:
     def test_an_undeclared_paint_raises_rather_than_defaulting(self, scene_build, tmp_path):
         """The load-bearing refusal. A guess here is invisible in every artifact it produces."""
         with pytest.raises(FileNotFoundError, match="painted in"):
-            scene_build.declared_albedo(tmp_path, render_seam.SNOWMASK)
+            scene_build.declared_albedo(tmp_path, render_files.SNOWMASK)
 
 
 class TestTheOldTrackingIsGone:

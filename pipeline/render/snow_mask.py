@@ -35,7 +35,7 @@ import numpy as np
 import rasterio
 from rasterio.warp import transform_bounds
 
-from pipeline import datasets
+from pipeline import datasets, render_files
 from pipeline.acquire.earth import download_worldcover
 from pipeline.look import palette
 from pipeline.render import render_seam
@@ -49,7 +49,7 @@ def declare_snow_paint(render_dir: Path) -> None:
     A second body's hero would have to add its own here, because `render_seam.paint_for` raises
     instead of guessing.
     """
-    render_seam.declare_paint(render_dir, render_seam.SNOWMASK,
+    render_seam.declare_paint(render_dir, render_files.SNOWMASK,
                               palette.SNOW_RGB, palette.SNOW_SHADOW_RGB)
 
 
@@ -59,20 +59,20 @@ SNOW_CLASS = 70
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--render-dir", type=Path, required=True,
-                    help=f"existing render dir with {render_seam.HEIGHTFIELD}")
+                    help=f"existing render dir with {render_files.HEIGHTFIELD}")
     args = ap.parse_args()
     render_dir = args.render_dir.resolve()
 
-    out_png = render_dir / render_seam.SNOWMASK
+    out_png = render_dir / render_files.SNOWMASK
     if out_png.exists():
         print(f"{out_png} exists — skipping", flush=True)
-        render_seam.declare(render_dir, render_seam.SNOW, [render_seam.SNOWMASK])
+        render_seam.declare(render_dir, render_seam.SNOW, [render_files.SNOWMASK])
         declare_snow_paint(render_dir)
         return
 
     # grid + CRS from the existing heightfield (render_prep.py pattern):
     # the mask must land pixel-for-pixel on the grid the render was made from
-    hf = render_dir / render_seam.HEIGHTFIELD
+    hf = render_dir / render_files.HEIGHTFIELD
     with rasterio.open(hf) as heightfield_dataset:
         dst_crs, transform = heightfield_dataset.crs, heightfield_dataset.transform
         width, height = heightfield_dataset.width, heightfield_dataset.height
@@ -155,7 +155,7 @@ def main():
         os.replace(aux, out_png.with_name(out_png.name + ".aux.xml"))
     os.replace(tmp, out_png)
 
-    render_seam.declare(render_dir, render_seam.SNOW, [render_seam.SNOWMASK])
+    render_seam.declare(render_dir, render_seam.SNOW, [render_files.SNOWMASK])
     declare_snow_paint(render_dir)
     px = int((mask > 0).sum())
     km2 = px * (xres * xres) / 1e6
