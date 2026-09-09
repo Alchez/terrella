@@ -628,6 +628,13 @@ The same reason as the entry below it: the working plan is live state and one qu
 
 - **The spin rig under `web/.perf/` is the promotion case `SPIN_REFERENCE_DEGREES`'s docstring names**, and tracking it is a maintainer call. That directory is gitignored, which is why no file inside it is named here and why `git status` never mentions it.
 
+### Public names no shipping code reaches (found 2026-09-09)
+
+- **Re-derive this population rather than quoting the numbers here**: every module-level public `def` under `pipeline/`, classified by whether anything outside `tests/` mentions the name at all, with a known-live name as the control. It read 465 total, 2 mentioned nowhere and 7 only by tests, after the region path's two wrappers went and the palette LUT family turned out to be a recorded decision rather than an oversight.
+- **`attribution.obligations` is a helper to delete, and the property it offers is already guarded in a way that deliberately refuses it.** `test_the_obligations_are_the_ones_the_registry_marks` pins the seven marked sources as a literal set, because a derivation that produced nothing is what let SCAR ADD sit uncredited; `test_an_archive_carries_the_required_string_in_its_own_bytes` checks each notice reaches an archive's own bytes, with `test_the_archive_credit_check_can_fail` as that sweep's control.
+- **`cap_render.feather_is_wide_enough` is a one-line predicate with only its test.**
+- **`palette.EXAGGERATION` has no production reader**, only its definition, four assertions across three test files and two sabotage comments. Whether the authored constant survives with no reader is the same question the LUT family answers in `palette.py`'s own text, and this one has no such note.
+
 ## Small debts and open calls, carried out of the working plan (parked 2026-08-24)
 
 > **MIXED**, and the subsections below carry the states. The guard repairs under *One concept with two homes* are the most pickable work in this file: they need a clone and nothing else.

@@ -2073,20 +2073,10 @@
   },
   "tile/relief_scan:earth": {
     "cell_px": 512,
-    "grid_px": 131072,
-    "rasters_off": [
-      "heightfield",
-      "oceanmask",
-      "watermask"
-    ]
+    "grid_px": 131072
   },
   "tile/relief_scan:mars": {
     "cell_px": 512,
-    "grid_px": 65536,
-    "rasters_off": [
-      "heightfield",
-      "oceanmask",
-      "watermask"
-    ]
+    "grid_px": 65536
   }
 }

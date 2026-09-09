@@ -107,7 +107,7 @@ def warp_seaice_raster(bounds, width, height, out_path, src=None, band_rows=None
 
     WHY BANDS: `snow.warp_persistence_raster` holds the argument and the measurement that settled it.
     This source is coarser still -- 0.1 deg (~11 km) against the ~305 m target -- so a whole-grid warp
-    decimates it the same way and smooths the ice edge. band_rows=None (region/cap grids) is a single
+    decimates it the same way and smooths the ice edge. band_rows=None (small grids) is a single
     direct warp.
     """
     left, bottom, right, top = bounds
@@ -185,12 +185,3 @@ def gated_alpha(contribution, ocean):
     return gated if bool(gated.any()) else None
 
 
-def warp_seaice(bounds, width, height, out_path, src=None):
-    """Warp ice frequency and return it as a float64 fraction in 0..1 (raster + unpack) -- thin wrapper.
-
-    For whole-grid callers (the cap render, or a region path): delegates to the two halves so the
-    stored raster stays identical to a windowed warp.
-    """
-    warp_seaice_raster(bounds, width, height, out_path, src=src)
-    with rasterio.open(out_path) as dataset:
-        return unpack_seaice(dataset.read(1))

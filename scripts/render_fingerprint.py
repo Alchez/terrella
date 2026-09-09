@@ -128,8 +128,7 @@ def fingerprint() -> dict[str, dict[str, Any]]:
         recorded[f"tile/block_render:{body.name}"] = _as_dict(
             block_render.params(body, FIXED_RASTERS, palette.look_for(body.name),
                                 block_render.rig_recipe(body), FIXED_BLOCKS))
-        recorded[f"tile/relief_scan:{body.name}"] = _as_dict(
-            relief_scan.params(body, FIXED_RASTERS))
+        recorded[f"tile/relief_scan:{body.name}"] = _as_dict(relief_scan.params(body))
         for grid in (cap_render.north_grid(body), cap_render.south_grid(body)):
             recorded[f"tile/cap_raytrace:{body.name}:{grid.name}"] = _as_dict(
                 cap_raytrace.params(grid, FIXED_RASTERS))

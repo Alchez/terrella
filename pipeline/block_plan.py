@@ -352,15 +352,6 @@ def relief_from_cells(high: NDArray[np.float64],
     return relief
 
 
-def share_from_cells(share: NDArray[np.float64]) -> NDArray[np.float64]:
-    """Fold a per-cell fraction up to the per-block fraction `plan` takes as `ocean_share`.
-
-    A mean of means is the whole-block fraction only because every cell covers the same pixel
-    count, which `check_alignment` is what guarantees.
-    """
-    return _folded(share).mean(axis=(1, 3))
-
-
 def plan(relief: NDArray[np.float64], window: Window, body: Body, *,
          altitude_deg: float) -> list[Block]:
     """Every block covering `window`, each given the context the relief that can reach it needs.
