@@ -132,8 +132,8 @@ def log_failure(slug, stage_index, cmd, returncode, kind) -> None:
 
 def bootstrap() -> None:
     """One-time, idempotent global data: Natural Earth + global GEBCO."""
-    for cmd in ("bash pipeline/acquire/download_naturalearth.sh",
-                "python -m pipeline.acquire.download_gebco"):
+    for cmd in ("python -m pipeline.acquire.earth.download_naturalearth",
+                "python -m pipeline.acquire.earth.download_gebco"):
         print(f"[bootstrap] {cmd}", flush=True)
         if subprocess.run(cmd, shell=True, cwd=ROOT, env=stage_env(), check=False).returncode != 0:
             sys.exit(f"bootstrap failed: {cmd} — cannot proceed without it")

@@ -28,7 +28,7 @@ import subprocess
 import numpy as np
 import rasterio
 
-from pipeline.acquire.extract_globathy import lake_vrt
+from pipeline.acquire.earth.extract_globathy import lake_vrt
 from pipeline.look import palette
 
 GLOBATHY_NODATA = -9999.0

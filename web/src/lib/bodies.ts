@@ -296,7 +296,7 @@ export const BODIES: Record<BodySlug, BodyDescriptor> = {
     pathPrefix: "mars",
     // The IAU 2015 sphere the blended MOLA/HRSC DEM declares in its own CRS, and the same number
     // `pipeline/bodies.py` carries — unlike Earth's above, because this one really is a sphere.
-    // `pipeline/acquire/download_mars_dem.py` refuses a source that says anything else, so the two
+    // `pipeline/acquire/mars/download_mars_dem.py` refuses a source that says anything else, so the two
     // registries and the data agree or the download stops.
     groundRadiusM: 3396190,
     accent: { light: "#8c4a32", dark: "#d08b6a" },

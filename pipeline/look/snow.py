@@ -33,7 +33,7 @@ def persistence_nc(sp_nc: Path | None = None) -> Path:
 SP_VAR = "snow_persistence_climatology"  # continuous (9999 levels); the day-quantized sibling is snow_persistence
 SP_SCALE = 1e-4     # unpacked persistence = 0.0001 x packed (valid 0..10000 -> 0..1 fraction)
 SP_FILL = 65535     # packed fill (ocean / no valid MODIS observation)
-# The RGI path and its layer name live in `acquire.download_rgi`, which writes them; the two burns
+# The RGI path and its layer name live in `acquire.earth.download_rgi`, which writes them; the two burns
 # below take them as arguments. A second spelling here agreed with the acquirer until one moved.
 
 # persistence cutoff ramps with |latitude|, anchored to the two validated endpoints

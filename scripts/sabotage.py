@@ -3736,7 +3736,7 @@ def _earth_lake_depth''',
         path='pipeline/look/perennial_ice.py',
         needle='    ("earth", "south"): CapIce(sources=lambda: (), alpha=_earth_south,',
         replacement=('    ("earth", "south"): CapIce('
-                     'sources=lambda: (__import__("pipeline.acquire.download_add_rock", '
+                     'sources=lambda: (__import__("pipeline.acquire.earth.download_add_rock", '
                      'fromlist=["GPKG"]).GPKG,), alpha=_earth_south,'),
         guard='test_an_absent_rock_file_leaves_the_forced_white_untouched',
     ),
@@ -4091,7 +4091,7 @@ def _earth_lake_depth''',
     Sabotage(
         suite='python',
         label="the unit's freshness stops checking `features`, so a parseable stub raises KeyError",
-        path='pipeline/acquire/download_sim3292.py',
+        path='pipeline/acquire/mars/download_sim3292.py',
         needle='    if document is None or "features" not in document:',
         replacement='    if document is None:',
         guard='test_a_document_that_PARSES_but_carries_no_features_is_not_fresh',
@@ -4125,7 +4125,7 @@ def _earth_lake_depth''',
     Sabotage(
         suite='python',
         label='the geometry digest covers the whole response, so a timeStamp re-acquires forever',
-        path='pipeline/acquire/download_sim3292.py',
+        path='pipeline/acquire/mars/download_sim3292.py',
         needle='    canonical = json.dumps(document["features"], sort_keys=True, separators=(",", ":"))',
         replacement='    canonical = json.dumps(document, sort_keys=True, separators=(",", ":"))',
         guard='test_a_stamp_only_change_reads_as_FRESH_on_disk',
@@ -4135,7 +4135,7 @@ def _earth_lake_depth''',
     Sabotage(
         suite='python',
         label='the unit contract stops counting features, so a truncated page passes as a smaller map',
-        path='pipeline/acquire/download_sim3292.py',
+        path='pipeline/acquire/mars/download_sim3292.py',
         needle='    if len(features) != expected_count:',
         replacement='    if False:',
         guard='test_a_truncated_page_is_refused',
@@ -4148,7 +4148,7 @@ def _earth_lake_depth''',
     Sabotage(
         suite='python',
         label='the gazetteer extracts as it verifies, so a refused archive half-overwrites a good one',
-        path='pipeline/acquire/download_nomenclature.py',
+        path='pipeline/acquire/mars/download_nomenclature.py',
         # ONE PASS, WHICH IS THE WOUND THE GUARD IS NAMED FOR. This used to wrap the write loop in
         # `if True:`, which re-indents and changes nothing, so the case reported CAUGHT by whatever
         # else was red and could never fail on its own subject. Writing inside the verify loop is
@@ -4169,7 +4169,7 @@ def _earth_lake_depth''',
     Sabotage(
         suite='python',
         label='the gazetteer stops declaring its DBF encoding, so 64 names decode to mojibake',
-        path='pipeline/acquire/download_nomenclature.py',
+        path='pipeline/acquire/mars/download_nomenclature.py',
         needle='        codepage.write_text("UTF-8", encoding="ascii")',
         replacement='        codepage.write_text("ISO-8859-1", encoding="ascii")',
         guard='test_the_cpg_is_written_because_the_archive_ships_none',
@@ -4179,7 +4179,7 @@ def _earth_lake_depth''',
     Sabotage(
         suite='python',
         label='the gazetteer stops checking longitude bounds, so a normalised file passes',
-        path='pipeline/acquire/download_nomenclature.py',
+        path='pipeline/acquire/mars/download_nomenclature.py',
         needle='    if abs(low - pinned_low) > 0.001 or abs(high - pinned_high) > 0.001:',
         replacement='    if False:',
         guard='test_longitudes_normalised_into_0_360_are_refused',
@@ -4392,7 +4392,7 @@ def _earth_lake_depth''',
     Sabotage(
         suite='python',
         label='the edition preflight checks only the size, so a re-upload passes as the pinned one',
-        path='pipeline/acquire/download_mars_dem.py',
+        path='pipeline/acquire/mars/download_mars_dem.py',
         needle='    for field, served, expected in (("size", served_bytes, EXPECTED_BYTES),\n                                    ("Last-Modified", served_date, EXPECTED_LAST_MODIFIED)):',
         replacement='    for field, served, expected in (("size", served_bytes, EXPECTED_BYTES),):',
         guard='test_a_re_upload_of_the_SAME_bytes_still_aborts',
@@ -4400,7 +4400,7 @@ def _earth_lake_depth''',
     Sabotage(
         suite='python',
         label='the sphere is read as PROJ `a`, which an unflattened body does not have at all',
-        path='pipeline/acquire/download_mars_dem.py',
+        path='pipeline/acquire/mars/download_mars_dem.py',
         needle='        ellipsoid = pyproj.CRS.from_user_input(crs.to_wkt()).ellipsoid\n        semi_major = ellipsoid.semi_major_metre if ellipsoid is not None else None',
         replacement='        semi_major = crs.to_dict().get("a")',
         guard='test_the_published_grid_passes',
@@ -4410,7 +4410,7 @@ def _earth_lake_depth''',
     Sabotage(
         suite='python',
         label='the sphere tolerance widens enough to admit the 3,389,500 m spherical mean',
-        path='pipeline/acquire/download_mars_dem.py',
+        path='pipeline/acquire/mars/download_mars_dem.py',
         needle='        if semi_major is None or abs(semi_major - bodies.MARS.ground_radius_m) > 1.0:',
         replacement='        if semi_major is None or abs(semi_major - bodies.MARS.ground_radius_m) > 10000.0:',
         guard='test_a_source_on_the_MEAN_sphere_is_refused_though_it_is_only_0_2_percent_out',
@@ -4418,7 +4418,7 @@ def _earth_lake_depth''',
     Sabotage(
         suite='python',
         label='--check falls through and starts a 10.6 GiB download nobody authorised',
-        path='pipeline/acquire/download_mars_dem.py',
+        path='pipeline/acquire/mars/download_mars_dem.py',
         needle='    if args.check:\n        return 0',
         replacement='    if False:\n        return 0',
         guard='test_check_stops_after_the_preflight',
@@ -4431,7 +4431,7 @@ def _earth_lake_depth''',
     Sabotage(
         suite='python',
         label='the preflight drops the publisher digest, so a re-render at the same size passes',
-        path='pipeline/acquire/download_viking_mosaic.py',
+        path='pipeline/acquire/mars/download_viking_mosaic.py',
         needle='        ("md5", published_md5(), EXPECTED_MD5),\n',
         replacement='',
         guard='test_a_rerender_that_keeps_the_size_and_the_date_is_still_caught',
@@ -4442,7 +4442,7 @@ def _earth_lake_depth''',
     Sabotage(
         suite='python',
         label='the checksum sidecar is trusted without checking which product it names',
-        path='pipeline/acquire/download_viking_mosaic.py',
+        path='pipeline/acquire/mars/download_viking_mosaic.py',
         needle='    if len(fields) != 2 or fields[1] != MOSAIC_NAME:',
         replacement='    if len(fields) != 2:',
         guard='test_a_checksum_sidecar_describing_another_product_aborts_saying_so',
@@ -4453,7 +4453,7 @@ def _earth_lake_depth''',
     Sabotage(
         suite='python',
         label='the flattening check goes, so an ellipsoidal edition shifts every latitude in silence',
-        path='pipeline/acquire/download_viking_mosaic.py',
+        path='pipeline/acquire/mars/download_viking_mosaic.py',
         needle='        if semi_minor is None or abs(semi_minor - semi_major) > 1.0:',
         replacement='        if False:',
         guard='test_an_ellipsoidal_edition_is_refused_and_the_message_names_the_labels',
@@ -4464,7 +4464,7 @@ def _earth_lake_depth''',
     Sabotage(
         suite='python',
         label='the mosaic is upgraded to MDIM 2.1, whose albedo was filtered out by construction',
-        path='pipeline/acquire/download_viking_mosaic.py',
+        path='pipeline/acquire/mars/download_viking_mosaic.py',
         needle='MOSAIC_NAME = "Mars_Viking_ClrMosaic_global_925m.tif"',
         replacement='MOSAIC_NAME = "Mars_Viking_MDIM21_ClrMosaic_global_232m.tif"',
         guard='test_the_product_taken_is_the_925_metre_colour_mosaic_and_not_a_finer_one',
@@ -4475,7 +4475,7 @@ def _earth_lake_depth''',
     Sabotage(
         suite='python',
         label='the merge writes its GeoPackage in place, so a crash publishes a short planet',
-        path='pipeline/acquire/download_rgi.py',
+        path='pipeline/acquire/earth/download_rgi.py',
         needle='    staging = out.with_name(out.name + ".part")',
         replacement='    staging = out',
         guard='test_a_merge_that_dies_partway_leaves_the_previous_geopackage_untouched',
@@ -4530,7 +4530,7 @@ def _earth_lake_depth''',
     Sabotage(
         suite='python',
         label='region 19 is filtered back out at download, so the sub-Antarctic islands go bare',
-        path='pipeline/acquire/download_rgi.py',
+        path='pipeline/acquire/earth/download_rgi.py',
         needle='    urls = sorted(r["url"] for r in resources if (r.get("format") or "").upper() == "SHP")',
         replacement=('    urls = sorted(r["url"] for r in resources '
                      'if (r.get("format") or "").upper() == "SHP" and "-19_" not in r["url"])'),
@@ -4539,7 +4539,7 @@ def _earth_lake_depth''',
     Sabotage(
         suite='python',
         label='a short portal listing is merged as-is, so the layer quietly covers less than before',
-        path='pipeline/acquire/download_rgi.py',
+        path='pipeline/acquire/earth/download_rgi.py',
         needle='    missing = sorted(set(range(1, REGION_COUNT + 1)) - found)',
         replacement='    missing = []',
         guard='test_a_region_missing_from_the_portal_is_refused_rather_than_merged_short',
@@ -6141,8 +6141,8 @@ def _earth_lake_depth''',
         # not there. A contributor follows it and concludes the acquirer is broken.
         label='an accessor names an acquirer that does not exist',
         path='pipeline/datasets.py',
-        needle='written by `acquire/download_gebco.py`."""\n    return _raw("gebco")',
-        replacement='written by `acquire/download_gebco_v2.py`."""\n    return _raw("gebco")',
+        needle='written by `acquire/earth/download_gebco.py`."""\n    return _raw("gebco")',
+        replacement='written by `acquire/earth/download_gebco_v2.py`."""\n    return _raw("gebco")',
         guard='test_every_named_acquirer_exists',
     ),
     Sabotage(
@@ -8348,14 +8348,16 @@ def _earth_lake_depth''',
         replacement='        below = value.parts',
         guard='test_the_probe_reads_the_repos_own_segments_and_not_the_machines',
     ),
-    # The other half of the same seam, in the other language. The writer moving alone is worse than
-    # neither moving: the acquirer fills one tree and seven readers look in the other.
+    # The other half of the same seam, at the writer. The writer moving alone is worse than neither
+    # moving: the acquirer fills one tree and seven readers look in the other. Spelled to evade the
+    # checkout-root join scan on purpose, so the guard named here is the one that has to speak.
     Sabotage(
         suite='python',
         label='the acquirer writes into the checkout while every reader looks in the store',
-        path='pipeline/acquire/download_naturalearth.sh',
-        needle='DATA="${MAPS_DATA:-$(cd "$(dirname "$0")/../.." && pwd)/data}"',
-        replacement='DATA="$(cd "$(dirname "$0")/../.." && pwd)/data"',
+        path='pipeline/acquire/earth/download_naturalearth.py',
+        needle='    destination_root = datasets.naturalearth()',
+        replacement=('    destination_root = '
+                     'Path(__file__).resolve().parents[2] / "data" / "raw/naturalearth"'),
         guard='test_maps_data_moves_the_acquirers_destination',
     ),
     # Natural Earth repeats each layer name as its directory AND its stem. Dropping one half is the
@@ -8379,16 +8381,10 @@ def _earth_lake_depth''',
         replacement='    if False:',
         guard='test_an_unknown_layer_names_the_ones_that_exist',
     ),
-    # The vocabulary is spelled in two languages that cannot import each other, so the only thing
-    # holding them together is the parity test — and a list nobody can mutate proves nothing.
-    Sabotage(
-        suite='python',
-        label='a layer the acquirer fetches drops out of the Python vocabulary',
-        path='pipeline/naturalearth.py',
-        needle='    "ne_10m_rivers_lake_centerlines",',
-        replacement='',
-        guard='test_every_downloaded_layer_is_addressable',
-    ),
+    # A case for the vocabulary dropping a layer stood here while it was spelled twice, once in the
+    # shell acquirer and once in `naturalearth.py`, with a parity test holding them together. There
+    # is one spelling now, so the drift it mutated has no way to occur and the parity test it named
+    # went with it. Do not restore either: a second list is the defect, not the thing to guard.
     # The three modules around `work/borders` are a write-write-read chain. A literal in any one of
     # them resolves identically today, so nothing behavioural can see it — only the scan can.
     Sabotage(
@@ -8458,10 +8454,10 @@ def _earth_lake_depth''',
     # the Python one, so a case that only ever mutates .py leaves half the guard unproven.
     Sabotage(
         suite='python',
-        label='a shell acquirer joins the checkout root straight into data/',
-        path='pipeline/acquire/download_naturalearth.sh',
-        needle='DEST="$DATA/raw/naturalearth"',
-        replacement='DEST="$(cd "$(dirname "$0")/../.." && pwd)/data/raw/naturalearth"',
+        label='a shell stage joins the checkout root straight into data/',
+        path='pipeline/fuse/build_mosaics.sh',
+        needle='dem_src=("$DATA"/raw/glo30/dem/*.tif "$DATA"/raw/cop30_void/dem/*.tif)',
+        replacement='dem_src=("$(cd "$(dirname "$0")/../.." && pwd)/data/raw/glo30/dem"/*.tif)',
         guard='test_no_data_path_is_built_by_joining_onto_a_checkout_root',
     ),
     # --- the globe's atmosphere becomes the body's -------------------------------------------------
@@ -9116,7 +9112,7 @@ def _earth_lake_depth''',
     Sabotage(
         suite='python',
         label='the acquirer stops reading the links it hands the card',
-        path='pipeline/acquire/download_nomenclature.py',
+        path='pipeline/acquire/mars/download_nomenclature.py',
         needle='    astray = [row["name"] for row in rows '
                 'if not FEATURE_URL.match((row.get("link") or "").strip())]',
         replacement='    astray = []',

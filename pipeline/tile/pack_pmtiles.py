@@ -1,6 +1,6 @@
 """Pack the XYZ tile pyramid into an MBTiles file — the bridge to `pmtiles convert`.
 
-The vendored go-pmtiles CLI reads only MBTiles (its GDAL driver counterpart is
+The go-pmtiles CLI reads only MBTiles (its GDAL driver counterpart is
 vector-only), and our pyramid is a plain z/x/y directory, so packaging is
 dir -> MBTiles (this module) -> `tools/pmtiles convert` -> planet.pmtiles.
 Blobs are MOVED, never re-encoded: the archive must serve byte-identical tiles

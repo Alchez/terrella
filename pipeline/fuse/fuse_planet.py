@@ -52,7 +52,7 @@ import rasterio
 from rasterio.windows import from_bounds
 
 from pipeline import bodies, datasets, planet_seam
-from pipeline.acquire.download_glo30 import in_extent, parse_tile_name
+from pipeline.acquire.earth.download_glo30 import in_extent, parse_tile_name
 from pipeline.fuse import fuse_heightfield
 
 RES_ARCSEC = 10

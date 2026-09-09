@@ -28,7 +28,7 @@ Every one of these silences a real error and ships a plausible planet wearing an
 ## Two refusals that look like gaps
 
 - **`featureOverlay.ts` is Mars's and `countryHighlight.ts` is Earth's, and neither generalises the other.** Earth's stack filters to the hero manifest and hit-tests against fat per-island circles baked into the archive; Mars's archive can answer neither. **A third body with named features writes its own sibling** against the shared transport (`vectorTiles.ts`) and role vocabulary (`sourceLayers.ts`). Widening either module is the wrong move and both say so in their own text.
-- **`pipeline/` is not grouped by planet and must not become so.** Declined on measurement, and the measurement is a grep you can re-run rather than a number to trust: **no stage module compares a body against a literal**, every consumer reads a field instead. A directory has no equivalent of a hard error, so a body that had not answered would look like a body with fewer files. → HISTORY, *a per-body split of `pipeline/` is declined*.
+- **`acquire/` is grouped by planet and no other package is, which is a distinction to keep rather than a migration half done.** A dataset belongs to exactly one body (`attribution.SOURCES` is flat for that reason), so a third body writes `acquire/<slug>/` and nothing else moves. **A stage is the opposite**: no stage module compares a body against a literal, every one reads a field, and a directory has no equivalent of a hard error, so a body that had not answered would look like a body with fewer files. → HISTORY, *a per-body split of `pipeline/` is declined* for the stage half, and *the acquirers are grouped by body* for the exception.
 
 ## The precondition that decides the producer
 

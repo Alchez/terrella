@@ -44,7 +44,7 @@ from typing import Any, Protocol
 import numpy as np
 
 from pipeline import bodies, datasets, layers
-from pipeline.acquire import download_sim3292
+from pipeline.acquire.mars import download_sim3292
 from pipeline.look import mars_ice, palette, snow, viking_luma
 
 
@@ -180,7 +180,7 @@ def _earth_south(inputs: CapIceInputs) -> np.ndarray:
     NSIDC-0791 saturates over the whole continent and RGI region 19 reaches only its periphery, so
     the white comes from latitude and land rather than from a measurement. Nothing on disk can switch that off,
     which is why it rides the body's layer declaration and why its `sources` tuple stays empty.
-    `pipeline/acquire/download_add_rock.py` holds the measurement behind the saturation claim.
+    `pipeline/acquire/earth/download_add_rock.py` holds the measurement behind the saturation claim.
 
     The outcrop is not this producer's business, and that is the point rather than an omission. It
     is declared in `exclusions` and removed by `layer_producers.fold_white` after this answer folds,

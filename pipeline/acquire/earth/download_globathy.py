@@ -28,9 +28,9 @@ under its final name is always complete and re-runs skip it; md5 is verified on 
 downloads only, so an idempotent re-run stays instant instead of re-hashing 16.7 GB.
 
 Usage:
-  python3 -m pipeline.acquire.download_globathy --only csv   # 115 MB, do this first
-  python3 -m pipeline.acquire.download_globathy              # both archives
-  python3 -m pipeline.acquire.download_globathy --verify     # re-md5 what is on disk
+  python3 -m pipeline.acquire.earth.download_globathy --only csv   # 115 MB, do this first
+  python3 -m pipeline.acquire.earth.download_globathy              # both archives
+  python3 -m pipeline.acquire.earth.download_globathy --verify     # re-md5 what is on disk
 """
 
 import argparse

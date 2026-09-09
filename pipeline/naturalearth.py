@@ -19,29 +19,22 @@ site is that module choosing its own dataset, not a fact shared with anyone — 
 constants would move a local decision somewhere it cannot be read alongside the code that makes it.
 The shared facts are the directory and the naming rule. Those are here; the choices stay out there.
 
-THE VOCABULARY IS SPELLED TWICE AND CANNOT BE SPELLED ONCE. `download_naturalearth.sh` is the
-writer, and shell cannot import Python, so `LAYERS` below is a second copy of the list in that
-script by necessity. `tests/test_naturalearth.py` holds the two together, in the same shape the body
-registry uses across the Python/TypeScript boundary — a reader asking for a layer nobody downloads
-is otherwise a `shapefile.Reader` error about a missing file, which reads like a failed download
-rather than like a name that was never going to exist.
+THE VOCABULARY IS THE ACQUIRER'S, READ RATHER THAN RESTATED. A layer nobody downloads is otherwise
+a `shapefile.Reader` error about a missing file several frames later, which reads like a failed
+download rather than like a name that was never going to exist. This list was a second copy for as
+long as the acquirer was a shell script that could not be imported, held to it by a test that
+parsed the script's own array.
 """
 
 from pathlib import Path
 
 from pipeline import datasets
+from pipeline.acquire.earth import download_naturalearth
 
-#: Every layer the acquirer fetches, by its own name — which is also its directory name and the
-#: stem of every component file inside it. Pinned against `download_naturalearth.sh` by a test.
-LAYERS = frozenset({
-    "ne_10m_admin_0_boundary_lines_land",
-    "ne_10m_admin_0_boundary_lines_maritime_indicator",
-    "ne_10m_admin_0_countries",
-    "ne_10m_admin_0_disputed_areas",
-    "ne_10m_coastline",
-    "ne_10m_lakes",
-    "ne_10m_rivers_lake_centerlines",
-})
+#: Every layer the acquirer fetches, by its own name, which is also its directory name and the stem
+#: of every component file inside it. The acquirer's own table is where the category each one sits
+#: in upstream lives; that is a writer's fact and no reader needs it.
+LAYERS = frozenset(download_naturalearth.LAYERS)
 
 
 

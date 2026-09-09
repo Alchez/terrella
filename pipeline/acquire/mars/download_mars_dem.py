@@ -71,9 +71,9 @@ different date is a different planet's worth of pixels arriving under our recipe
 then re-checks the raster itself, because a byte count is not a grid.
 
 Usage:
-  python3 -m pipeline.acquire.download_mars_dem --check     # preflight only, downloads nothing
-  python3 -m pipeline.acquire.download_mars_dem             # preflight, then ~10.6 GiB
-  python3 -m pipeline.acquire.download_mars_dem --verify    # re-check the file already on disk
+  python3 -m pipeline.acquire.mars.download_mars_dem --check     # preflight only, downloads nothing
+  python3 -m pipeline.acquire.mars.download_mars_dem             # preflight, then ~10.6 GiB
+  python3 -m pipeline.acquire.mars.download_mars_dem --verify    # re-check the file already on disk
 """
 
 import argparse

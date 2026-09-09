@@ -181,7 +181,7 @@ def main() -> int:
     args = parser.parse_args()
 
     sys.path.insert(0, str(args.repo))  # repo root: pipeline.compose uses pipeline.* imports
-    from pipeline.acquire import download_nomenclature
+    from pipeline.acquire.mars import download_nomenclature
     from pipeline.compose import features_geojson
 
     label_path = features_geojson.labels()

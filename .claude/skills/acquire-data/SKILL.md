@@ -9,8 +9,13 @@ description: Acquiring or refetching one of Terrella's source datasets. Load whe
 its licence requires. This skill carries only the operational half: the things that go wrong on the
 way to having the bytes, none of which belong in a licence table.
 
-`pipeline/acquire/*` is the only writer of `data/raw`. Downloads need the maintainer's explicit
+`pipeline/acquire/**` is the only writer of `data/raw`. Downloads need the maintainer's explicit
 permission before they start.
+
+## Where a new source's module goes, which is two questions rather than one
+
+- **An acquirer goes under its body**, `pipeline/acquire/earth/` or `acquire/mars/`, since no source serves two planets. This is the only package in `pipeline/` grouped that way and `docs/pipeline-layout.md` says why it does not generalise. A tool rather than a dataset stays above them, as `install_geotools.sh` does.
+- **A dataset with two READERS and no acquirer does not go here at all**, and reaching for `acquire/` is the wrong instinct: it wants a module at the top level of `pipeline/`, owning the URL, the naming rule and the fetch. `naturalearth.py` and `worldcover.py` are the two, and the first one's docstring states the rule. **The tell is a stage importing another stage for a bucket URL**, which is how WorldCover sat inside `render/snow_mask.py` with `fuse/build_void_wbm.py` reaching across for it.
 
 ## Copernicus DEM GLO-30 has holes, and a hole fuses silently as ocean
 

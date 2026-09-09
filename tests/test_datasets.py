@@ -73,7 +73,9 @@ class TestEveryLineSaysWhatWritesIt:
     exists, and that an entry claiming no acquirer is one this repo really has no script for.
     """
 
-    ACQUIRER = re.compile(r"`(acquire/[\w.]+)`")
+    #: `/` is in the class because the acquirers are grouped by body: a pattern stopping at the
+    #: first slash matches none of them and reports every accessor silent.
+    ACQUIRER = re.compile(r"`(acquire/[\w./]+)`")
 
     def test_every_named_acquirer_exists(self):
         missing = []
@@ -96,6 +98,8 @@ class TestEveryLineSaysWhatWritesIt:
         """The other direction, and the one that rots quietly: if someone writes the acquirer, this
         docstring becomes a lie that sends a contributor to download by hand for no reason."""
         stem = accessor_name.split("_")[0]
-        scripts = [path.name for path in (paths.ROOT / "pipeline/acquire").iterdir()
+        # Recursive: the acquirers sit under a body directory now, and a listing that stopped at
+        # the top level would report "no script" for every one of them.
+        scripts = [path.name for path in (paths.ROOT / "pipeline/acquire").rglob("*")
                    if stem in path.name.lower() and path.suffix in {".py", ".sh"}]
         assert not scripts, f"{accessor_name} now has an acquirer ({scripts}); drop NO ACQUIRER"

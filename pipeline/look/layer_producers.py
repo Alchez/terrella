@@ -28,12 +28,8 @@ from typing import Any
 import numpy as np
 
 from pipeline import bodies, datasets, layers, progress
-from pipeline.acquire import (
-    download_add_rock,
-    download_rgi,
-    download_sim3292,
-    extract_globathy,
-)
+from pipeline.acquire.earth import download_add_rock, download_rgi, extract_globathy
+from pipeline.acquire.mars import download_sim3292
 from pipeline.look import lake_depth, mars_ice, palette, seaice, snow, viking_luma
 
 

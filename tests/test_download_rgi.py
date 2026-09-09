@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from pipeline.acquire import download_rgi
+from pipeline.acquire.earth import download_rgi
 
 #: The filenames IHP-WINS actually serves, verified against the portal. Region 19's is the one that
 #: was dropped, and it is deliberately not last in the list — a filter keyed to position rather than

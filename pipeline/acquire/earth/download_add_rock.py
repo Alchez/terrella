@@ -22,7 +22,7 @@ as much as a look one.
 Source is EPSG:3031 (Antarctic Polar Stereographic) and is reprojected once, here, because every
 consumer wants Mercator and a per-run reprojection of 147 MB of polygons is not free.
 
-    python -m pipeline.acquire.download_add_rock
+    python -m pipeline.acquire.earth.download_add_rock
     -> data/raw/addrock/add_rockoutcrop_landsat_v7.3.zip (+ unzipped)
     -> data/raw/addrock/add_rock_3857.gpkg (layer 'rock')
 """

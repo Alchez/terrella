@@ -22,7 +22,7 @@ from rasterio.crs import CRS
 from rasterio.transform import from_bounds
 
 from pipeline import bodies, paths
-from pipeline.acquire import download_mars_dem as mars_dem
+from pipeline.acquire.mars import download_mars_dem as mars_dem
 
 MARS_SPHERE_CRS = CRS.from_proj4("+proj=longlat +a=3396190 +b=3396190 +no_defs")
 #: The 3,389,500 m spherical MEAN, which is the plausible wrong answer rather than an invented one:

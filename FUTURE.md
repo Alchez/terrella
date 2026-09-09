@@ -594,6 +594,12 @@ The same reason as the entry below it: the working plan is live state and one qu
 - **`pipeline/ot_oracle.py` was the intended answer and was never once run.** It pulled an independent OpenTopography clip (SRTM15+ is the canonical land/sea-fusion reference) over the same frame, to compare against. Deleted rather than kept, on the rule that prose calling something hand-run does not make a never-run entry point live. → HISTORY, *the fusion oracle is deleted having never been run*.
 - **A successor needs an account and a key**, which is `maintainer-only`, and it should ship with a recorded run rather than as a runnable file nobody invokes. Git history holds the deleted implementation if the API shape is wanted.
 
+### `pmtiles convert` needs a `--tmpdir` and nothing supplies one (parked 2026-09-09)
+
+- **`/tmp` is a 15 GB tmpfs on the reference box and the conversion stages ~12 GB through it**, so an uncapped uncorrected run is a RAM disk two thirds full of scratch. PROCESS.md § *PMTiles packaging* holds the measurement.
+- **The requirement lives in four prose copies and no guard**: `CLAUDE.md`, `PROCESS.md`, and two `INVENTORY.md` rows. `pack_pmtiles.py` stops at the MBTiles and never invokes `convert`, `run_pass.sh` does not reach packing at all, so the flag is typed by hand every time.
+- **`blender_proc.env()` is the pattern to copy**, setting `TMPDIR` under `paths.DATA` with `test_blender_proc` asserting it is not under `/tmp`. Either the packer grows the `convert` call it currently only names, or a wrapper owns the flag; both are more than a doc fix, which is why this is parked rather than done.
+
 ### Values a doc spells that a constant owns
 
 - **`CLAUDE.md` spells six code-owned values and nothing watches any of them.** Exactly one value in that file is guarded, and the guard asserts an ABSENCE (`test_no_module_outside_the_owner_spells_the_cap`). The pattern to copy is the cgroup bullet, which names `pass_memory.HEAVY_JOB_GIB` as the owner and spells nothing.

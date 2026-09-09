@@ -31,7 +31,7 @@ from typing import Any
 import numpy as np
 import rasterio
 
-from pipeline.acquire import extract_globathy
+from pipeline.acquire.earth import extract_globathy
 from pipeline.look import lake_depth
 from pipeline.render import render_seam
 
@@ -65,12 +65,12 @@ def main():
         render_seam.declare(render_dir, render_seam.LAKE, [render_seam.LAKEDEPTH])
         return
 
-    # The VRT is a local build product (pipeline.acquire.extract_globathy), so its
+    # The VRT is a local build product (pipeline.acquire.earth.extract_globathy), so its
     # absence is a config error, not a data gap: exit loudly rather than write an
     # all-flat raster that batch resume would trust as the prep-complete marker.
     lake_vrt = extract_globathy.lake_vrt()
     if not lake_vrt.exists():
-        sys.exit(f"{lake_vrt} missing — run pipeline.acquire.extract_globathy")
+        sys.exit(f"{lake_vrt} missing — run pipeline.acquire.earth.extract_globathy")
 
     # grid + CRS from the existing heightfield (the snow_mask/render_prep pattern):
     # the raster must land pixel-for-pixel on the grid the render was made from

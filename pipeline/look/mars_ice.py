@@ -2,7 +2,7 @@
 between that and bare ground is softened.
 
 Two fields, and they come from different places. The extent says where white is drawn at all and
-comes from a geologic map (`acquire/download_sim3292.py` holds why); the alpha says how white, and
+comes from a geologic map (`acquire/mars/download_sim3292.py` holds why); the alpha says how white, and
 comes from the Viking colour mosaic's luma (`ALPHA_LEVELS`). Keeping them separate is what lets the
 map limit the claim while the albedo supplies the variation, and the arm that let albedo do both was
 judged and rejected, roughly 45% of its ice falling outside the mapped unit and reading as seasonal
@@ -65,7 +65,7 @@ from rasterio.windows import Window
 from scipy import ndimage
 
 from pipeline import mercator, vector_raster
-from pipeline.acquire import download_sim3292
+from pipeline.acquire.mars import download_sim3292
 from pipeline.raster_io import row_bands
 
 #: The mapped units drawn as ice, per hemisphere. Both tuples are read by `extent_for`, and the

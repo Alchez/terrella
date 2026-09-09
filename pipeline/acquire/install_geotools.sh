@@ -52,7 +52,10 @@ else
   url="https://github.com/protomaps/go-pmtiles/releases/download/v${PMTILES_VERSION}/go-pmtiles_${PMTILES_VERSION}_Linux_x86_64.tar.gz"
   echo "downloading pmtiles $PMTILES_VERSION"
   tarball="$TOOLS/pmtiles.tar.gz"
-  curl -fsSL -o "$tarball" "$url"
+  # The identity every acquisition sends, spelled here because bash cannot import `pipeline.fetch`
+  # and curl's default agent is as anonymous as urllib's. `test_fetch.py` reads the constant and
+  # this file, so a bump there goes red rather than leaving one requester behind.
+  curl -fsSL -A "terrella-pipeline/1.0" -o "$tarball" "$url"
 
   got="$(sha256sum "$tarball" | cut -d' ' -f1)"
   if [ "$got" != "$PMTILES_SHA256" ]; then

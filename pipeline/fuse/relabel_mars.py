@@ -50,7 +50,7 @@ import sys
 from pathlib import Path
 
 from pipeline import bodies, planet_seam
-from pipeline.acquire import download_mars_dem
+from pipeline.acquire.mars import download_mars_dem
 
 
 def relabel(source: Path) -> Path:
@@ -73,7 +73,7 @@ def relabel(source: Path) -> Path:
 def main() -> int:
     blend = download_mars_dem.blend_path()
     if not blend.exists():
-        sys.exit(f"{blend} is not on disk — run `python3 -m pipeline.acquire.download_mars_dem` "
+        sys.exit(f"{blend} is not on disk — run `python3 -m pipeline.acquire.mars.download_mars_dem` "
                  f"first (~10.6 GiB)")
     # BEFORE the relabel, not after, and not skipped because the file was verified at download time.
     # The relabel's honesty rests on the source being a true sphere in degrees; a re-published mosaic
