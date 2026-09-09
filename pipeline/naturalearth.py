@@ -11,8 +11,9 @@ The pattern behind it is worth naming, because it will recur. Every dataset with
 is already single-homed here — gebco, rgi, seaice, glo30, globathy, worldcover, mars each have
 exactly one constant. Duplication appeared precisely where a dataset became SHARED, because
 `paths.py` hands out a machine root and `bodies.work_dir` hands out a per-body stage directory, and
-nothing owned a shared *dataset*. So the second module to want one copied the first. When the next
-raw source gains a second reader, it wants a module like this one rather than a second constant.
+nothing owned a shared *dataset*. So the second module to want one copied the first. A second reader
+means the fact needs one owner, and that owner is the source's own acquirer wherever there is one:
+this module is the shape for the READ side of a source nothing under `acquire/` fetches.
 
 WHAT IS DELIBERATELY NOT HERE: which layer a caller wants. `layer("ne_10m_coastline")` at the call
 site is that module choosing its own dataset, not a fact shared with anyone — collapsing those into

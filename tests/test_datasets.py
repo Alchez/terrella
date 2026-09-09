@@ -93,7 +93,7 @@ class TestEveryLineSaysWhatWritesIt:
                   and "NO ACQUIRER" not in (accessor.__doc__ or "")]
         assert not silent, f"accessors saying nothing about what writes them: {silent}"
 
-    @pytest.mark.parametrize("accessor_name", ["snow_persistence", "worldcover"])
+    @pytest.mark.parametrize("accessor_name", ["snow_persistence"])
     def test_the_manual_datasets_really_have_no_script(self, accessor_name):
         """The other direction, and the one that rots quietly: if someone writes the acquirer, this
         docstring becomes a lie that sends a contributor to download by hand for no reason."""

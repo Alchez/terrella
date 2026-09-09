@@ -68,6 +68,26 @@ def imports_urllib_request(source: Path) -> bool:
     return False
 
 
+def imports_fetch(source: Path) -> bool:
+    """True if this module imports `pipeline.fetch` in any spelling.
+
+    The MODULE and not `download_one`, on the reasoning this file's header gives for `urllib`: a
+    scan naming the function is blind to the next function, and one caller already reaches it as
+    `fetch.download_one` without importing that name.
+    """
+    tree = ast.parse(source.read_text())
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            if any(alias.name == "pipeline.fetch" for alias in node.names):
+                return True
+        elif isinstance(node, ast.ImportFrom):
+            if node.module == "pipeline.fetch":
+                return True
+            if node.module == "pipeline" and any(alias.name == "fetch" for alias in node.names):
+                return True
+    return False
+
+
 def test_the_scan_reaches_the_whole_package_rather_than_a_handful_of_files():
     """Anti-vacuity: a scan over an empty list passes every assertion it makes.
 
@@ -162,6 +182,68 @@ def test_the_scan_would_catch_a_module_that_went_around_fetch(tmp_path: Path):
     innocent = tmp_path / "innocent.py"
     innocent.write_text('"""Prose naming urllib.request is not an import."""\nimport json\n')
     assert not imports_urllib_request(innocent)
+
+
+def test_only_an_acquirer_reaches_a_server():
+    """`pipeline/acquire/**` writes `data/raw`, and this is what makes that sentence checkable.
+
+    The scan above funnels every request through `fetch` and is silent on WHO may call it, so a
+    render or fuse stage growing its own download passes every gate. That is not hypothetical: the
+    WorldCover fetch lived in `render/snow_mask.py` with `fuse/build_void_wbm.py` importing across
+    for it, and was then lifted to a top-level module, which is a second placement this would have
+    refused. Both read as ordinary code and neither had anything to go red.
+
+    THE EXCEPTIONS ARE LISTED AND THE TARGETS ARE DERIVED, so a stage written next year is in scope
+    the day it exists. `fetch` itself is exempt as the thing being funnelled through.
+    """
+    acquire_root = (paths.ROOT / "pipeline/acquire").resolve()
+    fetchers = [source for source in pipeline_sources() if imports_fetch(source)]
+    assert fetchers, "nothing in the package imports `pipeline.fetch` — the scan matched nothing"
+
+    offenders = sorted(str(source.relative_to(paths.ROOT)) for source in fetchers
+                       if not source.resolve().is_relative_to(acquire_root))
+    assert offenders == [], (
+        f"{offenders} reach a server from outside `pipeline/acquire/`. A fetch belongs to the "
+        f"acquirer for its dataset, whatever else the module also does for its callers."
+    )
+
+
+def test_the_scan_sees_both_the_import_and_the_location(tmp_path, monkeypatch):
+    """Two arms, so two controls: the parser has to see every spelling, and the location arm has to
+    report a module that is outside the package rather than merely present.
+
+    `pipeline.fetch` and not `download_one`, for the reason the header gives about `urllib`: a scan
+    naming the function is blind to the next function, and `acquire/mars/download_nomenclature.py`
+    already reaches it as `fetch.download_one` without importing that name at all.
+    """
+    spellings = {
+        "spelled_out.py": ("import pipeline.fetch\n", True),
+        "by_name.py": ("from pipeline.fetch import download_one\n", True),
+        "by_module.py": ("from pipeline import datasets, fetch\n", True),
+        "prose.py": ('"""Naming pipeline.fetch is not importing it."""\nimport json\n', False),
+    }
+    for name, (source_text, expected) in spellings.items():
+        module = tmp_path / name
+        module.write_text(source_text)
+        assert imports_fetch(module) is expected, f"{name} read as {not expected}"
+
+    # The location arm, which the parser controls above cannot reach: an identical fetching module
+    # is legal under `acquire/` and an offence one directory up, so the same text has to read both
+    # ways depending only on where it sits.
+    package = tmp_path / "pipeline"
+    (package / "acquire/earth").mkdir(parents=True)
+    (package / "render").mkdir()
+    fetching = "from pipeline.fetch import download_one\n"
+    (package / "fetch.py").write_text("USER_AGENT = 'x'\n")
+    (package / "acquire/earth/download_thing.py").write_text(fetching)
+    monkeypatch.setattr(paths, "ROOT", tmp_path)
+    assert [source.name for source in pipeline_sources() if imports_fetch(source)] \
+        == ["download_thing.py"]
+
+    (package / "render/thing_mask.py").write_text(fetching)
+    caught = [source.name for source in pipeline_sources() if imports_fetch(source)
+              if not source.resolve().is_relative_to((paths.ROOT / "pipeline/acquire").resolve())]
+    assert caught == ["thing_mask.py"]
 
 
 def test_build_request_carries_the_pipeline_user_agent():

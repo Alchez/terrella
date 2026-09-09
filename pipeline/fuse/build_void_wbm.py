@@ -18,9 +18,9 @@ lands at the 1-arcsec grid, matching the standard WBM everywhere else (not World
 One WBM tile per void DEM tile, on that tile's exact grid, into data/raw/cop30_void/wbm/.
 build_mosaics.sh globs that dir into the WBM mosaic; fuse_heightfield then runs unchanged.
 
-Reuses snow_mask.py's WorldCover fetch (same bucket, dir, and naming). Idempotent: skips
-WBM tiles already built and WorldCover tiles already held; delete data/raw/cop30_void/wbm
-to redo.
+Fetches through acquire/earth/download_worldcover.py, which snow_mask.py reads for a
+different class of the same rasters. Idempotent: skips WBM tiles already built and
+WorldCover tiles already held; delete data/raw/cop30_void/wbm to redo.
 
 Usage: python3 build_void_wbm.py
 """
@@ -34,7 +34,8 @@ from typing import Any
 import numpy as np
 import rasterio
 
-from pipeline import datasets, worldcover
+from pipeline import datasets
+from pipeline.acquire.earth import download_worldcover
 
 WATER_CLASS = 80   # ESA WorldCover "permanent water bodies"
 WBM_LAKE = 2       # fuse_heightfield inland-lake class
@@ -55,12 +56,12 @@ def union_bounds(tiles: list[Path]):
 
 def ensure_worldcover(bounds) -> Path:
     """Fetch the WorldCover tiles overlapping bounds, build a VRT, return it."""
-    names = worldcover.tiles_for_bounds(*bounds)
+    names = download_worldcover.tiles_for_bounds(*bounds)
     print(f"WorldCover: {len(names)} tiles overlap the void extent", flush=True)
-    counts = worldcover.fetch_tiles(names)
+    counts = download_worldcover.fetch_tiles(names)
     print(f"  fetched {counts['ok']}, held {counts['skipped']}, "
           f"absent {counts['absent']}", flush=True)
-    tiles = worldcover.held(names)
+    tiles = download_worldcover.held(names)
     if not tiles:
         sys.exit("no WorldCover tiles over the void extent — bucket/naming changed?")
     if counts["absent"]:

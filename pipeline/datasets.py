@@ -141,5 +141,6 @@ def snow_persistence() -> Path:
 
 
 def worldcover() -> Path:
-    """ESA WorldCover 2021 v200. NO ACQUIRER: download it by hand, source in ATTRIBUTIONS.md."""
+    """ESA WorldCover 2021 v200, written by `acquire/earth/download_worldcover.py`, which takes an
+    extent because the global land set is ~114 GB and both stages want one window of it."""
     return _raw("worldcover")
