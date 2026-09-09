@@ -327,6 +327,32 @@ def test_every_test_a_comment_names_still_exists() -> None:
     )
 
 
+#: A skill and the doc it routes to, where the skill must stay a strict subset. Both fire on one
+#: task, so nothing can cut them apart by trigger and both fill up; the doc is the copy a clone
+#: reads without a skill loader, so it is the one that owns the facts.
+ROUTED_SKILLS = {".claude/skills/add-a-body/SKILL.md": "docs/adding-a-body.md"}
+
+BACKTICKED = re.compile(r"`([A-Za-z_][A-Za-z0-9_./]*)`")
+
+
+def test_a_routing_skill_names_nothing_its_doc_does_not() -> None:
+    """A skill that grows its own facts is a second copy nothing holds to the first.
+
+    These two reached 17 shared identifiers out of the skill's 22 with no guard between them, and
+    the four it held alone were facts rather than procedure.
+    """
+    offenders = []
+    for skill_path, doc_path in ROUTED_SKILLS.items():
+        skill = BACKTICKED.findall((REPO_ROOT / skill_path).read_text())
+        assert skill, f"{skill_path} names no identifiers; the scan matched nothing"
+        doc = set(BACKTICKED.findall((REPO_ROOT / doc_path).read_text()))
+        offenders += [f"{skill_path}: `{name}` is in no {doc_path}" for name in sorted(set(skill) - doc)]
+    assert not offenders, (
+        "a routing skill names what its doc does not, so the fact has no owner:\n  "
+        + "\n  ".join(offenders)
+    )
+
+
 def test_the_scan_reaches_the_pointers_it_claims_to_cover() -> None:
     """A positive control: prove the scan finds real citations rather than an empty set.
 
