@@ -21,6 +21,7 @@ A capability probe picks one pessimistically and upgrades from there; the visito
 - **Heroes**: Blender Cycles, from Copernicus GLO-30 land and GEBCO bathymetry fused into one heightfield. Low sun, coloured by elevation and depth, in an aesthetic Frank Ramspott's topographic renders helped define.
 - **Tiles**: the same rig again, ray traced block by block, so the globe and the heroes are lit by one renderer rather than by two that have to be kept agreeing.
 - **Mars is the same pipeline with a different body.** Exaggeration, zoom ceiling, ramp and radii all belong to the body. It arrives pre-fused, as the USGS MOLA/HRSC blend, so there is no fusion tier to run, and it has no ocean, borders or heroes.
+- **Why a renderer and not a hillshade**: QGIS and `gdaldem` shade each pixel from the slope beneath it, so nothing in the result knows a ridge stands between that pixel and the sun, and a hillshade has no cast shadows to give. Vertical exaggeration sharpens it: at the exaggeration this draws, a gentle real slope presents as a steep one, runs past a low sun and clips to zero across a large share of a mountain range, which `ART.md` measures and which is why the rig carries a fill light. Cycles traces the light instead, so a ridge's shadow is the same event on the globe and in the gallery.
 - **Delivery**: three PMTiles archives per body (relief, terrain, vector), the names `{layer}` takes, addressed `{body}/{layer}/{token}/{z}/{x}/{y}` so an address names its own archive. The browser never opens one; a tile server returns a single tile per request.
 
 Everything is pre-rendered, so there is no compute at request time, and no rendered assets or DEM data live in git.
@@ -39,7 +40,8 @@ The tile endpoint is open as well, and it is the wrong thing to build on. It run
 
 - Running the checks, which need no data or GPU → [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - How the system is built, and which questions are settled → [`CLAUDE.md`](CLAUDE.md)
-- Pipeline, and regenerating a hero → [`docs/pipeline.md`](docs/pipeline.md)
+- Running the pipeline, from a fresh machine to a served globe → [`docs/pipeline.md`](docs/pipeline.md)
+- What adding a moon or another planet would take → [`docs/adding-a-body.md`](docs/adding-a-body.md)
 - Framing math → [`docs/framing-math.md`](docs/framing-math.md)
 - Frontend, and running the dev server → [`web/README.md`](web/README.md)
 - Aesthetic decisions → [`ART.md`](ART.md)

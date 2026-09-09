@@ -41,7 +41,8 @@ __pycache__/
 # Phase 2 geotools binaries — vendored, reinstall with pipeline/install_geotools.sh
 /tools/
 
-# Secrets — never commit (holds OPENTOPOGRAPHY_API_KEY; OT prohibits sharing keys)
+# Machine-local config and secrets — never commit. Matches at any depth, so `web/.env`
+# (the dev server's store paths) and `.env.production` are both covered.
 .env
 .env.*
 

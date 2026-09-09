@@ -9,8 +9,10 @@ is the open-source portability seam, and `tests/test_paths.py` enforces it with 
   (`web/public` assets) must follow the checkout rather than the data store.
 - DATA takes `MAPS_DATA`, defaulting to `<repo>/data`. Its shell twin is `build_mosaics.sh`, which
   reads the same variable.
-- BLENDER takes `MAPS_BLENDER`, defaulting to the tarball install in docs/pipeline.md § Environment
-  setup.
+- BLENDER takes `MAPS_BLENDER`, defaulting to the pinned tarball install below. The version is
+  production's, not merely what is unpacked: `.claude/skills/blender-rig/` says what a change bites.
+- PMTILES takes `MAPS_PMTILES`, defaulting under gitignored `tools/`, which `install_geotools.sh`
+  fills. It is the only writer of vector `attribution`, so an absent one ships an uncredited cut.
 
 Derive at call time, not at import. A module-level `SOMEWHERE = DATA / "x/y"` freezes the root at
 import, so redirecting `MAPS_DATA` moves some of a module's paths and not others, with no error in
@@ -37,4 +39,10 @@ BLENDER = (
     Path(os.environ["MAPS_BLENDER"])
     if "MAPS_BLENDER" in os.environ
     else Path.home() / "software/blender-5.1.2-linux-x64/blender"
+)
+
+PMTILES = (
+    Path(os.environ["MAPS_PMTILES"])
+    if "MAPS_PMTILES" in os.environ
+    else ROOT / "tools/pmtiles"
 )

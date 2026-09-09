@@ -1,6 +1,6 @@
 ---
 name: prose-pass
-description: Cutting a module's comments and docstrings back to what the code cannot say for itself. Load when asked to reduce prose in a file, when a docstring is longer than the body it documents, or before writing a long one. Carries the order the checks run in, why that order is itself the finding, and the defect classes each one turns up.
+description: Cutting a module's comments and docstrings, or a markdown doc's prose, back to what the code cannot say for itself. Load when asked to reduce prose or verbosity in any file, when a doc reads like an essay or an archive, when deciding whether to split a doc or prune it, when a docstring is longer than the body it documents, or before writing a long one. Carries the order the checks run in, why that order is itself the finding, and the defect classes each one turns up.
 ---
 
 # Cutting a module's prose
@@ -39,6 +39,15 @@ Stays:
 - What the code is, including the units, the ownership map, and which of two similar numbers this one is.
 - The anti-redo, and it names the temptation rather than the prohibition: say what the rejected thing was, why re-adding it looks right, and what breaks.
 - The silent-failure clause. "This renders as a plausible wrong planet" is why a reader should care, and no test carries it.
+
+## On a markdown doc, measure before deciding
+
+`prose_report` does not read markdown, so the instrument is an awk pass: classify every non-blank line as prose / bullet / table row / fenced code and **weight by words, never lines**, since unwrapped prose puts a 700-character paragraph on one line.
+
+- **Prose share per section answers "split this file or prune it", and the answer has been counter-intuitive.** On `docs/pipeline.md` the essay was in the runbook sections (92%, 77%, 63%) while the two a split would have extracted were already the most structured (10%, 20%). Splitting would have moved the readable parts out and left the essay.
+- **Then sort every bullet by word count.** Paragraphs grow inside bullets and read as bullets; the worst was 50 words holding three separate facts, and splitting it was the fix rather than trimming.
+- **The two checks at the top of this file apply unchanged, and one hazard is doc-only: a guard may PARSE a sentence.** `test_planet_pass` reads `docs/pipeline.md` for the line naming the stages that take `--body` and drives all four as subprocesses, so rewording that sentence breaks a test rather than staling a claim.
+- **Cut the reason a line exists, never the reason a reader acts.** A step saying what to run without saying when to skip it is the one that gets skipped.
 
 ## What the pass has not reached yet
 

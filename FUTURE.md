@@ -284,7 +284,7 @@ Zooming into Antarctica to judge the terrain feather showed it "basically washed
 - **Possible:** mechanically yes, but only via source build / PPA / the OSGeo container images: and rasterio can't follow until a wheel bundles 3.13, so a CLI-only upgrade widens today's benign 3.12.1/3.12.2 split. All listed 3.13 breaking changes are C/C++-API-side; our CLI + rasterio surface is untouched (the `--src/--dst` → `--input/--output` rename keeps old names).
 - **Useful: no.** The one headline naming our tool: `gdal raster tile` automatic source *overview* selection: doesn't apply (our design deliberately has no overviews; low zooms build from the tiles). Everything else on our surface is a no-op. Two items are mild *risk*: the warper Lanczos special-case removal and "RasterIO resampling now operates in output buffer type by default": resampling changes shift output **bytes**, our pyramid is ratified by byte-compare, and the freshness guard is version-blind → an upgrade mid-stream risks a mixed-generation pyramid.
 - **Revisit when:** (a) a full-restage boundary arrives (the Phase 5 supersampled re-fuse regenerates every byte, making version drift moot) AND (b) rasterio bundles 3.13+.
-- **Actionable now (Phase 4, not deferred):** when the rohome pipeline container gets built, pin its GDAL to 3.12.x to match dev: the same-version principle matters more than the number.
+- **Actionable now (Phase 4, not deferred):** when a pipeline container gets built, pin its GDAL to 3.12.x to match dev: the same-version principle matters more than the number.
 
 ## Look presets: user-selectable globe styles (analysed 2026-07-23)
 
@@ -588,6 +588,12 @@ Deferred past the 22h Earth pass deliberately: every part of it is a HERO defici
 
 The same reason as the entry below it: the working plan is live state and one question in hand, not a backlog, and these had no deadline and no relation to the arc that carried them. None is urgent. Each is here so it is greppable rather than compressed away.
 
+### The fused heightfield has no independent oracle (deleted 2026-09-09)
+
+- **`pipeline/fuse/` is the one lane with no fixture and no recorded settings**, and a bad shelf clamp or a bathymetry misregistration renders as a plausible-but-wrong coastline that nothing catches. `CONTRIBUTING.md` names it as the gap the pixel baseline does not reach.
+- **`pipeline/ot_oracle.py` was the intended answer and was never once run.** It pulled an independent OpenTopography clip (SRTM15+ is the canonical land/sea-fusion reference) over the same frame, to compare against. Deleted rather than kept, on the rule that prose calling something hand-run does not make a never-run entry point live. → HISTORY, *the fusion oracle is deleted having never been run*.
+- **A successor needs an account and a key**, which is `maintainer-only`, and it should ship with a recorded run rather than as a runnable file nobody invokes. Git history holds the deleted implementation if the API shape is wanted.
+
 ### Values a doc spells that a constant owns
 
 - **`CLAUDE.md` spells six code-owned values and nothing watches any of them.** Exactly one value in that file is guarded, and the guard asserts an ABSENCE (`test_no_module_outside_the_owner_spells_the_cap`). The pattern to copy is the cgroup bullet, which names `pass_memory.HEAVY_JOB_GIB` as the owner and spells nothing.
@@ -696,6 +702,11 @@ The working plan had become the project's only backlog as well as its live state
 - **The `Protocol` conversion for both ice registries**: no behaviour change, reversible, unscheduled.
 - **The next Mars pass rebuilds the ice caps and the ice tile layer.** The recovered units carry today's mtime and `_mars_sources` gates on mtimes, so the output is correct but not free.
 - **`data/raw` is written by `pipeline/acquire/*` alone**, so making it read-only on disk is the candidate that removes the target instead of detecting the write. The maintainer's call, being 1.1 TB of their own data.
+
+### Two things the site does not tell a visitor
+
+- **The 15x vertical exaggeration is disclosed on no page, note, key or step.** It is the largest departure from the real surface anywhere in the product, larger than the lake beds and the borders that both get notes of their own, and the elevation key is a normalised ramp carrying no metres, so nothing on the site lets a reader recover true relief. README's "rendered from real elevation, not drawn" is the nearest sentence and points the other way. The wording is a look call, and the About grid pads every card to the tallest, so this wants a note rather than a seventh step.
+- **Nothing says the tier was chosen for the visitor, and both automatic paths are silent.** An incapable device is redirected to the Lite route before the globe paints, and the runtime ladder retires the idle spin, drops the canvas to 1x and disables terrain with no notice; the picker's tooltips say what each tier buys and never that one was picked for you. That is the whole of what `SITE-3` asks, and it is a copy call rather than a mechanism gap.
 
 ### A colour call and a product question
 
