@@ -5891,6 +5891,26 @@ def _earth_lake_depth''',
         replacement='        displacement_scale=15.0 / (extent_w_m / 2.0),',
         guard='test_mars_displaces_at_its_own_number_and_not_earths',
     ),
+    # README argues the delivery choice and the Worker rule argues only half of it, loading when
+    # Worker code is opened rather than when a reader asks. A brevity pass takes the argument and
+    # leaves the arrangement, which is the state the row sat PARTIAL in.
+    Sabotage(
+        suite='python',
+        label='the delivery argument is trimmed back to describing the arrangement',
+        path='README.md',
+        needle='a new key, never an overwrite',
+        replacement='care',
+        guard='test_the_readme_states_the_pyramid_size_its_delivery_argument_rests_on',
+    ),
+    # The count follows from the ceiling, so a moved ceiling and a stale README are one edit apart.
+    Sabotage(
+        suite='python',
+        label="a body's zoom ceiling moves and README goes on stating the old pyramid size",
+        path='pipeline/bodies.py',
+        needle='    tile_max_zoom=7,',
+        replacement='    tile_max_zoom=6,',
+        guard='test_the_readme_states_the_pyramid_size_its_delivery_argument_rests_on',
+    ),
     # The field is `Body.baked_exaggeration` and this record's key is not, which reads as a rename
     # left half done. Carrying it through is the tempting tidy-up, and every pinned frame on disk
     # spells the old key, so the fleet stops matching what regenerates beside it.
