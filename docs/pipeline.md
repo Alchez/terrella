@@ -52,7 +52,7 @@ python -m pipeline.acquire.earth.download_gebco         # global bathymetry
 | `pipeline.acquire.earth.download_rgi` | RGI 7.0 glacier shapefiles merged to `data/raw/rgi/rgi7_g_3857.gpkg` |
 | `pipeline.acquire.earth.download_seaice` | OSI SAF monthly sea-ice concentration → the annual ice-frequency climatology |
 | `pipeline.acquire.earth.download_worldcover` | ESA WorldCover tiles for one `--extent`, the hero lane's snow source |
-| NSIDC-0791 snow persistence | the snow-persistence NetCDF, obtained from NSIDC via Earthdata (earthaccess/CMR) and placed at `data/raw/snow/`. **No committed acquire script** (unlike RGI / sea ice) |
+| NSIDC-0791 snow persistence | the snow-persistence NetCDF, obtained from NSIDC via Earthdata (earthaccess/CMR) and placed at `data/raw/snow/`. **No committed acquire script** (unlike RGI / sea ice), because the fetch needs a NASA Earthdata login and no acquirer carries a credential |
 
 ## The look
 

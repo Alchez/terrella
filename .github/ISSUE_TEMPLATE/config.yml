@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: A question, or something you are not sure is a bug
+    url: https://github.com/Alchez/terrella/discussions
+    about: Discussions is the lower-stakes place to ask, and no question is too small.
+  - name: Looking for something to work on
+    url: https://github.com/Alchez/terrella/blob/main/CONTRIBUTING.md#what-needs-doing
+    about: Two lists, what each tag means, and which entries need only a clone.

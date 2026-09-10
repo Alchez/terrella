@@ -25,7 +25,7 @@ No rendered asset or elevation tile is in git, so a clone gets the code and none
 | Run every check the project has | git, uv, pnpm | minutes |
 | See the globe in a browser | the three tile archives for one body, downloaded | minutes, plus a few GB of disk |
 | See the gallery too | a local render store, which nothing ships: the manifest and the hero images | the two rows below |
-| Change how the globe's tiles look | the source data and the fused heightfield, an NVIDIA GPU and Blender: every tile block is raytraced | a night per body, then a re-cut and a deploy |
+| Change how the globe's tiles look | the source data (no accounts or keys, except NSIDC-0791 snow, which needs a NASA Earthdata login) and the fused heightfield, an NVIDIA GPU and Blender: every tile block is raytraced | a night per body, then a re-cut and a deploy |
 | Change how the gallery's renders look | the above, at 8K per country | days |
 
 The first row runs on a fresh clone with nothing configured, and it is both test suites, the type checkers and the linters. The second is the cheap way to see something: the tile archives are published, so a globe needs a download rather than a render store. Everything below that needs the store itself, and since nothing ships one, the bottom two rows are how you get it.
