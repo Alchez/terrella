@@ -744,6 +744,8 @@ The working plan went back to holding one onboarding question at a time, which i
 
 ### Deferred on a trigger rather than on effort
 
+- **The sky-view march wraps around the frame, so a hero's west-edge ridge occludes its east edge as though the two were adjacent.** Measured on a 256 px grid: the far edge reads 0.5625, matching the pixel one px from the ridge, while mid-grid reads a fully open 1.0000. `test_the_march_wraps_around_the_grid_edge` pins that value, so padding the march instead goes red here rather than silently restaging every hero. The fix costs a re-shade and not a re-render, no GPU and minutes off the kept `heroes/raw/*.png`, but it moves the edge band on all 203, which makes it a look call.
+
 - **Three items defer with the 203-hero re-render**, each needing a frame rendered under the new sky: `SHADOW_TINT`'s re-derivation, the `locked_hero_hex` re-freeze, and the hero hairline backdrop. The mismatch behind them is real, every hero carrying a warm ambient and the old tone map that the tiles do not, so a country click opens a hero that does not match its globe.
 - **Do two GPU backends render identically?** Blocked on hardware, this box having one card. If they differ, the backend belongs in the recipe rather than in `scene_build`'s module-constant allowlist, and `GPU_BACKENDS`'s own comment says so.
 - **The fold's law is deferred on the composite and cap tiers, and its stated reason is now false**, having rested on both bodies being composited. Re-argue it rather than citing it.

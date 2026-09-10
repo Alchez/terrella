@@ -590,6 +590,32 @@ SABOTAGES: list[Sabotage] = [
         replacement='            "mars_alpha_levels_unread": {pole: list(levels)',
         guard='test_mars_declares_the_two_constants_its_build_bakes_in',
     ),
+    # --- the hero burn, which had no test at all and no way to be caught wrong ---------------------
+    # Both mutations leave a hero that renders, promotes and looks deliberate. The module runs on
+    # every country through a shell string in `batch.py`, so nothing imports it and nothing but this
+    # file's own rungs asks it anything.
+    Sabotage(
+        suite='python',
+        # Reads as switching an effect off. It does the opposite: a zeroed march reports every pixel
+        # equally occluded, the per-country renormalisation spreads that to full range, and all 203
+        # heroes come out with their land burned flat at the maximum and no relief modelling left.
+        label='the sky-view exaggeration is zeroed, burning every hero flat at maximum',
+        path='pipeline/look/sky_view.py',
+        needle='max_px: int = 42, exag: float = 22.0)',
+        replacement='max_px: int = 42, exag: float = 0.0)',
+        guard='test_a_ridge_occludes_the_ground_beside_it',
+    ),
+    Sabotage(
+        suite='python',
+        # The horizon angle stops being an angle. Invisible to a tall-ridge fixture, where the
+        # gradient saturates at every distance inside the march and what falls off is the count of
+        # directions still reaching the wall, so the guard has to be asked on LOW relief.
+        label='the horizon angle drops its distance term and stops falling off with range',
+        path='pipeline/look/sky_view.py',
+        needle='(zi - heights) / (distance_px * m_per_px)',
+        replacement='(zi - heights) / m_per_px',
+        guard='test_the_horizon_angle_falls_off_with_distance',
+    ),
     # --- span attribution: the three ways it could quietly start lying -------------------------------
     # All three mutations leave a report that still RENDERS and still reads plausible, which is the
     # only reason they are worth a case: a broken attribution does not throw, it just blames the
