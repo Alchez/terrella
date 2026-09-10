@@ -64,3 +64,31 @@ def test_the_readme_and_the_archives_page_agree_on_which_download_can_be_measure
         "the archives page states no per-body figure for README to point at"
     )
     assert "Real metres" in roles, "the terrain archive no longer says its elevations are undistorted"
+
+
+def test_the_readme_states_the_pyramid_size_its_delivery_argument_rests_on() -> None:
+    """README argues an archive against a directory of loose tiles, and the count is the argument.
+
+    A raster pyramid is dense, every address from z0 to the body's ceiling, so the figure follows
+    from `tile_max_zoom` and moves only when someone moves a ceiling. Stating it in prose puts a
+    second copy beside the registry; this is the copy that goes red.
+    """
+    from pipeline import bodies
+
+    readme = flattened(ROOT / "README.md")
+    for body in bodies.BODIES.values():
+        dense = (4 ** (body.tile_max_zoom + 1) - 1) // 3
+        assert f"{dense:,}" in readme, (
+            f"{body.name} cuts to z{body.tile_max_zoom}, so each of its raster pyramids holds "
+            f"{dense:,} tiles, and README states no such figure for the delivery argument to rest on"
+        )
+    for clause, lost in (
+        ("a new key, never an overwrite",
+         "why an archive beats a directory of loose tiles, which is the re-cut and not the bytes"),
+        ("strips a `Range` header",
+         "why the browser does not open the archive itself, the usual way PMTiles is served"),
+    ):
+        assert clause in readme, (
+            f"README no longer says {lost}. Both halves of the delivery question live here and in "
+            f"the Worker rule, which only opens when someone is already editing Worker code"
+        )
