@@ -307,7 +307,11 @@ def test_every_body_s_grid_resolution_agrees_with_its_own_tile_ceiling() -> None
 
 
 def test_exaggeration_agrees_with_the_shared_palette_constant() -> None:
-    """The hero scene imports this value; a divergence restages 203 renders."""
+    """Earth's field against the authored value in `palette.py`, which no production path reads.
+
+    A divergence draws the tiles and the heroes at two different reliefs with nothing else to
+    notice, both lanes being internally consistent at whichever number they read.
+    """
     assert bodies.EARTH.exaggeration == palette.EXAGGERATION
 
 

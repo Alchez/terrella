@@ -46,6 +46,9 @@ class Source:
     notice: str
     #: Licence-REQUIRED rather than courtesy. Only these are asserted, because a check that claims
     #: an obligation the publisher does not state fails for reasons that are not legal ones.
+    #: Nothing here returns the whole marked set: an archive credits per layer and a card per body,
+    #: and the only thing wanting all of them is a guard, which needs each source's name for its
+    #: message and a literal list beside it so a derivation that produced nothing cannot pass.
     obligation: bool
     #: A sentence the About card adds after the citation and an archive has no use for, either
     #: because it points at the page ("see the note below") or because it is context a downloader
@@ -344,11 +347,6 @@ def on_the_page(body: bodies.Body) -> tuple[Source, ...]:
                *credits.vector, *credits.heroes]
     seen: dict[str, None] = dict.fromkeys(ordered)
     return tuple(SOURCES[key] for key in seen)
-
-
-def obligations() -> tuple[str, ...]:
-    """Every notice a licence REQUIRES, which is the set any guard may assert."""
-    return tuple(source.notice for source in SOURCES.values() if source.obligation)
 
 
 def main() -> int:

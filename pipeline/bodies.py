@@ -146,7 +146,8 @@ EARTH = Body(
     # The one home: the planet pass reads this, and a test scans for a regrown literal. See the
     # field's note for why the rounding stays.
     map_units_per_pixel=305.7483,
-    # Duplicated today in look/palette.py, which the hero scene imports directly.
+    # Duplicated in look/palette.py as the authored value, which no production path reads and a
+    # test holds this equal to.
     exaggeration=15.0,
     # Both cuts read this: the raster pass, and `countries_pmtiles.MAX_ZOOM` for the vectors.
     tile_max_zoom=8,

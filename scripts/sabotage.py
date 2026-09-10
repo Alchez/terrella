@@ -3454,6 +3454,18 @@ SABOTAGES: list[Sabotage] = [
         replacement='EXAG = 15.0\nCOAST_RGB = (96, 122, 142)',
         guard='test_neither_shading_module_carries_its_own_exaggeration',
     ),
+    # The other way the constant comes back, and the way it actually did: an import rather than a
+    # local. `scene_numbers` carried this exact line and gave every Mars block 15/20 of its
+    # displacement. The scan above is scoped to the shading modules, so none of it reaches here.
+    Sabotage(
+        suite='python',
+        label="the render prep re-imports the authored exaggeration instead of taking the body's",
+        path='pipeline/render/render_prep.py',
+        needle='import argparse\nimport json\nimport os\n',
+        replacement='import argparse\nimport json\nimport os\n'
+                    'from pipeline.look.palette import EXAGGERATION\n',
+        guard='test_the_authored_exaggeration_has_no_reader_outside_its_own_module',
+    ),
     # Unused, so every behavioural guard above stays green and the diff reads as a tidy local. This
     # is the case that isolates what the SCAN is for: the constant is how the wiring comes back, and
     # it is at its most invisible in the commit that merely defines it.
@@ -7434,6 +7446,19 @@ def _earth_lake_depth''',
                'MOLA flew',
         replacement='MOLA flew',
         guard='test_about_page_carries_the_required_string',
+    ),
+    # The flag three parametrized sweeps derive their population from, unset on the source that has
+    # already been missed once. It turns none of them red: each loses that source's case and reports
+    # a smaller green, so only the literal seven-name list can say the derivation came back short.
+    Sabotage(
+        suite='python',
+        label='a licence-required source is unmarked and drops out of every derived sweep',
+        path='pipeline/attribution.py',
+        needle='Research & Innovation. https://doi.org/10.5285/178ec50d-1ffb-42a4-a4a3-1145419da2bb"'
+               ',\n        obligation=True,\n',
+        replacement='Research & Innovation. https://doi.org/'
+                    '10.5285/178ec50d-1ffb-42a4-a4a3-1145419da2bb",\n        obligation=False,\n',
+        guard='test_the_obligations_are_the_ones_the_registry_marks',
     ),
     Sabotage(
         suite='web',

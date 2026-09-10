@@ -164,6 +164,23 @@ class TestSharedConstants:
         """
         assert palette.EXAGGERATION == 15.0
 
+    def test_the_authored_exaggeration_has_no_reader_outside_its_own_module(self):
+        """Set equality, so `palette.py` losing the name fails here rather than emptying the sweep.
+
+        The temptation is to import it wherever a displacement is needed, and `scene_numbers` did:
+        every Mars block came out at 15/20 of its displacement, which is a flatter planet rather
+        than an error. Every path that draws more than one body reads `Body.exaggeration`.
+        """
+        naming = {
+            str(path.relative_to(REPO_ROOT))
+            for path in sorted((REPO_ROOT / "pipeline").rglob("*.py"))
+            if re.search(r"\bEXAGGERATION\b", path.read_text(encoding="utf-8"))
+        }
+        assert naming == {"pipeline/look/palette.py"}, (
+            "the authored constant is read from production code. It is Earth's alone, and a path "
+            "that draws more than one body must ask `Body.exaggeration`"
+        )
+
     def test_web_palette_matches_the_ramp_it_copies(self):
         """web/src/lib/palette.ts restates pipeline colours for the browser, which cannot
         import Python. This recomputes each one through _srgb8 and fails on drift — the

@@ -95,9 +95,13 @@ class TestTheExaggerationComesFromTheBody:
             bodies.MARS.exaggeration / bodies.EARTH.exaggeration)
 
     def test_the_hero_number_still_reaches_the_scene_through_earths_field(self):
-        """The bridge the removed `render_prep.EXAGGERATION` leg used to be: Earth's heroes must
-        keep rendering at the authored constant, now via the registry rather than an import."""
-        assert bodies.EARTH.exaggeration == palette.EXAGGERATION
+        """Composed rather than compared, so the assertion is the bridge the name promises: the
+        authored constant reaches a displacement through `Body.exaggeration` and not by an import.
+
+        It localises nothing `test_bodies.py`'s pin and the pass-through above do not already own
+        between them; what it holds is the two legs joined, which neither of those runs end to end.
+        """
+        assert _unit_grid(bodies.EARTH.exaggeration)["displacement_scale"] == palette.EXAGGERATION
 
     def test_there_is_no_default_to_forget(self):
         with pytest.raises(TypeError):
