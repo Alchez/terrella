@@ -555,7 +555,7 @@ Raised while reviewing the gallery after the sea-sync sweep (the sea look was ap
 ### Small steep islands look like "pinecones" (Saint Lucia, Dominica)
 
 - **Measured root cause:** exaggeration is a global **15×** applied to real height ÷ width, so visual steepness = `15 × (relief / frame-width)`. A 950 m peak on a 30 km island → ~0.47 (peak stands ~half the frame tall → bristly); a continent → ~0.025 (gentle). Same constant, wildly different look.
-- **The principled fix = adaptive exaggeration:** taper the factor for small high-relief-ratio frames. This makes the *visual* relief MORE consistent across the gallery, not less: the "tuned once, applied globally" rule (ART.md) is what currently makes the look *inconsistent*. Bounded cost: only ~20-30 small steep islands re-render (~1 h, not a planet sweep). Touches the FROZEN `render_prep.py`, which takes the 15.0 off `Body.exaggeration` rather than carrying a constant of its own, so it wants the sea-sync freeze lifted (ratified) first.
+- **The principled fix = adaptive exaggeration:** taper the factor for small high-relief-ratio frames. This makes the *visual* relief MORE consistent across the gallery, not less: the "tuned once, applied globally" rule (ART.md) is what currently makes the look *inconsistent*. Bounded cost: only ~20-30 small steep islands re-render (~1 h, not a planet sweep). Touches the FROZEN `render_prep.py`, which takes the 15.0 off `Body.baked_exaggeration` rather than carrying a constant of its own, so it wants the sea-sync freeze lifted (ratified) first.
 - **Note:** validated that atoll/island heroes themselves read well (Maldives/Marshall are striking): the problem is only over-exaggeration of *steep* small islands, not small frames per se.
 
 ## Hero and block renders differ in their contents, when only their projection should (raised 2026-08-24)
@@ -587,6 +587,13 @@ Deferred past the 22h Earth pass deliberately: every part of it is a HERO defici
 > **MIXED**, and the subsections below carry the states. Most is a maintainer call or needs this project's own account; the doc-pointer widening below is the exception and needs a clone and nothing else. See also *One concept with two homes* in the entry below.
 
 The same reason as the entry below it: the working plan is live state and one question in hand, not a backlog, and these had no deadline and no relation to the arc that carried them. None is urgent. Each is here so it is greppable rather than compressed away.
+
+### Two prose defects in code comments, both measured across the whole tree
+
+- **1,718 shouted runs across 250 files**, counted by tokenising every tracked `.py` comment and docstring and every `//` and `/* */` in `.ts`/`.astro`, then keeping runs of two or more all-caps words containing at least one ordinary English word, so acronyms and `SNAKE_CASE` are excluded. Single-word shouts are outside that count, so it is a floor. Grouped: `web` 759, `tests` 463, `pipeline` 306, `scripts` 190; worst files `scripts/sabotage.py` 139, `web/src/components/Globe.astro` 85, `tests/test_scene_build_sync.py` 43.
+- **179 test-file citations across 108 files**, same extraction, matching `test_*.py`, `*.test.ts` and `tests/` paths inside comments. A cited test rots when it is renamed and is justification rather than what the code is. Grouped: `web` 101, `tests` 36, `pipeline` 31, `scripts` 11.
+- Both counts are re-derivable from the extraction each bullet states, and nothing tracked measures either: `scripts/prose_report.py` is a ratio instrument over Python only. The `prose-pass` skill owns the procedure for the first.
+- **Do it per file as one is opened, or as its own pass**, which is the maintainer's call: the whole sweep is a large diff across frozen modules, and the per-file version costs nothing.
 
 ### The fused heightfield has no independent oracle (deleted 2026-09-09)
 
@@ -716,7 +723,7 @@ The working plan had become the project's only backlog as well as its live state
 
 ### Two things the site does not tell a visitor
 
-- **The 15x vertical exaggeration is disclosed on no page, note, key or step.** It is the largest departure from the real surface anywhere in the product, larger than the lake beds and the borders that both get notes of their own, and the elevation key is a normalised ramp carrying no metres, so nothing on the site lets a reader recover true relief. README's "rendered from real elevation, not drawn" is the nearest sentence and points the other way. The wording is a look call, and the About grid pads every card to the tallest, so this wants a note rather than a seventh step.
+- **The vertical exaggeration reaches a downloader and not a visitor.** The archives page states each body's baked scale and says the relief pyramid is a picture rather than a measurement; the About page, where the lake beds and the borders both get notes, still says nothing, and the globe a visitor is actually looking at says nothing either. Mars is the sharper half: its elevation key reads -6,000 m to +6,100 m and its lede states 200 metres to the pixel, so the one place the site gives real numbers sits beside a surface drawn at 20x, and a reader who pairs them computes a slope twenty times the real one. The wording is a look call, and the About grid pads every card to the tallest, so this wants a note rather than a seventh step.
 - **Nothing says the tier was chosen for the visitor, and both automatic paths are silent.** An incapable device is redirected to the Lite route before the globe paints, and the runtime ladder retires the idle spin, drops the canvas to 1x and disables terrain with no notice; the picker's tooltips say what each tier buys and never that one was picked for you. That is the whole of what `SITE-3` asks, and it is a copy call rather than a mechanism gap.
 
 ### A colour call and a product question

@@ -34,6 +34,8 @@ Code [MIT](LICENSE). Imagery [CC BY-SA 4.0](https://creativecommons.org/licenses
 
 Every pyramid the site draws from is downloadable as the PMTiles archive it is served out of, listed at [terrella.alchez.dev/archives](https://terrella.alchez.dev/archives/). Each file states its own credit and what is in it, so a copy stays attributable once it leaves here.
 
+The two raster archives differ in what they can be used for. Relief is imagery with the body's vertical exaggeration baked into its pixels, so it is a picture rather than a measurement, and no elevation key on the site carries the metres to undo it. Terrain is real metres, and the exaggeration is applied when it is drawn. The archives page states each body's figure.
+
 The tile endpoint is open as well, and it is the wrong thing to build on. It runs a worker per tile against a daily allowance shared with the site itself, and no address is promised to stay put: a re-cut ships under a new key and every tile URL moves with it. Take an archive and serve it yourself.
 
 ## Read next

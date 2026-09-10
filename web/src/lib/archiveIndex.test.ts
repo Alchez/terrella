@@ -105,6 +105,25 @@ describe("archiveIndex", () => {
     }
   });
 
+  it("says which axis of a download can be measured, in each body's own numbers", () => {
+    // Both halves or neither: a bare scale on the imagery reads as a spec, and "real metres" beside
+    // an unqualified picture reads as a claim about both files.
+    // The values are pinned against the pipeline on the Python side; this holds that each card
+    // carries one and that the two bodies are not handed the same sentence.
+    const scales = new Set<string>();
+    for (const world of worlds) {
+      const relief = world.current.find((row) => row.layer === "relief");
+      const stated = relief?.role.match(/drawn at (\d+(?:\.\d+)?)x/);
+      expect(stated?.[1], `${world.slug} relief states no vertical scale`).toBeDefined();
+      scales.add(stated?.[1] ?? "");
+      expect(relief?.role, `${world.slug} relief`).toContain("rather than a measurement");
+      const terrain = world.current.find((row) => row.layer === "terrain");
+      expect(terrain?.role, `${world.slug} terrain`).toContain("Real metres");
+    }
+    expect(scales.size, "both planets quote one figure, so one of them is reading the other's card")
+      .toBe(worlds.length);
+  });
+
   it("sends downloads to the archive host and tiles to the tile host", () => {
     // One object read against one worker invocation. Linking a multi-GB download at the tile host
     // would 404, and the shapes that parse would bill a worker for it.

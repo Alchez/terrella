@@ -1,12 +1,20 @@
 # Contributing
 
-Terrella is one person's project for learning how relief maps get made, published so it can be read, run and reused. Questions and issues are welcome. There is no promised review turnaround, and a large pull request that was not discussed first will probably sit, so open an issue before building anything substantial. Bug fixes, tests, documentation and macOS or Windows portability are all welcome as they come. Anything that adds a feature or replaces a subsystem should start as an issue: this is a learning project, and a pull request that hands over a piece the maintainer has not worked through yet defeats what it is for.
+Terrella is one person's project for learning how relief maps get made, published so it can be read, run and reused. Questions and issues are welcome, and there is no promised review turnaround.
+
+- **Bug fixes, tests, documentation and macOS or Windows portability** are welcome as they come.
+- **A feature or a replaced subsystem starts as an issue.** A large pull request nobody discussed first will probably sit: this is a learning project, and one that hands over a piece the maintainer has not worked through yet defeats what it is for.
 
 By opening a pull request you license your contribution under this project's MIT license, and confirm you have the right to do so.
 
 ## What needs doing
 
-Two lists, and neither is a queue. The [open issues](https://github.com/Alchez/terrella/issues) are the short one, and `good first issue` marks what needs nothing but a clone. `FUTURE.md` is the long one: ideas analysed and parked, each carrying a tag for what it needs and who can act, which the file's opening section defines. Anything not tagged `maintainer-only` is yours to take, with the shape agreed in an issue first, because a parked entry is analysis rather than assigned work and some of them are parked on a judgement nobody else can make.
+Two lists, and neither is a queue.
+
+- **[Open issues](https://github.com/Alchez/terrella/issues)** are the short one, where `good first issue` marks what needs nothing but a clone.
+- **`FUTURE.md`** is the long one: ideas analysed and parked, each tagged for what it needs and who can act, which its opening section defines.
+
+Anything not tagged `maintainer-only` is yours to take, with the shape agreed in an issue first, because a parked entry is analysis rather than assigned work and some are parked on a judgement nobody else can make.
 
 ## What runs without the imagery
 
@@ -48,6 +56,11 @@ Linux only, so far. CI runs Ubuntu, and the render pipeline expects a Blender ta
 
 `./scripts/check.sh` from the repo root runs every gate this project holds at zero. It keeps going after a failure so you see all of them at once, and prints the command to re-run just the one you are fixing. Pass `--python` or `--web` for one half, which is how CI runs them: one per job.
 
+Green here is not green on the pull request, in either direction.
+
+- **CI is stricter once**: it adds a coverage floor your local run leaves off, so a change that lowers coverage passes for you and fails there.
+- **It is also weaker.** A green run says the code is consistent, never that the render is right. *Changing the pipeline without the render store* lists what no gate can see.
+
 ## Tests that skip themselves
 
 Some tests read source data that is not in git. Those skip rather than fail, and `uv run pytest -rs` names the artifact each one wanted, which is how you tell an expected skip from a broken setup. A failure is a different thing and is worth reporting.
@@ -86,6 +99,13 @@ Adapted from MapLibre's AI policy, which this project follows when contributing 
 
 `CLAUDE.md` is the standing brief: how the system is built, and which questions are settled. Read it before proposing an architectural change, because several of the obvious ideas have been tried and reverted and it says which ones. The README's *Read next* indexes everything else.
 
-Two more places carry what only matters sometimes, and both are tracked so you get them in a clone. `.claude/rules/` holds notes that load when a matching file is opened, such as the tile Worker's constraints when you open Worker code. `.claude/skills/` holds notes that load when a matching task starts, such as driving Blender or acquiring a source dataset. They exist so `CLAUDE.md` can stay short enough to be read: a topic lives in exactly one of the three, and moves between them rather than being copied. If you are working by hand rather than with an agent, read them as ordinary documents; the README indexes them.
+Two more places carry what only matters sometimes, both tracked so a clone gets them. A topic lives in exactly one of the three and moves rather than being copied, which is what keeps `CLAUDE.md` short enough to read. Read them as ordinary documents if you are working by hand.
 
-It does not carry everything, and much of the reasoning behind a decision is not in this repository at all. When you cannot tell whether an idea has already been considered, `FUTURE.md` is the place to look: it holds the ideas that were analysed and parked, and the ones that were tried and rejected, each with the record of why. When it does not answer you, open an issue and ask: that is a far cheaper question than a rejected pull request. Anything that changes what the site looks like is a judgement the maintainer makes by eye, so raise it before building it.
+- **`.claude/rules/`** loads when a matching file is opened, such as the tile Worker's constraints when you open Worker code.
+- **`.claude/skills/`** loads when a matching task starts, such as driving Blender or acquiring a source dataset.
+
+None of it carries everything, and much of the reasoning behind a decision is outside this repository.
+
+- **`FUTURE.md` first**, for whether an idea has already been considered: the ones analysed and parked, and the ones tried and rejected, each with the record of why.
+- **Then an issue**, which is a far cheaper question than a rejected pull request.
+- **Anything that changes what the site looks like** is a judgement the maintainer makes by eye, so raise it before building it.

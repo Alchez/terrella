@@ -119,14 +119,14 @@ def write_frame(grid: cap_render.CapGrid, outdir: Path) -> dict[str, Any]:
     extent_m = 2.0 * grid.edge_m
     numbers = render_prep.scene_numbers(
         grid.px, grid.px, extent_m * bodies.ground_metres_per_aeqd_unit(grid.body),
-        exaggeration=grid.body.exaggeration,
+        exaggeration=grid.body.baked_exaggeration,
         hero_long_edge=grid.px // cap_render.CAP_QUADRANT_SPLIT,
         camera_fraction=1.0 / cap_render.CAP_QUADRANT_SPLIT)
     # The full FRAME_KEYS vocabulary in a cap's own terms: no padded lon/lat frame exists, the CRS
     # is the grid's OWN projection string rather than a second spelling of it, and the extents are
     # AEQD map units, with `write_recipe` recording `ground_scale` beside them, since the rig wants
     # the grid it was warped on and the recipe wants what a metre is worth on this planet.
-    payload = dict(numbers, body=grid.body.name, exaggeration=grid.body.exaggeration,
+    payload = dict(numbers, body=grid.body.name, exaggeration=grid.body.baked_exaggeration,
                    width_px=grid.px, height_px=grid.px, frame_lonlat=None, dst_crs=grid.aeqd,
                    xres_m=extent_m / grid.px, extent_w_m=extent_m, extent_h_m=extent_m)
     (outdir / "frame.json").write_text(render_prep.frame_json_text(payload))
@@ -147,7 +147,7 @@ def write_recipe(grid: cap_render.CapGrid, rasters: frozenset[str], outdir: Path
         "pole": grid.name,
         "grid": cap_render.grid_recipe_fields(grid),
         "quadrant_split": cap_render.CAP_QUADRANT_SPLIT,
-        "exaggeration": grid.body.exaggeration,
+        "exaggeration": grid.body.baked_exaggeration,
         "ground_scale": bodies.ground_metres_per_aeqd_unit(grid.body),
         "layers_off": layers.layers_off(grid.body, layers.CAP_LAYERS),
         "rasters_off": planet_seam.rasters_off(rasters),

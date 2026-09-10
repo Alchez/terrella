@@ -215,7 +215,7 @@ class TestTheDisplacementIsMeasuredInGroundMetres:
         grid = cap_render.north_grid(EARTH)
         ground_half_extent = grid.edge_m * bodies.ground_metres_per_aeqd_unit(EARTH)
         assert self._scale(EARTH, tmp_path) == pytest.approx(
-            EARTH.exaggeration / ground_half_extent)
+            EARTH.baked_exaggeration / ground_half_extent)
 
     def test_a_body_whose_spheres_coincide_needs_no_correction(self, tmp_path):
         """The discriminator a wrong-way division cannot pass: with the ground and AEQD radii equal
@@ -225,7 +225,7 @@ class TestTheDisplacementIsMeasuredInGroundMetres:
                                        ground_radius_m=EARTH.aeqd_radius_m)
         grid = cap_render.north_grid(identity)
         assert self._scale(identity, tmp_path) == pytest.approx(
-            identity.exaggeration / grid.edge_m)
+            identity.baked_exaggeration / grid.edge_m)
 
     def test_mars_is_displaced_at_nearly_twice_the_uncorrected_scale(self, tmp_path):
         """Direction AND magnitude on the body that actually diverges, because a correction applied
@@ -233,7 +233,7 @@ class TestTheDisplacementIsMeasuredInGroundMetres:
         radius, so the corrected scale is the bigger number."""
         mars = bodies.BODIES["mars"]
         grid = cap_render.north_grid(mars)
-        uncorrected = mars.exaggeration / grid.edge_m
+        uncorrected = mars.baked_exaggeration / grid.edge_m
         assert self._scale(mars, tmp_path) == pytest.approx(uncorrected / 0.5330701616700675)
         assert self._scale(mars, tmp_path) > 1.8 * uncorrected
 
@@ -252,7 +252,7 @@ class TestTheDisplacementIsMeasuredInGroundMetres:
                 continue
             with subtests.test(body=name):
                 grid = cap_render.north_grid(body)
-                zfactor = body.exaggeration / bodies.ground_metres_per_aeqd_unit(body)
+                zfactor = body.baked_exaggeration / bodies.ground_metres_per_aeqd_unit(body)
                 # The composite's z-factor is per map CELL; this scale is per unit of a plane 2.0
                 # units wide. One cell is `2 * edge_m / px` map units, and one Blender unit is
                 # `edge_m` of them, so the conversion between the two is exactly `px / 2`.
@@ -298,7 +298,7 @@ class TestWhatTheCapPrepWrites:
         recipe = json.loads((prepped() / prep_cap.RECIPE_NAME).read_text())
         assert recipe["body"] == EARTH.name
         assert recipe["pole"] == "north"
-        assert recipe["exaggeration"] == EARTH.exaggeration
+        assert recipe["exaggeration"] == EARTH.baked_exaggeration
 
     def test_the_south_declares_its_own_pole(self, prepped):
         assert json.loads((prepped("south") / prep_cap.RECIPE_NAME).read_text())["pole"] == "south"

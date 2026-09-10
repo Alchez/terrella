@@ -100,10 +100,10 @@ FILL_AZIMUTH = 135.0
 SUN_ANGULAR_DIAMETER_DEG = 12.0
 
 # Earth's vertical exaggeration, and only Earth's: relief is a different fraction of the radius on
-# every planet. Every path that draws more than one body reads `Body.exaggeration`, and
-# `tests/test_bodies.py` holds Earth's field equal to this. Importing it into a shared path instead
-# is the mistake to avoid — it gives a Mars block two thirds of its displacement — and pinning
-# rather than sharing is what keeps the tiles matching the heroes.
+# every planet. Every path that draws more than one body reads `Body.baked_exaggeration`, whose
+# Earth entry is pinned equal to this. Importing this into a shared path instead is the mistake to
+# avoid — it gives a Mars block two thirds of its displacement — and pinning rather than sharing is
+# what keeps the tiles matching the heroes.
 EXAGGERATION = 15.0
 
 

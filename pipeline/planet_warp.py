@@ -43,7 +43,7 @@ from pipeline.look import (
 #
 # The vertical exaggeration left the same way and for a sharper reason: it is a LOOK decision, and
 # two bodies whose relief is a different fraction of their radius cannot read right at one value.
-# It is `Body.exaggeration`, threaded to the places that shade. Same rule as above: the number is
+# It is `Body.baked_exaggeration`, threaded to the places that shade. Same rule as above: the number is
 # not written out, because the same scan looks for its name.
 
 #: The band height `warp_inputs` builds each optional layer's raster in. Must stay 256: the

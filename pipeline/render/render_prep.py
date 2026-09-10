@@ -117,13 +117,13 @@ def scene_numbers(width_px, height_px, extent_w_m, *, exaggeration,
     makes off-frustum context nearly free; `block_plan` holds the three
     widths this is one half of.
 
-    `exaggeration` IS KEYWORD-ONLY AND REQUIRED, and this used to import
-    Earth's 15x directly. It is `Body.exaggeration`, which is 20x on Mars,
-    and this function is not the hero path's alone: the block prep calls it
-    too and says so ("scene_numbers is the whole seam"), so a Mars block
-    prepared through the old import displaced at two thirds of correct with
-    nothing to notice. No default, for the reason no field on `Body` has
-    one — the type checker names every call site at once."""
+    `exaggeration` is keyword-only and required, and it is
+    `Body.baked_exaggeration`, which is 20x on Mars. The temptation is to
+    import Earth's authored constant from `palette.py` here instead, one
+    argument fewer at every call site; this function is not the hero path's
+    alone, so a Mars block prepared that way displaces at two thirds of
+    correct with nothing to notice. No default, for the reason no field on
+    `Body` has one — the type checker names every call site at once."""
     plane_h = 2.0 * height_px / width_px
     if height_px > width_px:
         res = dict(res_x=round(hero_long_edge * width_px / height_px),
@@ -289,7 +289,7 @@ def main():
               flush=True)
     else:
         numbers = scene_numbers(width, height, width * xres,
-                                exaggeration=body.exaggeration,
+                                exaggeration=body.baked_exaggeration,
                                 hero_long_edge=args.hero_long_edge)
         # normalize the CRS spelling so a regenerated frame.json is
         # byte-identical whether the projection came from --frame or the file
@@ -301,7 +301,7 @@ def main():
             dst_crs=crs_norm.to_proj4(),
             width_px=width, height_px=height, xres_m=xres,
             extent_w_m=width * xres, extent_h_m=height * xres,
-            exaggeration=body.exaggeration,
+            exaggeration=body.baked_exaggeration,
             **numbers)
         tmp_f = out_f.with_name(out_f.name + ".tmp")
         tmp_f.write_text(frame_json_text(payload))

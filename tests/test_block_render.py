@@ -374,8 +374,8 @@ class TestTheRecipeSeesWhatNoMtimeCan:
             "the census must not move when the same contexts are merely planned in another order"
 
     def test_the_bodys_exaggeration_is_in_the_recipe(self):
-        assert json.loads(self._params())["exaggeration"] == bodies.EARTH.exaggeration
-        assert json.loads(self._params(bodies.MARS))["exaggeration"] == bodies.MARS.exaggeration
+        assert json.loads(self._params())["exaggeration"] == bodies.EARTH.baked_exaggeration
+        assert json.loads(self._params(bodies.MARS))["exaggeration"] == bodies.MARS.baked_exaggeration
 
     def test_a_layer_switched_off_is_recorded_rather_than_merely_absent(self):
         """The conditional-record idiom, and the direction that is silent without it: a path that
