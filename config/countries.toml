@@ -1,6 +1,6 @@
 # Per-country render configuration — the single committed source of truth for
 # which countries get heroes, their frames, and their resolution/fusion knobs.
-# Read by pipeline/country_config.py (stdlib tomllib); the batch runner will
+# Read by pipeline/frame/country_config.py (stdlib tomllib); the batch runner will
 # consume the same resolver.
 #
 # Scope rule: a Natural Earth admin-0 row is in scope iff ADMIN == SOVEREIGNT

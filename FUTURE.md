@@ -613,6 +613,12 @@ The same reason as the entry below it: the working plan is live state and one qu
   - **Generalising that scan to a `(constant, prose pattern)` table is the fix, and it is a maintainer call**, since it puts six existing lines under a guard for the first time and each needs its owner named first.
   - **The trigger is the next value that drifts, not a sweep.** → HISTORY, *the deploy runbook had drifted in four places at once*, where four such copies were wrong at once and every one read as correct to anyone without the source open.
 
+### The per-country render knobs live only in the config file that reads them (found 2026-09-10)
+
+- **`fusion = "1s" | "3s"` overrides the automatic source-DEM choice per country and appears in zero tracked `.md`.** Its one home is `config/countries.toml`'s own header comment, so it is discoverable only by opening the file you were going to edit anyway. `resolution_floor_m` and `sky_view_strength` are in the same position; `ART.md` § *Resolution floor* covers the third of these and titles it for heroes.
+- **It surfaced from `REUSE-5`, where it did not belong**: that row asks about the tile zoom ceiling, and this is a hero-lane knob on the source raster. Filing it here rather than against a row, since no question covers per-country render config.
+- **`config/countries.toml` says it is read by `pipeline/country_config.py` and the module is `pipeline/frame/country_config.py`.** Nothing can catch it: `test_doc_pointers` scans `.py` and `.md`, and a `.toml` is neither, which is the same boundary the entry below is about.
+
 ### A guard axis that stops at the language boundary
 
 - **`test_doc_pointers` scans `pipeline`, `scripts` and `web/scripts`, so no citation in frontend code is checked by anything.** Grepping `web/src` for document names and `test_` identifiers reaches 30 of them across 20 files, and the Python side has already shipped the exact defect this catches: `cap_pass.py` named a test that had been renamed under it, and the one line telling a reader what enforced a flag pointed at nothing. Widening `SCANNED_ROOTS` is the whole mechanism; the cost is however many of those 30 turn out to dangle, which nobody has counted, plus teaching the comment stripper `.astro` syntax.

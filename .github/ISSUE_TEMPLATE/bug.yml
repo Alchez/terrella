@@ -1,0 +1,47 @@
+name: Something is broken
+description: A defect in the site, in a local build, in the pipeline, or in the docs.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Nothing needs reading first. Describe what you saw and the rest can be worked out here.
+
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where
+      options:
+        - The live site
+        - A globe or gallery running from my own clone
+        - The pipeline
+        - The docs
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you expected, and what you got instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to see it
+      description: Steps, a URL, or the command you ran. For anything visual, a screenshot says more than a paragraph.
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Browser and device
+      description: Only for something on the site. Skip it otherwise.
+
+  - type: markdown
+    attributes:
+      value: |
+        Running the suite on a fresh clone? Tests that skip are expected, and `uv run pytest -rs` names the source data each one wanted. A failure is a different thing and worth reporting: [Tests that skip themselves](https://github.com/Alchez/terrella/blob/main/CONTRIBUTING.md#tests-that-skip-themselves).
