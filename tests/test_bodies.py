@@ -171,7 +171,7 @@ class TestTheCompositePlanetProducerIsDeletedAndCannotReturn:
 def test_a_body_is_frozen() -> None:
     """Mutating a body at runtime would let one stage's change leak into another's freshness key."""
     with pytest.raises(dataclasses.FrozenInstanceError):
-        bodies.EARTH.exaggeration = 1.0  # pyright: ignore[reportAttributeAccessIssue]
+        bodies.EARTH.baked_exaggeration = 1.0  # pyright: ignore[reportAttributeAccessIssue]
 
 
 def test_the_registry_key_is_the_body_s_own_name() -> None:
@@ -312,7 +312,7 @@ def test_exaggeration_agrees_with_the_shared_palette_constant() -> None:
     A divergence draws the tiles and the heroes at two different reliefs with nothing else to
     notice, both lanes being internally consistent at whichever number they read.
     """
-    assert bodies.EARTH.exaggeration == palette.EXAGGERATION
+    assert bodies.EARTH.baked_exaggeration == palette.EXAGGERATION
 
 
 def test_the_cut_differs_between_bodies_in_exactly_one_setting() -> None:
@@ -759,6 +759,30 @@ def test_the_two_registries_hold_one_radius_for_a_body_that_is_really_a_sphere()
     assert 1.001 < ratio < 1.0012, f"Earth's two radii differ by {ratio:.6f}, which is not the ellipsoid"
 
 
+def test_the_two_registries_agree_on_the_vertical_scale_the_relief_is_drawn_at() -> None:
+    """The scale the browser states against the one the pipeline renders at.
+
+    The archives page tells a downloader the relief pyramid is a picture at this scale. A look
+    change that moves only the pipeline's number leaves the page quoting a specific figure that is
+    wrong, which is worse than the page saying nothing.
+
+    The two bodies differ, 15 against 20, so a scan reading one planet's entry for every name fails
+    here rather than agreeing with itself.
+    """
+    blocks = _browser_descriptor_blocks()
+    assert set(blocks) == set(bodies.BODIES), (
+        f"the pipeline knows {sorted(bodies.BODIES)} and the browser's BODIES record holds "
+        f"{sorted(blocks)} — the scan is reading a different set of planets than it is judging"
+    )
+    for name, block in blocks.items():
+        declared = re.search(r"\bbakedExaggeration:\s*([0-9_.]+)\b", block)
+        assert declared, f"the browser descriptor for {name} declares no bakedExaggeration"
+        assert float(declared.group(1).replace("_", "")) == bodies.BODIES[name].baked_exaggeration, (
+            f"{name}: the pipeline renders relief at {bodies.BODIES[name].baked_exaggeration}x and the "
+            f"browser tells a downloader {declared.group(1)}x"
+        )
+
+
 def test_the_two_registries_agree_on_which_bodies_render_polar_caps() -> None:
     """One fact, two languages, and each half decides something the other cannot see.
 
@@ -918,7 +942,7 @@ def test_neither_shading_module_carries_its_own_exaggeration() -> None:
     for module in (planet_warp, cut_tiles, cap_render):
         source = Path(module.__file__).read_text(encoding="utf-8")  # pyright: ignore[reportArgumentType]
         assert re.search(r"\bEXAG", source) is None, (
-            f"{module.__name__} has regrown a module-scope exaggeration — it is Body.exaggeration, "
+            f"{module.__name__} has regrown a module-scope exaggeration — it is Body.baked_exaggeration, "
             "and a constant here draws every planet at whichever one happens to be written down"
         )
 
@@ -931,12 +955,12 @@ def test_the_cap_recipe_records_the_body_s_own_exaggeration() -> None:
     render reports fresh against a recipe that cannot see the change."""
     from pipeline.tile import cap_raytrace, cap_render
 
-    flatter = dataclasses.replace(bodies.EARTH, exaggeration=3.0)
+    flatter = dataclasses.replace(bodies.EARTH, baked_exaggeration=3.0)
 
     earth = json.loads(cap_raytrace.params(cap_render.north_grid(bodies.EARTH), WHOLE_PLANET))
     other = json.loads(cap_raytrace.params(cap_render.north_grid(flatter), WHOLE_PLANET))
 
-    assert earth["exaggeration"] == bodies.EARTH.exaggeration
+    assert earth["exaggeration"] == bodies.EARTH.baked_exaggeration
     assert other["exaggeration"] == 3.0
     earth.pop("exaggeration")
     other.pop("exaggeration")

@@ -4,6 +4,10 @@
 front page rather than from a contributor guide. README restates it, because the reader who wants it
 has no reason to open a file addressed to people who have already decided to contribute. That
 restatement is a second copy nothing else could make go red.
+
+The same shape, one file over: CONTRIBUTING also tells a contributor that a green local run is
+weaker than the pull request's, and the machinery behind that sentence is in two files that are not
+docs at all.
 """
 
 import re
@@ -31,3 +35,32 @@ def test_the_readme_carries_the_identity_claim_contributing_opens_with() -> None
         "README does not carry CONTRIBUTING's identity sentence, so the two front doors can drift "
         f"apart on what this is:\n  {claim}"
     )
+
+
+def test_the_ci_only_coverage_floor_contributing_names_still_exists() -> None:
+    """`RUN-12`'s remaining half: a green local run is weaker than the pull request's.
+
+    The mechanism is in two files that are not docs, so dropping either leaves the sentence lying to
+    the one reader who acts on it.
+    """
+    assert "coverage floor your local run leaves off" in flattened(ROOT / "CONTRIBUTING.md")
+    assert "PYTEST_ARGS: --cov" in (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    assert re.search(r"^fail_under\s*=", (ROOT / "pyproject.toml").read_text(encoding="utf-8"),
+                     re.MULTILINE), "the floor CI enforces is gone, so the local run is not weaker"
+
+
+def test_the_readme_and_the_archives_page_agree_on_which_download_can_be_measured() -> None:
+    """Relief bakes the vertical stretch into its pixels and terrain does not.
+
+    README states the property and sends the reader to the page for each body's figure, so losing
+    the page's half leaves the pointer aimed at nothing while README goes on promising it.
+    """
+    assert "picture rather than a measurement" in flattened(ROOT / "README.md"), (
+        "README no longer says the relief archive cannot be measured, which is the half of the "
+        "licence a reuser acts on"
+    )
+    roles = (ROOT / "web/src/lib/archiveIndex.ts").read_text(encoding="utf-8")
+    assert "body.bakedExaggeration" in roles, (
+        "the archives page states no per-body figure for README to point at"
+    )
+    assert "Real metres" in roles, "the terrain archive no longer says its elevations are undistorted"

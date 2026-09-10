@@ -84,10 +84,14 @@ class Body:
     #: under someone else's change. `tests/test_bodies.py` pins each body's value against its own
     #: ceiling relationally.
     map_units_per_pixel: float
-    #: Vertical exaggeration the relief is drawn at, shared by the hero scene and the tile shading.
+    #: Vertical exaggeration the relief is drawn at. Displaced into the heightfield before Cycles
+    #: runs, so it is in the pixels of every hero and every tile, shared by the hero scene and the
+    #: tile shading. The browser's `meshExaggeration` in `web/src/lib/bodies.ts` is the other
+    #: quantity: it displaces a live mesh, and is equal across bodies where this is not.
+    #:
     #: A look constant rather than a physical one, and not transferable: relief as a fraction of
     #: radius differs by ~2.8x between Earth and Mars, so the same number gives different drama.
-    exaggeration: float
+    baked_exaggeration: float
     #: Deepest zoom the tile pyramids are cut to. Bounds the raster and vector cuts together — they
     #: must agree, or the layers stop at different zooms and the overlay drifts off its basemap.
     tile_max_zoom: int
@@ -148,7 +152,7 @@ EARTH = Body(
     map_units_per_pixel=305.7483,
     # Duplicated in look/palette.py as the authored value, which no production path reads and a
     # test holds this equal to.
-    exaggeration=15.0,
+    baked_exaggeration=15.0,
     # Both cuts read this: the raster pass, and `countries_pmtiles.MAX_ZOOM` for the vectors.
     tile_max_zoom=8,
     # Empty on purpose — see the field's note. Earth's intermediates stay exactly where they are.
@@ -187,7 +191,7 @@ MARS = Body(
     #
     # Unsaturated here where Earth at 15x is already saturated, so a deeper cut has headroom to
     # spend and asks this number for a trim rather than a halving. Only the sphere may decide it.
-    exaggeration=20.0,
+    baked_exaggeration=20.0,
     # Cut but not yet ratified: a ceiling is settled by being served and looked at, which is how
     # Earth's z8 was settled and the only way this one will be.
     #

@@ -18,9 +18,6 @@
 // Type-only, and erased at run time. The alternative was a second name for one concept — a
 // `TerrainTileCoordinate` identical to `TileCoordinate` — which costs more than the import:
 // two names for one thing is how a fake distinction gets invented later.
-// Type-only, so the worker's DOM-free build erases it: `RATIFIED_TERRAIN_EXAGGERATION` is keyed by
-// body, and a table whose keys are not the body union is how a planet gets silently left out.
-import type { BodySlug } from "./bodies";
 import type { TileCoordinate } from "./reliefTiles";
 // Also type-only, and a CYCLE only on paper: tileAddress.ts imports this module's zoom constants
 // as values to build Earth's registry entry, and this import is erased before either is bundled.
@@ -284,41 +281,6 @@ export function parseTerrainExaggeration(params: URLSearchParams): number | null
 export const TERRAIN_OFF = "off";
 
 /**
- * The exaggeration each body's `full` tier runs terrain at — and the RECORD that someone approved
- * it running at all.
- *
- * A TABLE RATHER THAN ONE CONSTANT, because a constant made publishing a pyramid sufficient to
- * paint with it. Mars's archive went into the registry and its globe began displacing at Earth's
- * 15x on the very next page load, with every correctness guard green: the source was right, the
- * zooms were right, the tiles were right, and nobody had looked at the result. Correctness and
- * consent are orthogonal, and consent was the one with nothing holding it.
- *
- * A body with NO ENTRY gets terrain only through `?terrain=N`, which is a deliberate act by someone
- * who wants to see it. So the edit that turns terrain on for a planet IS the edit that records the
- * approval, and the two cannot drift apart — which is the property a separate ledger would not have
- * given, since a ledger can be updated to get past its own check.
- *
- * THE NUMBER, chosen by eye at Step 0: 40x shreds the mesh into needles, 5x is too subtle to be
- * worth the geometry. It is the value the ramp DECAYS FROM — held to z3 and landing on
- * DEFAULT_TERRAIN_RAMP_FLOOR by z8, so no camera below the overview actually renders at it.
- *
- * THE TWO ENTRIES ARE EQUAL AND SEPARATELY WRITTEN, and both halves are the decision. Equal so a
- * visitor reads ONE vertical scale across bodies instead of learning a new one per planet: Mars was
- * swept at 15 rather than at the ~6.25 that would have made Olympus rise as Everest does, because
- * the displacement is a fraction of Earth's radius on both bodies and the renderer does not know
- * Mars is smaller. Separately written because an alias would let one planet's re-tune repaint
- * another that nobody looked at — which is this table's own failure mode, wearing a tidier spelling.
- *
- * NOT IN `paintedLayers.ts`, the ledger for style layers: its test matches ids against `type: "..."`
- * specs in source, and terrain is `setTerrain` over a `raster-dem` source rather than a layer, so an
- * entry there would be rejected as naming a layer that does not exist.
- */
-export const RATIFIED_TERRAIN_EXAGGERATION: Partial<Record<BodySlug, number>> = {
-  earth: 15,
-  mars: 15,
-};
-
-/**
  * Resolve whether terrain runs, and at what exaggeration, from the URL and the decided tier.
  *
  * `?terrain=` wins over the tier IN BOTH DIRECTIONS — a number forces terrain on at any tier (so
@@ -329,21 +291,24 @@ export const RATIFIED_TERRAIN_EXAGGERATION: Partial<Record<BodySlug, number>> = 
  * "Globe" in the view bar also disables terrain, but it changes the tier as well, so it is a
  * different experiment.
  *
- * Returns `null` for a flat globe — including for a body the table does not name, which is the
- * branch every planet arrives through. A malformed value is NOT silently upgraded to the body's
+ * Returns `null` for a flat globe — including for a body whose `meshExaggeration` is null, which is
+ * the branch every planet arrives through. A malformed value is NOT silently upgraded to the body's
  * ratified number: it returns null and the caller warns, because "I asked for 3x and got 15x" is
  * the failure the loud-refusal convention exists to prevent.
+ *
+ * Takes the ratified number rather than the body, so the descriptor stays the only place a planet
+ * is approved for terrain and this module needs no value import of the registry.
  */
 export function resolveTerrainExaggeration(
   params: URLSearchParams,
   tierWantsTerrain: boolean,
-  body: BodySlug,
+  ratifiedExaggeration: number | null,
 ): number | null {
   const raw = params.get("terrain");
   const requested = raw !== null && raw.trim() !== "";
   if (requested) return parseTerrainExaggeration(params);
   if (!tierWantsTerrain) return null;
-  return RATIFIED_TERRAIN_EXAGGERATION[body] ?? null;
+  return ratifiedExaggeration;
 }
 
 /** Zoom at or below which the ramp holds the base exaggeration. Below here the whole globe is on

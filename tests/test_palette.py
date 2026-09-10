@@ -154,13 +154,10 @@ class TestSharedConstants:
         assert palette.SUN_ALT_DEG == 45.0
 
     def test_the_authored_exaggeration_is_pinned(self):
-        """THREE legs have left this test and the last one took the comparison with it.
+        """The authored value itself, which is the whole of what this constant is.
 
-        Every path that draws more than one body reads `Body.exaggeration`, and `test_bodies.py`
-        pins Earth's field against this constant. The planet leg went first, the render leg when
-        `scene_numbers` stopped importing it, and the region leg when `shade.EXAG` went with the
-        `--cells` preview. What is left is the authored value itself, which the bridge in
-        `test_bodies.py` is the other half of.
+        Every path that draws more than one body reads `Body.baked_exaggeration`; the bridge
+        holding Earth's field equal to this constant is the other half of the pin.
         """
         assert palette.EXAGGERATION == 15.0
 
@@ -169,7 +166,7 @@ class TestSharedConstants:
 
         The temptation is to import it wherever a displacement is needed, and `scene_numbers` did:
         every Mars block came out at 15/20 of its displacement, which is a flatter planet rather
-        than an error. Every path that draws more than one body reads `Body.exaggeration`.
+        than an error. Every path that draws more than one body reads `Body.baked_exaggeration`.
         """
         naming = {
             str(path.relative_to(REPO_ROOT))
@@ -178,7 +175,7 @@ class TestSharedConstants:
         }
         assert naming == {"pipeline/look/palette.py"}, (
             "the authored constant is read from production code. It is Earth's alone, and a path "
-            "that draws more than one body must ask `Body.exaggeration`"
+            "that draws more than one body must ask `Body.baked_exaggeration`"
         )
 
     def test_web_palette_matches_the_ramp_it_copies(self):

@@ -276,7 +276,7 @@ def params(grid: cap_render.CapGrid, rasters: frozenset[str]) -> str:
         "grid": cap_render.grid_recipe_fields(grid),
         "azimuth_passes": CAP_AZIMUTH_PASSES,
         "quadrant_split": cap_render.CAP_QUADRANT_SPLIT,
-        "exaggeration": body.exaggeration,
+        "exaggeration": body.baked_exaggeration,
         "ground_scale": bodies.ground_metres_per_aeqd_unit(body),
         "rasters_off": planet_seam.rasters_off(rasters),
         # This caller's choices rather than look constants, recorded for `block_render.params`'

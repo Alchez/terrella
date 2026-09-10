@@ -113,7 +113,7 @@ def row_scale(window: Window, body: bodies.Body) -> NDArray[np.float64]:
     cosines. The measurements are in the tests and in the decision archive rather than here.
 
     What it multiplies to: `displacement_scale * row_scale(r) * (width / 2)` times the ground metres
-    one pixel covers at row r is exactly `Body.exaggeration`, on every row, with the centre row's
+    one pixel covers at row r is exactly `Body.baked_exaggeration`, on every row, with the centre row's
     cosine cancelling completely.
 
     It scales the height and not the gradient, which is what makes the applied exaggeration uniform
@@ -386,13 +386,13 @@ def write_frame(body: bodies.Body, block: Block, outdir: Path) -> dict[str, Any]
     extent_w_m = ground_width_m(window, body)
     numbers = render_prep.scene_numbers(
         window.width, window.height, extent_w_m,
-        exaggeration=body.exaggeration, hero_long_edge=block.traced_edge_px,
+        exaggeration=body.baked_exaggeration, hero_long_edge=block.traced_edge_px,
         camera_fraction=block.traced_edge_px / block.plane_edge_px)
     # The full FRAME_KEYS vocabulary, answered in a block's own terms: no padded lon/lat frame
     # exists (None is the vocabulary's value for a grid taken from elsewhere), the CRS is the
     # planet grid's, and the extents are ground metres at the block's mid-latitude — the same
     # meaning the hero's AEA metres carry.
-    payload = dict(numbers, body=body.name, exaggeration=body.exaggeration,
+    payload = dict(numbers, body=body.name, exaggeration=body.baked_exaggeration,
                    width_px=window.width, height_px=window.height,
                    frame_lonlat=None, dst_crs="EPSG:3857",
                    xres_m=extent_w_m / window.width, extent_w_m=extent_w_m,
@@ -416,7 +416,7 @@ def write_recipe(body: bodies.Body, window: Window, outdir: Path, written: list[
         "body": body.name,
         "col": window.col_off, "row": window.row_off,
         "width": window.width, "height": window.height,
-        "exaggeration": body.exaggeration,
+        "exaggeration": body.baked_exaggeration,
         "ground_scale": bodies.ground_metres_per_mercator_unit(body),
         "map_units_per_pixel": body.map_units_per_pixel,
         "layers_off": layers.layers_off(body, layers.BLOCK_LAYERS),

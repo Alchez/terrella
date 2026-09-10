@@ -578,7 +578,7 @@ class TestEveryBlockGetsAMicropolygonPerPixel:
         window = block.plane_window
         return render_prep.scene_numbers(
             window.width, window.height, prep_block.ground_width_m(window, body),
-            exaggeration=body.exaggeration, hero_long_edge=block.traced_edge_px,
+            exaggeration=body.baked_exaggeration, hero_long_edge=block.traced_edge_px,
             camera_fraction=block.traced_edge_px / block.plane_edge_px)
 
     def _widest_blocks(self, body):
@@ -651,7 +651,7 @@ class TestEveryBlockGetsAMicropolygonPerPixel:
         a plane spanning the frame, against a single quad's 4,096 — so every hero on disk was diced
         at roughly half its own resolution, and the base grid moves them. That is a look change
         owed a judgement, recorded here so it cannot be discovered from the pixels later."""
-        hero = render_prep.scene_numbers(16384, 12000, 4.0e6, exaggeration=bodies.EARTH.exaggeration)
+        hero = render_prep.scene_numbers(16384, 12000, 4.0e6, exaggeration=bodies.EARTH.baked_exaggeration)
         span = scene_build.plane_span_px(hero)
         assert span == pytest.approx(render_prep.HERO_LONG_EDGE / render_prep.FRAME_MARGIN, rel=1e-3)
         assert span > 2 ** scene_build.RIG.max_subdivisions

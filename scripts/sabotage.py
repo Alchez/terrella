@@ -3383,7 +3383,7 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the cap recipe hardcodes the exaggeration, so a re-tuned cap reports fresh forever',
         path='pipeline/tile/cap_raytrace.py',
-        needle='        "exaggeration": body.exaggeration,',
+        needle='        "exaggeration": body.baked_exaggeration,',
         replacement='        "exaggeration": 15.0,',
         guard='test_the_cap_recipe_records_the_body_s_own_exaggeration',
     ),
@@ -5891,6 +5891,27 @@ def _earth_lake_depth''',
         replacement='        displacement_scale=15.0 / (extent_w_m / 2.0),',
         guard='test_mars_displaces_at_its_own_number_and_not_earths',
     ),
+    # The field is `Body.baked_exaggeration` and this record's key is not, which reads as a rename
+    # left half done. Carrying it through is the tempting tidy-up, and every pinned frame on disk
+    # spells the old key, so the fleet stops matching what regenerates beside it.
+    Sabotage(
+        suite='python',
+        label="the frame vocabulary follows the field's rename, orphaning every pinned frame",
+        path='pipeline/render/render_prep.py',
+        needle='              "extent_w_m", "extent_h_m", "exaggeration", "plane_height_units",',
+        replacement='              "extent_w_m", "extent_h_m", "baked_exaggeration", "plane_height_units",',
+        guard='test_the_recorded_body_and_exaggeration_are_both_present',
+    ),
+    # The same tidy-up one record over, where the consequence is a restage rather than a stale pin:
+    # `params` is what a block's freshness is compared against, so a renamed key re-cuts the planet.
+    Sabotage(
+        suite='python',
+        label="the block recipe follows the field's rename, restaging a finished planet",
+        path='pipeline/tile/block_render.py',
+        needle='        "exaggeration": body.baked_exaggeration,',
+        replacement='        "baked_exaggeration": body.baked_exaggeration,',
+        guard='test_the_bodys_exaggeration_is_in_the_recipe',
+    ),
     # frame.json is never overwritten, so a pin can only be checked by regenerating beside it. A
     # tolerated stray or missing key makes that comparison fail for a reason that is not geometry.
     Sabotage(
@@ -6463,9 +6484,30 @@ def _earth_lake_depth''',
         suite='web',
         label="the terrain card names Mapbox's format, which decodes this archive to wrong metres",
         path='web/src/lib/archiveIndex.ts',
-        needle='    `Elevation in Terrarium channel order, quantised to ${TERRAIN_QUANTISATION_M} m steps.`,',
-        replacement='    "Elevation as Terrain-RGB, which is what gives the globe its height.",',
+        needle='    `Elevation in Terrarium channel order, quantised to ${TERRAIN_QUANTISATION_M} m steps. ` +',
+        replacement='    "Elevation as Terrain-RGB, which is what gives the globe its height. " +',
         guard='names no format that would decode an archive wrongly',
+    ),
+    # The relief card going back to what it said before anyone asked what the file is for. It reads
+    # as a complete description, and the property it drops is the one a reuser is downloading to find
+    # out: these pixels cannot be measured, and no key on the site carries the metres to undo them.
+    Sabotage(
+        suite='web',
+        label='the relief card stops saying its heights are stretched, so the imagery reads as survey',
+        path='web/src/lib/archiveIndex.ts',
+        needle='    `Shaded relief imagery, the pixels the globe draws. Heights are drawn at ` +\n    `${body.bakedExaggeration}x, so this is a picture rather than a measurement.`,',
+        replacement='    "Shaded relief imagery, the pixels the globe draws.",',
+        guard='says which axis of a download can be measured, in each body\'s own numbers',
+    ),
+    # Mars taking Earth's number, which a reader cannot catch: 15 is a real exaggeration, stated
+    # confidently, on the wrong planet.
+    Sabotage(
+        suite='python',
+        label="the browser tells Mars's downloaders Earth's vertical scale",
+        path='web/src/lib/bodies.ts',
+        needle='    bakedExaggeration: 20,',
+        replacement='    bakedExaggeration: 15,',
+        guard='test_the_two_registries_agree_on_the_vertical_scale_the_relief_is_drawn_at',
     ),
     # The gutter goes back to being spelled at the site that needs it, which is how it came to be
     # spelled seven times: each copy is correct on its own page and only disagrees with a component
@@ -7921,50 +7963,55 @@ def _earth_lake_depth''',
         ),
         guard='names every literal-id layer in the ledger, and ledgers no layer that does not exist',
     ),
-    # THE SECOND CONSENT MECHANISM, and the one the ledger above structurally cannot cover: terrain
+    # The second consent mechanism, and the one the ledger above structurally cannot cover: terrain
     # is `setTerrain` over a `raster-dem` source rather than a style layer, so `paintedLayers.ts`
     # would reject an entry for it as naming a layer that does not exist. The first two exist
-    # because the failure already happened — publishing `PUBLISHED.mars.terrain` was by itself
-    # enough to make Mars displace at Earth's 15x, with every other guard green. The third guards
-    # the NUMBER rather than the mechanism, which is the way this table can be emptied of meaning
-    # while every case above still passes.
+    # because the failure already happened: publishing `PUBLISHED.mars.terrain` was by itself enough
+    # to make Mars displace at Earth's 15x, with every other guard green. The third guards the
+    # number rather than the mechanism, which is how consent is emptied of meaning while every case
+    # above still passes.
     Sabotage(
         suite='web',
-        label='the ratified table collapses back to one constant, so publishing a pyramid paints with it',
+        label='the resolver collapses back to one constant, so publishing a pyramid paints with it',
         path='web/src/lib/terrainSource.ts',
-        needle='  return RATIFIED_TERRAIN_EXAGGERATION[body] ?? null;',
-        replacement='  return 15;',
-        guard='leaves a body with no entry FLAT at the full tier, however good its pyramid is',
+        needle='  return ratifiedExaggeration;\n}',
+        replacement='  return 15;\n}',
+        guard='leaves a body with a null entry flat at the full tier, however good its pyramid is',
     ),
     Sabotage(
         suite='web',
         # The tidy that reads as finishing the job: the archive is published, so surely the body
-        # should get terrain — and a fallback grants it without anyone editing the table. That edit
-        # IS the ratification, which is the whole point of the table being the record.
+        # should get terrain — and a fallback grants it without anyone editing the descriptor. That
+        # edit is the ratification, which is the whole point of the field being the record.
         #
-        # It replaces a case that ADDED Mars to the table, which stopped being a mutation the day
-        # Mars was legitimately ratified. A case whose subject is a table entry expires when someone
-        # writes that entry; this one attacks the lookup, so no amount of ratifying can retire it.
+        # It attacks the lookup rather than a body's entry, so no amount of ratifying retires it.
         label="an unratified body inherits a ratified one's exaggeration",
         path='web/src/lib/terrainSource.ts',
-        needle='  return RATIFIED_TERRAIN_EXAGGERATION[body] ?? null;',
-        replacement=(
-            '  return RATIFIED_TERRAIN_EXAGGERATION[body] ?? RATIFIED_TERRAIN_EXAGGERATION.earth'
-            ' ?? null;'
-        ),
-        guard='leaves a body with no entry FLAT at the full tier, however good its pyramid is',
+        needle='  return ratifiedExaggeration;',
+        replacement='  return ratifiedExaggeration ?? 15;',
+        guard='leaves a body with a null entry flat at the full tier, however good its pyramid is',
     ),
     Sabotage(
         suite='web',
-        # The two 15s are different quantities — one baked into renders and tiles, one a display
-        # uniform — and the way they get unified is a de-duplication that looks like tidying: the
-        # browser descriptor grows the field, OPTIONAL so nothing else has to change, and the table
-        # reads it. After that, retuning the globe's mesh silently invalidates 203 heroes.
-        label="the browser descriptor grows the pipeline's baked exaggeration",
-        path='web/src/lib/bodies.ts',
-        needle='  rendersPolarCaps: boolean;',
-        replacement='  exaggeration?: number;\n  rendersPolarCaps: boolean;',
-        guard='keeps this number independent of the BAKED exaggeration, which is 15 by coincidence',
+        # The two 15s are different quantities, one in the rendered pixels and one a display
+        # uniform, and they get unified by a de-duplication that looks like tidying: the globe holds
+        # the descriptor and picks the mesh scale on one line, so the baked field is one token away.
+        # After that, retuning the mesh silently invalidates 203 heroes.
+        label='the globe displaces the mesh at the scale the tiles were rendered with',
+        path='web/src/components/Globe.astro',
+        needle="resolveTerrainExaggeration(urlFlags, bootTier === \"full\", body.meshExaggeration)",
+        replacement="resolveTerrainExaggeration(urlFlags, bootTier === \"full\", body.bakedExaggeration)",
+        guard='stays independent of the baked scale, which is 15 on Earth by coincidence',
+    ),
+    Sabotage(
+        suite='web',
+        # The other door: the resolver taking the body again, which is what a value import of the
+        # registry arrives as and what would let this module read either scale.
+        label='the terrain resolver reaches the body registry directly',
+        path='web/src/lib/terrainSource.ts',
+        needle='import type { TileCoordinate } from "./reliefTiles";',
+        replacement='import { BODIES } from "./bodies";\nimport type { TileCoordinate } from "./reliefTiles";',
+        guard='stays independent of the baked scale, which is 15 on Earth by coincidence',
     ),
     Sabotage(
         suite='web',
@@ -9980,6 +10027,16 @@ def _earth_lake_depth''',
         needle='published so it can be read, run and reused.',
         replacement='published so it can be read and reused.',
         guard='test_the_readme_carries_the_identity_claim_contributing_opens_with',
+    ),
+    # A brevity pass cutting the only line in the repo that says which of the two raster archives a
+    # reuser may measure, which the licence invites them to try.
+    Sabotage(
+        suite='python',
+        label='a trim to the archives paragraph leaves the relief pyramid reading as measurable',
+        path='README.md',
+        needle='so it is a picture rather than a measurement, and no elevation key on the site carries the metres to undo it. ',
+        replacement='',
+        guard='test_the_readme_and_the_archives_page_agree_on_which_download_can_be_measured',
     ),
     # The sentence was true until a custom domain went on the bucket, and nothing could see it turn.
     # A doc that denies an access path the deploy script configures is worse than one that omits it.

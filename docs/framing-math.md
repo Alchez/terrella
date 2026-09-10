@@ -1,6 +1,6 @@
 # How a country becomes a framed render
 
-Every hero render shares one *look*: the same sun, the same colors, the same 15× vertical exaggeration. The colours and the sun altitude are imported from `palette.py`; the exaggeration is `Body.exaggeration`, which is 15× because heroes are Earth's and Earth's field is pinned to the authored constant. What changes from country to country is only *geometry*: where the camera looks, and how numbers convert between the real world and Blender's little stage. This page explains each conversion in plain English, with the formulas alongside.
+Every hero render shares one *look*: the same sun, the same colors, the same 15× vertical exaggeration. The colours and the sun altitude are imported from `palette.py`; the exaggeration is `Body.baked_exaggeration`, which is 15× because heroes are Earth's and Earth's field is pinned to the authored constant. What changes from country to country is only *geometry*: where the camera looks, and how numbers convert between the real world and Blender's little stage. This page explains each conversion in plain English, with the formulas alongside.
 
 The chain, end to end:
 

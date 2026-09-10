@@ -20,7 +20,7 @@ Ramp constants are Earth's unless a row says otherwise. Each body resolves its o
 | `SNOW_RGB` / `SNOW_SHADOW_RGB` | `E8F1F6` / `B0C7DB` | § Snow |
 | `ICE_RGB` / `ICE_SHADOW_RGB` | `D4E4F0` / `9CB8D2` | § Sea ice |
 | `SUN_ALT_DEG` | 45.0: hero X-tilt and tile light both derive from it | § Sun altitude |
-| `EXAGGERATION` | 15.0, the authored value, read by no path; every surface reads `Body.exaggeration`, pinned equal to it for Earth | § Vertical exaggeration |
+| `EXAGGERATION` | 15.0, the authored value, read by no path; every surface reads `Body.baked_exaggeration`, pinned equal to it for Earth | § Vertical exaggeration |
 | `LUT_STEP_M` | 1.0 m: ramp LUT resolution, fidelity rather than hue | § Land color ramp |
 
 ### Hero only (`scene_build.py`, `render_prep.py`), the 203-country sweep
@@ -58,7 +58,7 @@ Border style dicts (`overlay_borders.py`) and the hero variant rungs (`hero_vari
 
 - Baseline **15× on Earth**, `exaggeration` on the body in `bodies.py`, which every multi-body path reads. `EXAGGERATION` in `palette.py` is the authored constant Earth's field is pinned to, and nothing in production reads it directly.
 - The number in the scene is `displacement_scale` in frame.json, and it varies per country because a frame's width does (India 8.0e-6, Nepal 3.3e-5, Sri Lanka 1.0e-4; docs/framing-math.md). Copying one country's scale onto another multiplies exaggeration by the frame-width ratio.
-- **Adjust globally:** `EXAGGERATION` and `Body.exaggeration` together, a test failing if you move one alone, then regenerate frame.json per country.
+- **Adjust globally:** `EXAGGERATION` and `Body.baked_exaggeration` together, a test failing if you move one alone, then regenerate frame.json per country.
 - **Adjust one country:** edit `displacement_scale` in its frame.json, legitimate only as a recorded pathology override. Per-country drama re-litigates the series promise: same border, two posters, same mountain height.
 - **Tune as a pair with sun altitude**: shadow length is proportional to height × cot(altitude).
 

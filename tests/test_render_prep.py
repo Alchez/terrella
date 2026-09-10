@@ -88,20 +88,20 @@ class TestTheExaggerationComesFromTheBody:
     def test_mars_displaces_at_its_own_number_and_not_earths(self):
         """The instance this guard exists for: Earth's import gave a Mars block 15/20 of its
         displacement, which is a flatter planet rather than an error."""
-        earth = _unit_grid(bodies.EARTH.exaggeration)
-        mars = _unit_grid(bodies.MARS.exaggeration)
+        earth = _unit_grid(bodies.EARTH.baked_exaggeration)
+        mars = _unit_grid(bodies.MARS.baked_exaggeration)
         assert earth["displacement_scale"] != mars["displacement_scale"]
         assert mars["displacement_scale"] / earth["displacement_scale"] == pytest.approx(
-            bodies.MARS.exaggeration / bodies.EARTH.exaggeration)
+            bodies.MARS.baked_exaggeration / bodies.EARTH.baked_exaggeration)
 
     def test_the_hero_number_still_reaches_the_scene_through_earths_field(self):
         """Composed rather than compared, so the assertion is the bridge the name promises: the
-        authored constant reaches a displacement through `Body.exaggeration` and not by an import.
+        authored constant reaches a displacement through `Body.baked_exaggeration` and not by an import.
 
         It localises nothing `test_bodies.py`'s pin and the pass-through above do not already own
         between them; what it holds is the two legs joined, which neither of those runs end to end.
         """
-        assert _unit_grid(bodies.EARTH.exaggeration)["displacement_scale"] == palette.EXAGGERATION
+        assert _unit_grid(bodies.EARTH.baked_exaggeration)["displacement_scale"] == palette.EXAGGERATION
 
     def test_there_is_no_default_to_forget(self):
         with pytest.raises(TypeError):

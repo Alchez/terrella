@@ -248,11 +248,11 @@ def settled_context(max_relief_m: float, row0: int, body: Body, *,
     holding.
     """
     context = context_for(max_relief_m, row_latitude_deg(row0 + RENDER_BLOCK_PX / 2.0, body),
-                          exaggeration=body.exaggeration, ground_scale=ground_scale,
+                          exaggeration=body.baked_exaggeration, ground_scale=ground_scale,
                           map_units_per_pixel=body.map_units_per_pixel, altitude_deg=altitude_deg)
     for _ in range(CONTEXT_CEILING_PX // CONTEXT_QUANTUM_PX + 1):
         nxt = context_for(max_relief_m, poleward_sizing_latitude(row0, context, body),
-                          exaggeration=body.exaggeration, ground_scale=ground_scale,
+                          exaggeration=body.baked_exaggeration, ground_scale=ground_scale,
                           map_units_per_pixel=body.map_units_per_pixel, altitude_deg=altitude_deg)
         if nxt == context:
             return context

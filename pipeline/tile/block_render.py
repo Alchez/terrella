@@ -192,7 +192,7 @@ def params(body: bodies.Body, rasters: frozenset[str], look: palette.Look,
         # The third is per block, so the context law's output and not its constants; `context_census`
         # holds why a described law goes wrong in both directions and a measured one cannot.
         "contexts": context_census(blocks),
-        "exaggeration": body.exaggeration,
+        "exaggeration": body.baked_exaggeration,
         "ground_scale": bodies.ground_metres_per_mercator_unit(body),
         "map_units_per_pixel": body.map_units_per_pixel,
         "layers_off": layers.layers_off(body, layers.BLOCK_LAYERS),

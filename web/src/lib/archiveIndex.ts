@@ -25,11 +25,17 @@ import {
  *  away from any page that has said which planet it is about; here the section heading above the
  *  card has already said, so a card that mentions the other one is describing a file it is not. */
 const LAYER_ROLE: Record<LayerId, (body: BodyDescriptor) => string> = {
-  relief: () => "Shaded relief imagery, the pixels the globe draws.",
+  // Relief bakes the vertical stretch into its pixels and terrain below does not, which decides
+  // whether a downloaded file can be measured. No elevation key on the site carries the metres to
+  // undo it, so a card omitting this leaves the imagery reading as survey.
+  relief: (body) =>
+    `Shaded relief imagery, the pixels the globe draws. Heights are drawn at ` +
+    `${body.bakedExaggeration}x, so this is a picture rather than a measurement.`,
   // Not "Terrain-RGB", which is Mapbox's format and decodes these bytes to six-figure metres
   // without erroring. The channel order is Terrarium's; the step is ours.
   terrain: () =>
-    `Elevation in Terrarium channel order, quantised to ${TERRAIN_QUANTISATION_M} m steps.`,
+    `Elevation in Terrarium channel order, quantised to ${TERRAIN_QUANTISATION_M} m steps. ` +
+    "Real metres: the exaggeration is applied when it is drawn, not baked in here.",
   vector: (body) => `Vector geometry: the ${body.catalogue.plural} the globe draws and labels.`,
 };
 
