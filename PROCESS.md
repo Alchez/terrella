@@ -88,6 +88,16 @@ Three readings, and only one answers "did it fit". The cgroup's `memory.peak` is
 - `run_pass.sh` reads `MemAvailable` and refuses to start below the cap, because a cap the machine cannot back relocates the OOM to the most expensive moment. Override with `ALLOW_LOW_MEMORY=1`; point `MEMINFO` elsewhere to test the guard. The reference machine runs close to the line, ~16.7 GiB available against the 16 G cap with a browser and editor open.
 - `MEMORY_CAP_OVERRIDE_GIB` substitutes the number afterwards and prints that it did. It is read after the resolver, so `--body` stays enforced; a non-numeric value aborts, since bash would evaluate it as 0 and clear every cap.
 
+### Device memory: the floor a GPU has to clear
+
+Distinct from every figure above, which is host RSS. A tile block renders under a **4736 MiB** device-memory cap and fails under **4608 MiB**, so the floor sits in that 128 MiB interval. Measured by capping the process with MPS's pinned device-memory limit and bisecting, one block per cap.
+
+Unconstrained on the reference card the same renders take **5290 to 5472 MiB**, sampled per process against `nvidia-smi --query-compute-apps` over six blocks at four latitudes. That spread is 3.4% and tracks neither terrain nor render time, so what a card reports is headroom taken rather than demand: given less, Cycles fits into less.
+
+- **It pays in time rather than failing.** 49.6 s under a 10 GiB cap against 73 to 86 s near the floor, so a small card is roughly 1.6x slower rather than blocked.
+- **Three controls, because a pass/fail boundary on its own proves nothing.** A 10 GiB run renders and registers an MPS client, so MPS drives OptiX at all; 512 MiB kills both a block and a trivial 64 px scene, so the cap binds; and a trivial scene still renders at 3 GiB where a block fails, so a block's failure there is its own demand and not the instrument's limit.
+- **Six blocks of 1024, Earth, OptiX on one driver.** Heroes are unmeasured and will be higher, being 8K and varying by country, and `scene_build.GPU_BACKENDS`'s own note says HIP, ONEAPI and METAL are exercised by no hardware here.
+
 ### What a look change costs
 
 Any look value that reaches a recipe restages the whole planet through Cycles, and the caps restage behind it. All warps skip, including the 1:01:44 lake warp. There is one tier, so there is no cheaper path to leak into and nothing to watch the log for. Batch look changes rather than landing them one at a time.
