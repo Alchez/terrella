@@ -48,7 +48,7 @@ chosen and what each one costs, and nothing that restates either of those.**
 - Default pessimistic and upgrade optimistically; the Lite/Globe/Full toggle persists and beats the
   probe; degrade at runtime if frame rate tanks; honour `Save-Data`, `prefers-reduced-motion`,
   `prefers-reduced-data`.
-- **Globe needs WebGL2, and `maplibre-gl` is pinned to an exact version** in `web/package.json`, because `rttPoolTrim.ts` binds to private MapLibre state that a range could move silently.
+- **Globe needs WebGL2, and `maplibre-gl` is pinned to an exact version** in `web/package.json`, because several modules under `web/src` bind to private MapLibre state that a range could move silently. `grep -rnE '(painter|terrain|tileManager|style|map)\??\._[a-zA-Z]' web/src` is the list, so removing any one module does not release the pin.
 - **Full is gated on GPU tier and network**, being the only tier that carries terrain displacement and the idle spin.
 - **The detail card is text only on both bodies.** It used to open with the country's hero, which the raytraced tiles turned into a picture of the globe you were already looking at; the full render is a click away on the country's own page.
 
