@@ -176,7 +176,7 @@ a {
 .view-bar {
   position: fixed;
   /* Also the containing block for the globe's scale ruler, which is absolutely positioned onto
-     this pill's top edge (see `.view-bar-ruler` in globe.astro). `fixed` already establishes one,
+     this pill's top edge (see `.view-bar-ruler` in globe.css). `fixed` already establishes one,
      so this is a statement of intent rather than a new behaviour — but the ruler's `bottom: 100%`
      silently retargets the viewport if this element ever stops being positioned. */
   bottom: var(--page-inset);

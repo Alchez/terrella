@@ -167,8 +167,8 @@ function checkEveryPublishedArchiveIsUploaded(endpoint: string): void {
 function checkTerrainIsRoutable(): void {
   const globe = readFileSync(`${WEB_ROOT}src/components/Globe.astro`, "utf8");
   // THE `return` BELOW IS AN EARLY EXIT ON A GREP, so this check is only as alive as the file it
-  // reads. Point it at the wrong source — as an extraction very nearly did, the globe's script
-  // having left `pages/earth.astro` for this component — and the regex finds nothing, the function
+  // reads. Point it at the wrong source, as an extraction very nearly did when the globe's script
+  // moved out of Earth's page into this component, and the regex finds nothing, the function
   // returns "nothing to check", and a deploy that 404s every DEM tile sails through reporting
   // clean. So the subject is asserted before the question is asked.
   if (!globe.includes("resolveTerrainExaggeration(")) {
@@ -202,10 +202,10 @@ function checkTerrainIsRoutable(): void {
     fail(
       "the globe would request terrain that production cannot serve.",
       "",
-      "  earth.astro enables terrain on the `full` tier, so a promoted visitor adds a raster-dem",
-      "  source pointing at the terrain pyramid — and either worker/index.ts does not route through",
-      "  resolveTileRequest, or src/lib/tileAddress.ts publishes no terrain archive for it to find.",
-      "  Every DEM tile would 404 silently.",
+      "  src/components/Globe.astro enables terrain on the `full` tier, so a promoted visitor adds a",
+      "  raster-dem source pointing at the terrain pyramid — and either worker/index.ts does not",
+      "  route through resolveTileRequest, or src/lib/tileAddress.ts publishes no terrain archive",
+      "  for it to find. Every DEM tile would 404 silently.",
       "",
       "  Fix whichever half is missing, or gate terrain off the tier again before deploying.",
     );

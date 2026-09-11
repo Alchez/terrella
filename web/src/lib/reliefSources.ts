@@ -1,7 +1,7 @@
 // The relief pyramid's two MapLibre sources, built from what the body in question publishes.
 //
-// FACTORED OUT OF earth.astro FOR THE REASON countryHighlight.ts WAS: a page is unit-testable by
-// nobody. What made it urgent is that the zoom range in these specs is a PER-BODY fact, because a
+// Kept out of Globe.astro for the reason countryHighlight.ts is: an Astro script is unit-testable
+// by nobody. What made it urgent is that the zoom range in these specs is a PER-BODY fact, because a
 // ceiling follows each body's own source data. A spec built from `RELIEF_MAX_ZOOM`, which is
 // Earth's answer, makes a shallower-cut body ask for tiles past its own ceiling that were never
 // cut, and that failure is silent in the way this project keeps meeting:

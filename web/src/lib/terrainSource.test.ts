@@ -138,7 +138,7 @@ describe("the archive replaced four flags, and the answers outlive them", () => 
     // code, and a caller with no parser is a crash. The globe is where it would show.
     //
     // Keyed on CODE, never on the flag spelling — the first draft searched for the literal
-    // "?quant" and went red against a comment in earth.astro explaining what had been retired. A
+    // "?quant" and went red against a comment in Globe.astro explaining what had been retired. A
     // guard that cannot tell an identifier from prose punishes documenting the decision.
     const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
     const retiredCalls = [
@@ -527,7 +527,7 @@ describe("the pyramid depth the source is allowed to reach", () => {
   });
 
   it("shows why a deeper pyramid cannot rescue 512", () => {
-    // 512's DEM sits at camera-2, so z7 would need camera z9 — and earth.astro caps at maxZoom 8.
+    // 512's DEM sits at camera-2, so z7 would need camera z9 — and Globe.astro caps at maxZoom 8.
     // Building deeper is only spendable if the declaration moves with it.
     for (const depth of [6, 8]) {
       expect(terrainZoomsFor(8, 512, depth).demZoom).toBe(6);

@@ -1395,7 +1395,7 @@ SABOTAGES: list[Sabotage] = [
         label='the globe-page sweep is narrowed back to Earth, and the rest pass by not being read',
         path='web/src/lib/criticalCss.test.ts',
         needle='const globePages = pages.filter((page) => /<Globe\\s*\\/>/.test(page.text));',
-        replacement='const globePages = pages.filter((page) => page.name === "earth.astro");',
+        replacement='const globePages = pages.filter((page) => page.name === "earth/index.astro");',
         guard='knows which pages draw a globe, in both directions',
     ),
     Sabotage(
@@ -7622,10 +7622,10 @@ def _earth_lake_depth''',
     ),
     Sabotage(
         suite='web',
-        # THE MISTAKE THE SECOND GLOBE PAGE MAKES POSSIBLE, and it is one word. `mars.astro` is
-        # `earth.astro` with the descriptor changed; leave the descriptor and the page still builds,
-        # still routes at /mars/, still draws Mars's relief — in Earth's accent, with a Lite button
-        # aimed at Earth's gallery and a pre-paint guard that steers an incapable visitor there.
+        # THE MISTAKE THE SECOND GLOBE PAGE MAKES POSSIBLE, and it is one word. `mars/index.astro`
+        # is `earth/index.astro` with the descriptor changed; leave the descriptor and the page still
+        # builds, still routes at /mars/, still draws Mars's relief — in Earth's accent, with a Lite
+        # button aimed at Earth's gallery and a pre-paint guard that steers an incapable visitor there.
         label="a body's page keeps the descriptor of the page it was copied from",
         path='web/src/pages/mars/index.astro',
         needle='const body = BODIES.mars;',
@@ -10287,6 +10287,17 @@ def _earth_lake_depth''',
         needle='`test_the_pass_hands_its_own_body_down_to_the_cap_pass`',
         replacement='`test_the_shade_pass_hands_its_own_body_down_to_the_cap_pass`',
         guard='test_every_test_a_comment_names_still_exists',
+    ),
+    # A move leaves every sentence naming the old path. Earth's globe page became a directory and
+    # its map code a component, and dozens of comments, test titles and failure messages went on
+    # naming the file that no longer existed.
+    Sabotage(
+        suite='python',
+        label='a comment names the page the globe moved out of',
+        path='web/src/lib/reliefTiles.ts',
+        needle='the browser (Globe.astro builds the MapLibre',
+        replacement='the browser (earth.astro builds the MapLibre',
+        guard='test_no_code_names_a_file_the_tree_has_lost',
     ),
 ]
 

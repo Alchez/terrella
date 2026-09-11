@@ -233,6 +233,113 @@ def test_every_module_a_doc_names_still_exists() -> None:
     )
 
 
+#: Every tracked file a comment, a failure message or a test title can name another file from.
+CODE_SUFFIXES = (".py", ".ts", ".tsx", ".mts", ".js", ".mjs", ".astro", ".css", ".sh", ".jsonc")
+
+#: `$HARNESS/stamp.py` names `stamp.py`: the variable resolves at run time, so only the part after
+#: the slash can be looked up.
+SHELL_VARIABLE_PREFIX = re.compile(r"\$\{?\w+\}?/")
+
+#: Files that name a path the tree has lost, on purpose. Keyed by the naming file, so the same name
+#: written anywhere else is still a stale pointer.
+NAMES_A_LOST_FILE_ON_PURPOSE = {
+    # The routing test's subject: the flat spelling each globe had, and the page before it.
+    ("web/src/lib/bodies.browser.test.ts", "earth.astro"),
+    ("web/src/lib/bodies.browser.test.ts", "pages/earth.astro"),
+    ("web/src/lib/bodies.browser.test.ts", "globe.astro"),
+    # The guard keeping the border ladder gone until a surface draws it.
+    ("tests/test_hero_variants.py", "gen_borders.py"),
+    ("tests/test_hero_variants.py", "pipeline/compose/gen_borders.py"),
+    # Guards saying which module they were first written against.
+    ("tests/test_bodies.py", "tile/shade.py"),
+    ("tests/test_sea_ice_gate.py", "tile/shade.py"),
+    ("tests/test_module_names.py", "profile/pass_cap.py"),
+}
+
+
+@cache
+def lost_from_the_tree() -> frozenset[str]:
+    """Every path the tree once tracked and no longer does. `--no-renames`, so a move counts."""
+    log = subprocess.run(
+        ["git", "log", "--no-renames", "--diff-filter=D", "--name-only", "--format="],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return frozenset(line for line in log.stdout.splitlines() if line) - tracked()
+
+
+def names_a_lost_file(token: str) -> bool:
+    """Whether a path token reaches a file the tree has lost, by full path or by basename."""
+    name = token.lstrip("./")
+    lost = lost_from_the_tree()
+    return name in lost or any(path.endswith(f"/{name}") for path in lost)
+
+
+def code_files() -> list[str]:
+    """Every tracked file with a suffix above, minus this file and the mutation table."""
+    return sorted(
+        path
+        for path in tracked()
+        if path.endswith(CODE_SUFFIXES) and Path(path) != SELF and Path(path) not in EXEMPT
+    )
+
+
+def lost_file_citations() -> list[tuple[str, int, str]]:
+    """(file, line, name) for every name in code that reaches only a file the tree has lost."""
+    found = []
+    for path in code_files():
+        lines = (REPO_ROOT / path).read_text(encoding="utf-8").splitlines()
+        for lineno, line in enumerate(lines, 1):
+            if DELETION_MARKER.search(line):
+                continue
+            for token in CODE_PATH.findall(SHELL_VARIABLE_PREFIX.sub("", line)):
+                if names_a_lost_file(token) and not names_a_tracked_file(token):
+                    found.append((path, lineno, token))
+    return found
+
+
+def test_the_lost_file_scan_reads_the_history() -> None:
+    """A shallow clone carries no deletions, and a scan against an empty history passes anything."""
+    shallow = subprocess.run(
+        ["git", "rev-parse", "--is-shallow-repository"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    assert shallow == "false", (
+        "this clone is shallow, so the history of what the tree lost is not here and the scan "
+        "below would pass on anything; fetch the full history (CI's checkout sets fetch-depth: 0)"
+    )
+    assert "web/src/pages/earth.astro" in lost_from_the_tree(), "the deletion log read nothing"
+    assert "web/src/components/Globe.astro" in code_files(), "the code scan missed the globe"
+
+
+def test_no_code_names_a_file_the_tree_has_lost() -> None:
+    """No code names a file the tree has lost, unless the same line says it is gone.
+
+    Only names the tree once held are checked. Checking every name that fails to resolve instead
+    flags each fixture and each MapLibre source path a comment cites, which is most of them.
+    """
+    found = lost_file_citations()
+    offenders = [
+        f"{path}:{lineno}: {token}"
+        for path, lineno, token in found
+        if (path, token) not in NAMES_A_LOST_FILE_ON_PURPOSE
+    ]
+    assert not offenders, (
+        "code names a file the tree has lost; point at its new home, or say on the same line that "
+        "it is gone:\n  " + "\n  ".join(offenders)
+    )
+    unused = sorted(NAMES_A_LOST_FILE_ON_PURPOSE - {(path, token) for path, _, token in found})
+    assert not unused, (
+        "an exception names nothing any more, and would excuse the name if it came back as a stale "
+        "pointer; delete it:\n  " + "\n  ".join(f"{path}: {token}" for path, token in unused)
+    )
+
+
 def test_a_decision_archive_pointer_names_its_heading() -> None:
     """A bare `→ HISTORY` resolves for the author and for nobody else.
 

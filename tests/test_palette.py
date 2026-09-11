@@ -298,8 +298,8 @@ class TestTheLookIsByteStable:
 # What each registered body's TILES are painted in today, hand-transcribed, every stop of every
 # ramp its look declares. Mars has no sea, so it has no sea row and that is a statement.
 #
-# HAND-WRITTEN FOR THE SAME REASON `LAND_COAST` IS: deriving these from `palette.py` and `shade.py`
-# would make the guard tautological. Unlike `TestTheLookIsByteStable` above, which hashes the LUT
+# Hand-written for the same reason `LAND_COAST` is: deriving these from `palette.py` would make
+# the guard tautological. Unlike `TestTheLookIsByteStable` above, which hashes the LUT
 # and so can only say that nothing moved, this says WHOSE answer the ramp is currently giving.
 SHIPPED_TILE_HEX: dict[str, dict[str, list[str]]] = {
     "earth": {

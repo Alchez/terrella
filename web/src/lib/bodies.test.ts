@@ -70,7 +70,7 @@ describe("what a body declares it ships", () => {
   });
 
   it("gives heroes only to a body that publishes a countries pyramid", () => {
-    // On the globe a hero panel opens exactly one way: `map.on("click")` resolves the point through
+    // On the globe a country card opens exactly one way: `map.on("click")` resolves the point through
     // `countryAt()` against the countries MVT, looks the admin name up in the manifest, and calls
     // `openPanel`. No pyramid, no hit-test, no panel — so heroes without countries declares a
     // subsystem with no route into it, which stays true forever with nothing reading it.
