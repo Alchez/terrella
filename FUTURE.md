@@ -663,12 +663,14 @@ The working plan had become the project's only backlog as well as its live state
 - **Open call: should `check.sh` run the suite a second time under an empty `MAPS_DATA`?** 17.5 s to reproduce CI exactly. Without it, a store-reading test is green locally and red only after a push.
   - **The trigger has now fired twice.** Five recipe tests in `test_block_render.py` went red in CI this way, and then a registry sweep in `test_planet_pass.py` did the same, in a module written after the first was fixed. Both were green on every local gate.
   - The second one is what settles the shape of the objection: the fix for the first was a per-file helper, so the next file could not inherit it. A gate is the only form of this that reaches a module nobody has written yet.
+- **`block_render --work` still stops short of the relief scan.** `plan_blocks` calls `relief_scan.scan(body)` without the `work` it was handed, so a run against another store refreshes the live store's relief cache, writing into it when stale, and plans from the other store's cache without ever refreshing that. Every test stubs `plan_blocks` or `scan`, the one reaching it with `lambda body, **kwargs`, so nothing sees the argument go missing.
 - **An explicit env override on `pass_memory.HEAVY_JOB_GIB`** is the half of the ratified cap ruling `4f4daf8` that never landed. The two measured caps stay fixed either way.
 - **A planet cell's land heights depend on which tiles exist anywhere on Earth, and the fuse cannot notice when that changes.** `build_mosaics.sh` leaves `gdalbuildvrt` at its default `-resolution average`, so the mosaic's east-west pixel is the mean over every tile it indexes, and every cell reads its land through that one grid. A download anywhere moves it: 1.47″ when most cells were fused, 2.47″ today.
   - `fuse_planet.fuse_cell` resumes on its own output existing, so nothing restages. 536 of 648 heightfield chunks were fused while tiles were still arriving, each through the grid that stood then; the masks were re-fused later, all through one.
   - Measured on `e010_n70` and `e080_n20` against a fuse through each cell's own tiles at their native spacing: the shipped land heights are off by 6 to 9 cm at the median, about 2 m at the 99th percentile and 24 m at the worst pixel. Re-fusing through today's grid is no closer.
   - `enforce_land_guard` covers a different case, a mosaic too stale to serve a cell's tiles at all.
-  - Restaging on a moved grid treats the symptom and re-fuses all 648 cells on any download. The fix is a grid that does not depend on the tile set, which moves every land height slightly, so it costs a re-fuse, a whole Earth pass and a look at the result.
+  - Restaging on a moved grid treats the symptom and re-fuses all 648 cells on any download. The fix is a grid that does not depend on the tile set, which moves every land height slightly and so costs a re-fuse and a whole Earth pass.
+  - Judged by eye and parked on that: the worst Himalayan block rendered from shipped and from corrected heights showed Rohan no difference. It rides the next Earth pass that is owed for another reason.
 
 ### One concept with two homes
 
