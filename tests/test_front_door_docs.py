@@ -11,6 +11,7 @@ docs at all.
 """
 
 import re
+import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -79,6 +80,29 @@ def test_every_section_read_next_links_is_a_heading_its_file_still_has() -> None
         assert route["anchor"] in anchors, (
             f"*Read next* links {route['target']}#{route['anchor']}, a heading that file no longer has"
         )
+
+
+#: Tracked docs at the root or directly under `docs/` that *Read next* does not link, and why.
+UNROUTED = {"README.md": "the page the list is on"}
+
+
+def routable_docs() -> set[str]:
+    """Every tracked markdown file at the root or directly under `docs/`."""
+    listing = subprocess.run(
+        ["git", "ls-files", "--", "*.md"], cwd=ROOT, capture_output=True, text=True, check=True
+    )
+    return {name for name in listing.stdout.splitlines() if re.fullmatch(r"(docs/)?[^/]+\.md", name)}
+
+
+def test_every_doc_at_the_root_and_under_docs_has_a_line_in_read_next() -> None:
+    """`REPO-4`: a reader asking which doc is for them meets each one under the task it serves."""
+    docs = routable_docs()
+    assert "docs/pipeline.md" in docs, "the scan missed docs/, so it cannot see a doc moved there"
+    assert set(UNROUTED) <= docs, "an exemption names a doc that is no longer tracked"
+    missing = docs - {str(route["target"]) for route in read_next_routes()} - set(UNROUTED)
+    assert not missing, (
+        f"*Read next* has no line for {sorted(missing)}, so a reader never learns what it is for"
+    )
 
 
 def test_the_ci_only_coverage_floor_contributing_names_still_exists() -> None:

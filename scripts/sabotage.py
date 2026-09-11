@@ -5973,6 +5973,17 @@ def _earth_lake_depth''',
         replacement='### What the free tier buys',
         guard='test_every_section_read_next_links_is_a_heading_its_file_still_has',
     ),
+    # A doc with no line in *Read next*, the state `REPO-4` sat PARTIAL in. The link checks cannot
+    # see it, because an absent line has no link to follow.
+    Sabotage(
+        suite='python',
+        label='a doc loses its Read next line, so a reader never learns what it is for',
+        path='README.md',
+        needle="- How much disk the pipeline's data takes, and what is safe to delete → "
+               "[`docs/INVENTORY.md`](docs/INVENTORY.md)\n",
+        replacement='',
+        guard='test_every_doc_at_the_root_and_under_docs_has_a_line_in_read_next',
+    ),
     # The field is `Body.baked_exaggeration` and this record's key is not, which reads as a rename
     # left half done. Carrying it through is the tempting tidy-up, and every pinned frame on disk
     # spells the old key, so the fleet stops matching what regenerates beside it.
