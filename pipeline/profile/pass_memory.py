@@ -9,8 +9,8 @@ pass the box could have run, as it did on the reference machine with a browser o
 The floor is a smaller planet's measurement, not a smaller stage's. That is the distinction to carry
 away: `STANDING_GIB` is backed by Mars entire, not by picking Earth's lightest stage.
 
-PROCESS.md § Memory is the authority for every stage figure and holds the method. Each constant below
-carries only the one measurement that sizes it, pinned there by
+docs/PROCESS.md § Memory is the authority for every stage figure and holds the method. Each constant
+below carries only the one measurement that sizes it, pinned there by
 `test_each_cap_cites_the_figure_PROCESS_sizes_it_from`.
 
 No fallback, the rule `palette.look_for` states for the ramp: a body quietly inheriting Earth's cap

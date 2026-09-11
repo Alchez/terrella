@@ -197,7 +197,7 @@ def write_vrt_if_changed(vrt: Path, build: Callable[[Path], None]) -> bool:
     downstream is gated on the VRT's mtime, so an unconditional overwrite restages the whole planet:
     on Earth that is a 44 GB re-warp and then every block back through Cycles, to reproduce pixels
     that were already correct. Re-indexing is the natural thing to do after touching a producer, so
-    that cost sat one command away from anyone who tried. PROCESS.md holds the figure.
+    that cost sat one command away from anyone who tried. docs/PROCESS.md holds the figure.
 
     Byte-identity is what makes the comparison mean anything, and it was measured rather than
     assumed: rebuilding all three of Earth's planet VRTs from the same 648 chunks, into the same

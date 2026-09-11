@@ -2,7 +2,7 @@
 
 Every stage between a published DEM and what the site hands a browser, for both bodies. Acquire a body's data, declare its look, then run either of two lanes: the tile pyramid, which is the globe and which every body runs, or the hero lane, which is Earth's alone.
 
-Its two siblings answer the questions this file does not: [`pipeline-layout.md`](pipeline-layout.md) for where a module goes, [`adding-a-body.md`](adding-a-body.md) for what a new planet has to bring. The *why* behind the framing numbers is [`framing-math.md`](framing-math.md); measured stage runtimes are `PROCESS.md`; the high-level picture is the [`README`](../README.md).
+Its two siblings answer the questions this file does not: [`pipeline-layout.md`](pipeline-layout.md) for where a module goes, [`adding-a-body.md`](adding-a-body.md) for what a new planet has to bring. The *why* behind the framing numbers is [`framing-math.md`](framing-math.md); measured stage runtimes are [`PROCESS.md`](PROCESS.md); the high-level picture is the [`README`](../README.md).
 
 ## Environment setup (fresh machine)
 
@@ -155,7 +155,7 @@ pnpm --dir web build
 ```
 
 - **Both share one rung ladder**, 640/960/1280/1920/3840/native: the gallery stacks their outputs under one `sizes`, so a rung in one and not the other fetches mismatched files. `tests/test_hero_variants.py` guards it.
-- **Parallelism is a memory question, per script.** `--jobs 8` suits `hero_variants`; `gen_spotlight` is serial because its **native** rung peaks near 8 GB. Time one slug first; `PROCESS.md` has the pass costs.
+- **Parallelism is a memory question, per script.** `--jobs 8` suits `hero_variants`; `gen_spotlight` is serial because its **native** rung peaks near 8 GB. Time one slug first; `docs/PROCESS.md` has the pass costs.
 - **`hero_variants_recipe.json` records rung to WebP quality**, since existence cannot tell a q95 file from the q85 it replaced. Changing `quality_for()` restages that rung and only that rung.
 - **Borders are baked, not toggled.** `compose/overlay_borders.py` draws them over the finished render; the spotlight is a hero's only toggle asset.
 - **The manifest reads variant dimensions off disk**, so the gallery and detail pages fill in as renders complete.

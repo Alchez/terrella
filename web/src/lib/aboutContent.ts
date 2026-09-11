@@ -150,7 +150,7 @@ export const ABOUT: Record<BodySlug, BodyAbout> = {
       // to its height; this one ran 370 characters against neighbours at 144 and cost 338px of row
       // for four lines. The temptation is that this is the most interesting step and deserves more
       // words. It is the one that can least afford them, and prose about what was REJECTED belongs
-      // in a note below, which is not in the grid. The sky-view burn is hero-only and is ART.md's.
+      // in a note below, which is not in the grid. The sky-view burn is hero-only and is docs/ART.md's.
       {
         title: "Light",
         text: "A low north-west sun with a fill from the opposite side. Both surfaces are ray traced in Blender's Cycles off one rig, so the globe's tiles cast the same real shadows the gallery's stills do.",

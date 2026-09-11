@@ -377,7 +377,7 @@ def _warp_band(field: Path, bounds: tuple[float, float, float, float], width: in
     error and no symptom beyond structure quietly going missing. A band spans a narrow enough range
     of scales that the average is honest, which was measured on this grid against a sub-banded
     reference and against a deliberately decimated control; `scripts/` has no home for that probe, so
-    the numbers live in PROCESS.md.
+    the numbers live in docs/PROCESS.md.
 
     Do not "fix" this by adding banding: it would cost a subprocess per sub-band for output already
     shown identical, and it would read as though the decimation question here were open.

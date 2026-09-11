@@ -9,7 +9,7 @@ THIS FILE IS THE ORACLE, not a copy of one. The values were transcribed from the
 locked-constants section, which is kept outside the repository, so nothing a reader can reach holds
 them independently of `palette.py` itself. That is the point: an oracle stored beside the code it
 checks is no oracle at all, and these literals are deliberately hand-written rather than derived.
-Changing one means re-rendering every hero. See ART.md for the look decisions behind them.
+Changing one means re-rendering every hero. See docs/ART.md for the look decisions behind them.
 
 WHAT THIS ORACLE CAN NO LONGER SEE. "The approved hero look" meant these stops encoded to these
 hexes because the rig's view transform was a plain sRGB encode, exactly like `_srgb8`. It is
@@ -35,7 +35,7 @@ def _hex(code: str) -> tuple[int, int, int]:
 
 
 # The frozen hero ramp endpoints. Hand-transcribed on purpose — deriving them from `palette.py`
-# would make this test tautological. See ART.md § Lever index for what each one costs to move.
+# would make this test tautological. See docs/ART.md § Lever index for what each one costs to move.
 LAND_COAST = _hex("E9D9C0")   # land ramp @ 0 m
 LAND_PEAK = _hex("E9DCC8")    # land ramp @ 6000 m
 SEA_SHALLOW = _hex("85B9B7")  # sea ramp @ 0 m (shallowest; deepened ~15% from 8FC7C5)

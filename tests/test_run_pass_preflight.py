@@ -35,7 +35,7 @@ from pipeline.profile import pass_memory
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "pipeline" / "profile" / "run_pass.sh"
 PASS_MEMORY_SOURCE = REPO / "pipeline" / "profile" / "pass_memory.py"
-PROCESS = REPO / "PROCESS.md"
+PROCESS = REPO / "docs" / "PROCESS.md"
 GIB_IN_KIB = 1024 * 1024
 
 #: A body that renders no polar caps — the resolver's OTHER branch, and synthetic on purpose.
@@ -437,21 +437,21 @@ class TestTheCapResolver:
         """
         assert pass_memory.STANDING_GIB != pass_memory.HEAVY_JOB_GIB
 
-    #: The one measurement that sizes each cap, and the stage PROCESS.md measured it on. A cap is
+    #: The one measurement that sizes each cap, and the stage docs/PROCESS.md measured it on. A cap is
     #: only defensible if its own figure is current, so these are what the module may state.
     SIZING_FIGURES = (("CAP_RENDERING_GIB", "14.41 GiB", "Earth's cap stage"),
                       ("STANDING_GIB", "5.91 GiB", "Mars's ice alpha, its heaviest non-cap stage"),
                       ("HEAVY_JOB_GIB", "17.0 GB", "the largest hero's base grid"))
 
     def test_each_cap_cites_the_figure_PROCESS_sizes_it_from(self, subtests):
-        """Each constant states the one measurement behind it, and PROCESS.md still carries it."""
+        """Each constant states the one measurement behind it, and docs/PROCESS.md still carries it."""
         source = PASS_MEMORY_SOURCE.read_text()
         process = PROCESS.read_text()
         for constant, figure, stage in self.SIZING_FIGURES:
             with subtests.test(constant):
                 assert figure in source, f"{constant} no longer states the figure that sizes it"
                 assert figure in process, (
-                    f"{constant} is sized from {figure} ({stage}), which PROCESS.md no longer "
+                    f"{constant} is sized from {figure} ({stage}), which docs/PROCESS.md no longer "
                     f"carries anywhere")
 
     def test_the_module_states_no_figure_it_is_not_sized_by(self, subtests):
@@ -467,8 +467,8 @@ class TestTheCapResolver:
             with subtests.test(figure):
                 assert figure in sizing, (
                     f"pass_memory states {figure}, which sizes none of its constants. Stage figures "
-                    f"belong in PROCESS.md § Memory, which owns them and can be re-measured in one "
-                    f"place")
+                    f"belong in docs/PROCESS.md § Memory, which owns them and can be re-measured "
+                    f"in one place")
 
     def test_that_scan_can_actually_miss_one(self):
         """The positive control. Every figure in the module happens to be current, which is the

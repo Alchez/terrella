@@ -25,7 +25,7 @@ No rendered asset or elevation tile is in git, so a clone gets the code and none
 | Run every check the project has | git, uv, pnpm | minutes |
 | See the globe in a browser | the three tile archives for one body, downloaded | minutes, plus a few GB of disk |
 | See the gallery too | a local render store, which nothing ships: the manifest and the hero images | the two rows below |
-| Change how the globe's tiles look | the source data (no accounts or keys, except NSIDC-0791 snow, which needs a NASA Earthdata login) and the fused heightfield, plus Blender and a GPU it can drive: every tile block is raytraced, the rig refuses to fall back to CPU, and `PROCESS.md` § *Device memory* sizes the floor a card has to clear | a night per body, then a re-cut and a deploy |
+| Change how the globe's tiles look | the source data (no accounts or keys, except NSIDC-0791 snow, which needs a NASA Earthdata login) and the fused heightfield, plus Blender and a GPU it can drive: every tile block is raytraced, the rig refuses to fall back to CPU, and `docs/PROCESS.md` § *Device memory* sizes the floor a card has to clear | a night per body, then a re-cut and a deploy |
 | Change how the gallery's renders look | the above, at 8K per country | days |
 
 The first row runs on a fresh clone with nothing configured, and it is both test suites, the type checkers and the linters. The second is the cheap way to see something: the tile archives are published, so a globe needs a download rather than a render store. Everything below that needs the store itself, and since nothing ships one, the bottom two rows are how you get it.
@@ -74,7 +74,7 @@ What you cannot do is render, so the question that matters is whether your chang
 - **`tests/render_fingerprint.json` records the settings** stages write beside their outputs: sun angles, colours, thresholds. It answers whether you moved a value.
 - **`tests/pixel_baseline.json` records what the look layers compute**, by running the shipped producers on a small synthetic window and digesting the result. It answers whether you changed a calculation, which no record of settings can see: changing the sea-ice curve from a smoothstep to a straight line moves every sea-ice pixel on Earth by up to 20.3 DN of white and leaves the settings file byte-identical.
 
-Either going red means a pass is owed, and the failure names what moved and points at the cost in PROCESS.md. Regenerate with `uv run python -m scripts.render_fingerprint --write` or `uv run python -m scripts.pixel_baseline --write`, and commit the result in the same change so the diff says what it costs.
+Either going red means a pass is owed, and the failure names what moved and points at the cost in docs/PROCESS.md. Regenerate with `uv run python -m scripts.render_fingerprint --write` or `uv run python -m scripts.pixel_baseline --write`, and commit the result in the same change so the diff says what it costs.
 
 **Green on both is a necessary condition and not a sufficient one**, and if your change is in one of the gaps below, say so in your pull request, because nothing here can check it for you.
 

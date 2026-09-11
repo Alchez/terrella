@@ -13,7 +13,7 @@ yielded a wrong association with no signal, where a blank line at least announce
 
 WHICH IS WHY LINE CITATIONS ARE BANNED RATHER THAN VALIDATED. Nothing can check that line 63 is
 still ABOUT what the citer thinks; a heading can be checked, and a heading survives the edit that
-moves it. ART.md took 42 commits in three months carrying 95 heading changes, so this is the live
+moves it. docs/ART.md took 42 commits in three months carrying 95 heading changes, so this is the live
 case rather than a hypothetical.
 
 MATCHING IS A SHARED PREFIX, and that is what removes the need for a citation delimiter. The
@@ -39,6 +39,7 @@ another doc's old heading is a record, and editing a record to satisfy a scan co
 exists to keep.
 """
 
+import os
 import re
 import subprocess
 from functools import cache
@@ -93,7 +94,7 @@ CODE_PATH = re.compile(
 )
 
 #: What a doc says when it names a gone module ON PURPOSE. Taken from the sites already doing it:
-#: CLAUDE.md's producer-seam note, PROCESS.md's two superseded rows, the prose-pass skill.
+#: CLAUDE.md's producer-seam note and the prose-pass skill.
 DELETION_MARKER = re.compile(r"deleted|superseded|orphan", re.IGNORECASE)
 
 #: `FUTURE.md` names modules nobody has written yet and tooling outside the checkout, both by
@@ -164,7 +165,7 @@ def identifies_a_heading(cited: str, headings: list[str]) -> bool:
     """Whether `cited` names exactly one of `headings`.
 
     UNIQUENESS IS THE BAR, not a length. A word count was tried first and rejected on a real case:
-    it takes two words to tell ART.md's `Fill sun — TILES` from its `Fill sun — shadow floor`, but
+    it takes two words to tell docs/ART.md's `Fill sun — TILES` from its `Fill sun — shadow floor`, but
     that same rule refuses the one-word `Borders`, which names its section perfectly well. What a
     citation owes is that it picks out one section, so that is what gets asserted — the LONGEST
     shared opening must be achieved by a single heading. `Fill sun` alone is then correctly refused
@@ -213,7 +214,7 @@ def unfollowable_archive_pointers(text: str) -> list[str]:
 def test_every_module_a_doc_names_still_exists() -> None:
     """A doc naming a gone module points a reader at a file, which outranks merely stale prose.
 
-    `ART.md` said `shade.py` held `LAKE_CURVE` when the constant had moved to `look/lake_depth.py`,
+    `docs/ART.md` said `shade.py` held `LAKE_CURVE` when the constant had moved to `look/lake_depth.py`,
     which its own lever table already said, and gave three tuning recipes for a `--knob` flag the
     same file states twice was removed with the compositor. Nothing could go red: every check above
     follows code pointing at a document, and this is a document pointing at code.
@@ -261,7 +262,7 @@ def test_no_pointer_cites_a_line_number() -> None:
         for match in LINE_CITATION.findall((REPO_ROOT / path).read_text())
     ]
     assert not offenders, (
-        "cite a heading, not a line — `ART.md § Fill sun`, never `ART.md:56`:\n  "
+        "cite a heading, not a line — `docs/ART.md § Fill sun`, never `docs/ART.md:56`:\n  "
         + "\n  ".join(offenders)
     )
 
@@ -355,6 +356,53 @@ def test_every_test_a_doc_names_still_exists() -> None:
     )
 
 
+#: The target of an inline markdown link or image, up to the first space or closing parenthesis.
+LINK_TARGET = re.compile(r"\]\(([^)\s]+)\)")
+
+#: A target that leaves the repo or stays on the page: a URL scheme, `mailto:`, or a bare anchor.
+OUTSIDE_THE_TREE = re.compile(r"[a-z][a-z+.-]*:|#")
+
+
+def relative_links() -> list[tuple[Path, str]]:
+    """Every link in a tracked markdown file that points into the repo, as (doc, target)."""
+    docs = sorted(Path(name) for name in tracked() if name.endswith(".md"))
+    return [
+        (doc, target)
+        for doc in docs
+        for target in LINK_TARGET.findall((REPO_ROOT / doc).read_text())
+        if not OUTSIDE_THE_TREE.match(target)
+    ]
+
+
+def link_reaches_a_tracked_file(doc: Path, target: str) -> bool:
+    """Whether `target`, read the way GitHub reads a link in `doc`, lands on a file or directory."""
+    path = re.split(r"[#?]", target)[0]
+    base = Path() if path.startswith("/") else doc.parent
+    landed = os.path.normpath(base / path.lstrip("/"))
+    return landed in tracked() or any(name.startswith(f"{landed}/") for name in tracked())
+
+
+def test_every_link_in_a_doc_reaches_a_file_a_clone_has() -> None:
+    """A relative link in a tracked doc lands on a tracked file or directory.
+
+    Tracked rather than on disk, for the module note's reason. `resolve` is not reused here, though
+    it looks like the same question: it also tries a bare name under `docs/`, and a link has no
+    fallback, GitHub opening exactly the path written.
+    """
+    assert link_reaches_a_tracked_file(Path("docs/pipeline.md"), "../README.md")
+    assert not link_reaches_a_tracked_file(Path("docs/pipeline.md"), "README.md")
+    assert link_reaches_a_tracked_file(Path("README.md"), "docs/")
+
+    offenders = [
+        f"{doc}: {target}"
+        for doc, target in relative_links()
+        if not link_reaches_a_tracked_file(doc, target)
+    ]
+    assert not offenders, (
+        "a doc links a path no clone has, so the reader lands on a 404:\n  " + "\n  ".join(offenders)
+    )
+
+
 #: A skill and the doc it routes to, where the skill must stay a strict subset. Both fire on one
 #: task, so nothing can cut them apart by trigger and both fill up; the doc is the copy a clone
 #: reads without a skill loader, so it is the one that owns the facts.
@@ -396,8 +444,9 @@ def test_the_scan_reaches_the_pointers_it_claims_to_cover() -> None:
         sections += len(SECTION_CITATION.findall(flattened(path)))
 
     assert len(scanned_files()) > 50, "the file scan found almost nothing; check SCANNED_ROOTS"
-    assert {"ART.md", "ATTRIBUTIONS.md"} <= documents, f"expected pointers missing: {documents}"
+    assert {"docs/ART.md", "ATTRIBUTIONS.md"} <= documents, f"expected pointers missing: {documents}"
     assert sections >= 3, f"expected several section citations, found {sections}"
+    assert (Path("README.md"), "CONTRIBUTING.md") in relative_links(), "the link scan missed README"
 
     cited_tests = {
         name

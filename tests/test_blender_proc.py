@@ -7,7 +7,7 @@ cap exists precisely to KILL a runaway render, so the protection is what strands
 reclaims it afterwards either: tmpfs is not charged to the render's cgroup, so the memory limit
 cannot see the leak its own kill produced.
 
-The per-block figure and the incident behind this live in PROCESS.md § Memory and in HISTORY.
+The per-block figure and the incident behind this live in docs/PROCESS.md § Memory and in HISTORY.
 """
 
 import subprocess
