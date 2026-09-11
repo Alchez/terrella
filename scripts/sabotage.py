@@ -4429,11 +4429,35 @@ def _earth_lake_depth''',
     # mutations leaves a module that imports, type-checks and reads perfectly sensibly.
     Sabotage(
         suite='python',
-        label='the edition preflight checks only the size, so a re-upload passes as the pinned one',
+        label='the edition preflight drops the date, so a re-upload passes as the pinned one',
         path='pipeline/acquire/mars/download_mars_dem.py',
-        needle='    for field, served, expected in (("size", served_bytes, EXPECTED_BYTES),\n                                    ("Last-Modified", served_date, EXPECTED_LAST_MODIFIED)):',
-        replacement='    for field, served, expected in (("size", served_bytes, EXPECTED_BYTES),):',
+        needle='        ("Last-Modified", served_date, EXPECTED_LAST_MODIFIED),\n',
+        replacement='',
         guard='test_a_re_upload_of_the_SAME_bytes_still_aborts',
+    ),
+    Sabotage(
+        suite='python',
+        label='the preflight drops the publisher digest, so a re-blend on the same grid passes',
+        path='pipeline/acquire/mars/download_mars_dem.py',
+        needle='        ("md5", fetch.published_md5(CHECKSUM_URL, BLEND_NAME), EXPECTED_MD5),\n',
+        replacement='',
+        guard='test_a_reblend_on_the_same_grid_is_caught_though_its_size_and_date_match',
+    ),
+    Sabotage(
+        suite='python',
+        label='--verify stops digesting, so the right grid holding other pixels verifies',
+        path='pipeline/acquire/mars/download_mars_dem.py',
+        needle='        digest = fetch.assert_digest(destination, EXPECTED_MD5)\n',
+        replacement='        digest = "not digested"\n',
+        guard='test_verify_refuses_the_right_grid_holding_other_bytes',
+    ),
+    Sabotage(
+        suite='python',
+        label='a fresh download is never digested, so a substituted blend lands as the pinned one',
+        path='pipeline/acquire/mars/download_mars_dem.py',
+        needle='    fetch.assert_digest(destination, EXPECTED_MD5)\n    assert_grid(destination)\n',
+        replacement='    assert_grid(destination)\n',
+        guard='test_a_download_holding_other_bytes_is_refused',
     ),
     Sabotage(
         suite='python',
@@ -4462,28 +4486,15 @@ def _earth_lake_depth''',
         guard='test_check_stops_after_the_preflight',
     ),
     # --- The Viking mosaic acquisition recipe -------------------------------------------------------
-    # This product is UNCOMPRESSED on a fixed grid, so a re-render that keeps the grid lands on the
-    # same byte count whatever the pixels say. That makes the size pin nearly uninformative and the
-    # publisher's own md5 the only check that can see one — the reverse of the Mars DEM next door,
-    # where the size and the date are all there is to pin.
+    # Uncompressed on a fixed grid like the DEM, so a re-render that keeps the grid lands on the same
+    # byte count whatever the pixels say, and the publisher's md5 is the only check that can see one.
     Sabotage(
         suite='python',
         label='the preflight drops the publisher digest, so a re-render at the same size passes',
         path='pipeline/acquire/mars/download_viking_mosaic.py',
-        needle='        ("md5", published_md5(), EXPECTED_MD5),\n',
+        needle='        ("md5", fetch.published_md5(CHECKSUM_URL, MOSAIC_NAME), EXPECTED_MD5),\n',
         replacement='',
         guard='test_a_rerender_that_keeps_the_size_and_the_date_is_still_caught',
-    ),
-    # A checksum sidecar is fetched by URL, so a rotted path is the failure that looks like drift:
-    # without the name check the digest of some OTHER product is compared to ours and the message
-    # blames a republished mosaic.
-    Sabotage(
-        suite='python',
-        label='the checksum sidecar is trusted without checking which product it names',
-        path='pipeline/acquire/mars/download_viking_mosaic.py',
-        needle='    if len(fields) != 2 or fields[1] != MOSAIC_NAME:',
-        replacement='    if len(fields) != 2:',
-        guard='test_a_checksum_sidecar_describing_another_product_aborts_saying_so',
     ),
     # NOT INVENTED — the product's own two detached PDS labels declare `PolarRadius = 3376200`, so
     # deleting this check is what a careful reader of the labels would do. The GeoTIFF declares a
@@ -4594,6 +4605,17 @@ def _earth_lake_depth''',
         needle='    return urllib.request.Request(url, method=method, headers={"User-Agent": USER_AGENT})',
         replacement='    return urllib.request.Request(url, method=method)',
         guard='test_build_request_carries_the_pipeline_user_agent',
+    ),
+    # A checksum sidecar is fetched by URL, so a rotted path is the failure that looks like drift:
+    # without the name check the digest of some OTHER product is compared to ours and the message
+    # blames a republished one.
+    Sabotage(
+        suite='python',
+        label='the checksum sidecar is trusted without checking which product it names',
+        path='pipeline/fetch.py',
+        needle='    if len(fields) != 2 or fields[1] != name:',
+        replacement='    if len(fields) != 2:',
+        guard='test_a_sidecar_naming_another_product_is_refused_saying_so',
     ),
     Sabotage(
         suite='python',

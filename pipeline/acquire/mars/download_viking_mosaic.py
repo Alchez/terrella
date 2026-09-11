@@ -74,7 +74,6 @@ Usage:
 """
 
 import argparse
-import hashlib
 import sys
 from pathlib import Path
 
@@ -116,36 +115,6 @@ def mosaic_path() -> Path:
     return datasets.mars() / MOSAIC_NAME
 
 
-def file_md5(path: Path) -> str:
-    """md5 of a file on disk, streamed a megabyte at a time.
-
-    md5 RATHER THAN SOMETHING MODERN because the digest has to be comparable to the publisher's, and
-    md5 is what they publish. It is an integrity check against a truncated or substituted download,
-    not a security boundary, and choosing sha256 here would simply make the pin uncheckable.
-    """
-    digest = hashlib.md5()
-    with open(path, "rb") as handle:
-        for block in iter(lambda: handle.read(1 << 20), b""):
-            digest.update(block)
-    return digest.hexdigest()
-
-
-def published_md5(url: str = CHECKSUM_URL) -> str:
-    """The digest the publisher currently advertises, read from the `.md5` sidecar.
-
-    THE SIDECAR NAMES ITS OWN SUBJECT AND THAT NAME IS CHECKED. The format is `<digest>  <filename>`,
-    so a sidecar describing some other product would otherwise hand back a digest that fails the pin
-    for a reason the error message would misreport — a rotted URL reading as a republished mosaic.
-    """
-    with fetch.open_url(url, timeout=60) as response:
-        text = response.read().decode("ascii").strip()
-    fields = text.split()
-    if len(fields) != 2 or fields[1] != MOSAIC_NAME:
-        sys.exit(f"{url}: expected '<md5>  {MOSAIC_NAME}', got {text!r} — the checksum sidecar does "
-                 f"not describe this product, so its digest cannot be compared to ours")
-    return fields[0]
-
-
 def preflight(url: str = MOSAIC_URL) -> None:
     """Assert the server still offers the exact edition this module is pinned to, or exit.
 
@@ -160,7 +129,7 @@ def preflight(url: str = MOSAIC_URL) -> None:
     checks: tuple[tuple[str, object, object], ...] = (
         ("size", served_bytes, EXPECTED_BYTES),
         ("Last-Modified", served_date, EXPECTED_LAST_MODIFIED),
-        ("md5", published_md5(), EXPECTED_MD5),
+        ("md5", fetch.published_md5(CHECKSUM_URL, MOSAIC_NAME), EXPECTED_MD5),
     )
     for field, served, expected in checks:
         if served != expected:
@@ -239,16 +208,6 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def assert_digest(path: Path) -> str:
-    """Assert the file on disk carries the pinned digest, returning it, or exit."""
-    digest = file_md5(path)
-    if digest != EXPECTED_MD5:
-        sys.exit(f"{path.name}: md5 {digest} != pinned {EXPECTED_MD5} — the bytes on disk are not "
-                 f"the published edition. Delete the file and re-run rather than re-pinning: a "
-                 f"truncated or substituted mosaic looks exactly like this.")
-    return digest
-
-
 def main() -> int:
     args = build_parser().parse_args()
     destination = mosaic_path()
@@ -256,7 +215,7 @@ def main() -> int:
     if args.verify:
         if not destination.exists():
             sys.exit(f"nothing to verify: {destination} is not on disk")
-        digest = assert_digest(destination)
+        digest = fetch.assert_digest(destination, EXPECTED_MD5)
         assert_grid(destination)
         print(f"verified {destination} ({destination.stat().st_size:,} bytes, md5 {digest})",
               flush=True)
@@ -280,7 +239,7 @@ def main() -> int:
         print(f"wrote {destination}", flush=True)
     # Re-digested even when the transfer was SKIPPED, which is the case that matters: a file already
     # under its final name is complete by construction but says nothing about which edition it is.
-    assert_digest(destination)
+    fetch.assert_digest(destination, EXPECTED_MD5)
     assert_grid(destination)
     print("digest matches the publisher's checksum; grid verified against the ice levels' contract",
           flush=True)

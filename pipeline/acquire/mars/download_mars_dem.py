@@ -64,16 +64,18 @@ Idempotency: the file streams to a `.part` name, is size-checked against Content
 then atomically renamed (`fetch.download_one`, one home for that rule), so a file under its
 final name is always complete and a re-run skips it.
 
-Edition oracle: `preflight` HEADs the URL and refuses to download unless the size AND the
-Last-Modified date still match the pin. USGS republishes mosaics in place under the same filename —
-the `_v2` in the name is the product version, not an immutable release — so a same-name file with a
-different date is a different planet's worth of pixels arriving under our recipe. `assert_grid`
-then re-checks the raster itself, because a byte count is not a grid.
+Edition oracle: `preflight` HEADs the URL and reads the publisher's `.md5` sidecar, and refuses to
+download unless the size, the Last-Modified date and the digest all still match the pin. USGS
+republishes mosaics in place under the same filename (the `_v2` in the name is the product version,
+not an immutable release), and this blend is uncompressed on a fixed grid, so a re-blend on the same
+grid keeps the byte count and only the digest reads the pixels. The digest is checked again against
+the bytes on disk after a download and under `--verify`, and `assert_grid` re-checks the raster
+itself, because a byte count is not a grid.
 
 Usage:
   python3 -m pipeline.acquire.mars.download_mars_dem --check     # preflight only, downloads nothing
   python3 -m pipeline.acquire.mars.download_mars_dem             # preflight, then ~10.6 GiB
-  python3 -m pipeline.acquire.mars.download_mars_dem --verify    # re-check the file already on disk
+  python3 -m pipeline.acquire.mars.download_mars_dem --verify    # re-digest the file already on disk
 """
 
 import argparse
@@ -90,9 +92,13 @@ BLEND_NAME = "Mars_HRSC_MOLA_BlendDEM_Global_200mp_v2.tif"
 BLEND_URL = ("https://planetarymaps.usgs.gov/mosaic/Mars/HRSC_MOLA_Blend/"
              f"{BLEND_NAME}")
 
+#: The publisher's checksum sidecar, a few dozen bytes beside the blend.
+CHECKSUM_URL = f"{BLEND_URL}.md5"
+
 #: The edition this pipeline was designed against, pinned so a republished mosaic cannot arrive
-#: unannounced. Both fields, not just the size: a re-blend that happens to land on the same byte
-#: count is unlikely but a re-upload of the same bytes is not, and only the date separates them.
+#: unannounced. The digest is the publisher's and the only pin that reads content: the blend is
+#: uncompressed on a fixed grid, so every edition on this grid is the same byte count.
+EXPECTED_MD5 = "e98092a06bea74d5ec9a704dcd1fe318"
 EXPECTED_BYTES = 11_384_463_908
 EXPECTED_LAST_MODIFIED = "Wed, 09 Nov 2022 14:59:19 GMT"
 
@@ -113,15 +119,18 @@ def blend_path() -> Path:
 def preflight(url: str = BLEND_URL) -> None:
     """Assert the server still offers the exact edition this module is pinned to, or exit.
 
-    A HEAD, so this costs no bandwidth and can be run before committing to ~10.6 GiB. It is the
-    only check that can run BEFORE the download, which is precisely when a drifted edition is
-    cheapest to discover.
+    A HEAD and a few dozen bytes of sidecar, so this can run before committing to ~10.6 GiB, which
+    is precisely when a drifted edition is cheapest to discover.
     """
     with fetch.open_url(url, method="HEAD", timeout=60) as response:
         served_bytes = int(response.headers.get("Content-Length", -1))
         served_date = response.headers.get("Last-Modified", "")
-    for field, served, expected in (("size", served_bytes, EXPECTED_BYTES),
-                                    ("Last-Modified", served_date, EXPECTED_LAST_MODIFIED)):
+    checks: tuple[tuple[str, object, object], ...] = (
+        ("size", served_bytes, EXPECTED_BYTES),
+        ("Last-Modified", served_date, EXPECTED_LAST_MODIFIED),
+        ("md5", fetch.published_md5(CHECKSUM_URL, BLEND_NAME), EXPECTED_MD5),
+    )
+    for field, served, expected in checks:
         if served != expected:
             sys.exit(f"{BLEND_NAME}: the server now reports {field}={served!r}, pinned to "
                      f"{expected!r} — the mosaic was republished under the same name. Stop and "
@@ -132,16 +141,15 @@ def preflight(url: str = BLEND_URL) -> None:
 def assert_grid(path: Path) -> None:
     """Assert the raster on disk is the grid the rest of the pipeline assumes, or exit.
 
-    SEPARATE FROM `preflight` BECAUSE A BYTE COUNT IS NOT A GRID. The size pin proves the transfer
-    matched what was advertised; this proves the advertised thing is still shaped the way the entry
-    seam, the zoom ceiling and the registry were all written against.
+    Not redundant with the digest, though a matching digest implies every number below: on a re-pin
+    the digest agrees with whatever arrived, and this is what still refuses a different shape from
+    the one the entry seam, the zoom ceiling and the registry were all written against.
 
     The sphere check is the load-bearing one. `bodies.MARS.ground_radius_m` is what converts this
     pipeline's map units back into Martian ground metres, through `ground_metres_per_mercator_unit`
     and `ground_metres_per_aeqd_unit`, which own the conversion. It was taken FROM this product.
-    Holding the
-    two together here means a source published on the 3,389,500 m mean sphere instead of the
-    3,396,190 m IAU sphere is an error at acquisition rather than a 0.2% relief error nobody sees.
+    Holding the two together here means a source published on the 3,389,500 m mean sphere instead of
+    the 3,396,190 m IAU sphere is an error at acquisition rather than a 0.2% relief error nobody sees.
     """
     with rasterio.open(path) as dataset:
         checks = [
@@ -177,7 +185,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--check", action="store_true",
                         help="run the edition preflight and stop; downloads nothing")
     parser.add_argument("--verify", action="store_true",
-                        help="re-check the grid of the file already on disk; downloads nothing")
+                        help="re-digest and re-check the file already on disk; downloads nothing")
     return parser
 
 
@@ -188,13 +196,15 @@ def main() -> int:
     if args.verify:
         if not destination.exists():
             sys.exit(f"nothing to verify: {destination} is not on disk")
+        digest = fetch.assert_digest(destination, EXPECTED_MD5)
         assert_grid(destination)
-        print(f"verified {destination} ({destination.stat().st_size:,} bytes)", flush=True)
+        print(f"verified {destination} ({destination.stat().st_size:,} bytes, md5 {digest})",
+              flush=True)
         return 0
 
     preflight()
     print(f"preflight ok: {BLEND_NAME} is the pinned edition "
-          f"({EXPECTED_BYTES:,} bytes, {EXPECTED_LAST_MODIFIED})", flush=True)
+          f"({EXPECTED_BYTES:,} bytes, {EXPECTED_LAST_MODIFIED}, md5 {EXPECTED_MD5})", flush=True)
     if args.check:
         return 0
 
@@ -204,8 +214,12 @@ def main() -> int:
     if result.startswith("failed"):
         sys.exit(f"{BLEND_NAME}: {result}")
     print(f"{result}: {destination}", flush=True)
+    # Digested even when the transfer was skipped: a file under its final name is complete by
+    # construction and says nothing about which edition it is.
+    fetch.assert_digest(destination, EXPECTED_MD5)
     assert_grid(destination)
-    print("grid verified against the Mars entry seam's contract", flush=True)
+    print("digest matches the publisher's checksum; grid verified against the Mars entry seam's "
+          "contract", flush=True)
     return 0
 
 
