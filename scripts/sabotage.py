@@ -5818,6 +5818,37 @@ def _earth_lake_depth''',
         replacement='certain dark markings',
         guard='names a real albedo feature the map does not reproduce',
     ),
+    Sabotage(
+        suite='web',
+        # A copy pass swaps the setting's name for a friendlier phrase. The sentence still reads as
+        # an explanation, and the visitor who turned reduced motion on no longer finds the word that
+        # tells them why their globe does not spin.
+        label="the tier note stops naming reduced motion as a reason for Globe",
+        path='web/src/lib/aboutContent.ts',
+        needle='anyone who has asked for reduced motion.',
+        replacement='anyone who prefers a calmer globe.',
+        guard='gives every signal that moves a visitor off Full',
+    ),
+    Sabotage(
+        suite='web',
+        # The probe changes and the page does not. Refusing the globe over a slow link is a plausible
+        # tightening, and the About note would go on promising those visitors Globe.
+        label='a slow connection moves to Lite while the tier note still says Globe',
+        path='web/src/lib/capability.ts',
+        needle='  if (signals.saveData) return "gallery";',
+        replacement='  if (signals.saveData || signals.slowNetwork) return "gallery";',
+        guard='gives every signal that moves a visitor off Full',
+    ),
+    Sabotage(
+        suite='web',
+        # Two step-downs traded in the prose. Each is still true on its own, so only the order,
+        # which is the ladder's whole design, goes wrong.
+        label='the tier note gives the step-downs out of the order the globe takes them',
+        path='web/src/lib/aboutContent.ts',
+        needle='then the image softens, then the terrain flattens.',
+        replacement='then the terrain flattens, then the image softens.',
+        guard='describes the step-downs in the order the globe takes them',
+    ),
 
     # --- The ramp runs between two ends, and neither of them is assumed ------------------------------
     # Every case here puts the datum back at one end of the ramp. All five are invisible on Earth BY
@@ -7491,13 +7522,82 @@ def _earth_lake_depth''',
     ),
     Sabotage(
         suite='web',
-        # The view bar half. Nothing can import this script, so its only guard is a scan — and the
-        # mutation is the code that shipped: Globe and Full on Mars navigating to Earth.
+        # The view bar half, and the mutation is the code that shipped once: Globe and Full on Mars
+        # navigating to Earth.
         label="the tier picker's buttons navigate to Earth from every body",
+        path='web/src/lib/tierPicker.ts',
+        needle='      const target = choice === "lite" ? page.routes.lite : page.routes.globe;',
+        replacement='      const target = choice === "lite" ? "/" : "/earth/";',
+        guard="sends a device that can draw the globe to this body's own globe",
+    ),
+    Sabotage(
+        suite='web',
+        # Software rasterizers forgotten. The guard bounces them off the globe, so the picker would
+        # go back to saving a pick that cannot be honoured and sending the visitor round in a loop.
+        label='the picker stops refusing a software rasterizer the guard still bounces',
+        path='web/src/lib/capability.ts',
+        needle='  return !signals.webgl2 || signals.softwareGpu;',
+        replacement='  return !signals.webgl2;',
+        guard='agrees with the guard on SwiftShader via the extension',
+    ),
+    Sabotage(
+        suite='web',
+        # One dropped `!` and the question is asked on the globe, where the guard has already
+        # answered it, and never on the lite page, where the press would be bounced.
+        label='the picker asks whether the device can draw the globe on the wrong page',
+        path='web/src/lib/tierPicker.ts',
+        needle='      if (choice !== "lite" && !onGlobe && guardBouncesOffGlobe(effects.probe())) {',
+        replacement='      if (choice !== "lite" && onGlobe && guardBouncesOffGlobe(effects.probe())) {',
+        guard='refuses Globe and Full on a device the guard would bounce, saves nothing, and says why',
+    ),
+    Sabotage(
+        suite='web',
+        # The tag follows the lit chip instead of the pick, so it says "auto" over a tier the
+        # visitor chose themselves, which is the one thing it exists to tell apart.
+        label='the auto tag stays on after the visitor has picked',
+        path='web/src/lib/tierPicker.ts',
+        needle='    button.toggleAttribute("data-auto", isActive && sitePicked);',
+        replacement='    button.toggleAttribute("data-auto", isActive);',
+        guard='tags nothing on a globe once the visitor has picked',
+    ),
+    Sabotage(
+        suite='web',
+        # The guard keeps a device off the globe and stops saying so, and Lite goes untagged on
+        # exactly the page where the site made the choice.
+        label='the guard keeps a device that cannot draw the globe on Lite without marking it',
         path='web/src/layouts/Base.astro',
-        needle='        const target = choice === "lite" ? routes.lite : routes.globe;',
-        replacement='        const target = choice === "lite" ? "/" : "/earth/";',
-        guard="takes both tier destinations from the body's own routes",
+        needle='          if (!capable()) return root.setAttribute("data-kept-on-lite", ""); // no globe floor',
+        replacement='          if (!capable()) return; // no globe floor',
+        guard='marks a device that cannot draw the globe, whatever the saved pick',
+    ),
+    Sabotage(
+        suite='web',
+        # The breakpoint slips ten pixels, and a narrow pointer window gets a tag that its bar,
+        # carrying the highlight button too, has no room for.
+        label='the auto tag shows in a pointer window too narrow to hold it',
+        path='web/src/styles/global.css',
+        needle='@media (max-width: 349px) and (hover: hover) {',
+        replacement='@media (max-width: 339px) and (hover: hover) {',
+        guard='shows the auto tag from the width it fits at, and drops it one pixel below',
+    ),
+    Sabotage(
+        suite='web',
+        # The site-wide notes take the per-body grid's columns again, three across, and the fourth
+        # sits alone on a row of its own.
+        label="About's site-wide notes go back to three across and a fourth alone",
+        path='web/src/pages/about.astro',
+        needle='    grid-template-columns: repeat(auto-fit, minmax(min(max(280px, calc((100% - var(--note-gap)) / 2)), 100%), 1fr));',
+        replacement='    grid-template-columns: repeat(auto-fit, minmax(min(clamp(280px, 26vw, 380px), 100%), 1fr));',
+        guard='lay out at most two across, so four make two rows rather than three and a lone fourth',
+    ),
+    Sabotage(
+        suite='web',
+        # The empty line stops hiding, and an empty dark pill hangs over every lite page's bar.
+        label='the refusal line draws while it has nothing to say',
+        path='web/src/styles/global.css',
+        needle='.picker-refusal:empty {\n  display: none;\n}',
+        replacement='.picker-refusal:empty {\n  visibility: visible;\n}',
+        guard='draws nothing while it has nothing to say, then the reason above the bar and both tiers dimmed',
     ),
     Sabotage(
         suite='web',

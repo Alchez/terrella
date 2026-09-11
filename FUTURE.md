@@ -727,10 +727,9 @@ The working plan had become the project's only backlog as well as its live state
 - **The next Mars pass rebuilds the ice caps and the ice tile layer.** The recovered units carry today's mtime and `_mars_sources` gates on mtimes, so the output is correct but not free.
 - **`data/raw` is written by `pipeline/acquire/*` alone**, so making it read-only on disk is the candidate that removes the target instead of detecting the write. The maintainer's call, being 1.1 TB of their own data.
 
-### Two things the site does not tell a visitor
+### What the site does not tell a visitor
 
 - **The vertical exaggeration reaches a downloader and not a visitor.** The archives page states each body's baked scale and says the relief pyramid is a picture rather than a measurement; the About page, where the lake beds and the borders both get notes, still says nothing, and the globe a visitor is actually looking at says nothing either. Mars is the sharper half: its elevation key reads -6,000 m to +6,100 m and its lede states 200 metres to the pixel, so the one place the site gives real numbers sits beside a surface drawn at 20x, and a reader who pairs them computes a slope twenty times the real one. The wording is a look call, and the About grid pads every card to the tallest, so this wants a note rather than a seventh step.
-- **Nothing says the tier was chosen for the visitor, and both automatic paths are silent.** An incapable device is redirected to the Lite route before the globe paints, and the runtime ladder retires the idle spin, drops the canvas to 1x and disables terrain with no notice; the picker's tooltips say what each tier buys and never that one was picked for you. That is the whole of what `SITE-3` asks, and it is a copy call rather than a mechanism gap.
 
 ### A colour call and a product question
 
@@ -760,6 +759,7 @@ The working plan went back to holding one onboarding question at a time, which i
 - **The sky-view march wraps around the frame, so a hero's west-edge ridge occludes its east edge as though the two were adjacent.** Measured on a 256 px grid: the far edge reads 0.5625, matching the pixel one px from the ridge, while mid-grid reads a fully open 1.0000. `test_the_march_wraps_around_the_grid_edge` pins that value, so padding the march instead goes red here rather than silently restaging every hero. The fix costs a re-shade and not a re-render, no GPU and minutes off the kept `heroes/raw/*.png`, but it moves the edge band on all 203, which makes it a look call.
 
 - **Three items defer with the 203-hero re-render**, each needing a frame rendered under the new sky: `SHADOW_TINT`'s re-derivation, the `locked_hero_hex` re-freeze, and the hero hairline backdrop. The mismatch behind them is real, every hero carrying a warm ambient and the old tone map that the tiles do not, so a country click opens a hero that does not match its globe.
+- **The tier picker has no way back to automatic, deferred until a visitor asks for one.** A press of Lite, Globe or Full pins that tier in `rg:quality` for good, and only clearing the site's data hands the choice back to the probe, which the About note says. An Auto button was offered and declined for now; Earth's bar at 320 px has its one-row fit held by the view bar test, so a fourth tier button is measured against that before it is designed.
 - **Do two GPU backends render identically?** Blocked on hardware, this box having one card. If they differ, the backend belongs in the recipe rather than in `scene_build`'s module-constant allowlist, and `GPU_BACKENDS`'s own comment says so.
 - **The fold's law is deferred on the composite and cap tiers, and its stated reason is now false**, having rested on both bodies being composited. Re-argue it rather than citing it.
 

@@ -2,7 +2,7 @@
 import Base from "../layouts/Base.astro";
 import Masthead from "../components/Masthead.astro";
 import Legend from "../components/Legend.astro";
-import { ABOUT } from "../lib/aboutContent";
+import { ABOUT, TIER_NOTE } from "../lib/aboutContent";
 import { BODIES } from "../lib/bodies";
 import { bodyRoutes } from "../lib/bodyRoutes";
 import { pageTitle } from "../lib/pageTitle";
@@ -250,6 +250,13 @@ const licenceHtml = [
               the shadow erases the modelling it was added to show. Everything here is ray traced
               instead, which costs a night per planet.
             </p>
+          </div>
+        </section>
+
+        <section class="note-block">
+          <h2 class="eyebrow">{TIER_NOTE.heading}</h2>
+          <div class="note">
+            {TIER_NOTE.paragraphs.map((paragraph) => <p>{paragraph}</p>)}
           </div>
         </section>
       </div>
@@ -531,7 +538,8 @@ const licenceHtml = [
     margin-top: clamp(2rem, 4.5vw, 3rem);
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(clamp(280px, 26vw, 380px), 100%), 1fr));
-    gap: clamp(1.2rem, 2.5vw, 2rem);
+    --note-gap: clamp(1.2rem, 2.5vw, 2rem);
+    gap: var(--note-gap);
     align-items: stretch; /* equal-height callouts — ragged box bottoms read as a mistake */
   }
   .note-block {
@@ -583,8 +591,11 @@ const licenceHtml = [
     height: 1px;
     background: var(--line);
   }
+  /* Two across at most: each column is at least half the row, so four notes make two rows rather
+     than three across and a fourth alone. One across below two 280px columns. */
   .shared .note-grid {
     margin-top: 0;
+    grid-template-columns: repeat(auto-fit, minmax(min(max(280px, calc((100% - var(--note-gap)) / 2)), 100%), 1fr));
   }
 
   /* Set small and quiet, the way a licence notice is read: present, findable, and not competing

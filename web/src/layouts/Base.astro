@@ -187,8 +187,10 @@ const hasViewBar = highlight || borders || spotlight || quality;
           // A lite page: steer capable visitors onto THIS body's globe, pessimistically.
           if (quality === "lite") return; // user forced the lite view
           if (sessionStorage.getItem("rg:steered")) return; // steer once per session
-          if (!capable()) return; // no globe floor — same test capability.ts applies
-          if (quality === "auto" && saveData) return; // respect data-saver on auto
+          // The two ways the SITE keeps a visitor here, marked so the tier picker can tag Lite as
+          // its pick; the returns above are the visitor's own choices and mark nothing.
+          if (!capable()) return root.setAttribute("data-kept-on-lite", ""); // no globe floor
+          if (quality === "auto" && saveData) return root.setAttribute("data-kept-on-lite", ""); // data-saver
           sessionStorage.setItem("rg:steered", "1");
           location.replace(globeRoute);
         } catch (e) {
@@ -321,18 +323,16 @@ const hasViewBar = highlight || borders || spotlight || quality;
           {(highlight || borders || spotlight) && quality && (
             <span class="view-bar-divider" aria-hidden="true" />
           )}
-          {/* Tooltips describe what each tier DOES TODAY, not what the architecture plans for it.
-              `currentTier()` has exactly one behavioural read in the whole site — earth.astro's
-              `spinning` — so Full currently buys idle rotation and nothing else. Saying "3D
-              terrain" here would advertise a promise the site does not yet keep. Revisit when
-              something else reads the tier. */}
+          {/* Each tooltip says what its tier does today, and has to be true on every page the
+              picker sits on: both bodies, on the globe and on the lite page. So Lite's names only
+              what those pages share, Earth's being a gallery of renders and Mars's a list of names. */}
           {quality && (
             <div class="quality-fab" role="radiogroup" aria-label="Experience quality">
               <button
                 type="button"
                 data-quality="lite"
                 aria-pressed="false"
-                title="Still renders only — leaves the globe"
+                title="Without the globe"
               >
                 Lite
               </button>
@@ -350,6 +350,10 @@ const hasViewBar = highlight || borders || spotlight || quality;
             </div>
           )}
           </div>
+          {/* Outside the radiogroup, which may own only its tiers: says why a press was refused. */}
+          {quality && (
+            <p class="picker-refusal" role="status"></p>
+          )}
         </div>
       )
     }
@@ -432,52 +436,17 @@ const hasViewBar = highlight || borders || spotlight || quality;
 </script>
 
 <script>
-  // Quality control (Lite / Globe / Full) — the persisted, always-reachable
-  // override that beats the auto-probe. The active button reflects the CURRENT
-  // experience (the gallery is "Lite"; on the globe it's Globe or Full by whether
-  // the idle animation runs), so it reads as "what am I seeing" not "what did the
-  // probe guess". A pick persists via setQuality and navigates to that tier's
-  // canonical page; the head guard + globe module enforce it from there.
-  import { setQuality, currentGlobeTier, type Quality } from "../lib/capability";
+  // The tier picker, which `tierPicker.ts` owns. THIS body's two pages, asked of the registry here
+  // where the pre-paint guard above has to read them off an attribute, `is:inline` forbidding it
+  // an import.
+  import { wireTierPicker } from "../lib/tierPicker";
   import { currentBody } from "../lib/currentBody";
-  import { bodyRoutes, isSamePath } from "../lib/bodyRoutes";
+  import { bodyRoutes } from "../lib/bodyRoutes";
 
-  const control = document.querySelector<HTMLElement>(".quality-fab");
-  if (control) {
-    const buttons = Array.from(control.querySelectorAll<HTMLButtonElement>("button"));
-    // THIS body's two pages, not Earth's. This script is a module and can import, so it asks the
-    // registry directly where the pre-paint guard above has to read the same answer off an
-    // attribute — the asymmetry is forced by `is:inline`, not chosen.
+  const bar = document.querySelector<HTMLElement>(".view-bar");
+  if (bar) {
     const routes = bodyRoutes(currentBody().slug);
-    const onGlobe = isSamePath(location.pathname, routes.globe);
-    // `currentGlobeTier`, and only reached when `onGlobe`: it cannot return `gallery` for a soft
-    // signal, which is what makes the collapse below lossless rather than merely tidy. The plain
-    // `currentTier()` CAN, and this line used to fold that into "globe" silently — so a probe
-    // saying "this device cannot run the globe" and a probe saying "capable, skipping the extras"
-    // lit the same chip, and the first one went unnoticed on a globe running at 243 fps.
-    const active: Quality = !onGlobe ? "lite" : currentGlobeTier() === "full" ? "full" : "globe";
-    for (const button of buttons) {
-      const isActive = button.dataset.quality === active;
-      button.classList.toggle("is-active", isActive);
-      button.setAttribute("aria-pressed", String(isActive));
-    }
-    for (const button of buttons) {
-      button.addEventListener("click", () => {
-        const choice = button.dataset.quality as Quality;
-        setQuality(choice);
-        // No sessionStorage juggling here on purpose. This used to clear "rg:steered" so a new
-        // choice could steer the session again, but nothing needs that: every arrival at /earth
-        // is already permitted by rg:quality alone, and every arrival at / with quality "lite"
-        // returns early from the head guard. Clearing it only re-armed the auto-steer, which
-        // then hijacked the next deliberate navigation back to a lite page.
-        // Both destinations belong to the body whose page this is, so Globe and Full can no longer
-        // navigate a Mars visitor to Earth. `isSamePath` rather than `===` for the same reason the
-        // guard uses it: reached by the other trailing-slash spelling, this used to `assign` the
-        // page it was already on — a real navigation where a reload was meant.
-        const target = choice === "lite" ? routes.lite : routes.globe;
-        if (isSamePath(location.pathname, target)) location.reload();
-        else location.assign(target);
-      });
-    }
+    const keptOnLite = document.documentElement.hasAttribute("data-kept-on-lite");
+    wireTierPicker(bar, { path: location.pathname, routes, keptOnLite });
   }
 </script>

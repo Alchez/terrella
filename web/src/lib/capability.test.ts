@@ -6,6 +6,7 @@ import {
   isLowMemory,
   isSlowNetwork,
   isSoftwareRenderer,
+  guardBouncesOffGlobe,
   LOW_MEMORY_GIB,
   SLOW_DOWNLINK_MBPS,
   canRunGlobe,
@@ -205,6 +206,8 @@ interface GuardVisit {
   unmaskedRenderer?: string | null;
   /** What the standard gl.RENDERER parameter reports — Firefox's unmasked path. */
   renderer?: string;
+  /** Collects every attribute the guard writes onto `<html>`. */
+  stamps?: string[];
 }
 
 interface GuardOutcome {
@@ -224,6 +227,7 @@ function visit({
   saveData = false,
   unmaskedRenderer = "NVIDIA GeForce RTX 3060",
   renderer = "WebKit WebGL",
+  stamps = [],
 }: GuardVisit): GuardOutcome {
   const session = new Map<string, string>(steered ? [["rg:steered", "1"]] : []);
   const local = new Map<string, string>(quality ? [["rg:quality", quality]] : []);
@@ -254,7 +258,10 @@ function visit({
     storage(session),
     { connection: { saveData } },
     {
-      documentElement: { getAttribute: (name: string) => attributes[name] ?? null },
+      documentElement: {
+        getAttribute: (name: string) => attributes[name] ?? null,
+        setAttribute: (name: string) => stamps.push(name),
+      },
       createElement: () => ({
         getContext: () =>
           webgl2
@@ -300,6 +307,36 @@ describe("Base.astro tier guard — steering onto the globe", () => {
   it("respects data-saver on auto, but not against an explicit choice", () => {
     expect(visit({ role: "lite", saveData: true }).redirects).toEqual([]);
     expect(visit({ role: "lite", quality: "full", saveData: true }).redirects).toEqual(["/earth/"]);
+  });
+});
+
+describe("Base.astro tier guard — a lite page the site chose is marked, so the picker can say so", () => {
+  const KEPT = "data-kept-on-lite";
+  const stampsOf = (overrides: GuardVisit) => {
+    const stamps: string[] = [];
+    visit({ ...overrides, stamps });
+    return stamps;
+  };
+
+  it("marks a device that cannot draw the globe, whatever the saved pick", () => {
+    expect(stampsOf({ role: "lite", webgl2: false })).toEqual([KEPT]);
+    expect(stampsOf({ role: "lite", unmaskedRenderer: "Google SwiftShader" })).toEqual([KEPT]);
+    expect(stampsOf({ role: "lite", quality: "globe", webgl2: false })).toEqual([KEPT]);
+  });
+
+  it("marks data-saver on auto, the one soft signal that keeps a capable device off the globe", () => {
+    expect(stampsOf({ role: "lite", saveData: true })).toEqual([KEPT]);
+  });
+
+  it("marks nothing the visitor chose: a pick of Lite, a return this session, or a steer", () => {
+    expect(stampsOf({ role: "lite", quality: "lite", webgl2: false })).toEqual([]);
+    expect(stampsOf({ role: "lite", steered: true })).toEqual([]);
+    expect(stampsOf({ role: "lite" })).toEqual([]);
+    expect(stampsOf({ role: "lite", quality: "full", saveData: true })).toEqual([]);
+  });
+
+  it("marks nothing on a globe, which the lite page it bounces to marks for itself", () => {
+    expect(stampsOf({ role: "globe", webgl2: false })).toEqual([]);
   });
 });
 
@@ -499,26 +536,22 @@ describe("Base.astro stamps the guard's inputs onto the page", () => {
 });
 
 describe("Base.astro view bar sends a visitor to THIS body's pages", () => {
-  // A SOURCE SCAN, AND ONLY BECAUSE NOTHING ELSE CAN REACH IT. The tier picker is a module script
-  // inside the layout: no export, no entry point, and its whole effect is a navigation. The guard
-  // above is testable because its source can be extracted and run; this one is testable by what it
-  // says. Both destinations were `"/"` and `"/earth/"` until this commit, which is how Globe and
-  // Full on Mars came to navigate to Earth.
+  // A scan of the one call the layout makes into the picker. What the picker does with the path and
+  // routes it is handed is behaviour, driven in a real browser beside the module.
   const base = readFileSync(new URL("../layouts/Base.astro", import.meta.url), "utf8");
-
-  it("takes both tier destinations from the body's own routes", () => {
-    expect(base).toMatch(/const target = choice === "lite" \? routes\.lite : routes\.globe;/);
-  });
 
   it("asks the registry which body it is dressed in, rather than reading the path", () => {
     expect(base).toMatch(/const routes = bodyRoutes\(currentBody\(\)\.slug\);/);
   });
 
-  it("decides 'am I already there' with the comparison the guard uses", () => {
-    // `===` against one trailing-slash spelling reloaded nothing and navigated to the page it was
-    // already on — cheap to miss, since both outcomes end up displaying the right page.
-    expect(base).toMatch(/isSamePath\(location\.pathname, target\)/);
-    expect(base).toMatch(/isSamePath\(location\.pathname, routes\.globe\)/);
+  it("hands the picker this page's own path, that body's routes, and the guard's mark", () => {
+    expect(base).toMatch(/wireTierPicker\(bar, \{ path: location\.pathname, routes, keptOnLite \}\);/);
+    // Two spellings of one attribute, one in the inline guard and one here, so they are held equal.
+    const written = [...guardSource.matchAll(/root\.setAttribute\("([\w-]+)"/g)].map((match) => match[1]);
+    expect(written.length, "the guard marks nothing, so this compares nothing").toBeGreaterThan(0);
+    for (const name of written) {
+      expect(base).toContain(`const keptOnLite = document.documentElement.hasAttribute("${name}");`);
+    }
   });
 });
 
@@ -785,6 +818,28 @@ describe("the guard and capability.ts must not drift apart", () => {
       expect(guardSteers, `${scenario.name}: guard and capable() disagree`).toBe(moduleSaysCapable);
     });
   }
+});
+
+describe("guardBouncesOffGlobe answers for the guard, which the tier picker asks before it navigates", () => {
+  const devices = [
+    { name: "a real GPU", webgl2: true, unmaskedRenderer: "NVIDIA GeForce RTX 3060", renderer: "WebKit WebGL" },
+    { name: "SwiftShader via the extension", webgl2: true, unmaskedRenderer: "Google SwiftShader", renderer: "WebKit WebGL" },
+    { name: "llvmpipe via RENDERER only", webgl2: true, unmaskedRenderer: null, renderer: "llvmpipe (LLVM 15.0.7)" },
+    { name: "no WebGL2 at all", webgl2: false, unmaskedRenderer: null, renderer: "" },
+  ];
+
+  it("has a device the guard bounces and one it lets through, so the agreement below is not vacuous", () => {
+    const outcomes = devices.map((device) => visit({ role: "globe", quality: "globe", ...device }).redirects.length);
+    expect(outcomes).toContain(0);
+    expect(outcomes.some((redirects) => redirects > 0)).toBe(true);
+  });
+
+  it.each(devices.map((device) => [device.name, device] as const))("agrees with the guard on %s", (_name, device) => {
+    const bounced = visit({ role: "globe", quality: "globe", ...device }).redirects.length > 0;
+    const softwareGpu =
+      device.webgl2 && isSoftwareRenderer([device.unmaskedRenderer ?? "", device.renderer].filter(Boolean));
+    expect(guardBouncesOffGlobe({ webgl2: device.webgl2, softwareGpu })).toBe(bounced);
+  });
 });
 
 describe("canRunGlobe — one floor, exported so nothing re-derives it", () => {

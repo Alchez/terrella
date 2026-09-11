@@ -261,3 +261,13 @@ export const ABOUT: Record<BodySlug, BodyAbout> = {
     legal: CREDITS.bodies.mars.legal,
   },
 };
+
+/** The site-wide note on which version a visitor gets. Data rather than markup so its claims can be
+ *  held against the probe and the step-down ladder that make them. */
+export const TIER_NOTE: AboutNote = {
+  heading: "Lite, Globe or Full",
+  paragraphs: [
+    "Terrella picks one of three versions when you arrive. Lite, without the globe, is for browsers that can't draw it well or have asked to save data. Globe is for devices short on memory, slow connections, and anyone who has asked for reduced motion. Everyone else gets Full, which adds raised terrain and a slow spin.",
+    "If the globe struggles, it steps down on its own: first the spin stops, then the image softens, then the terrain flattens. The Lite, Globe and Full buttons override that pick, and your choice stays in this browser until you clear this site's data.",
+  ],
+};
