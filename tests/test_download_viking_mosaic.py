@@ -16,7 +16,6 @@ published on the labels' figure is a plausible future rather than an invented on
 shift latitudes through the EPSG:4326 relabel without erroring anywhere.
 """
 
-import hashlib
 import math
 import urllib.request
 from typing import Any
@@ -158,10 +157,9 @@ class TestThePreflightRefusesADriftedEdition:
         assert "Last-Modified" in str(caught.value)
 
     def test_a_rerender_that_keeps_the_size_and_the_date_is_still_caught(self, monkeypatch):
-        """THE CASE A SIZE-AND-DATE PIN CANNOT SEE, and the whole reason this product's acquirer is
-        keyed on a digest where the Mars DEM's is not. A re-render that preserves the byte count is
-        exactly what an uncompressed fixed-grid raster produces — every edition of this mosaic is
-        797,888,177 bytes whatever the pixels say — so size is nearly uninformative here."""
+        """The case a size-and-date pin cannot see. An uncompressed raster on a fixed grid keeps its
+        byte count through a re-render, so every edition of this mosaic is 797,888,177 bytes whatever
+        the pixels say."""
         _serve(monkeypatch, size=viking.EXPECTED_BYTES,
                modified=viking.EXPECTED_LAST_MODIFIED, digest="0" * 32)
         with pytest.raises(SystemExit) as caught:
@@ -230,27 +228,6 @@ class TestTheGridContractIsCheckedOnTheRasterItself:
         with pytest.raises(SystemExit) as caught:
             viking.assert_grid(_write_mosaic(tiny, crs=geographic))
         assert "PROJECTED" in str(caught.value)
-
-
-class TestTheDigestIsCheckedAgainstTheBytesOnDisk:
-    def test_a_matching_file_passes_and_returns_its_digest(self, tmp_path, monkeypatch):
-        path = tmp_path / "mosaic.tif"
-        path.write_bytes(b"the published bytes")
-        digest = hashlib.md5(path.read_bytes()).hexdigest()
-        monkeypatch.setattr(viking, "EXPECTED_MD5", digest)
-        assert viking.assert_digest(path) == digest
-
-    def test_a_truncated_file_aborts_and_says_not_to_re_pin(self, tmp_path, monkeypatch):
-        """A half-written file cannot reach its final name through `download_one`, but it can arrive
-        any number of other ways — a copy, a restore, an interrupted `cp`. The message steers to
-        deletion rather than re-pinning because re-pinning is what makes it permanent."""
-        path = tmp_path / "mosaic.tif"
-        path.write_bytes(b"the published byte")
-        monkeypatch.setattr(viking, "EXPECTED_MD5",
-                            hashlib.md5(b"the published bytes").hexdigest())
-        with pytest.raises(SystemExit) as caught:
-            viking.assert_digest(path)
-        assert "re-run rather than re-pinning" in str(caught.value)
 
 
 class TestTheRecipeDownloadsNothingByAccident:

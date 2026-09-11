@@ -16,6 +16,7 @@ come through the same door.
 """
 
 import ast
+import hashlib
 import inspect
 import urllib.error
 import urllib.request
@@ -375,3 +376,43 @@ class TestDownloadOne:
         assert fetch.download_one("https://example.invalid/x", dest) == "ok"
         assert dest.read_bytes() == b"payload"
         assert list(tmp_path.glob("*.part")) == []
+
+
+SIDECAR_URL = "https://example.invalid/product.tif.md5"
+DIGEST = "0123456789abcdef0123456789abcdef"
+
+
+class TestTheDigestIsThePublishers:
+    """A file on disk against the digest its publisher ships beside it."""
+
+    def test_a_file_longer_than_one_read_is_digested_whole(self, tmp_path: Path):
+        payload = bytes(range(256)) * 8193
+        path = tmp_path / "product.tif"
+        path.write_bytes(payload)
+        assert fetch.file_md5(path) == hashlib.md5(payload).hexdigest()
+
+    def test_the_sidecar_hands_back_the_digest_it_names(self, monkeypatch):
+        _serving(monkeypatch, _Response(f"{DIGEST}  product.tif\n".encode("ascii")))
+        assert fetch.published_md5(SIDECAR_URL, "product.tif") == DIGEST
+
+    def test_a_sidecar_naming_another_product_is_refused_saying_so(self, monkeypatch):
+        """A rotted sidecar URL must not read as a republished product."""
+        _serving(monkeypatch, _Response(f"{DIGEST}  other.tif\n".encode("ascii")))
+        with pytest.raises(SystemExit) as caught:
+            fetch.published_md5(SIDECAR_URL, "product.tif")
+        assert "does not describe this product" in str(caught.value)
+
+    def test_the_published_bytes_pass_and_hand_back_their_digest(self, tmp_path: Path):
+        path = tmp_path / "product.tif"
+        path.write_bytes(b"the published bytes")
+        digest = hashlib.md5(b"the published bytes").hexdigest()
+        assert fetch.assert_digest(path, digest) == digest
+
+    def test_a_truncated_file_aborts_and_says_not_to_re_pin(self, tmp_path: Path):
+        """`download_one` cannot give a half-written file its final name, but a copy, a restore or
+        an interrupted `cp` can. Re-pinning is what would make it permanent."""
+        path = tmp_path / "product.tif"
+        path.write_bytes(b"the published byte")
+        with pytest.raises(SystemExit) as caught:
+            fetch.assert_digest(path, hashlib.md5(b"the published bytes").hexdigest())
+        assert "re-run rather than re-pinning" in str(caught.value)

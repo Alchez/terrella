@@ -24,7 +24,6 @@ Usage: python3 download_glo30.py --extent 60 0 100 40   # the Phase 0 window
 
 import argparse
 import concurrent.futures as cf
-import hashlib
 import json
 import os
 import sys
@@ -94,7 +93,7 @@ def bucket_preflight():
         with fetch.open_url(f"{BUCKET_URL}/{name}/{name}.tif",
                             method="HEAD", timeout=30) as resp:
             etag = resp.headers["ETag"].strip('"')
-        local = hashlib.md5(path.read_bytes()).hexdigest()
+        local = fetch.file_md5(path)
         if local != etag:
             sys.exit(f"bucket preflight FAILED: {name} local md5 {local} != "
                      f"ETag {etag} — the bucket may have moved to a new "

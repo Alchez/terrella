@@ -34,17 +34,14 @@ Usage:
 """
 
 import argparse
-import hashlib
 import json
 import sys
-from pathlib import Path
 
 from pipeline import datasets, fetch
 from pipeline.fetch import download_one
 
 API ="https://api.figshare.com/v2/articles/{article}/versions/1"
 DOWNLOAD = "https://ndownloader.figshare.com/files/{file_id}"
-MD5_CHUNK = 1 << 20
 
 # Pinned against figshare v1, read from the API. Both articles are CC0.
 FILES = {
@@ -57,15 +54,6 @@ FILES = {
         size=16727583261, md5="d848696696b5187541a7b572a9871cbe",
     ),
 }
-
-
-def file_md5(path: Path) -> str:
-    """md5 of a file, read in chunks (these archives do not fit in RAM)."""
-    digest = hashlib.md5()
-    with open(path, "rb") as handle:
-        while chunk := handle.read(MD5_CHUNK):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def preflight(entry: dict) -> None:
@@ -104,7 +92,7 @@ def fetch_archive(entry: dict, verify_existing: bool) -> str:
         print("  already complete -> skipped", flush=True)
         return status
     print("  verifying md5 ...", flush=True)
-    actual = file_md5(dest)
+    actual = fetch.file_md5(dest)
     if actual != entry["md5"]:
         dest.unlink()
         return f"failed: md5 {actual} != {entry['md5']} (removed; rerun to retry)"

@@ -660,19 +660,18 @@ The working plan had become the project's only backlog as well as its live state
 ### Test and freshness gaps
 
 - **Nothing pins any of the gallery manifest.** A garbage `countries.json` with cold caches still passes 1,415 of 1,415, so no test reads the real one.
-- **The Mars DEM has no content check and the publisher ships one.** `download_mars_dem` pins size and `Last-Modified`, both server metadata, while `Mars_HRSC_MOLA_BlendDEM_Global_200mp_v2.tif.md5` sits beside the blend and nothing reads it. `download_viking_mosaic` pins the publisher's digest for exactly this reason, so the shape is one file over.
 - **Open call: should `check.sh` run the suite a second time under an empty `MAPS_DATA`?** 17.5 s to reproduce CI exactly. Without it, a store-reading test is green locally and red only after a push.
   - **The trigger has now fired twice.** Five recipe tests in `test_block_render.py` went red in CI this way, and then a registry sweep in `test_planet_pass.py` did the same, in a module written after the first was fixed. Both were green on every local gate.
   - The second one is what settles the shape of the objection: the fix for the first was a per-file helper, so the next file could not inherit it. A gate is the only form of this that reaches a module nobody has written yet.
 - **An explicit env override on `pass_memory.HEAVY_JOB_GIB`** is the half of the ratified cap ruling `4f4daf8` that never landed. The two measured caps stay fixed either way.
-- **Every planet fusion chunk is older than the mosaics it was fused from, and nothing can notice.** `fuse_planet.fuse_cell` resumes on its own output existing, the heightfield for a square pass and the ocean mask for a masks-only one, so rebuilding `dem_mosaic.vrt` or `wbm_mosaic.vrt` after a tile download never restages a cell.
-  - Measured on `e010_n70`: re-fusing today moves **928 px of 12.96 M, 0.0072%**, scattered and symmetric. Small per cell, systematic across all 648, and invisible from disk.
-  - `enforce_land_guard` already covers the opposite arrow, failing a cell whose all-ocean result a stale mosaic could explain. Its docstring records this one from the other side: the two genuinely landless cells it was written for had never reached it, the skip being on existence.
-  - The fix is an mtime gate rather than an existence one, which is what every other stage in this pipeline already uses. Cheap; unscheduled because `PROCESS.md`'s stage 0 prices the re-fuse and nobody has judged whether 0.0072% is worth spending it on.
+- **A planet cell's land heights depend on which tiles exist anywhere on Earth, and the fuse cannot notice when that changes.** `build_mosaics.sh` leaves `gdalbuildvrt` at its default `-resolution average`, so the mosaic's east-west pixel is the mean over every tile it indexes, and every cell reads its land through that one grid. A download anywhere moves it: 1.47″ when most cells were fused, 2.47″ today.
+  - `fuse_planet.fuse_cell` resumes on its own output existing, so nothing restages. 536 of 648 heightfield chunks were fused while tiles were still arriving, each through the grid that stood then; the masks were re-fused later, all through one.
+  - Measured on `e010_n70` and `e080_n20` against a fuse through each cell's own tiles at their native spacing: the shipped land heights are off by 6 to 9 cm at the median, about 2 m at the 99th percentile and 24 m at the worst pixel. Re-fusing through today's grid is no closer.
+  - `enforce_land_guard` covers a different case, a mosaic too stale to serve a cell's tiles at all.
+  - Restaging on a moved grid treats the symptom and re-fuses all 648 cells on any download. The fix is a grid that does not depend on the tile set, which moves every land height slightly, so it costs a re-fuse, a whole Earth pass and a look at the result.
 
 ### One concept with two homes
 
-- **The USGS mosaic host is written out twice and nothing ties the two.** `download_mars_dem.BLEND_URL` and `download_viking_mosaic.MOSAIC_URL` each carry `https://planetarymaps.usgs.gov/mosaic/` as a literal, so a moved host is two edits and either can be missed with nothing going red.
 - **The two render preps are named in opposite orders, and the package docstring no longer matches.**
   - `render_prep` and `prep_block` are the same category of stage: build a render directory, then shell into `scene_build`. Nothing in HISTORY justifies the difference, so it is drift.
   - `pipeline/render/__init__.py` says "the rest of this package is the hero path" and enumerates four modules. `prep_block.py` sits in that package, is not the hero path, and is not enumerated.
