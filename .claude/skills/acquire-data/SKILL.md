@@ -9,8 +9,16 @@ description: Acquiring or refetching one of Terrella's source datasets. Load whe
 its licence requires. This skill carries only the operational half: the things that go wrong on the
 way to having the bytes, none of which belong in a licence table.
 
-`pipeline/acquire/*` is the only writer of `data/raw`. Downloads need the maintainer's explicit
+`pipeline/acquire/**` is the only writer of `data/raw`, held there by
+`test_fetch.test_only_an_acquirer_reaches_a_server`. Downloads need the maintainer's explicit
 permission before they start.
+
+## Where a new source's module goes
+
+- **If it reaches a server it goes under its body**, `pipeline/acquire/earth/` or `acquire/mars/`, since no source serves two planets. This is the only package in `pipeline/` grouped that way and `docs/pipeline-layout.md` says why it does not generalise. A tool rather than a dataset stays above the bodies, as `install_geotools.sh` does.
+- **Several readers is not a reason to move it out**, which is the instinct to distrust here: `download_glo30.py` and `download_worldcover.py` are each read by two stages for their naming rules and both belong under `earth/`. What a second reader means is that the fact needs one owner, not that the owner sits higher up.
+- **A source too large to fetch whole takes a required `--extent`** and stays an acquirer. GLO-30 and WorldCover both do; neither has a shape that fetches a planet by default.
+- **The top level of `pipeline/` is for the READ side of a source nothing here fetches**, which is `naturalearth.py` alone: a path helper and the layer vocabulary, reaching no server. Its own docstring states that rule.
 
 ## Copernicus DEM GLO-30 has holes, and a hole fuses silently as ocean
 

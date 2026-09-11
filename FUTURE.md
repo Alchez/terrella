@@ -4,15 +4,17 @@ Ideas deliberately **not** planned: analysed enough to record, parked without co
 
 ## How this file is organised
 
-- **Every entry carries a one-line stanza under its heading**: its state, who can act on it, and the event that would reopen it. `grep -n "^> " FUTURE.md` lists all of them at once.
+- **Every entry carries a one-line stanza under its heading**: its state, the event that would reopen it, and, on every OPEN one, a tag saying who can act. `grep -n "^> " FUTURE.md` lists all of them at once, and `tests/test_parking_lot.py` holds each stanza to its index row, which is the only other place the tags are written.
+  - **A BLOCKED entry names its precondition instead of a tag**, because until that lands the honest answer to who can act is nobody. An OBSERVED one owes a measurement rather than an owner.
 - **Physical order in the body carries no meaning.** It is the order things were written down. The index below is the only place order says anything.
 - **Three states, and the boundary between them is what an entry needs before anyone can start.**
   - **OPEN**: analysed and parked on a choice. Someone could begin today.
   - **BLOCKED**: a named precondition has to land first, and wanting it more does not move it. A bigger disk, an upstream release, a probe nobody has run.
   - **OBSERVED, NOT ANALYSED**: seen once and written down before it was forgotten. The next action is a measurement, not a decision.
 - **An idea that ships, gets fixed or gets built leaves this file entirely**, and its record is the HISTORY entry written when it landed. Kept here past that point it reads as open work to everyone except the person who closed it.
+  - **An entry filed as an issue STAYS, and says so on its stanza.** The issue names the defect and points here for the analysis rather than copying it, so deleting the entry guts the issue, and a clone has this file and not the issue tracker. It leaves on the same rule as everything else: when the work lands, not when someone starts it.
 - **An idea that was REJECTED is the exception and stays**, because the reasoning that killed it is what stops it being proposed again, and nothing else in a clone carries that.
-- **Tags say who can act, never what it is worth.** `no-data-needed` runs on a fresh clone; `needs-render-store` and `needs-gpu` do not, per the table in CONTRIBUTING; `look-call` changes what the site looks like, which is a judgement the maintainer makes by eye; `product` is a question rather than a piece of work.
+- **Tags say who can act, never what it is worth.** `no-data-needed` runs on a fresh clone; `needs-render-store`, `needs-gpu` and `needs-data` do not, per the table in CONTRIBUTING; `maintainer-only` needs this project's own Cloudflare account or store and is the one nobody else can take; `look-call` changes what the site looks like, which is a judgement the maintainer makes by eye; `product` is a question rather than a piece of work. **An outsider may take any of the rest, with the shape agreed in an issue first**, per CONTRIBUTING's opening: these are analysed ideas rather than assigned work, and the analysis is what an issue starts from.
 - **There is deliberately no impact or effort ranking.** Most entries state in their own words that they are unmeasured or uncosted, so a rank would be invented rather than recorded, and nothing would go red when it drifted.
 - **The reopening trigger is the axis worth having instead, because it clusters.** One event makes several unrelated entries worth doing at once, which no ranking can show you, and the index groups them that way.
 
@@ -50,32 +52,39 @@ Ideas deliberately **not** planned: analysed enough to record, parked without co
 
 **The finer-re-fuse question gets settled, either way.**
 
-- [Cloud offload / offsite backup](#cloud-offload--offsite-backup-analysed-2026-07-23-revisit-after-phase-5)
+- [Cloud offload / offsite backup](#cloud-offload--offsite-backup-analysed-2026-07-23-revisit-after-phase-5) · product · needs-render-store
+
+**A render night is booked, or the maintainer takes one of the calls in it.**
+
+- [Render passes and open calls, carried out of the working plan](#render-passes-and-open-calls-carried-out-of-the-working-plan-parked-2026-09-06) · mixed, and its own subsections carry the states
 
 ### OPEN, with nothing named that would reopen them
 
 Not a lower tier. Nobody has written down what would make them worth doing, and that absence is itself the open question.
 
 - [Shadow saturation on the land is a shading term](#shadow-saturation-on-the-land-is-a-shading-term-and-the-sea-that-was-ratified-rides-mostly-on-lit-pixels-analysed-2026-08-27) · look-call · needs-gpu
-- [The display face swaps in at a different width](#the-display-face-swaps-in-at-a-different-width-and-the-metric-matched-fallback-is-inert-analysed-2026-08-02)
+- [The display face swaps in at a different width](#the-display-face-swaps-in-at-a-different-width-and-the-metric-matched-fallback-is-inert-analysed-2026-08-02) · no-data-needed · look-call
 - [Flat ice saturates the snow ramp](#flat-ice-saturates-the-snow-ramp-and-the-curve-was-fitted-before-antarctica-existed-analysed-2026-07-29) · look-call · needs-render-store
 - [The snow persistence source paints salt playas white](#the-snow-persistence-source-paints-salt-playas-white-and-nobody-has-counted-them-analysed-2026-08-25) · look-call · needs-render-store
 - [Look presets: user-selectable globe styles](#look-presets-user-selectable-globe-styles-analysed-2026-07-23) · look-call · product
 - [Hero presentation: geography-conditional](#hero-presentation-geography-conditional-and-no-universal-design-exists-analysed-2026-07-09) · product
 - [Kiribati presentation](#kiribati-presentation-the-one-antimeridian-deferred-country-analysed-2026-07-24) · product
-- [Worker placement hint near the APAC bucket](#worker-placement-hint-near-the-apac-bucket-the-prize-shrank-when-lever-a-shipped-analysed-2026-07-26)
+- [Worker placement hint near the APAC bucket](#worker-placement-hint-near-the-apac-bucket-the-prize-shrank-when-lever-a-shipped-analysed-2026-07-26) · maintainer-only
 - [Landing-page "poster mode"](#landing-page-poster-mode-deferred-2026-07-26-never-scoped) · product
 - [Raster tile resolution vs device pixel ratio](#raster-tile-resolution-vs-device-pixel-ratio-analysed-2026-07-25) · look-call
-- [Metatile batching](#metatile-batching-collapse-round-trips-instead-of-running-more-of-them-analysed-2026-08-01)
+- [Metatile batching](#metatile-batching-collapse-round-trips-instead-of-running-more-of-them-analysed-2026-08-01) · maintainer-only
 - [Small debts and open calls](#small-debts-and-open-calls-carried-out-of-the-working-plan-parked-2026-08-24) · mixed, and its own subsections carry the states
+- [Doc and guard debts](#doc-and-guard-debts-carried-out-of-the-working-plan-parked-2026-09-08) · mixed, and its own subsections carry the states
 
 ### BLOCKED, on a precondition that has to land first
 
 - [A z9 / z10 pyramid](#a-z9--z10-pyramid-z10-is-blocked-on-disk-z9-is-reachable-analysed-2026-07-26) · a bigger disk
 - [Brotli sidecars for the text-like assets](#brotli-sidecars-for-the-text-like-assets-analysed-2026-07-25-blocked) · an R2 `Content-Encoding` probe nobody has run
-- [The polar caps are a texture](#the-polar-caps-are-a-texture-because-maplibre-allows-nothing-else-and-the-ceiling-is-webps-analysed-2026-08-07) · MapLibre gaining a TileMatrixSet source
+- [The polar caps are a texture](#the-polar-caps-are-a-texture-because-maplibre-allows-nothing-else-and-the-ceiling-is-webps-analysed-2026-08-07) · a non-Mercator source usable beside Mercator on a globe
+- [Replacing MapLibre with another engine](#replacing-maplibre-with-another-engine-threejs-is-the-wrong-shape-and-cesium-fixes-one-cost-of-three-analysed-2026-09-07) · REJECTED, on that same event
+- [Multilingual search names](#multilingual-search-names-measured-and-declined-and-the-blocker-is-the-tokeniser-analysed-2026-08-14) · REJECTED, on the country manifest ceasing to be a chunk both bodies download
 - [MapLibre's WebGPU backend](#maplibres-webgpu-backend-irrelevant-to-our-memory-problem-and-not-the-no-op-we-recorded-analysed-2026-07-29) · MapLibre publishing a timeline
-- [A quadtree block partition](#a-quadtree-block-partition-instead-of-the-uniform-grid-analysed-2026-09-03) · a uniform partition shipping a full planet first, as the baseline
+- [A quadtree block partition](#a-quadtree-block-partition-instead-of-the-uniform-grid-analysed-2026-09-03) · needs-render-store · a uniform partition shipping a full planet first, as the baseline
 - [GDAL 3.13](#gdal-313-assessed-and-skipped-analysed-2026-07-23) · a full-restage boundary, and rasterio bundling 3.13
 - [The layer-rename alias cannot be deleted yet](#the-layer-rename-alias-cannot-be-deleted-yet-and-the-clock-is-longer-than-it-reads-analysed-2026-08-31) · a year of `immutable` URLs expiring, then a production log read
 
@@ -85,6 +94,8 @@ Not a lower tier. Nobody has written down what would make them worth doing, and 
 - [Tiles "jump" a little when panning around a pole](#tiles-jump-a-little-when-panning-around-a-pole-observed-2026-08-11-not-analysed)
 
 ## The detail card cannot state an elevation the DEM does not know (analysed 2026-08-27)
+
+> **OPEN** · product · needs-data · **reopens when** an authoritative summit source is adopted, which is the only thing that would settle the frame error and the raster clip together.
 
 The globe's detail card carries a country's name, its continent and a link, and nothing else. Elevation is the fact that would actually belong on a relief site, so it was scoped and then dropped, on the rule that a card reporting a wrong value for any country should not ship. What follows is the measurement, so nobody re-derives it.
 
@@ -100,7 +111,7 @@ The globe's detail card carries a country's name, its continent and a link, and 
 
 ## The display face swaps in at a different width, and the metric-matched fallback is inert (analysed 2026-08-02)
 
-> **OPEN** · no-data-needed. Options priced, none taken. Nothing named would reopen it, and the entry says which measurement comes first.
+> **OPEN** · no-data-needed · look-call, because `display: 'optional'` stops the display face rendering at all on a cold slow visit. Options priced, none taken. Nothing named would reopen it, and the entry says which measurement comes first. Filed as #61.
 
 - **State at analysis:** Fraunces is self-hosted at `font-display: swap`, so the browser lays text out in a substitute and re-lays it when the real face arrives. Measured on the gallery heading: **103 px in the fallback, 117 px in Fraunces**: a 13.6% width change after first paint.
 - **The mitigation is present and does nothing.** Astro generates a metric-matched fallback face at `size-adjust: 115.4462%` with `ascent-override`/`descent-override`, which is exactly the right mechanism, but its source is **`src: local("Times New Roman")`**, and that family resolves on neither Linux nor Android, so the face errors and the browser falls through to plain `Georgia, serif` at 100%. Confirmed in the built page: the fallback faces report `status: "error"` while the real ones report `"loaded"`.
@@ -121,13 +132,13 @@ The globe's detail card carries a country's name, its continent and a link, and 
 - **The principled fix is to key the ladder to WIDTH.** Generate variants at target widths, so every country, portrait or landscape, has rungs exactly where `srcset` selects. It **deletes** code: `variantWidth()` in `index.astro` exists only to translate long-edge keys into widths, and under a width ladder the descriptor is just the rung.
 - **It is the only thing that can serve Chile (0.307) and Maldives (0.234)**, which need long edges of 3,867 and 5,064, above the inspection floor, so no fill rung below 3840 can reach them, and one above it would be a q95 file delivered as a thumbnail.
 - **It would also let `quality_for` key on the right quantity.** Today it takes the long edge, which for a portrait file is its HEIGHT, so a 3840-long-edge hero only 1,786 px wide is charged inspection quality for a thumbnail. Under a width ladder the discriminator is the same number `srcset` selects on. Note the tension to resolve first: the *same file* also serves the country page full-screen, where q95 is right.
-- **Compute is not the obstacle, storage might be.** Measured: hero variants **6 min** at `--jobs 8`, spotlight **1m45s**. But a portrait country gets TALLER files for the same width, so the served store grows, and the free tier is spent, so any growth is overage from the first byte. It rounds up to whole GB-months at $0.015, which makes this cheap rather than free: measure the growth before committing, and price it, rather than treating storage as headroom.
+- **Compute is not the obstacle, storage might be.** Measured: hero variants **6 min** at `--jobs 8`, spotlight **1m45s**. But a portrait country gets TALLER files for the same width, so the served store grows, and the free tier is spent, so any growth is overage from the first byte. It rounds up to whole GB-months at [R2's rate](https://developers.cloudflare.com/r2/pricing/), which makes this cheap rather than free: measure the growth before committing, and price it, rather than treating storage as headroom.
   - **The "no headroom left to grow into" half of that is now out of date by a measured 0.21 GB**, which is what the border ladder's 1,010 PNGs occupied in the served store before they were deleted. Treat it as room this work may spend, not as a reason to skip pricing it.
 - **The border gap it would have closed is GONE, so that is one motivation fewer.** The standalone border ladder stopped at 1920, which sent a portrait country to a lossless native PNG, and it was the ladder guard's only exemption. It closed by deleting the ladder rather than by adding a rung, once nothing on the site drew it. What still argues for this work is Chile and Maldives, and `quality_for` keying on the quantity `srcset` actually selects.
 
 ## `forced-colors` is unhandled, and the rail's icons are the thing it breaks (analysed 2026-08-02)
 
-> **OPEN** · no-data-needed · **reopens when** an accessibility pass is run. Do it alongside the tier picker, for one round of judgement.
+> **OPEN** · no-data-needed · **reopens when** an accessibility pass is run. Do it alongside the tier picker, for one round of judgement. Filed as #60.
 
 - **State at analysis:** no `forced-colors` or `prefers-contrast` rule exists anywhere in `web/src`. Grepped, not assumed.
 - **Why the rail specifically:** its icons are alpha stencils: `mask-image` shapes a box painted by `background-color: currentColor`. Windows High Contrast overrides `background-color`, so the *paint* is exactly what the mode takes away. Every other surface degrades to "wrong colours"; this one can degrade to "no glyph" or "solid slab", which is the same failure class `railIcons.browser.test.ts` was written for: reached through a door that guard cannot see, since it asserts the authored cascade and not the UA's override of it.
@@ -161,20 +172,40 @@ The globe's detail card carries a country's name, its continent and a link, and 
 - **State at analysis:** `scene_build.rig_recipe` exists and has exactly one caller, `pipeline/tile/block_render.py`. The hero lane never invokes it, and `batch.py`'s freshness test is bare file existence (`target.exists() and not force`). So a hero is "current" if its PNG is present, whatever produced it.
 - **This is the producer-declares rule, unimplemented on the lane holding 203 approved artefacts.** The block tier states what it emitted, per stage, precisely so a consumer never has to infer it. The hero tier infers everything from one file's existence.
 - **Two rig changes have already landed that the heroes cannot see.** The sun moved to 315 degrees and the base grid became a per-caller argument that heroes deliberately do not take. Every hero on disk carries the old sun and the single quad, and nothing beside them records either fact.
-- **The live hazard is the TARGETED re-render, which PROCESS.md documents as a normal ~28 minute workflow.** Re-rendering a handful of countries today emits heroes that differ from their 202 neighbours in lighting, and the only way to tell afterwards is to look at the pixels.
+- **The live hazard is the TARGETED re-render, which docs/PROCESS.md documents as a normal ~28 minute workflow.** Re-rendering a handful of countries today emits heroes that differ from their 202 neighbours in lighting, and the only way to tell afterwards is to look at the pixels.
 - **What it would take:** the block tier's shape, a recipe written beside the output and compared on the next run. The hero lane's own `frame.json` is per-country and never overwritten, so it is not a candidate; this wants a separate file with the rig's constants in it.
 - **Parked deliberately** rather than deferred by accident: the fleet re-render is itself waiting on the tiles carrying raytraced terrain, and a recipe with no re-render behind it only records that everything is stale. Revisit when that re-render is scheduled.
 
 ## The polar caps are a texture because MapLibre allows nothing else, and the ceiling is WebP's (analysed 2026-08-07)
 
-> **BLOCKED** on MapLibre gaining a TileMatrixSet source, or on Antarctic detail being judged short on the sphere. Never on the number alone.
+> **BLOCKED** on MapLibre gaining a non-Mercator source that can sit beside Mercator on a globe, or on Antarctic detail being judged short on the sphere. Never on the number alone.
 
 - **State at analysis:** each pole ships one AEQD texture with a four-rung ladder (1024/2048/4096/8192) picked from the cap's measured on-screen size. It is not a tile pyramid, and the reason has been assumed rather than recorded.
 - **GDAL is not the constraint.** `gdal raster tile --tiling-scheme` offers `APSTILE` and `LINZAntarticaMapTilegrid` alongside `WebMercatorQuad`: both polar stereographic, both able to cut a real pyramid over a pole.
 - **MapLibre is.** Its raster and vector sources are Web Mercator only; `scheme` chooses `xyz` vs `tms` and that is the whole vocabulary. Consuming a polar pyramid means a custom loader, LOD selector and stitcher: most of what the custom cap layer already does, with 8 files instead of thousands.
+- **The trigger is worded narrowly on purpose, because "a TileMatrixSet source" on its own would fire on work that cannot help.** MapLibre's planar-CRS series (upstream issue #168) is landing in slices: the projection seam is merged, `addProjection` over a quad tile matrix is in review, and honouring the CRS in sources, terrain and hillshade is the slice after. Its design comment fences the whole series at "no globe transition; a CRS map stays flat. One CRS per map", and this cap needs a second CRS beside Mercator on a globe, which is both exclusions at once. Check that fence, not the feature's name, before reading the trigger as fired.
 - **The texture ceiling is 16,383 px, and it is a file-format limit, not a taste one.** WebP cannot encode a larger side at all; GPU `MAX_TEXTURE_SIZE` is typically 16,384 on desktop and the mobile budget already clamps to 4096. So the largest cap that could ever ship is 2× today's linear size.
 - **What that would buy, measured against each body's own source:** Mars nothing: its cap already interpolates its 200 m/px blend. Earth's south cap is the one real gap, sitting several times coarser than the land DEM beneath it and than the tiles it feathers into at the seam.
-- **Verdict: parked, and the gap is Earth's, not Mars's.** Revisit only if MapLibre gains a TileMatrixSet source, or if Antarctic detail is judged short on the sphere, never from the number.
+- **Verdict: parked, and the gap is Earth's, not Mars's.** Revisit only if MapLibre gains a non-Mercator source usable beside Mercator on a globe, or if Antarctic detail is judged short on the sphere, never from the number.
+
+## Replacing MapLibre with another engine: three.js is the wrong shape, and Cesium fixes one cost of three (analysed 2026-09-07)
+
+> **REJECTED** on the merits, and it stays because the choice was never recorded and has since been re-proposed twice without being priced. **Reopens on** the same event as the polar caps above, that being the only one of the three costs an engine could remove.
+
+- **Nothing ever recorded why MapLibre was chosen.** It is named as settled in the initial commit's `CLAUDE.md` with no alternative and no reasoning, and of the 24 tracked markdown files the 10 that name it carry only constraint and mechanism notes. Two prior surveys reached for "requires a different engine" as a reason to discard a strategy, so the engine was treated as fixed rather than assessed.
+- **three.js is a scene graph, not a map engine, so it removes nothing.** Adopting it rewrites the covering-tiles quadtree, tile scheduling and cancellation, the globe to Mercator transition, gesture handling, `queryRenderedFeatures` hit testing, the MVT decode worker, the style spec the layer model is authored in, and feature state. The one place custom geometry was actually needed already refused it: a raw-WebGL custom layer with no three.js was what that analysis recommended, and `polarCaps.ts` has never wanted a scene graph since. → HISTORY, *the polar cap: flat fails*.
+- **Three costs are MapLibre's, and Cesium removes one.** The cap is bespoke because sources are Mercator only; the terrain seam is structural because one mesh is shared across tiles; terrain VRAM is unbounded because `releaseRTT` has no cap. Cesium's quantized-mesh removes the seam and nothing else here.
+- **Cesium has no polar projection either, which is the finding that decides it.** Its maintainers answer the polar-imagery request with "not easily possible with the current API", and point at custom WebGL plus independent GPU reprojection. The cap therefore survives the migration, and since it authors GLSL against MapLibre's own projection matrices it is rewritten regardless.
+- **The price is the frontend and not the pipeline, which is the wrong way round.** Grepping `maplibre` across non-test `.ts`, `.astro` and `.css` under `web/src` reaches 20 of 73 files and 8,834 of 17,729 lines. Against that, imagery is WebMercatorQuad and Cesium reads it directly, so the raytraced block render is untouched and only the terrain lane is re-encoded. The migration is cheap where this project is expensive.
+- **Upstream is fixing projections inside MapLibre, which argues for staying rather than leaving.** See the planar-CRS bullet under the polar caps entry above for the series and the fence that keeps it from reaching this cap.
+
+## Multilingual search names: measured and declined, and the blocker is the tokeniser (analysed 2026-08-14)
+
+> **REJECTED** on the measurement, and it stays because searching for a country in its own language is an obvious thing to want and nothing else in a clone says it was tried. **Reopens on** the country manifest ceasing to be a chunk Mars visitors also download, which is the only fact that would move the half that works.
+
+- **Every non-Latin spelling is unreachable, and the tokeniser is why rather than the data.** The catalogue matcher keeps `[a-z0-9]` and drops the rest, so all 2,498 Cyrillic, CJK and Arabic spellings produce no token at all: none of them reachable, for **+25,808 gz** of payload that could never match anything. Widening it is a change to the matcher rather than a config edit, and `catalogueSearch.test.ts` goes red on the first move toward it.
+- **The Latin-script half works perfectly and is still declined, on where the bytes land.** All 1,264 spellings matched, with zero ranking damage across 1,039 queries, for **+7,858 gz and +75.5% of the manifest**, on a chunk Mars visitors download too and get nothing from.
+- **What shipped instead is ten authored aliases in `config/countries.toml`**, under `also`, covering the former and colloquial names a search actually failed on. The rest of the realistic surface measured zero failures already: name prefixes, distinctive words and ASCII spellings. → HISTORY, *the names no column publishes*.
 
 ## MapLibre's WebGPU backend: irrelevant to our memory problem, and NOT the no-op we recorded (analysed 2026-07-29)
 
@@ -212,7 +243,7 @@ The raytraced rig's look was ratified with one reservation named: slightly too m
 
 **The unpriced third term.** Those levers work by lifting ambient into shadow, and shadow contrast is what carries the relief modelling. Cast shadows were rejected twice, the second time on precisely this mechanism: scaling light amplitude scales fine detail with it. These are fill and world rather than the main sun, so the objection does not transfer automatically, and it does not obviously fail either.
 
-**The cheap way to close it, and the reason this is parked rather than abandoned.** `~/terrella-scratch/seam-block/` holds a prepped block plus its `arm.py`; prep is the expensive half because it reads the 1.1 TB store, so an arm is a two-minute render rather than a 12-hour pass. Render two or three fill/world settings, measure the high-pass detail in shadowed land, and the third term stops being a guess. Only then is a pass worth committing.
+**The cheap way to close it, and the reason this is parked rather than abandoned.** a scratch root holds a prepped block plus its `arm.py`; prep is the expensive half because it reads the 1.1 TB store, so an arm is a two-minute render rather than a 12-hour pass. Render two or three fill/world settings, measure the high-pass detail in shadowed land, and the third term stops being a guess. Only then is a pass worth committing.
 
 ## Flat ice saturates the snow ramp, and the curve was fitted before Antarctica existed (analysed 2026-07-29)
 
@@ -253,7 +284,7 @@ Zooming into Antarctica to judge the terrain feather showed it "basically washed
 - **Possible:** mechanically yes, but only via source build / PPA / the OSGeo container images: and rasterio can't follow until a wheel bundles 3.13, so a CLI-only upgrade widens today's benign 3.12.1/3.12.2 split. All listed 3.13 breaking changes are C/C++-API-side; our CLI + rasterio surface is untouched (the `--src/--dst` → `--input/--output` rename keeps old names).
 - **Useful: no.** The one headline naming our tool: `gdal raster tile` automatic source *overview* selection: doesn't apply (our design deliberately has no overviews; low zooms build from the tiles). Everything else on our surface is a no-op. Two items are mild *risk*: the warper Lanczos special-case removal and "RasterIO resampling now operates in output buffer type by default": resampling changes shift output **bytes**, our pyramid is ratified by byte-compare, and the freshness guard is version-blind → an upgrade mid-stream risks a mixed-generation pyramid.
 - **Revisit when:** (a) a full-restage boundary arrives (the Phase 5 supersampled re-fuse regenerates every byte, making version drift moot) AND (b) rasterio bundles 3.13+.
-- **Actionable now (Phase 4, not deferred):** when the rohome pipeline container gets built, pin its GDAL to 3.12.x to match dev: the same-version principle matters more than the number.
+- **Actionable now (Phase 4, not deferred):** when a pipeline container gets built, pin its GDAL to 3.12.x to match dev: the same-version principle matters more than the number.
 
 ## Look presets: user-selectable globe styles (analysed 2026-07-23)
 
@@ -273,7 +304,7 @@ Presets decompose into **three kinds by where the variation lives**: costs diffe
 
 ### Kind 2: raster recolors (one PMTiles archive per look)
 
-- Green sea, sepia, dark relief: the look is baked into pixels, so each look = its own archive. **Per look: a whole planet render** (PROCESS.md carries the row; it was ~28 min when a look was an SVF pass plus a composite, and a look is now every block through Cycles) **and +3 GB storage**: the storage term was +15 GB before tiles became WebP q95, and that was the number that made this kind expensive; web swaps `PUBLIC_TILE_BASE` (or a per-look path the Worker routes on) + the cap pair. Now plausibly scales to several looks, not just a curated few.
+- Green sea, sepia, dark relief: the look is baked into pixels, so each look = its own archive. **Per look: a whole planet render** (docs/PROCESS.md carries the row; it was ~28 min when a look was an SVF pass plus a composite, and a look is now every block through Cycles) **and +3 GB storage**: the storage term was +15 GB before tiles became WebP q95, and that was the number that made this kind expensive; web swaps `PUBLIC_TILE_BASE` (or a per-look path the Worker routes on) + the cap pair. Now plausibly scales to several looks, not just a curated few.
 - **One-time prerequisite: look parameterization (~a day).** Today every guardrail treats a second look as drift: correctly: `test_palette` pins `WATER_RGB` relationally (+7% of sea surface), palette is shared by import so editing it in place marks the heroes stale. Looks must become first-class: named looks in palette, with the render recipes, freshness, output dirs and cap recipes keyed by look, and relational pins per look. Corollary to remember: `LAKE_STOPS[0]` derives from `WATER_RGB`, so a naive green sea also greens every lake and river: a choice, not an accident.
 - One-off stunt rungs, if a *single day* ever justifies a gag without the plumbing: `raster-hue-rotate` on the relief layer (free, but rotates land too, and our custom-layer caps ignore raster paint properties: they'd need a shader tint uniform), or a translucent green ocean `fill` veil (client-only, bathymetry shading survives underneath, reads as a veil not a repaint).
 
@@ -296,12 +327,12 @@ Presets decompose into **three kinds by where the variation lives**: costs diffe
 
 ## Cloud offload / offsite backup (analysed 2026-07-23; revisit after Phase 5)
 
-> **OPEN** · **reopens when** the finer-re-fuse question is settled either way, since a firm no-go is what would let 551 GB drop to on-demand.
+> **OPEN** · product · needs-render-store · **reopens when** the finer-re-fuse question is settled either way, since a firm no-go is what would let 551 GB drop to on-demand.
 
 - **Trigger:** could stores move to S3/R2 to free local disk? **Answer: ~0 GB usefully**; the taxonomy is the finding:
   - ~680 GB of raw sources are *caches of free public clouds* (GLO-30 = AWS Open Data, WorldCover = ESA's bucket, etc.): the offload is deletion + on-demand re-fetch, already gated by the INVENTORY reclaim picture, never an upload.
   - ~360 GB of intermediates are compute-regenerable, and a remote read is a rejected shape for reading them: COG buys selective reads, while a pass is a full sequential scan two or three times over. HISTORY, *remote COG is the wrong shape for a full sequential scan*.
-  - The **~56 GB worth putting in a cloud is the backup set, not an offload**: heroes+raws+variants (27 GB real bytes, hardlink archives ~free; Cycles isn't bit-deterministic so ratified pixels are irreplaceable), `planet.pmtiles` (**3 GB**: doubles as deploy transport), `planet/` fused cells (14 GB: the one expensive-to-rebuild intermediate), caps/geojson/frame pins. ≈ $1/mo on R2/B2 (ballpark; R2's zero egress is the differentiator: verify pricing at pickup).
+  - The **~56 GB worth putting in a cloud is the backup set, not an offload**: heroes+raws+variants (27 GB real bytes, hardlink archives ~free; Cycles isn't bit-deterministic so ratified pixels are irreplaceable), `planet.pmtiles` (**3 GB**: doubles as deploy transport), `planet/` fused cells (14 GB: the one expensive-to-rebuild intermediate), caps/geojson/frame pins. Price it at pickup against [R2's](https://developers.cloudflare.com/r2/pricing/) and B2's own pages; R2's zero egress is the differentiator.
 - **The big lever:** if Phase 5 goes no-go on a finer re-fuse, `glo30/` (551 GB) drops to per-country-on-demand like WorldCover: the upstream *is* the cloud store. Deferred the whole topic to after Phase 5.
 
 ## A quadtree block partition, instead of the uniform grid (analysed 2026-09-03)
@@ -327,7 +358,7 @@ Presets decompose into **three kinds by where the variation lives**: costs diffe
   | z0–9 | 152.9 | 443 GB | 10.8 h | 349,525 | 12 GB | 3.0× |
   | z0–10 | 76.4 | **1,773 GB** | **43.2 h** | 1,398,101 | 48 GB | 6.1× |
 
-- **z10 does not fit, and that is the decision.** 1.73 TB of intermediates against a 1.8 TB disk already holding ~1.3 TB. Reclaiming every hero intermediate *and* WorldCover (~304 GB) still falls short, and `glo30/`'s 551 GB cannot go: it is what the re-fuse reads. This is a hardware precondition, not a scheduling one.
+- **z10 does not fit, and that is the decision.** 1.73 TB of intermediates does not fit beside the ~1.3 TB already on the render box's disk. Reclaiming every hero intermediate *and* WorldCover (~304 GB) still falls short, and `glo30/`'s 551 GB cannot go: it is what the re-fuse reads. This is a hardware precondition, not a scheduling one.
 - **The single worst stage is the lake warp: 1:01:44 → ~16.5 h**, more than a third of the 43 h.
 - **WebP changed the delivery side only.** A z10 archive is ~48 GB in WebP vs ~260 GB in PNG (5.2×, measured on the real pyramid: 16 GB → 3.0 GB). That is what would make a deep pyramid *shippable* at all. The intermediates are uncompressed working rasters and are unmoved, so "we use WebP now" does not reopen z10.
 - **The aesthetic argument, which stands independently of cost.** GEBCO is 15 arc-sec: **measured on the file: 464 m/px**. Land has real headroom at z10 (30 m source into 76 m/px); the sea does not. Upsampling goes **1.5× → 6.1×**, so z10 makes land crisper while leaving the sea exactly as soft as it is now, **quadrupling the land/sea detail mismatch**. Bathymetry is signature, not optional (CLAUDE.md § Data sources), so this is a look regression bought with 43 hours.
@@ -401,7 +432,7 @@ Not a look change in the locked-constants sense: the sun, ramps and exaggeration
 
 ## Worker placement hint near the APAC bucket: the prize shrank when lever A shipped (analysed 2026-07-26)
 
-> **OPEN**, maintainer-only: it is a config line on this Cloudflare account. Cheap to try, and the expected win is now uncertain in sign rather than zero.
+> **OPEN** · maintainer-only, being a config line on this project's own Cloudflare account. Cheap to try, and the expected win is now uncertain in sign rather than zero.
 
 - **Was the second delivery lever; demoted the day Workers Caching shipped.** Not rejected: the expected win is now uncertain in sign and size, which is not the same as zero, and it is one config line to try.
 - **What changed:** pre-lever-A a cold tile paid **three sequential Marseille↔APAC reads**, so an explicit `placement.region` hint collapsed three long-haul round trips into roughly one: the basis of the 07-25 "380 ms → ~100 ms" estimate. Lever A left **one** read, and placement does not remove that leg, it **moves** it: today the request lands at MRS and the read crosses to APAC; under placement the request crosses to APAC and the read is local. **The tile bytes cross the same ocean exactly once either way.** What remains is R2's long-haul read overhead minus Cloudflare's backbone RTT.
@@ -434,7 +465,7 @@ Not a look change in the locked-constants sense: the sun, ramps and exaggeration
 
 ## The tier picker is a radiogroup made of toggle buttons (analysed 2026-07-27, DEFERRED)
 
-> **OPEN** · no-data-needed · **reopens when** an accessibility pass is run. Not the attribute swap it looks like: one fill selector is shared with Borders, Spin and Focus.
+> **OPEN** · no-data-needed · **reopens when** an accessibility pass is run. Not the attribute swap it looks like: one fill selector is shared with Borders, Spin and Focus. Filed as #59.
 
 - **Trigger:** found while adding tooltips to Lite / Globe / Full. Verified in the live DOM, not read off the source: `.quality-fab` carries `role="radiogroup"`, and its three children have **`role: null`, `aria-pressed`, and no `aria-checked`**.
 - **Why it is wrong:** an ARIA `radiogroup` must own elements with `role="radio"`. A plain button with `aria-pressed` inside one is announced as a *toggle button within a radio group*, incoherent, and the group loses the positional "1 of 3" that makes a radio group worth using in the first place. The three tiers are genuinely mutually exclusive, so radiogroup is the right *intent*; only the children are wrong.
@@ -462,7 +493,7 @@ Not a look change in the locked-constants sense: the sun, ramps and exaggeration
   - So **modern phones are the UNDER-served ones**, not the over-served ones. (DPR 1 measured; the other two follow from the same CSS-px mechanism and were not measured on real devices.)
 - **The DPR-1 oversupply is not pure waste.** The GPU minifies 512→256 through mip/bilinear filtering, which is 2×2 supersampling on exactly the high-frequency multidirectional hillshade this look rests on, and more so on a globe, where tiles are warped onto a sphere and sampled anisotropically toward the limb. It errs in the safe direction: oversampling looks good, undersampling looks blurry.
 - **Why there is no automatic fix:** MapLibre raster sources have **no DPR negotiation**: no `@2x` URL convention, no srcset equivalent. Tile selection is computed in CSS pixels and is DPR-blind by design. `tileSize` is the only lever, and it is global.
-- **The lever, if picked up:** `tileSize: devicePixelRatio >= 2 ? 256 : 512` at source construction (DPR is known before the map is built). DPR-1 clients drop a zoom level → **4× fewer tile pixels and 4× fewer tile requests**, the latter mattering against the free tier's ~2,500 cold-visit/day request ceiling. DPR ≥2 is untouched.
+- **The lever, if picked up:** `tileSize: devicePixelRatio >= 2 ? 256 : 512` at source construction (DPR is known before the map is built). DPR-1 clients drop a zoom level → **4× fewer tile pixels and 4× fewer tile requests**, the latter mattering against the free plan's daily request limit. DPR ≥2 is untouched.
 - **Why it is parked and not done:** it is a **look change on DPR-1 screens** (supersampled → native 1:1, more aliasing), and look changes here get eyes on them at full scale before they ship. It is also small: tiles are ~2.6 MB of the cold window at q95, so it saves ~2 MB for desktop visitors: against the ~80 MB the hero rungs took off the gallery.
 - **Not proposed:** a 1024 px pyramid to serve DPR 3 at 1:1. That is 4× the tiles for the band that is merely soft, not broken.
 - **The polar caps solved this exact mechanism, and the tiles still have not** (2026-07-25). The cap now picks its texture from its projected on-screen size × the canvas backing ratio, so DPR is handled per-device with no look change reuse that: MapLibre's raster source has no DPR negotiation and `tileSize` is global, which is why the lever above is a one-line `tileSize` switch rather than a picker. Worth re-reading that implementation before picking this up: it settles what "demand" means here, and the `canvas.width / canvas.clientWidth` ratio is the right input for both.
@@ -490,7 +521,7 @@ Not a look change in the locked-constants sense: the sun, ramps and exaggeration
 
 ## Metatile batching: collapse round trips instead of running more of them (analysed 2026-08-01)
 
-> **OPEN**, maintainer-only: it needs a new Worker route. Deliberately unquantified, because two predicted effect sizes here were already falsified on measurement.
+> **OPEN** · maintainer-only, needing a new Worker route on that same account. Deliberately unquantified, because two predicted effect sizes here were already falsified on measurement.
 
 - **Trigger:** the concurrency sweep answered "run more requests at once" and shipped it: MapLibre's parallel image-request cap went 16 → 32, worth ~2.1× the achieved concurrency. This is the *other* half of the same cost, and the cap cannot touch it: the queue limits how many requests are in flight, not how many are needed.
 - **The measurement that argues for it**, from `server-timing` on cold z7 tiles: `worker;dur=280` of a **760 ms** tile, `worker;dur=383` of a **1030 ms** tile. Roughly **half of every tile is client↔edge round trip**, paid once per tile: 119 times on one cold z5 load.
@@ -524,7 +555,7 @@ Raised while reviewing the gallery after the sea-sync sweep (the sea look was ap
 ### Small steep islands look like "pinecones" (Saint Lucia, Dominica)
 
 - **Measured root cause:** exaggeration is a global **15×** applied to real height ÷ width, so visual steepness = `15 × (relief / frame-width)`. A 950 m peak on a 30 km island → ~0.47 (peak stands ~half the frame tall → bristly); a continent → ~0.025 (gentle). Same constant, wildly different look.
-- **The principled fix = adaptive exaggeration:** taper the factor for small high-relief-ratio frames. This makes the *visual* relief MORE consistent across the gallery, not less: the "tuned once, applied globally" rule (ART.md) is what currently makes the look *inconsistent*. Bounded cost: only ~20-30 small steep islands re-render (~1 h, not a planet sweep). Touches the FROZEN `render_prep.py` (`EXAGGERATION = 15.0`), so it wants the sea-sync freeze lifted (ratified) first.
+- **The principled fix = adaptive exaggeration:** taper the factor for small high-relief-ratio frames. This makes the *visual* relief MORE consistent across the gallery, not less: the "tuned once, applied globally" rule (docs/ART.md) is what currently makes the look *inconsistent*. Bounded cost: only ~20-30 small steep islands re-render (~1 h, not a planet sweep). Touches the FROZEN `render_prep.py`, which takes the 15.0 off `Body.baked_exaggeration` rather than carrying a constant of its own, so it wants the sea-sync freeze lifted (ratified) first.
 - **Note:** validated that atoll/island heroes themselves read well (Maldives/Marshall are striking): the problem is only over-exaggeration of *steep* small islands, not small frames per se.
 
 ## Hero and block renders differ in their contents, when only their projection should (raised 2026-08-24)
@@ -551,6 +582,71 @@ Deferred past the 22h Earth pass deliberately: every part of it is a HERO defici
 - **The next action is a measurement, not a fix.** 4,931 near-white pixels is 0.049% of a 3641 x 2742 Iran window, and nobody has swept the planet. Every low-latitude playa is a candidate: Etosha, Uyuni, the Lut, the Australian salt lakes. **The answer at five sites and the answer at five hundred are different decisions**, and the sweep is a real job on the 30 GB master.
 - **Why a fix is not obvious even once sized.** The layer is a persistence percentage with no class information, so nothing in it distinguishes salt from snow. Masking by latitude would take real snow off mid-latitude ranges, which is the failure that made the tiles drop WorldCover class 70 in the first place. A separate playa mask is a new dataset and a new licence.
 
+## Doc and guard debts, carried out of the working plan (parked 2026-09-08)
+
+> **MIXED**, and the subsections below carry the states. Most is a maintainer call or needs this project's own account; the doc-pointer widening below is the exception and needs a clone and nothing else. See also *One concept with two homes* in the entry below.
+
+The same reason as the entry below it: the working plan is live state and one question in hand, not a backlog, and these had no deadline and no relation to the arc that carried them. None is urgent. Each is here so it is greppable rather than compressed away.
+
+### Two prose defects in code comments, both measured across the whole tree
+
+- **1,718 shouted runs across 250 files**, counted by tokenising every tracked `.py` comment and docstring and every `//` and `/* */` in `.ts`/`.astro`, then keeping runs of two or more all-caps words containing at least one ordinary English word, so acronyms and `SNAKE_CASE` are excluded. Single-word shouts are outside that count, so it is a floor. Grouped: `web` 759, `tests` 463, `pipeline` 306, `scripts` 190; worst files `scripts/sabotage.py` 139, `web/src/components/Globe.astro` 85, `tests/test_scene_build_sync.py` 43.
+- **179 test-file citations across 108 files**, same extraction, matching `test_*.py`, `*.test.ts` and `tests/` paths inside comments. A cited test rots when it is renamed and is justification rather than what the code is. Grouped: `web` 101, `tests` 36, `pipeline` 31, `scripts` 11.
+- Both counts are re-derivable from the extraction each bullet states, and nothing tracked measures either: `scripts/prose_report.py` is a ratio instrument over Python only. The `prose-pass` skill owns the procedure for the first.
+- **Do it per file as one is opened, or as its own pass**, which is the maintainer's call: the whole sweep is a large diff across frozen modules, and the per-file version costs nothing.
+
+### The fused heightfield has no independent oracle (deleted 2026-09-09)
+
+- **`pipeline/fuse/` is the one lane with no fixture and no recorded settings**, and a bad shelf clamp or a bathymetry misregistration renders as a plausible-but-wrong coastline that nothing catches. `CONTRIBUTING.md` names it as the gap the pixel baseline does not reach.
+- **`pipeline/ot_oracle.py` was the intended answer and was never once run.** It pulled an independent OpenTopography clip (SRTM15+ is the canonical land/sea-fusion reference) over the same frame, to compare against. Deleted rather than kept, on the rule that prose calling something hand-run does not make a never-run entry point live. → HISTORY, *the fusion oracle is deleted having never been run*.
+- **A successor needs an account and a key**, which is `maintainer-only`, and it should ship with a recorded run rather than as a runnable file nobody invokes. Git history holds the deleted implementation if the API shape is wanted.
+
+### `pmtiles convert` needs a `--tmpdir` and nothing supplies one (parked 2026-09-09)
+
+- **`/tmp` is a RAM-backed tmpfs on the reference box and the conversion stages ~12 GB through it**, so an uncapped uncorrected run holds that scratch in memory. `docs/PROCESS.md`'s *PMTiles packaging* row holds the measurement.
+- **The requirement lives in four prose copies and no guard**: `CLAUDE.md`, `docs/PROCESS.md`, and two `docs/INVENTORY.md` rows. `pack_pmtiles.py` stops at the MBTiles and never invokes `convert`, `run_pass.sh` does not reach packing at all, so the flag is typed by hand every time.
+- **`blender_proc.env()` is the pattern to copy**, setting `TMPDIR` under `paths.DATA` with `test_blender_proc` asserting it is not under `/tmp`. Either the packer grows the `convert` call it currently only names, or a wrapper owns the flag; both are more than a doc fix, which is why this is parked rather than done.
+
+### Values a doc spells that a constant owns
+
+- **`CLAUDE.md` spells six code-owned values and nothing watches any of them.** Exactly one value in that file is guarded, and the guard asserts an ABSENCE (`test_no_module_outside_the_owner_spells_the_cap`). The pattern to copy is the cgroup bullet, which names `pass_memory.HEAVY_JOB_GIB` as the owner and spells nothing.
+  - **Generalising that scan to a `(constant, prose pattern)` table is the fix, and it is a maintainer call**, since it puts six existing lines under a guard for the first time and each needs its owner named first.
+  - **The trigger is the next value that drifts, not a sweep.** → HISTORY, *the deploy runbook had drifted in four places at once*, where four such copies were wrong at once and every one read as correct to anyone without the source open.
+
+### The per-country render knobs live only in the config file that reads them (found 2026-09-10)
+
+- **`fusion = "1s" | "3s"` overrides the automatic source-DEM choice per country and appears in zero tracked `.md`.** Its one home is `config/countries.toml`'s own header comment, so it is discoverable only by opening the file you were going to edit anyway. `resolution_floor_m` and `sky_view_strength` are in the same position; `docs/ART.md` § *Resolution floor* covers the third of these and titles it for heroes.
+- **It surfaced from `REUSE-5`, where it did not belong**: that row asks about the tile zoom ceiling, and this is a hero-lane knob on the source raster. Filing it here rather than against a row, since no question covers per-country render config.
+- **`config/countries.toml` says it is read by `pipeline/country_config.py` and the module is `pipeline/frame/country_config.py`.** Nothing can catch it: `test_doc_pointers` scans `.py` and `.md`, and a `.toml` is neither, which is the same boundary the entry below is about.
+
+### A guard axis that stops at the language boundary
+
+- **`test_doc_pointers` scans `pipeline`, `scripts` and `web/scripts`, so no citation in frontend code is checked by anything.** Grepping `web/src` for document names and `test_` identifiers reaches 30 of them across 20 files, and the Python side has already shipped the exact defect this catches: `cap_pass.py` named a test that had been renamed under it, and the one line telling a reader what enforced a flag pointed at nothing. Widening `SCANNED_ROOTS` is the whole mechanism; the cost is however many of those 30 turn out to dangle, which nobody has counted, plus teaching the comment stripper `.astro` syntax.
+
+### An audit finding that is not a repair
+
+- **The sabotage classifier's remaining comment-anchored needles are its own lexer miscounting** `//`, `/*`, `///` and `{/*`. No needle anchors a code mutation on a comment any more, python and web both, so what an audit still lists under that heading is instrument error rather than a case to repair.
+
+### Archives that cannot say when they were cut
+
+- **The six superseded archives are unstamped**, and five of them exist nowhere but R2, so stamping means 7.17 GB down and back up. Safe and mechanical: no runtime reader touches any of them.
+
+### Sweeps that are priced and unstarted
+
+- **The dataset sweep is priced and would not have caught the one real error it was proposed for.** Three maintainer calls if it goes ahead: whether `cop30_void` takes its own credit or sits under GLO-30, `datasets.mars()` returning one directory for two datasets, and six raw-form functions whose derived sibling is what production actually reads.
+- **Shouted runs across the tree, against the standing no-all-caps rule**, the lead now in `tests/` and `web/` rather than `pipeline/`. **Re-derive before quoting any total**: the last two readings disagreed and grew, a detector counts runs rather than sites, and any total is a floor, since two consecutive capitals is the trigger and the usual roots miss `web/scripts` and every tracked `.md`.
+  - **"Do it with each file's prose pass" has stopped reaching it**, four fifths of the runs being in files no remaining prose target opens. Maintainer call, and unruled: its own item, or accepted as slow.
+
+### A rig whose guard shipped without it
+
+- **The spin rig under `web/.perf/` is the promotion case `SPIN_REFERENCE_DEGREES`'s docstring names**, and tracking it is a maintainer call. That directory is gitignored, which is why no file inside it is named here and why `git status` never mentions it.
+
+### Public names no shipping code reaches, a sweep now closed (found 2026-09-09)
+
+- **Nothing is left to pick up here**, and the note is so a re-run is a decision rather than a reflex. No module-level public `def` under `pipeline/` is unmentioned outside its own definition, and the few reached only by `tests/` are each a recorded decision: the palette LUT family in `palette.py`'s own text, `cap_render.feather_is_wide_enough` in the rung that calls it, and `palette.EXAGGERATION` under both its own note and a guard.
+- **Re-derive before believing that, and use the classifier that counts an in-module mention**: one that does not buckets every helper a module's own `main` calls, and reads 76 dead names where there are none.
+- **A name-reachability sweep finds names and says nothing about what one means.** Every item filed from this one was wrong when it was opened, each in the same direction, so read the guards around a name before filing it as anything.
+
 ## Small debts and open calls, carried out of the working plan (parked 2026-08-24)
 
 > **MIXED**, and the subsections below carry the states. The guard repairs under *One concept with two homes* are the most pickable work in this file: they need a clone and nothing else.
@@ -559,24 +655,21 @@ The working plan had become the project's only backlog as well as its live state
 
 ### Stated numbers that are wrong, and cannot go red
 
-- **The cap's elevation resolution is wrong in two files and the error is load-bearing.**
-  - `CAP_ELEV_PX`'s comment says the disc is "2,668 km diameter, ~5.2 km/px" and `polarCaps.ts`'s `RINGS` comment repeats the 5.2. Both are edge-78 figures; the truth is 2,223.9 km and 4.34 km/px.
-  - Those same two comments are the mesh ladder's ONLY sizing argument: `RINGS = 160` is justified as sitting "just under" 5.2 km/px, and against the real 4.34 the mesh is no longer the limit it claims to be. So correcting the comment also reopens whether 160 is right.
 - **The TERRAIN staleness claim is unverified**: its sidecar is not at `planet_terrain/terrain_params.json`, so the claim rests on a path that does not exist.
-- **The Mars DEM ships a `.tif.md5` its acquirer ignores**, and the mosaic host now has two spellings that nothing ties together.
 
 ### Test and freshness gaps
 
 - **Nothing pins any of the gallery manifest.** A garbage `countries.json` with cold caches still passes 1,415 of 1,415, so no test reads the real one.
-- **`--mosaic` redirects the raster and its markers but not the recipe**, so a scratch A/B restages the shipping planet's freshness. `--work` is the workaround rather than the fix.
 - **Open call: should `check.sh` run the suite a second time under an empty `MAPS_DATA`?** 17.5 s to reproduce CI exactly. Without it, a store-reading test is green locally and red only after a push.
   - **The trigger has now fired twice.** Five recipe tests in `test_block_render.py` went red in CI this way, and then a registry sweep in `test_planet_pass.py` did the same, in a module written after the first was fixed. Both were green on every local gate.
   - The second one is what settles the shape of the objection: the fix for the first was a per-file helper, so the next file could not inherit it. A gate is the only form of this that reaches a module nobody has written yet.
-- **An explicit env override on `pass_memory.HEAVY_JOB_GIB`** is the half of the ratified cap ruling `4f4daf8` that never landed. The two measured caps stay fixed either way.
-- **Every planet fusion chunk is older than the mosaics it was fused from, and nothing can notice.** `fuse_planet.fuse_cell` skips a cell on `heightfield_10s.tif` EXISTENCE, so rebuilding `dem_mosaic.vrt` or `wbm_mosaic.vrt` after a tile download never restages one.
-  - Measured on `e010_n70`: re-fusing today moves **928 px of 12.96 M, 0.0072%**, scattered and symmetric. Small per cell, systematic across all 648, and invisible from disk.
-  - The module already guards the OPPOSITE direction, warning that a stale mosaic fuses new land as ocean. This is the same hazard with the arrow reversed and no guard at all.
-  - The fix is an mtime gate rather than an existence one, which is what every other stage in this pipeline already uses. Cheap; unscheduled because a full re-fuse is 15 min and nobody has judged whether 0.0072% is worth spending it on.
+- **`block_render --work` still stops short of the relief scan.** `plan_blocks` calls `relief_scan.scan(body)` without the `work` it was handed, so a run against another store refreshes the live store's relief cache, writing into it when stale, and plans from the other store's cache without ever refreshing that. Every test stubs `plan_blocks` or `scan`, the one reaching it with `lambda body, **kwargs`, so nothing sees the argument go missing.
+- **A planet cell's land heights depend on which tiles exist anywhere on Earth, and the fuse cannot notice when that changes.** `build_mosaics.sh` leaves `gdalbuildvrt` at its default `-resolution average`, so the mosaic's east-west pixel is the mean over every tile it indexes, and every cell reads its land through that one grid. A download anywhere moves it: 1.47″ when most cells were fused, 2.47″ today.
+  - `fuse_planet.fuse_cell` resumes on its own output existing, so nothing restages. 536 of 648 heightfield chunks were fused while tiles were still arriving, each through the grid that stood then; the masks were re-fused later, all through one.
+  - Measured on `e010_n70` and `e080_n20` against a fuse through each cell's own tiles at their native spacing: the shipped land heights are off by 6 to 9 cm at the median, about 2 m at the 99th percentile and 24 m at the worst pixel. Re-fusing through today's grid is no closer.
+  - `enforce_land_guard` covers a different case, a mosaic too stale to serve a cell's tiles at all.
+  - Restaging on a moved grid treats the symptom and re-fuses all 648 cells on any download. The fix is a grid that does not depend on the tile set, which moves every land height slightly and so costs a re-fuse and a whole Earth pass.
+  - Judged by eye and parked on that: the worst Himalayan block rendered from shipped and from corrected heights showed Rohan no difference. It rides the next Earth pass that is owed for another reason.
 
 ### One concept with two homes
 
@@ -584,33 +677,32 @@ The working plan had become the project's only backlog as well as its live state
   - `render_prep` and `prep_block` are the same category of stage: build a render directory, then shell into `scene_build`. Nothing in HISTORY justifies the difference, so it is drift.
   - `pipeline/render/__init__.py` says "the rest of this package is the hero path" and enumerates four modules. `prep_block.py` sits in that package, is not the hero path, and is not enumerated.
   - Renaming changes no recipe, so it is neither cheaper nor dearer after the render pass.
-- **17 mutation cases name a guard that does not catch them**, found by `sabotage.py --audit` on 2026-08-24. Each is a guard repair rather than a pipeline change, and none of them changes a rendered pixel, so none gates a render pass. HISTORY's *the audit runs* entry carries every conclusion about the audit and none of the items, which is why they are enumerated here.
-  - **The list is re-derivable in 8.5 min** by re-running `--audit`, and a re-run is the honest list rather than this one, which rots as the table changes. Prefer it if any of the 17 has been touched since.
+- **15 mutation cases name a guard that does not catch them**, found by `sabotage.py --audit` on 2026-08-24. Each is a guard repair rather than a pipeline change, and none of them changes a rendered pixel, so none gates a render pass. HISTORY's *the audit runs* entry carries every conclusion about the audit and none of the items, which is why they are enumerated here.
+  - **The list is re-derivable in 8.5 min** by re-running `--audit`, and a re-run is the honest list rather than this one, which rots as the table changes. Prefer it if any of the 15 has been touched since.
+  - **It was 17, and two went with the compositor rather than being fixed**: a region preview regrowing its own exaggeration and a hillshade forgetting the ground scale, both mutating modules that no longer exist. Matching the list back against the live labels is a prefix match, since each item here is the first clause of a longer one.
   - The 394 web and collection cases could not be audited at all, since neither suite can be narrowed to one guard, so their guards remain unproven and are not counted here.
   1. *a refactor moves a needle out from under its case*. A regression from the same day: the in-flight skip keys on the mutated PATH, so every needle pointing at that file is skipped, the moved one included. Fix is to key it on the in-flight CASE.
-  2. *the region preview regrows its own exaggeration*, `test_exaggeration_is_shared`.
-  3. *the hillshade forgets the ground scale*. The guard captures `exaggeration` and not `ground_scale`, on a body whose ground ratio is exactly 1.0.
-  4. *the warp asks the disk before the body*, caught by three other tests and naming a fourth.
-  5. *the reprojection stops removing its target*. CONFIRMED WRONG against the full suite; the real catcher is `test_a_corrupt_intermediate_does_not_survive_into_the_burn`.
-  6. *the brightness recipe stops recording its weights*, `test_changed_weights_are_STALE`.
-  7. *the recipe drops the source edition*, `test_a_republished_source_edition_is_STALE`.
-  8. *the cap recipe stops recording which layers are off*, `test_turning_a_layer_off_restages_although_its_source_stops_being_a_dependency`.
-  9. *the gazetteer extracts as it verifies*, `test_a_bad_digest_writes_NOTHING_not_even_the_members_before_it`.
-  10. *an edge ACROSS the meridian counts as one along it*. CONFIRMED MISSED against the full suite; nothing catches it.
-  11. *the writer re-derives the law instead of calling it*. The replacement is numerically identical, so only asserting `row_scale` is CALLED can catch it.
-  12. *the context is sized at the block centre*, `test_no_block_row_is_narrower_than_sizing_at_its_centre`.
-  13. *the scratch VRT is built outside the directory*, `test_an_unchanged_source_set_leaves_the_file_untouched`.
-  14. *served assets are resolved against the data store*, `test_served_assets_follow_the_checkout_not_the_data_store`.
-  15. *the About page keeps the superseded output licence*, `test_every_site_states_the_output_license`.
-  16. *gen_spotlight restates the ladder instead of importing it*, `test_the_ladder_matches_the_spotlight_overlay`.
-  17. *the render dir drifts from the work dir*, `test_it_follows_a_relocated_store`.
+  2. *the warp asks the disk before the body*, caught by three other tests and naming a fourth.
+  3. *the reprojection stops removing its target*. CONFIRMED WRONG against the full suite; the real catcher is `test_a_corrupt_intermediate_does_not_survive_into_the_burn`.
+  4. *the brightness recipe stops recording its weights*, `test_changed_weights_are_STALE`.
+  5. *the recipe drops the source edition*, `test_a_republished_source_edition_is_STALE`.
+  6. *the cap recipe stops recording which layers are off*, `test_turning_a_layer_off_restages_although_its_source_stops_being_a_dependency`.
+  7. *the gazetteer extracts as it verifies*, `test_a_bad_digest_writes_NOTHING_not_even_the_members_before_it`.
+  8. *an edge ACROSS the meridian counts as one along it*. CONFIRMED MISSED against the full suite; nothing catches it.
+  9. *the writer re-derives the law instead of calling it*. The replacement is numerically identical, so only asserting `row_scale` is CALLED can catch it.
+  10. *the context is sized at the block centre*, `test_no_block_row_is_narrower_than_sizing_at_its_centre`.
+  11. *the scratch VRT is built outside the directory*, `test_an_unchanged_source_set_leaves_the_file_untouched`.
+  12. *served assets are resolved against the data store*, `test_served_assets_follow_the_checkout_not_the_data_store`.
+  13. *the About page keeps the superseded output licence*, `test_every_site_states_the_output_license`.
+  14. *gen_spotlight restates the ladder instead of importing it*, `test_the_ladder_matches_the_spotlight_overlay`.
+  15. *the render dir drifts from the work dir*, `test_it_follows_a_relocated_store`.
 - **A freshness recipe could be derived from the built scene rather than enumerated by hand.** `scene_dump.py` already dumps the graph exhaustively, including sampled ramp evaluations, and it reads the BUILT graph rather than the source, so it sees values written inline. Hashing it would have caught all three instances of the enumeration going short. The obstacle is that it needs real Blender, where the freshness check today runs with `bpy` stubbed; the graph is body-shaped rather than block-shaped, so one invocation per pass would do.
 - **CLOSED, and by deletion rather than by doing the work: every live tier now records the white law.** `block_render.params` and `cap_raytrace.params` both spread `layer_producers.white_law`. The two recipes that folded the law without recording it were the compositor's and the composited cap's, and both are deleted. Do not re-park this: the entry said it "does not retire with the switch", which was written while a second producer still existed and is the reason it is worth saying so here.
 - **No test pins that `PERENNIAL_ICE` and `GLACIERS` are IN `WHITE_UNION`.** Every membership assertion in the suite is negative, so a layer silently ceasing to be white is caught by nothing. Belongs with the guard repairs above rather than with the recipe work, since it changes no recipe.
 - **The RGI glacier path is spelled twice and its burn argv has no owner.**
   - `snow.RGI_GPKG` and `download_rgi.GPKG` are one path written in two places, and `rasterize_glaciers_raster` carries a copy of the argv `vector_raster.rasterize_argv` now owns.
   - The rock layer deliberately has one of each, so this is the last instance rather than a pattern.
-- **INVENTORY does not track `~/terrella-scratch`**, so roughly 20 GB of arc scratch is invisible to the file that calls itself the storage map, and no reclaim rule reaches it.
+- **INVENTORY does not track the scratch roots**, so roughly 20 GB of arc scratch is invisible to the file that calls itself the storage map, and no reclaim rule reaches it.
 
 ### Rejected, with the reason, so it is not re-proposed
 
@@ -620,7 +712,7 @@ The working plan had become the project's only backlog as well as its live state
   - Reopening needs a coastline reconciliation, not a re-read of the licence.
 - **Every superseded R2 object STAYS**: R2 has no undelete, so the previous cut is the whole difference between a rollback that is a revert-and-redeploy and one that is a re-render.
   - **Do not read a count or a list out of this line.** The enumeration it replaces named four objects and was already stale by two, because a re-cut supersedes an object without any reader that can go red.
-  - Derive the set instead: the objects in `terrella-tiles` that no `objectKey` in `web/src/lib/tileAddress.ts` names. It measures 6 objects and 8.57 GB, about 13 cents a month at $0.015 per GB-month, which prices the policy rather than any one object.
+  - Derive the set instead: the objects in `terrella-tiles` that no `objectKey` in `web/src/lib/tileAddress.ts` names. It measures 6 objects and 8.57 GB, cents a month at [R2's storage rate](https://developers.cloudflare.com/r2/pricing/), which prices the policy rather than any one object.
 - **`_crism_scout` (60 MB) is the one reclaim not taken.** Its index tables are the evidence behind a closed census, and 0.24% of the reclaim is not worth destroying them for.
 
 ### Unpriced or unscheduled work
@@ -635,7 +727,76 @@ The working plan had become the project's only backlog as well as its live state
 - **The next Mars pass rebuilds the ice caps and the ice tile layer.** The recovered units carry today's mtime and `_mars_sources` gates on mtimes, so the output is correct but not free.
 - **`data/raw` is written by `pipeline/acquire/*` alone**, so making it read-only on disk is the candidate that removes the target instead of detecting the write. The maintainer's call, being 1.1 TB of their own data.
 
+### What the site does not tell a visitor
+
+- **The vertical exaggeration reaches a downloader and not a visitor.** The archives page states each body's baked scale and says the relief pyramid is a picture rather than a measurement; the About page, where the lake beds and the borders both get notes, still says nothing, and the globe a visitor is actually looking at says nothing either. Mars is the sharper half: its elevation key reads -6,000 m to +6,100 m and its lede states 200 metres to the pixel, so the one place the site gives real numbers sits beside a surface drawn at 20x, and a reader who pairs them computes a slope twenty times the real one. The wording is a look call, and the About grid pads every card to the tallest, so this wants a note rather than a seventh step.
+
 ### A colour call and a product question
 
 - **`MARS_MODAL_GROUND` is the authored stop and the tiles ship the RENDERED one**, so the space floor behind a missing tile is cooler than its surroundings. The gap was measured against composited tiles and Mars raytraces now, so re-measure before acting; the defect's shape is unchanged but its size is unverified. Cosmetic, pre-existing, a colour call.
 - **Mars phase 4 is an open product question rather than queued work**: whether the body gets a curated landmark set or a hero per feature. Nothing downstream is waiting on the answer.
+
+## Render passes and open calls, carried out of the working plan (parked 2026-09-06)
+
+> **MIXED**, and the subsections below carry the states. The render items wait on a night and a decision rather than on a finding, so none of them is analysis anyone can advance. Price any pass from PROCESS, never from this file.
+
+The working plan went back to holding one onboarding question at a time, which is what it is for; these are what it had been holding instead. `contributor-docs.md` folded in here with them, so there is one working doc again rather than two competing for a line budget. Every number below was re-derived rather than copied across, and one of them turned out to have been naming the wrong set.
+
+### Passes the tree has already earned
+
+- **The Mars pass is owed rather than parked, being the price of decisions already taken.** `palette.py` carries two ratified look calls, one authored white for both poles and a land ramp ratified on a rendered block, so every block and both caps restage while nothing on the live site has moved.
+  - Whether a pass is owed is answered by diffing `raytrace_params.json` against `params()`, and **that is not a one-liner**: `params()` takes `rasters`, `look`, `rig` and `blocks`, so building those four by hand is the defect that deleted the curve fingerprint. Drive whatever production path assembles them, or the diff answers about a call nobody makes.
+- **The block-row seam wants an Earth pass, for a gain 95% hidden by the polar cap.** `block_render` plus the cut plus both caps plus pack, which is a night.
+  - **The code half is settled and is not on offer again**: `prep_block.ROW_EDGE_MODE` is `"edge"` in the tree and `block_render.params` records it, so what is left is render hours.
+  - **A recipe move re-renders every block rather than the ice ones**: `start_generation` clears the whole marker set, so all 256 on Mars and all 1,024 on Earth.
+- **Does 1 to 4 DN show where the cap feathers into the tiles at 82 degrees?** A look call that rides the Mars pass, with nothing to measure first.
+  - **The cap's own constant at +1.6 DN is moot and must not be re-proposed**, and the 18 DN mismatch behind it is retracted as an estimator artifact. → HISTORY, *the two lanes turn out to obey ONE transfer*.
+  - What is left is that those are fitted transfers on one block (`r00c04`, 97.3% ice) rather than rendered frames at the seam.
+- **The base-grid threshold is unmeasured**: Nepal at 36.8 Mpx renders and Australia at 58.8 fails, and the edge between them needs GPU renders across the range. Inert while the hero re-render is deferred.
+
+### Deferred on a trigger rather than on effort
+
+- **The sky-view march wraps around the frame, so a hero's west-edge ridge occludes its east edge as though the two were adjacent.** Measured on a 256 px grid: the far edge reads 0.5625, matching the pixel one px from the ridge, while mid-grid reads a fully open 1.0000. `test_the_march_wraps_around_the_grid_edge` pins that value, so padding the march instead goes red here rather than silently restaging every hero. The fix costs a re-shade and not a re-render, no GPU and minutes off the kept `heroes/raw/*.png`, but it moves the edge band on all 203, which makes it a look call.
+
+- **Three items defer with the 203-hero re-render**, each needing a frame rendered under the new sky: `SHADOW_TINT`'s re-derivation, the `locked_hero_hex` re-freeze, and the hero hairline backdrop. The mismatch behind them is real, every hero carrying a warm ambient and the old tone map that the tiles do not, so a country click opens a hero that does not match its globe.
+- **The tier picker has no way back to automatic, deferred until a visitor asks for one.** A press of Lite, Globe or Full pins that tier in `rg:quality` for good, and only clearing the site's data hands the choice back to the probe, which the About note says. An Auto button was offered and declined for now; Earth's bar at 320 px has its one-row fit held by the view bar test, so a fourth tier button is measured against that before it is designed.
+- **Do two GPU backends render identically?** Blocked on hardware, this box having one card. If they differ, the backend belongs in the recipe rather than in `scene_build`'s module-constant allowlist, and `GPU_BACKENDS`'s own comment says so.
+- **The fold's law is deferred on the composite and cap tiers, and its stated reason is now false**, having rested on both bodies being composited. Re-argue it rather than citing it.
+
+### The full sabotage sweep, the one owed verification
+
+- **Derive the count and the population from `len(SABOTAGES)` at import, every time.** The gate in `tests/test_sabotage_cases.py` is a `>= MINIMUM_CASES` floor and pins nothing.
+- **Two scoped runs completed, 34 of 34 and 56 of 56, and both predate the current table.** Ask `git log` what has landed on `scripts/sabotage.py` since, never this entry.
+- **About 46 minutes measured, and `--audit` is the pre-flight**: it costs a tenth and answers what a sweep cannot, since escalation lets a sibling failure report a mislabelled case as caught. → HISTORY, *`--audit` prices the sweep at 46 minutes*.
+- **It owns the tree while it runs, so a worktree is the isolation.** `sabotage.py` takes `REPO_ROOT` from `__file__` and `tree-is-mutated.py` hardcodes the main checkout, so a run elsewhere blocks nothing. A worktree needs `uv sync`, `pnpm install`, and `MAPS_DATA` left unset, no skipped test being a named guard.
+- **Re-run `--audit` on whatever tree is swept**, since a recorded pass describes the table it was measured on and `sabotage.py` moves most sessions.
+- **The web suite has no narrow path, which is 28.5 of those 46 minutes**: 400 cases each rebuild 71 files' module graphs at 4.27 s, 87% of it transform and import. A file-scoped `vitest run <file>` roughly halves it, and what blocks it is that a case names the sabotaged source rather than the guard's test file, where a pytest guard is a name `-k` takes.
+
+### Changes that want a yes before they are made
+
+- **`fold_white`'s `merge` parameter has no shipped caller**: both sites discard the second return and only `test_prep_block` passes one. Deleting it is a signature change with test surface.
+- **`cap_render`'s remainder is structural rather than a prose pass**: 59 functions in one module across five subjects, so three docstring lines each is 177 lines before anything is explained.
+- **The module family census**: 16 of 16 `verb_object` in `acquire` and `fuse`, against 39 to 10 elsewhere. It needs a verb list from the maintainer, so it is a style opinion rather than a measurement.
+
+### The em-dash population, restated because the old figure named the wrong set
+
+- **65 occurrences in two tracked markdown docs**: `ATTRIBUTIONS` 46 and `web/DEPLOY` 19. `ART` and `PROCESS` carried 144 and 102 and are now at zero, each having taken its own sitting, which is what the remaining two need: the rule names which mark replaces each, so it is not a single regex.
+- **The figure had been called "the whole tracked population" and it is not.** The tracked tree carries 4,447, so 4,382 sit in code comments and docstrings across roughly 280 files, led by `scripts/sabotage.py` and `web/src/components/Globe.astro`.
+  - **Whether the rule reaches a comment is the maintainer's call**, and it separates a two-sitting doc pass from a four-thousand-occurrence sweep. Visitor-visible copy is not implicated: every occurrence checked in the page templates and `aboutContent.ts` sat inside a comment.
+
+### Findings from the recipe-seam arc that had nowhere else to live
+
+- **Recipes have 13 writers and no owner**, which is why every count of them drifted, 10 then 14 then 13 then 8, each answering a different question. Two write mechanisms, `freshness.write_if_changed` and a direct `recipe_path().write_text`, and two freshness mechanisms, `is_stale` on mtime and `cap_is_fresh` on text.
+  - **A `recipe_seam` keyed on the artifact's directory would be the third instance of a shape the repo already has twice**, in `planet_seam` and `render_seam`. It touches all 13 stages.
+- **`tests/render_fingerprint.json` covers 8 of those 13**, missing `planet_warp`, `render/prep_block`, `render/prep_cap`, `tile/cut_tiles` and `tile/terrain_rgb`. Its docstring must say 8 of 13 and name them before it ships as anything called global.
+- **A green fingerprint does not mean no re-render is owed, and the pipeline agrees with the fingerprint rather than with the pixels**: `is_stale` gates on the sidecar's mtime and `write_if_changed` only moves it on a real change, so an arithmetic change leaves the output reading fresh and a full pass skips the stage. Measured on `ice_alpha` at 20.3 DN with nothing red. `tests/pixel_baseline.json` now catches that change in review; the pass still skips the stage.
+- **The citation pattern enumerates filenames**, so it goes stale every time a file is added.
+- **`guard-working-docs.py` collides same-second backups**, silently losing one of them.
+- **`rungs.ts` has no test of its own**, and the three pipeline diagrams have only ever been checked as text rather than looked at.
+
+### Rejected here, so it is not re-proposed
+
+- **The tier rule, which would have priced a change from the directory it landed in: dropped, and it must not come back.** The population says it cannot work: it reached 8 of 18 tracked groups plus 3 modules, about a fifth of the tracked files, saying nothing about `web/`, `tests/`, `scripts/`, the repo root or 15 of 18 `pipeline/*.py`.
+  - Wrong at both edges too, since `tile/pack_pmtiles` moves blobs without re-encoding and `mercator.py` defines the tile grid.
+  - **And it had nowhere to be delivered**: a tier is computed from a diff so it cannot be committed, a workflow cannot comment on a fork's pull request, and CI checks out shallow.
+- **The starter kit, all three parts**: the 148 KB manifest into git, a roughly 60 MB pixel fixture, and `PUBLIC_*_BASE` defaults pointing at production. Parked together rather than separately, since any one of them alone still leaves a contributor unable to run the thing.

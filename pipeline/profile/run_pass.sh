@@ -23,7 +23,7 @@
 #                       perf cannot answer "is it I/O-bound or single-threaded"; this can.
 #   3. stamp.py      -> per-stage wall clock from the pass's own existing stage prints, free.
 #   4. the cgroup    -> memory.peak for the whole scope, and the body's own cap, which kills the job
-#                       rather than the box (proven: a 4-cell region render hit it and died alone).
+#                       rather than the box (proven: a job over the cap hit it and died alone).
 #                       The number is pass_memory.py's, never this script's -- see the block below.
 #
 # THE CAP IS THE BODY'S AND THIS SCRIPT DOES NOT KNOW IT -- pipeline/profile/pass_memory.py derives
@@ -35,7 +35,7 @@
 # stage, so on it the 16 G is unbacked rather than protective and the preflight below then refuses
 # a pass the box could have run. Neither number was ever sized off the composite, which is worth
 # saying because that stage and the COMPOSITE_ROWS constant this note used to cite are both deleted.
-# The per-stage peaks are measured in PROCESS.md, not restated here.
+# The per-stage peaks are measured in docs/PROCESS.md, not restated here.
 #
 # What this script still owns is GDAL_CACHEMAX=512 (per planet_warp.py's own launch note), which
 # `gdal raster tile` multiplies: it spawns -j ALL_CPUS workers that EACH inherit it. That product is
@@ -160,7 +160,7 @@ fi
 # over a night.
 #
 # IT STAYS AT 0.5 s ANYWAY, AND THIS IS A DECISION RATHER THAN AN OVERSIGHT. Every per-stage figure
-# in PROCESS.md was sampled at this rate, and a pass profiled at 1 s would be compared against them
+# in docs/PROCESS.md was sampled at this rate, and a pass profiled at 1 s would be compared against them
 # as though the instrument had not moved. Change it with a re-measure, not on its own.
 "$VENV" "$HARNESS/sample_tree.py" --unit "${UNIT}.scope" --out "$PROF/samples.jsonl" \
     --interval 0.5 2> "$PROF/sampler.log" &

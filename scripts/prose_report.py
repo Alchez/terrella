@@ -23,15 +23,23 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def split_prose(source: str) -> tuple[int, int]:
-    """(prose lines, code lines) for one module. Docstrings count as prose, blanks count as neither."""
-    prose = 0
+    """(prose lines, code lines) for one module. Docstrings count as prose, blanks count as neither.
+
+    COUNTED AS LINE NUMBERS AND NOT AS A SPAN, because a docstring's span includes the blank lines
+    between its paragraphs. Charging those to prose and subtracting them from `live - prose` moved
+    1,067 lines across both sides of `pipeline/` and reported 1.09 where the answer is 0.84.
+    `tests/test_prose_report.py` pins the two sides to sum to the lines that exist.
+    """
+    lines = source.splitlines()
+    prose_lines: set[int] = set()
     for token in tokenize.generate_tokens(io.StringIO(source).readline):
-        if token.type == tokenize.COMMENT:
-            prose += 1
-        elif token.type == tokenize.STRING and token.line.strip().startswith(('"""', "'''", 'r"""')):
-            prose += token.string.count("\n") + 1
-    live = len([line for line in source.splitlines() if line.strip()])
-    return prose, max(live - prose, 1)
+        docstring = token.type == tokenize.STRING and token.line.strip().startswith(
+            ('"""', "'''", 'r"""'))
+        if token.type == tokenize.COMMENT or docstring:
+            prose_lines.update(range(token.start[0], token.end[0] + 1))
+    prose = sum(1 for number in prose_lines if lines[number - 1].strip())
+    live = len([line for line in lines if line.strip()])
+    return prose, live - prose
 
 
 def by_target(source: str) -> list[tuple[int, str]]:
@@ -73,18 +81,27 @@ def main() -> int:
         print("\n  Same concept appearing against several targets is one concept without a home.")
         return 0
 
-    total_prose = total_code = 0
+    total_prose = total_code = all_prose = 0
     rows = []
     for path in sorted((ROOT / args.package).rglob("*.py")):
         prose, code = split_prose(path.read_text(encoding="utf-8"))
         total_prose += prose
         total_code += code
-        rows.append((prose / code, prose, code, path.relative_to(ROOT)))
+        # A module that is only a docstring has no denominator, and clamping it to 1 inside
+        # `split_prose` is what hid a 1,067-line miscount for a week. Counted in the total and left
+        # out of the ranking: a package docstring cannot be one concept told at four sites, which
+        # is the only question this view is asked, and eight of them crowd out every file that can.
+        if code:
+            rows.append((prose / code, prose, code, path.relative_to(ROOT)))
+        else:
+            all_prose += 1
 
     print(f"{args.package}/: {total_prose} prose / {total_code} code "
           f"= {total_prose / total_code:.2f} lines of English per line of Python\n")
     for ratio, prose, code, relative in sorted(rows, reverse=True)[:args.top]:
         print(f"  {ratio:6.2f}x  {prose:5d} prose /{code:5d} code   {relative}")
+    if all_prose:
+        print(f"\n  {all_prose} module(s) are docstring only: counted in the total, not ranked.")
     print("\n  A high ratio is a QUESTION, not a verdict: ask whether one concept is being"
           "\n  re-established at each site, or whether the file is genuinely that dense.")
     return 0

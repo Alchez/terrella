@@ -16,7 +16,7 @@ a known-bad file and watch it fail — the first version of this oracle passed
 on a broken scene because an overzealous grep deleted every node line.
 
 Usage:
-  blender -b FILE.blend --python pipeline/scene_dump.py > dump.txt 2>/dev/null
+  blender -b FILE.blend --python pipeline/render/scene_dump.py > dump.txt 2>/dev/null
 """
 import bpy  # pyright: ignore[reportMissingImports] — exists only in Blender's Python
 

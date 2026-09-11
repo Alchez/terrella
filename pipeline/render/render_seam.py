@@ -1,88 +1,48 @@
-"""What images a render directory holds, declared by the stage that filled it.
+"""Which images a render directory's stages declared they emitted, and which never ran.
 
-`planet_seam` ONE TIER DOWN, AND FOR THE SAME REASON. That module exists because
-`(planet / "planet_oceanmask.vrt").exists()` cannot tell "this planet has no sea" from "the
-producer died two rasters in". A render directory has the identical problem one step later: the rig
-loads several images out of it, some of which its producers legitimately skip, and `Path.exists()`
-is the only thing that has ever decided which. Skipped and crashed look the same on disk.
+`planet_seam` one tier down, and for the same reason: the rig loads several images out of a render
+directory, some of which its producers legitimately skip, and `Path.exists()` is the only thing that
+has ever decided which. Skipped and crashed look the same on disk. The standing brief owns the rule
+and names both tiers.
 
-The counts stay out of this sentence deliberately. It said "six, two of which" and was already wrong
-at seven and three when sea ice landed, because a total is a fact about `KNOWN_IMAGES` twelve lines
-below and nothing goes red when the set and the prose disagree.
+The spellings themselves are `pipeline/render_files.py`, which is at the top level because five
+packages read them and only this package reads the declaration. `planet_seam` is not split that way
+because both of its halves have the same five-package readership.
 
-STDLIB ONLY, AND THAT IS A HARD CONSTRAINT RATHER THAN A PREFERENCE. `scene_build` runs inside
-Blender's interpreter, which cannot import this project's virtual environment — that is why the rig
-takes a body SLUG and not a `Body`. So this module may not import `bodies`, `layers` or
+Stdlib only, and that is a hard constraint rather than a preference. `scene_build` runs inside
+Blender's interpreter, which cannot import this project's virtual environment, which is also why the
+rig takes a body slug and not a `Body`. So this module may not import `bodies`, `layers` or
 `planet_seam`, and cannot answer any question that needs them. It records filenames, which is
 exactly what both interpreters can agree about.
 
-WHICH IS ALSO WHY THE PRODUCER DECLARES RATHER THAN THE RIG DERIVING. Whether a planet has inland
-water is `planet_seam.declared(body)`, one tier down and out of Blender's reach; whether this
-particular block happened to contain any snow is a measurement only the prep made. Both facts reach
-the rig the same way: whoever filled the directory writes down what it put there.
-
+    from pipeline import render_files
     from pipeline.render import render_seam
     present = render_seam.declared(render_dir)      # raises if the prep never finished
-    if render_seam.SNOWMASK in present: ...
+    if render_files.SNOWMASK in present: ...
 """
 
 import json
 from collections.abc import Iterable
 from pathlib import Path
 
-#: The rig's four mandatory images. A directory missing one of these is not a partial scene.
-HEIGHTFIELD = "heightfield.tif"
-OCEANMASK = "oceanmask.png"
-INLANDLAKE = "inlandlake.png"
-RIVER = "river.png"
-
-#: The three a prep may legitimately not write, being measurements of the region rather than of
-#: the planet: a block with no snow in it, no lake bed in it, or no sea ice on its ocean. The ice
-#: image is a continuous 0..1 alpha, already confined to ocean pixels by the prep that cut it.
-SNOWMASK = "snowmask.png"
-LAKEDEPTH = "lakedepth.tif"
-SEAICE = "seaice.png"
-
-#: The per-row Mercator correction, one pixel wide and as tall as the plane. Named beside the three
-#: optional images above but unlike them in kind: those are absent when a region has no snow or no
-#: lake bed to measure, where this is a property of the PROJECTION. So the block path always writes
-#: one and the hero path, which is not in Mercator at all, never does.
-ROWSCALE = "rowscale.tif"
-
-#: Prep byproducts on the hero path: analytical masks the post stages read and the rig never
-#: loads, which is why they are named here but stay outside the declaration vocabulary below.
-OCEANMASK_TIF = "oceanmask.tif"
-WATERMASK = "watermask.tif"
-
-#: The whole vocabulary a declaration may name.
-#:
-#: THE ONE OWNER FOR THESE SPELLINGS, on the rule that a second reader with no owner is the defect.
-#: The retired `_aea` suffix asserted a projection, and the block path writes these same names as
-#: EPSG:3857 cuts — no projection suffix can be true for both writers, which is why none returns.
-KNOWN_IMAGES = frozenset({HEIGHTFIELD, OCEANMASK, INLANDLAKE, RIVER, SNOWMASK, LAKEDEPTH, SEAICE,
-                          ROWSCALE})
+from pipeline.render_files import HEIGHTFIELD, KNOWN_IMAGES, SEAICE, SNOWMASK
 
 #: The file every stage that fills a render directory records itself in.
 DECLARATION_NAME = "render_inputs.json"
 
 #: The stages that fill a render directory, as they name themselves in the declaration.
 #:
-#: ONE RECORD PER STAGE AND NOT ONE PER DIRECTORY, because the two paths into this directory have
-#: different shapes. A block is filled by ONE producer in one pass, which could simply write last.
-#: A country is filled by THREE — `render_prep`, then `snow_mask`, then `lake_mask` — and no one of
-#: them knows what the others did, so a single sealing write would have to end with the last stage
-#: guessing at the first two's output. Per stage, each says only what it emitted, and an EMPTY list
-#: is the statement that matters: "I ran over this region and produced nothing" is exactly the fact
-#: a missing file cannot carry.
+#: One record per stage and not one per directory, because the two paths into this directory have
+#: different shapes: a block is filled by one producer in one pass, and a country by three that do
+#: not know each other's output, so a single sealing write would end with the last stage guessing at
+#: the first two's. Each stage says only what it emitted, and an empty list is the statement that
+#: matters, being the one fact a missing file cannot carry.
 PREP, SNOW, LAKE, BLOCK, CAP = "prep", "snow", "lake", "block", "cap"
 
-#: Which tool fills a directory under each stage, so a message that tells someone to re-run the prep
-#: can NAME it.
-#:
-#: A MAPPING RATHER THAN THE THREE SENTENCES IT REPLACED. Those sentences enumerated the preps in
-#: prose inside two error messages, and a third prep made both of them quietly incomplete — the
-#: reader is told to re-run one of the two tools that cannot fill their directory. Derived, adding a
-#: stage without an owner is a failing test instead of a wrong instruction at the worst moment.
+#: Which tool fills a directory under each stage, so a message telling someone to re-run the prep
+#: can name it. A mapping rather than the preps enumerated in prose inside each error message, which
+#: goes quietly incomplete the moment a stage is added and then tells the reader to re-run a tool
+#: that cannot fill their directory. Derived, a stage without an owner is a failing test instead.
 STAGE_TOOL: dict[str, str] = {PREP: "render_prep.py", SNOW: "snow_mask.py",
                               LAKE: "lake_mask.py", BLOCK: "prep_block.py", CAP: "prep_cap.py"}
 
@@ -117,8 +77,8 @@ def _require_known(image: str) -> None:
 PAINTED_IMAGES = frozenset({SNOWMASK, SEAICE})
 
 #: One 8-bit sRGB colour on the wire. Spelled here rather than imported from `palette`, which owns
-#: the identical alias: `palette` is Blender-shared, and that set is exactly three files, pinned by
-#: `scripts/check_blender_drift.sh`. Borrowing a type name is not worth widening it to four.
+#: the identical alias: both are in the Blender-shared set that `scripts/check_blender_drift.sh`
+#: pins, and an import between two of its members is a coupling a type name does not earn.
 RGB8 = tuple[int, int, int]
 
 #: The `(sunlit, shadowed)` pair a mask is painted in.
@@ -151,14 +111,14 @@ def _records(render_dir: Path) -> dict[str, list[str]]:
 
 
 def declare(render_dir: Path, stage: str, images: Iterable[str]) -> Path:
-    """Record what `stage` emitted here. CALL LAST within that stage, once its images are on disk.
+    """Record what `stage` emitted here. Call last within that stage, once its images are on disk.
 
-    THE ORDERING IS THE CONTRACT, exactly as `planet_seam.declare` holds it: a stage's record is
+    The ordering is the contract, exactly as `planet_seam.declare` holds it: a stage's record is
     what says that stage finished. Written before its images, it promises files a crash may never
     deliver, and the guarantee it exists to give is gone.
 
     Each named image is checked onto disk before the name is written, because a declaration is only
-    worth trusting about what is MISSING if it can be trusted about what is present. Re-running one
+    worth trusting about what is missing if it can be trusted about what is present. Re-running one
     stage rewrites only its own record, so a resumed chain does not erase the stages behind it.
     """
     if stage not in KNOWN_STAGES:
@@ -224,16 +184,14 @@ def paint_for(render_dir: Path, image: str) -> Paint:
 def declared(render_dir: Path) -> frozenset[str]:
     """Every image this directory holds, unioned over the stages that filled it. Raises if none did.
 
-    RAISES RATHER THAN FALLING BACK TO A DIRECTORY LISTING, which is the point of the module: a
-    listing is a statement about the filesystem where this is a statement about the stages. The two
-    agree right up until the run that matters.
+    Raises rather than falling back to a directory listing, which is the point of the module: a
+    listing is a statement about the filesystem where this is a statement about the stages, and the
+    two agree right up until the run that matters.
 
-    THE HEIGHTFIELD IS THE COMPLETION TEST because only a first stage writes one — `render_prep` for
-    a country, `prep_block` for a block, `prep_cap` for a polar disc — so its presence in the union
-    means some stage filled this directory rather than merely touching it. WHETHER THE WHOLE CHAIN
-    RAN IS NOT ASKED HERE: that is
-    `batch.py`'s question, which sequences the stages and stops on the first one that fails, and a
-    rig that re-litigated it would need to know which chain was supposed to run.
+    The heightfield is the completion test, because only a first stage writes one, so its presence
+    in the union means some stage filled this directory rather than merely touching it. Whether the
+    whole chain ran is `batch.py`'s question, which sequences the stages and stops on the first
+    failure; a rig re-litigating it would need to know which chain was supposed to run.
     """
     stages = _records(render_dir)
     for stage in sorted(stages):

@@ -29,7 +29,7 @@ but the ceiling is memory, and it sits lower than the arithmetic suggests: the l
 countries hold several float arrays over a native (~42 MP) grid and peak near 8 GB each,
 so two workers meet the heavy-job cgroup cap on their own and the full 203-set OOMs at
 --jobs>1. Serial is the default for that reason; budget ~8 GB per job before raising it.
-The cap itself is `pass_memory.HEAVY_JOB_GIB` and is deliberately not retyped here.
+The cap itself is `pass_memory.heavy_job_gib()` and is deliberately not retyped here.
 
 Usage:
   gen_spotlight.py --only saintlucia            # one (or a comma list)
@@ -64,10 +64,9 @@ from scipy.ndimage import (
     label,
 )
 
-from pipeline import naturalearth, paths
+from pipeline import naturalearth, paths, render_files
 from pipeline.compose.overlay_borders import render_mapping
 from pipeline.frame.country_config import country_render_dir
-from pipeline.render import render_seam
 
 warnings.filterwarnings("ignore", category=NotGeoreferencedWarning)  # hero PNGs
 
@@ -228,8 +227,8 @@ def load_parts(shp_path, bbox, want_slug, exclude=False):
 def render_one(slug, dim, desat, force, outline_div=OUTLINE_DIV_DEFAULT, halo=HALO_ALPHA_DEFAULT):
     hero_path = HEROES / f"{slug}.png"
     render_dir = country_render_dir(slug)
-    ocean_path = render_dir / render_seam.OCEANMASK_TIF
-    heightfield_path = render_dir / render_seam.HEIGHTFIELD
+    ocean_path = render_dir / render_files.OCEANMASK_TIF
+    heightfield_path = render_dir / render_files.HEIGHTFIELD
     if not hero_path.exists() or not ocean_path.exists() or not heightfield_path.exists():
         print(f"  {slug}: skip (no hero / oceanmask / heightfield)", flush=True)
         return

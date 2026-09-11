@@ -1,0 +1,26 @@
+name: An idea, or a change to talk through
+description: A feature, a replaced subsystem, or anything that changes what the site looks like.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Two things worth knowing first, both of which save you work:
+
+        - [FUTURE.md](https://github.com/Alchez/terrella/blob/main/FUTURE.md) already holds most ideas with the analysis behind them, including the ones tried and rejected. If yours is in there, link it and this gets much shorter.
+        - Anything that changes what the site looks like is a judgement made by eye, so it is worth agreeing the shape here before building it.
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would change
+    validations:
+      required: true
+
+  - type: textarea
+    id: purpose
+    attributes:
+      label: What it is for
+      description: The problem it solves, or what it would let someone do.
+    validations:
+      required: true

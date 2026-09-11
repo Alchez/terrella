@@ -31,7 +31,8 @@ from typing import Any
 import numpy as np
 import rasterio
 
-from pipeline.acquire import extract_globathy
+from pipeline import render_files
+from pipeline.acquire.earth import extract_globathy
 from pipeline.look import lake_depth
 from pipeline.render import render_seam
 
@@ -54,27 +55,27 @@ def depth_to_position(depth: np.ndarray, watercode: np.ndarray) -> np.ndarray:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--render-dir", type=Path, required=True,
-                    help=f"existing render dir with {render_seam.HEIGHTFIELD} + "
-                         f"{render_seam.WATERMASK}")
+                    help=f"existing render dir with {render_files.HEIGHTFIELD} + "
+                         f"{render_files.WATERMASK}")
     args = ap.parse_args()
     render_dir = args.render_dir.resolve()
 
-    out_tif = render_dir / render_seam.LAKEDEPTH
+    out_tif = render_dir / render_files.LAKEDEPTH
     if out_tif.exists():
         print(f"{out_tif} exists — skipping", flush=True)
-        render_seam.declare(render_dir, render_seam.LAKE, [render_seam.LAKEDEPTH])
+        render_seam.declare(render_dir, render_seam.LAKE, [render_files.LAKEDEPTH])
         return
 
-    # The VRT is a local build product (pipeline.acquire.extract_globathy), so its
+    # The VRT is a local build product (pipeline.acquire.earth.extract_globathy), so its
     # absence is a config error, not a data gap: exit loudly rather than write an
     # all-flat raster that batch resume would trust as the prep-complete marker.
     lake_vrt = extract_globathy.lake_vrt()
     if not lake_vrt.exists():
-        sys.exit(f"{lake_vrt} missing — run pipeline.acquire.extract_globathy")
+        sys.exit(f"{lake_vrt} missing — run pipeline.acquire.earth.extract_globathy")
 
     # grid + CRS from the existing heightfield (the snow_mask/render_prep pattern):
     # the raster must land pixel-for-pixel on the grid the render was made from
-    heightfield_path = render_dir / render_seam.HEIGHTFIELD
+    heightfield_path = render_dir / render_files.HEIGHTFIELD
     with rasterio.open(heightfield_path) as heightfield_dataset:
         dst_crs, transform = heightfield_dataset.crs, heightfield_dataset.transform
         width, height = heightfield_dataset.width, heightfield_dataset.height
@@ -83,7 +84,7 @@ def main():
     print(f"grid from {heightfield_path.name}: {width} x {height}, {xres:.0f} m/px",
           flush=True)
 
-    # Bilinear/Float32, the tile warp's own reasoning (lake_depth.warp_depth): depth is
+    # Bilinear/Float32, the tile warp's own reasoning (lake_depth.warp_depth_raster): depth is
     # continuous — halfway between 40 m and 0 m really is 20 m — and -srcnodata keeps
     # GLOBathy's -9999 out of the kernel so no false trench bleeds across a shoreline.
     # Streamed via gdalwarp -wm (the snow_mask russia lesson: an in-process warp of a
@@ -107,7 +108,7 @@ def main():
     depth = np.where(np.isfinite(depth_raw) & (depth_raw > 0.0),
                      depth_raw, 0.0).astype(np.float32)
 
-    with rasterio.open(render_dir / render_seam.WATERMASK) as watermask_dataset:
+    with rasterio.open(render_dir / render_files.WATERMASK) as watermask_dataset:
         watercode = watermask_dataset.read(1)
 
     position = depth_to_position(depth, watercode)
@@ -123,7 +124,7 @@ def main():
         out.write(position, 1)
     os.replace(tmp, out_tif)
 
-    render_seam.declare(render_dir, render_seam.LAKE, [render_seam.LAKEDEPTH])
+    render_seam.declare(render_dir, render_seam.LAKE, [render_files.LAKEDEPTH])
     lake_px = int((position > 0).sum())
     km2 = lake_px * (xres * xres) / 1e6
     print(f"wrote {out_tif}", flush=True)

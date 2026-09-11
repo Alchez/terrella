@@ -217,7 +217,7 @@ export function rampedAtmosphereBlend(
  * PITCH ENTERS HERE, AS A NEW BASE, NOT AS A SECOND EXPRESSION. MapLibre expressions can read
  * `["zoom"]` and nothing else about the camera — there is no `["pitch"]` — so the pitch term
  * cannot be declared and has to be applied by rebuilding this expression when the camera settles
- * (earth.astro's `moveend`). That is the one thing skyAtmosphere.ts's header says an expression
+ * (Globe.astro's `moveend`). That is the one thing skyAtmosphere.ts's header says an expression
  * spares us, so it is worth being precise about what changed: the ramp is still evaluated per
  * frame by MapLibre and still never chases zoom; only its starting value is re-declared, at most
  * once per camera settle, where the 300 ms `setSky` transition reads as a crossfade rather than

@@ -13,7 +13,7 @@ from typing import ClassVar
 
 import pytest
 
-from pipeline import bodies, paths
+from pipeline import attribution, bodies, paths
 from pipeline.tile import pack_pmtiles
 from pipeline.tile.pack_pmtiles import (
     default_out,
@@ -76,13 +76,16 @@ class TestTheBodyChoosesTheTree:
     def test_the_body_is_required_with_no_default(self, monkeypatch):
         """No fallback to Earth. Packing the wrong planet's directory is not a loud failure: it
         finds tiles, packs them, and writes a complete archive under the other body's name."""
-        monkeypatch.setattr(sys, "argv", ["pack_pmtiles"])
+        # --layer is supplied so the exit can only be about --body; argparse would raise the same
+        # SystemExit for either missing argument.
+        monkeypatch.setattr(sys, "argv", ["pack_pmtiles", "--layer", "relief"])
         with pytest.raises(SystemExit):
             pack_pmtiles.main()
 
     def test_an_unknown_body_raises_through_the_registry(self, monkeypatch):
         """The registry owns the error, so the message names the bodies that do exist."""
-        monkeypatch.setattr(sys, "argv", ["pack_pmtiles", "--body", "Mars"])  # a real body, miscased
+        monkeypatch.setattr(sys, "argv", ["pack_pmtiles", "--body", "Mars",  # a real body, miscased
+                                          "--layer", "relief"])
         with pytest.raises(KeyError, match="unknown body"):
             pack_pmtiles.main()
 
@@ -90,8 +93,9 @@ class TestTheBodyChoosesTheTree:
         """The helpers above could both be right while `main` still called neither."""
         packed: list[tuple] = []
         monkeypatch.setattr(pack_pmtiles, "pack_directory",
-                            lambda tiles, out, name: packed.append((tiles, out, name)))
-        monkeypatch.setattr(sys, "argv", ["pack_pmtiles", "--body", "mars"])
+                            lambda tiles, out, name, attribution, description: packed.append(
+                                (tiles, out, name, attribution, description)))
+        monkeypatch.setattr(sys, "argv", ["pack_pmtiles", "--body", "mars", "--layer", "relief"])
         pack_pmtiles.main()
         assert packed[0][0] == default_tiles(bodies.MARS)
         assert packed[0][1] == default_out(bodies.MARS)
@@ -101,8 +105,9 @@ class TestTheBodyChoosesTheTree:
         body chooses the DEFAULT and never overrides what an operator said."""
         packed: list[tuple] = []
         monkeypatch.setattr(pack_pmtiles, "pack_directory",
-                            lambda tiles, out, name: packed.append((tiles, out, name)))
-        monkeypatch.setattr(sys, "argv", ["pack_pmtiles", "--body", "earth",
+                            lambda tiles, out, name, attribution, description: packed.append(
+                                (tiles, out, name, attribution, description)))
+        monkeypatch.setattr(sys, "argv", ["pack_pmtiles", "--body", "earth", "--layer", "terrain",
                                           "--tiles", str(tmp_path / "bathy/tiles"),
                                           "--out", str(tmp_path / "terrain.mbtiles")])
         pack_pmtiles.main()
@@ -121,11 +126,12 @@ class TestTheArchiveNameIsNotTheBodys:
     site serves and orphan every warm browser cache.
     """
 
-    def _default_name_for(self, monkeypatch, body: str) -> str:
+    def _default_name_for(self, monkeypatch, body: str, layer: str = "relief") -> str:
         packed: list[tuple] = []
         monkeypatch.setattr(pack_pmtiles, "pack_directory",
-                            lambda tiles, out, name: packed.append((tiles, out, name)))
-        monkeypatch.setattr(sys, "argv", ["pack_pmtiles", "--body", body])
+                            lambda tiles, out, name, attribution, description: packed.append(
+                                (tiles, out, name, attribution, description)))
+        monkeypatch.setattr(sys, "argv", ["pack_pmtiles", "--body", body, "--layer", layer])
         pack_pmtiles.main()
         return packed[0][2]
 
@@ -137,6 +143,80 @@ class TestTheArchiveNameIsNotTheBodys:
         """Pinned to the literal, because "unchanged across bodies" is also satisfied by changing
         it for both — and that ships the same broken URLs."""
         assert self._default_name_for(monkeypatch, "earth") == "terrella-relief"
+
+    def test_the_default_name_follows_the_layer_and_matches_both_shipped_archives(
+            self, monkeypatch, subtests):
+        """The one axis it MAY vary on, and both values are the ones already in the two headers,
+        so making this structural changed no byte and removed the mismatch an operator could make
+        by passing `--layer terrain` and leaving `--name` alone."""
+        for layer, expected in (("relief", "terrella-relief"), ("terrain", "terrella-terrain")):
+            with subtests.test(layer):
+                assert self._default_name_for(monkeypatch, "earth", layer) == expected
+
+
+class TestTheLayerChoosesTheCredit:
+    """`--layer` is what turns a body into a credit, and it is separate from `--name` on purpose.
+
+    A terrain pyramid encodes elevation and paints nothing, so crediting it with the snow, glacier,
+    sea-ice and rock-outcrop sources of a relief cut states, inside the file, that data is in there
+    which is not. Deriving the layer from the free-form `--name` would make that depend on a label.
+    """
+
+    def _credit_for(self, monkeypatch, body: str, layer: str) -> str:
+        packed: list[tuple] = []
+        monkeypatch.setattr(pack_pmtiles, "pack_directory",
+                            lambda tiles, out, name, attribution, description: packed.append(
+                                (tiles, out, name, attribution, description)))
+        monkeypatch.setattr(sys, "argv", ["pack_pmtiles", "--body", body, "--layer", layer])
+        pack_pmtiles.main()
+        return packed[0][3]
+
+    def test_the_credit_main_passes_is_the_one_the_module_composes(self, monkeypatch, subtests):
+        for body, layer in (("earth", "relief"), ("earth", "terrain"),
+                            ("mars", "relief"), ("mars", "terrain")):
+            with subtests.test(f"{body}/{layer}"):
+                assert self._credit_for(monkeypatch, body, layer) == \
+                       attribution.for_archive(bodies.get(body), layer)
+
+    def _description_for(self, monkeypatch, body: str, layer: str) -> str:
+        packed: list[tuple] = []
+        monkeypatch.setattr(pack_pmtiles, "pack_directory",
+                            lambda tiles, out, name, attribution, description: packed.append(
+                                (tiles, out, name, attribution, description)))
+        monkeypatch.setattr(sys, "argv", ["pack_pmtiles", "--body", body, "--layer", layer])
+        pack_pmtiles.main()
+        return packed[0][4]
+
+    def test_the_description_main_passes_is_the_one_the_module_composes(self, monkeypatch,
+                                                                        subtests):
+        for body, layer in (("earth", "relief"), ("earth", "terrain"),
+                            ("mars", "relief"), ("mars", "terrain")):
+            with subtests.test(f"{body}/{layer}"):
+                assert self._description_for(monkeypatch, body, layer) == \
+                       attribution.describe(bodies.get(body), layer)
+
+    def test_a_terrain_cut_does_not_claim_the_surface_layers_it_has_none_of(self, monkeypatch):
+        terrain = self._credit_for(monkeypatch, "earth", "terrain")
+        assert attribution.SOURCES["rgi"].notice not in terrain
+        assert attribution.SOURCES["addrock"].notice not in terrain
+
+    def test_the_layer_is_required_with_no_default(self, monkeypatch):
+        monkeypatch.setattr(sys, "argv", ["pack_pmtiles", "--body", "earth"])
+        with pytest.raises(SystemExit):
+            pack_pmtiles.main()
+
+    def test_a_layer_outside_the_two_pyramids_is_refused(self, monkeypatch):
+        monkeypatch.setattr(sys, "argv", ["pack_pmtiles", "--body", "earth", "--layer", "vector"])
+        with pytest.raises(SystemExit):
+            pack_pmtiles.main()
+
+
+#: A stand-in for the composed credit, wherever a test is about packing rather than about what the
+#: credit says. `test_attribution.py` owns the content.
+CREDIT = "test credit"
+
+#: The same stand-in for the other composed string, on the same division of labour.
+DESCRIPTION = "test description"
 
 
 def make_pyramid(root, tiles, suffix=".png"):
@@ -154,7 +234,8 @@ class TestPackDirectory:
     def test_blobs_land_flipped_and_byte_identical(self, tmp_path):
         make_pyramid(tmp_path / "tiles", self.TILES)
         out = tmp_path / "planet.mbtiles"
-        count = pack_directory(tmp_path / "tiles", out, name="test")
+        count = pack_directory(tmp_path / "tiles", out, name="test",
+                               attribution=CREDIT, description=DESCRIPTION)
         assert count == 3
         with sqlite3.connect(out) as db:
             rows = {(z, x, y): bytes(blob) for z, x, y, blob in db.execute(
@@ -170,7 +251,7 @@ class TestPackDirectory:
         at once. This reports every broken key from a single build."""
         make_pyramid(tmp_path / "tiles", self.TILES)
         out = tmp_path / "planet.mbtiles"
-        pack_directory(tmp_path / "tiles", out, name="test")
+        pack_directory(tmp_path / "tiles", out, name="test", attribution=CREDIT, description=DESCRIPTION)
         with sqlite3.connect(out) as db:
             metadata = dict(db.execute("SELECT name, value FROM metadata"))
         with subtests.test("format"):
@@ -184,23 +265,46 @@ class TestPackDirectory:
         with subtests.test("bounds reach the post-Antarctica pyramid floor"):
             assert "-85.05" in metadata["bounds"]
 
+    def test_the_archive_states_who_made_the_data_in_it(self, tmp_path):
+        """Verbatim, because `pmtiles convert` copies this row through to the archive's metadata
+        and that copy is the only credit a downloaded file has."""
+        make_pyramid(tmp_path / "tiles", self.TILES)
+        out = tmp_path / "planet.mbtiles"
+        pack_directory(tmp_path / "tiles", out, name="test", attribution=CREDIT, description=DESCRIPTION)
+        with sqlite3.connect(out) as db:
+            metadata = dict(db.execute("SELECT name, value FROM metadata"))
+        assert metadata["attribution"] == CREDIT
+
+    def test_the_archive_states_what_is_in_it(self, tmp_path):
+        """The other row `pmtiles convert` copies through. Without it the only thing a downloaded
+        file says about its own contents is `name`, which reads `terrella-relief` on both planets.
+        """
+        make_pyramid(tmp_path / "tiles", self.TILES)
+        out = tmp_path / "planet.mbtiles"
+        pack_directory(tmp_path / "tiles", out, name="test",
+                       attribution=CREDIT, description=DESCRIPTION)
+        with sqlite3.connect(out) as db:
+            metadata = dict(db.execute("SELECT name, value FROM metadata"))
+        assert metadata["description"] == DESCRIPTION
+
     def test_final_name_means_complete(self, tmp_path):
         """Interrupted packs must not leave a plausible .mbtiles behind (the .tmp +
         replace convention every pipeline writer follows)."""
         make_pyramid(tmp_path / "tiles", self.TILES)
         out = tmp_path / "planet.mbtiles"
-        pack_directory(tmp_path / "tiles", out, name="test")
+        pack_directory(tmp_path / "tiles", out, name="test", attribution=CREDIT, description=DESCRIPTION)
         assert not out.with_name(out.name + ".tmp").exists()
 
     def test_missing_directory_fails_loudly(self, tmp_path):
         with pytest.raises(SystemExit):
-            pack_directory(tmp_path / "absent", tmp_path / "out.mbtiles", name="test")
+            pack_directory(tmp_path / "absent", tmp_path / "out.mbtiles", name="test",
+                           attribution=CREDIT, description=DESCRIPTION)
 
     def test_unique_index_exists(self, tmp_path):
         """The MBTiles spec's tile_index — pmtiles convert relies on unique z/x/y."""
         make_pyramid(tmp_path / "tiles", self.TILES)
         out = tmp_path / "planet.mbtiles"
-        pack_directory(tmp_path / "tiles", out, name="test")
+        pack_directory(tmp_path / "tiles", out, name="test", attribution=CREDIT, description=DESCRIPTION)
         with sqlite3.connect(out) as db:
             indexes = [row[0] for row in db.execute(
                 "SELECT name FROM sqlite_master WHERE type='index'")]
@@ -219,7 +323,7 @@ class TestEncodingIsReadOffTheDirectory:
 
     def _format_of(self, tmp_path):
         out = tmp_path / "planet.mbtiles"
-        pack_directory(tmp_path / "tiles", out, name="test")
+        pack_directory(tmp_path / "tiles", out, name="test", attribution=CREDIT, description=DESCRIPTION)
         with sqlite3.connect(out) as db:
             return dict(db.execute("SELECT name, value FROM metadata"))["format"]
 
@@ -236,7 +340,7 @@ class TestEncodingIsReadOffTheDirectory:
         """Detection changes the label, not the bytes — the archive must stay byte-identical."""
         make_pyramid(tmp_path / "tiles", self.TILES, suffix=".webp")
         out = tmp_path / "planet.mbtiles"
-        pack_directory(tmp_path / "tiles", out, name="test")
+        pack_directory(tmp_path / "tiles", out, name="test", attribution=CREDIT, description=DESCRIPTION)
         with sqlite3.connect(out) as db:
             blob = db.execute("SELECT tile_data FROM tiles WHERE zoom_level=0").fetchone()[0]
         assert bytes(blob) == b"z0-root"
@@ -246,18 +350,21 @@ class TestEncodingIsReadOffTheDirectory:
         make_pyramid(tmp_path / "tiles", self.TILES, suffix=".png")
         make_pyramid(tmp_path / "tiles", {(2, 0, 0): b"stray"}, suffix=".webp")
         with pytest.raises(SystemExit, match="mixes tile encodings"):
-            pack_directory(tmp_path / "tiles", tmp_path / "out.mbtiles", name="test")
+            pack_directory(tmp_path / "tiles", tmp_path / "out.mbtiles", name="test",
+                           attribution=CREDIT, description=DESCRIPTION)
 
     def test_non_tile_files_are_not_packed(self, tmp_path):
         """`.aux.xml` sidecars and viewer leftovers share the leaf dirs; only image suffixes count."""
         make_pyramid(tmp_path / "tiles", self.TILES, suffix=".png")
         (tmp_path / "tiles" / "0" / "0" / "0.png.aux.xml").write_text("<PAMDataset/>")
         out = tmp_path / "planet.mbtiles"
-        assert pack_directory(tmp_path / "tiles", out, name="test") == 3
+        assert pack_directory(tmp_path / "tiles", out, name="test",
+                              attribution=CREDIT, description=DESCRIPTION) == 3
 
     def test_a_directory_holding_no_tiles_fails_loudly(self, tmp_path):
         """Present but empty of images — with a suffix filter this would otherwise pack silently."""
         (tmp_path / "tiles" / "0" / "0").mkdir(parents=True)
         (tmp_path / "tiles" / "0" / "0" / "0.png.aux.xml").write_text("<PAMDataset/>")
         with pytest.raises(SystemExit, match="holds no tiles"):
-            pack_directory(tmp_path / "tiles", tmp_path / "out.mbtiles", name="test")
+            pack_directory(tmp_path / "tiles", tmp_path / "out.mbtiles", name="test",
+                           attribution=CREDIT, description=DESCRIPTION)

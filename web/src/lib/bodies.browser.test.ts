@@ -53,10 +53,7 @@ function accentOf(slug: string | null): string {
  *  Written as a scan for the body's own selector rather than for a hex, so a colour moved between
  *  two bodies' blocks reads as a change here instead of as "the file still contains that string". */
 function declaredAccents(slug: BodySlug): string[] {
-  const pattern = new RegExp(
-    `:root\\[data-body="${slug}"\\]\\s*\\{[^}]*?--accent:\\s*([^;]+);`,
-    "g",
-  );
+  const pattern = new RegExp(`\\[data-body="${slug}"\\]\\s*\\{[^}]*?--accent:\\s*([^;]+);`, "g");
   return [...globalCss.matchAll(pattern)].map((match) => match[1].trim());
 }
 
@@ -79,6 +76,25 @@ describe("the accent comes from the body descriptor", () => {
     expect(accentOf("mercury")).toBe(""); // a body the stylesheet has never heard of
   });
 
+  it("scopes to any element carrying the attribute, not only to the root", () => {
+    // A page whose subject is BOTH planets holds one section per body in one document, so the
+    // token has to be readable per subtree. Declared against `:root` alone, the archives page drew
+    // Mars's three archives in Earth's teal and nothing in the tree disagreed: the root said Earth,
+    // truthfully, and the sections had no way to say anything else.
+    root.setAttribute("data-body", "earth");
+    const section = document.createElement("section");
+    section.setAttribute("data-body", "mars");
+    document.body.append(section);
+    try {
+      const scoped = getComputedStyle(section).getPropertyValue("--accent").trim();
+      expect(asColour(scoped), "--accent inside a data-body subtree").toBe(
+        asColour(BODIES.mars.accent.light),
+      );
+    } finally {
+      section.remove();
+    }
+  });
+
   it("declares both schemes for every body, matching the descriptor exactly", () => {
     // The source half. Both entries, in order: the `:root` block then the dark-scheme override.
     // `prefers-color-scheme` cannot be flipped from inside the page, so the dark value is the one
@@ -91,10 +107,40 @@ describe("the accent comes from the body descriptor", () => {
     }
   });
 
+  it("gives a page about all of them a neutral, in both schemes, that is neither body's", () => {
+    // THE DARK HALF IS SOURCE-ONLY FOR THE SAME REASON THE BODIES' IS, and it is the half that can
+    // go missing without a symptom: forget the override and a dark page keeps the LIGHT neutral,
+    // which is a colour rather than an absence, so it renders as a slightly odd grey and nothing
+    // else. The light half is computed, against a real `.all-bodies` container.
+    const declared = [
+      ...globalCss.matchAll(/:root:has\(\.all-bodies\)\s*\{[^}]*?--accent:\s*([^;]+);/g),
+    ].map((match) => asColour(match[1].trim()));
+    expect(declared, "global.css neutral declarations, light then dark").toHaveLength(2);
+
+    root.setAttribute("data-body", "earth");
+    const main = document.createElement("main");
+    main.className = "all-bodies";
+    document.body.append(main);
+    try {
+      const computed = asColour(getComputedStyle(root).getPropertyValue("--accent").trim());
+      expect(declared, "the computed neutral is one of the two declared").toContain(computed);
+      for (const slug of Object.keys(BODIES) as BodySlug[]) {
+        expect(declared, `the neutral is ${slug}'s colour`).not.toContain(
+          asColour(BODIES[slug].accent.light),
+        );
+        expect(declared, `the neutral is ${slug}'s colour`).not.toContain(
+          asColour(BODIES[slug].accent.dark),
+        );
+      }
+    } finally {
+      main.remove();
+    }
+  });
+
   it("gives no body a token block the descriptor does not know about", () => {
     // The other direction. A block left behind by a removed body would be dead CSS that still
     // matched, so a stale `data-body` on a cached page would keep painting a planet that is gone.
-    const styled = [...globalCss.matchAll(/:root\[data-body="([^"]+)"\]/g)].map((m) => m[1]);
+    const styled = [...globalCss.matchAll(/\[data-body="([^"]+)"\]/g)].map((m) => m[1]);
     expect([...new Set(styled)].toSorted()).toEqual(Object.keys(BODIES).toSorted());
   });
 });
@@ -191,7 +237,7 @@ describe("a body's slug is its route", () => {
     // THE ACCEPTANCE CRITERION FOR THIS WHOLE DESCRIPTOR: adding a planet should be a registry
     // entry plus data, and this is the half a type cannot check. Astro routes by filename, so
     // `slug` and the page name are one fact stored in two places — add `mars` to the registry with
-    // no `mars.astro` and the switcher would link at a 404, with every other gate green.
+    // no `mars/index.astro` and the switcher would link at a 404, with every other gate green.
     //
     // `import.meta.glob` is resolved by Vite at build time, so this sees the real page directory
     // rather than a list someone maintained by hand.
@@ -239,8 +285,8 @@ describe("a body's slug is its route", () => {
   });
 
   it("dresses every page a body owns in that body, and not in the one next door", () => {
-    // A SECOND GLOBE IS WHAT MAKES THIS REACHABLE. `mars.astro` is `earth.astro` with two words
-    // changed, and the way to get it wrong is to change one of them: a page served at `/mars/` that
+    // A second globe is what makes this reachable. `mars/index.astro` is Earth's page with its
+    // descriptor changed, and the way to get it wrong is to leave it: a page served at `/mars/` that
     // passes Earth's descriptor draws Mars's relief in Earth's teal, sends its Lite button to the
     // gallery, and steers a WebGL2-less visitor onto a planet they never asked for. Nothing else
     // compares a page's ROUTE to the body it dresses itself in, so all of that ships green.

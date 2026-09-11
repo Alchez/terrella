@@ -24,7 +24,7 @@ from rasterio.crs import CRS
 from rasterio.transform import from_bounds
 
 from pipeline import bodies, paths, planet_seam
-from pipeline.acquire import download_mars_dem
+from pipeline.acquire.mars import download_mars_dem
 from pipeline.fuse import relabel_mars
 
 #: The source's own CRS: degrees on Mars's IAU 2015 sphere, unflattened. PROJ serialises an

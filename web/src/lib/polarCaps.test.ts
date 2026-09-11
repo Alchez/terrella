@@ -881,7 +881,7 @@ describe("the cap's draw call", () => {
   });
 
   it("takes exaggeration from map.terrain, and 0 when there is no terrain", () => {
-    // map.terrain is the object earth.astro MUTATES on zoom — it never re-calls setTerrain, because
+    // map.terrain is the object Globe.astro mutates on zoom — it never re-calls setTerrain, because
     // that rebuilds Terrain and RenderToTexture and leaks framebuffers. So map.getTerrain() reports
     // the spec handed in once and goes stale after the first ramp step; reading it here would
     // silently freeze the cap at the base exaggeration while the tiles ramped away from it.
@@ -893,11 +893,11 @@ describe("the cap's draw call", () => {
 describe("the context-loss recovery contract", () => {
   const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
 
-  it("earth.astro installs the caps from style.load, not from a one-shot load", () => {
+  it("Globe.astro installs the caps from style.load, not from a one-shot load", () => {
     const boundToStyleLoad = /map\.on\(\s*["']style\.load["']\s*,\s*addCaps\s*\)/.test(globe);
     expect(
       boundToStyleLoad,
-      "earth.astro must install the caps from a `style.load` handler. MapLibre re-applies a " +
+      "Globe.astro must install the caps from a `style.load` handler. MapLibre re-applies a " +
         "serialized style on restore and that style cannot carry a `custom` layer, so a one-shot " +
         "`load` binding leaves every rebuilt globe capless: no error, just holes at the poles.",
     ).toBe(true);
@@ -906,7 +906,7 @@ describe("the context-loss recovery contract", () => {
   // CORRECTS THE CLAIM THIS BLOCK USED TO MAKE. It asserted the caps "survive ONLY because the
   // restore re-fires style.load". They do not survive: measured, a restore re-fires style.load and
   // the caps come back as a BLACK DISC over the pole. _contextRestored calls setStyle() at line
-  // 23533 and _setupPainter() only at 23546, so a cap added from style.load binds its buffers to
+  // 23982 and _setupPainter() only at 23995, so a cap added from style.load binds its buffers to
   // the outgoing GL context. Present, wrong, and silent — worse than the hole it was guarding
   // against, because a hole is visible as a hole.
   it("re-adds the caps on recovery, from OUTSIDE style.load, because that ordering is too early", () => {

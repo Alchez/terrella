@@ -16,7 +16,6 @@ import {
   parseTerrainTilePath,
   parseTerrainTileSize,
   rampedExaggeration,
-  RATIFIED_TERRAIN_EXAGGERATION,
   resolveTerrainExaggeration,
   terrainDemSource,
   TERRAIN_CONTENT_TYPE,
@@ -139,7 +138,7 @@ describe("the archive replaced four flags, and the answers outlive them", () => 
     // code, and a caller with no parser is a crash. The globe is where it would show.
     //
     // Keyed on CODE, never on the flag spelling — the first draft searched for the literal
-    // "?quant" and went red against a comment in earth.astro explaining what had been retired. A
+    // "?quant" and went red against a comment in Globe.astro explaining what had been retired. A
     // guard that cannot tell an identifier from prose punishes documenting the decision.
     const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
     const retiredCalls = [
@@ -528,7 +527,7 @@ describe("the pyramid depth the source is allowed to reach", () => {
   });
 
   it("shows why a deeper pyramid cannot rescue 512", () => {
-    // 512's DEM sits at camera-2, so z7 would need camera z9 — and earth.astro caps at maxZoom 8.
+    // 512's DEM sits at camera-2, so z7 would need camera z9 — and Globe.astro caps at maxZoom 8.
     // Building deeper is only spendable if the declaration moves with it.
     for (const depth of [6, 8]) {
       expect(terrainZoomsFor(8, 512, depth).demZoom).toBe(6);
@@ -737,76 +736,55 @@ describe("source guard — the pipeline is the source of truth for the numbers",
   });
 });
 
-/** A body the ratified table has no entry for — synthetic, and it has to be.
- *
- *  Mars used to supply it. While its terrain was unratified, every case below took its negative
- *  instance from that missing row, and ratifying Mars took the branch away with it: a guard whose
- *  only negative instance is a live table entry stops testing anything the day someone writes that
- *  entry, and says nothing while it happens. `tests/test_run_pass_preflight.py` names the same
- *  failure for its capless body, and answers it the same way.
- *
- *  Spelled off the body union because that is what a planet added tomorrow looks like to this
- *  function: the resolver reads nothing about a body except its slug, so an unknown one takes the
- *  identical path a real unratified body would. */
-const UNRATIFIED_BODY = "unratified-body" as unknown as BodySlug;
+const ratifiedBodies = (Object.keys(BODIES) as BodySlug[]).filter(
+  (slug) => BODIES[slug].meshExaggeration !== null,
+);
 
-describe("the ratified-exaggeration table is the consent record", () => {
-  it("leaves a body with no entry FLAT at the full tier, however good its pyramid is", () => {
+/** Earth's ratified mesh scale, read off the registry so a retune moves this file's cases with it. */
+const EARTH_MESH = BODIES.earth.meshExaggeration;
+
+describe("`meshExaggeration` is the consent record", () => {
+  it("leaves a body with a null entry flat at the full tier, however good its pyramid is", () => {
     // THE FAILURE THIS EXISTS FOR, and it had already happened when this was written. Publishing
     // `PUBLISHED.mars.terrain` was enough to make Mars displace at Earth's 15x on the next page
     // load: the archive was right, the zooms were right, every guard was green, and nobody had
     // agreed to the look. A pyramid being SERVEABLE and a body being APPROVED to draw with it are
     // different facts, and only one of them lives in the registry.
-    expect(RATIFIED_TERRAIN_EXAGGERATION[UNRATIFIED_BODY]).toBeUndefined();
-    expect(resolveTerrainExaggeration(flags(""), true, UNRATIFIED_BODY)).toBeNull();
+    expect(resolveTerrainExaggeration(flags(""), true, null)).toBeNull();
   });
 
   it("still lets ?terrain=N reach an unratified body, because looking is how it gets ratified", () => {
-    // The table gates the DEFAULT, not the flag. A look loop has to be able to see the thing it is
+    // The field gates the default, not the flag. A look loop has to be able to see the thing it is
     // deciding about, and typing the number is the deliberate act that a default is not.
-    expect(resolveTerrainExaggeration(flags("terrain=20"), false, UNRATIFIED_BODY)).toBe(20);
+    expect(resolveTerrainExaggeration(flags("terrain=20"), false, null)).toBe(20);
   });
 
-  it("answers every ratified body with its OWN entry, or the two cases above prove nothing", () => {
+  it("answers every ratified body with its own number, or the two cases above prove nothing", () => {
     // Both would pass on a function that returned null for everything. These are the positives.
     //
-    // Read out of the table rather than restated as literals: a number written here would be a
+    // Read off the registry rather than restated as literals: a number written here would be a
     // second consent record, free to disagree with the first, and the whole property is that
     // approving a body and turning it on are one edit. What must not happen without that edit is a
     // body ARRIVING at a number — which is what the null case above watches.
-    const ratified = Object.keys(RATIFIED_TERRAIN_EXAGGERATION);
-    expect(ratified.length).toBeGreaterThan(0);
-    for (const slug of ratified) {
-      expect(resolveTerrainExaggeration(flags(""), true, slug as BodySlug), slug)
-        .toBe(RATIFIED_TERRAIN_EXAGGERATION[slug as BodySlug]);
+    expect(ratifiedBodies.length).toBeGreaterThan(0);
+    for (const slug of ratifiedBodies) {
+      expect(
+        resolveTerrainExaggeration(flags(""), true, BODIES[slug].meshExaggeration),
+        slug,
+      ).toBe(BODIES[slug].meshExaggeration);
     }
   });
 
-  it("keeps this number independent of the BAKED exaggeration, which is 15 by coincidence", () => {
-    // TWO QUANTITIES, ONE VALUE. `Body.exaggeration` / `palette.EXAGGERATION` displaces the DEM
-    // before Cycles renders a hero and before the hillshade is cut, so moving it restages renders
-    // and re-cuts tiles; this one is a display uniform the ramp decays to a floor by z8, and moving
-    // it costs a reload. They are 15 apiece today and nothing says they should move together.
-    //
-    // The regrowth is a tidy that reads as de-duplication: the browser descriptor grows an
-    // `exaggeration` field mirroring the pipeline's, and the table reads it — after which retuning
-    // the globe's mesh silently invalidates 203 heroes. Scanned as a FIELD and as a READ rather
-    // than as the word, so both files can still explain in prose why they do not have one.
-    const bodies = readFileSync(new URL("./bodies.ts", import.meta.url), "utf8");
-    expect(bodies).not.toMatch(/\bexaggeration\s*\??\s*:/i);
+  it("stays independent of the baked scale, which is 15 on Earth by coincidence", () => {
+    // Two quantities, one value on Earth. `bakedExaggeration` is in the rendered pixels, so moving
+    // it restages 203 heroes; this one is a display uniform and moving it costs a reload. Both sit
+    // on one descriptor, so the bar is on the read: neither this module nor the globe may name the
+    // baked field, and a wiring between them surfaces only as heroes disagreeing with the mesh.
     const source = readFileSync(new URL("./terrainSource.ts", import.meta.url), "utf8");
-    expect(source).not.toMatch(/\.exaggeration\b/i);
-    // A VALUE import of the body registry is how a descriptor read would arrive; the type import
-    // that is already there cannot carry a number.
+    expect(source).not.toMatch(/bakedExaggeration/);
     expect(source).not.toMatch(/^\s*import\s+(?!type\b)[^;]*from\s+"\.\/bodies"/m);
-  });
-
-  it("names only bodies that exist, so a typo cannot look like an approval", () => {
-    // A key outside the body union is dead: it would read as a ratification for a planet nobody
-    // can navigate to, and the entry it was meant for would still be missing.
-    for (const slug of Object.keys(RATIFIED_TERRAIN_EXAGGERATION)) {
-      expect(Object.keys(BODIES), `${slug} is not a body`).toContain(slug);
-    }
+    const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
+    expect(globe).not.toMatch(/bakedExaggeration/);
   });
 });
 
@@ -814,26 +792,25 @@ describe("resolveTerrainExaggeration — what the `full` tier actually turns on"
   it("gives the full tier the ratified exaggeration with no flag at all", () => {
     // The whole point of Tier 3 step 4: a visitor types nothing and gets terrain because the
     // probe promoted them. Before this, 15 existed only inside `?terrain=15`.
-    expect(resolveTerrainExaggeration(flags(""), true, "earth"))
-      .toBe(RATIFIED_TERRAIN_EXAGGERATION.earth);
+    expect(resolveTerrainExaggeration(flags(""), true, EARTH_MESH)).toBe(EARTH_MESH);
   });
 
   it("leaves every other tier flat", () => {
-    expect(resolveTerrainExaggeration(flags(""), false, "earth")).toBeNull();
+    expect(resolveTerrainExaggeration(flags(""), false, EARTH_MESH)).toBeNull();
   });
 
   it("lets ?terrain=N force terrain on at ANY tier, so the A/B flags stay usable", () => {
     // Every look question from here on needs to set exaggeration explicitly without first
     // talking the capability probe into promoting the machine it runs on.
-    expect(resolveTerrainExaggeration(flags("terrain=40"), false, "earth")).toBe(40);
-    expect(resolveTerrainExaggeration(flags("terrain=2.5"), false, "earth")).toBe(2.5);
+    expect(resolveTerrainExaggeration(flags("terrain=40"), false, EARTH_MESH)).toBe(40);
+    expect(resolveTerrainExaggeration(flags("terrain=2.5"), false, EARTH_MESH)).toBe(2.5);
   });
 
   it("lets ?terrain=off remove ONLY the geometry, without demoting the tier", () => {
     // The control arm. Picking "Globe" in the view bar also disables terrain, but it changes the
     // tier too — so it cannot answer "same tier, same everything, no mesh".
-    expect(resolveTerrainExaggeration(flags(`terrain=${TERRAIN_OFF}`), true, "earth")).toBeNull();
-    expect(resolveTerrainExaggeration(flags(`terrain=${TERRAIN_OFF}`), false, "earth")).toBeNull();
+    expect(resolveTerrainExaggeration(flags(`terrain=${TERRAIN_OFF}`), true, EARTH_MESH)).toBeNull();
+    expect(resolveTerrainExaggeration(flags(`terrain=${TERRAIN_OFF}`), false, EARTH_MESH)).toBeNull();
     // And the caller must be able to tell "off" from a typo, or it will warn about a deliberate
     // choice: parse returns null for both, so the literal is what distinguishes them.
     expect(TERRAIN_OFF).toBe("off");
@@ -843,23 +820,23 @@ describe("resolveTerrainExaggeration — what the `full` tier actually turns on"
     // "I asked for 3x and silently got 15x" is exactly the failure the loud-refusal convention
     // exists to prevent, and it would only appear on the tier that already wanted terrain.
     for (const bad of ["terrain=abc", "terrain=0", "terrain=-5", "terrain=99999"]) {
-      expect(resolveTerrainExaggeration(flags(bad), true, "earth"), bad).toBeNull();
-      expect(resolveTerrainExaggeration(flags(bad), false, "earth"), bad).toBeNull();
+      expect(resolveTerrainExaggeration(flags(bad), true, EARTH_MESH), bad).toBeNull();
+      expect(resolveTerrainExaggeration(flags(bad), false, EARTH_MESH), bad).toBeNull();
     }
   });
 
   it("treats an empty ?terrain= as absent, deferring to the tier", () => {
-    expect(resolveTerrainExaggeration(flags("terrain="), true, "earth"))
-      .toBe(RATIFIED_TERRAIN_EXAGGERATION.earth);
-    expect(resolveTerrainExaggeration(flags("terrain="), false, "earth")).toBeNull();
+    expect(resolveTerrainExaggeration(flags("terrain="), true, EARTH_MESH)).toBe(EARTH_MESH);
+    expect(resolveTerrainExaggeration(flags("terrain="), false, EARTH_MESH)).toBeNull();
   });
 
   it("starts EVERY ratified body from a value the ramp actually decays", () => {
     // The ramp holds the base to z3 and lands on the floor by z8. If a base ever drifts below the
     // floor the ramp inverts and every deep camera gets MORE exaggeration, not less — so this is a
-    // property of each entry, not of one constant. It was one constant, and a second body was
+    // property of each body, not of one constant. It was one constant, and a second body was
     // exactly the thing that would have walked past it.
-    for (const [slug, base] of Object.entries(RATIFIED_TERRAIN_EXAGGERATION)) {
+    for (const slug of ratifiedBodies) {
+      const base = BODIES[slug].meshExaggeration!;
       expect(base, slug).toBeGreaterThan(DEFAULT_TERRAIN_RAMP_FLOOR);
       expect(rampedExaggeration(base, TERRAIN_RAMP_START_ZOOM, DEFAULT_TERRAIN_RAMP_FLOOR), slug)
         .toBeCloseTo(base, 6);

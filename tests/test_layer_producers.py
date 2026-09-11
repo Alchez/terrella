@@ -14,7 +14,7 @@ import rasterio
 from rasterio.transform import from_bounds
 
 from pipeline import bodies, datasets, freshness, layers, mercator, planet_warp
-from pipeline.acquire import download_rgi
+from pipeline.acquire.earth import download_rgi
 from pipeline.look import lake_depth, layer_producers, mars_ice, palette, seaice, snow
 
 #: A window well south of the Antarctic patch's -60, so the rule that has no dataset behind it is

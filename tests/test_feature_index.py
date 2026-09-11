@@ -24,7 +24,7 @@ from typing import Any
 
 import pytest
 
-from pipeline.acquire import download_nomenclature
+from pipeline.acquire.mars import download_nomenclature
 from pipeline.compose import features_geojson
 
 REPO_ROOT = Path(__file__).resolve().parents[1]

@@ -19,13 +19,13 @@ flowchart TD
   end
 
   subgraph ACQ["Acquisition: done"]
-    D1["acquire/download_glo30.py<br/>idempotent: .part, size check, atomic rename"]
+    D1["acquire/earth/download_glo30.py<br/>idempotent: .part, size check, atomic rename"]
     R1[("raw/glo30: dem + wbm<br/>Float32 elevation + Byte water class<br/>0 dry / 1 ocean / 2 lake / 3 river, ~551 GB")]
-    D3["acquire/download_gebco.py<br/>self-pinning by version"]
+    D3["acquire/earth/download_gebco.py<br/>self-pinning by version"]
     R3[("raw/gebco: 7.3 GB<br/>Int16 bathymetry + TID provenance")]
-    D2["acquire/download_naturalearth.sh"]
+    D2["acquire/earth/download_naturalearth.py"]
     R4[("raw/naturalearth: boundary lines,<br/>maritime indicators, countries, coastline")]
-    D4["acquire/download_globathy.py + extract_globathy.py<br/>figshare v1 pinned by size+md5;<br/>selective unzip of rasters >= 10 KB"]
+    D4["acquire/earth/download_globathy.py + extract_globathy.py<br/>figshare v1 pinned by size+md5;<br/>selective unzip of rasters >= 10 KB"]
     R5[("work/globathy/lakedepth.vrt<br/>83,357 per-lake rasters (Caspian excluded)")]
   end
 
@@ -59,7 +59,7 @@ flowchart TD
 
   subgraph HERO["Hero render path: done, 203 countries (204 in scope, Kiribati deferred)"]
     P["render/render_prep.py<br/>warp EPSG:4326 to Albers equal-area conic,<br/>~16k Float32 TIFF + nearest-warped masks<br/>+ 0/255 lake & river PNGs for the shader"]
-    B["render/scene_build.py: Blender Cycles, RTX 4070S / OptiX, headless -b<br/>true displacement + adaptive subdivision<br/>two ColorRamps switched by ocean mask<br/>+ GLOBathy depth-keyed lake ramp (render/lake_mask.py), rivers flat teal<br/>locked look: 15x, sun alt 45 (shared palette.SUN_ALT_DEG), OIDN denoise"]
+    B["render/scene_build.py: Blender Cycles, OptiX, headless -b<br/>true displacement + adaptive subdivision<br/>two ColorRamps switched by ocean mask<br/>+ GLOBathy depth-keyed lake ramp (render/lake_mask.py), rivers flat teal<br/>locked look: 15x, sun alt 45 (shared palette.SUN_ALT_DEG), OIDN denoise"]
     SV["look/sky_view.py: burn-only horizon SVF<br/>darkens land valleys post-render"]
     H8["8K hero (long edge 7680) + 6 WebP rungs 640..7680<br/>q85 to 1920, q95 above<br/>(compose/hero_variants.py)"]
     OV["compose/overlay_borders.py<br/>pyshp + pyproj + pycairo, same Albers +<br/>ortho-margin mapping; coastline oracle;<br/>cased white borders, dashed disputed/maritime"]
@@ -107,10 +107,10 @@ flowchart TD
   PH --> CP
 
   subgraph MARS["Mars: enters pre-fused, no fusion tier"]
-    MS1["USGS MOLA/HRSC blended DEM, 200 m<br/>acquire/download_mars_dem.py<br/>share-alike, which is why the whole site's output is CC BY-SA 4.0"]
-    MS2["USGS SIM 3292<br/>acquire/download_sim3292.py<br/>where the permanent polar ice is"]
-    MS3["Viking colour mosaic<br/>acquire/download_viking_mosaic.py<br/>ice brightness + the hue the land ramp is measured from"]
-    MS4["IAU gazetteer<br/>acquire/download_nomenclature.py<br/>1,919 named features"]
+    MS1["USGS MOLA/HRSC blended DEM, 200 m<br/>acquire/mars/download_mars_dem.py<br/>share-alike, which is why the whole site's output is CC BY-SA 4.0"]
+    MS2["USGS SIM 3292<br/>acquire/mars/download_sim3292.py<br/>where the permanent polar ice is"]
+    MS3["Viking colour mosaic<br/>acquire/mars/download_viking_mosaic.py<br/>ice brightness + the hue the land ramp is measured from"]
+    MS4["IAU gazetteer<br/>acquire/mars/download_nomenclature.py<br/>1,919 named features"]
     MH[("work/mars/planet/*.vrt<br/>the blend IS the heightfield: no ocean mask, no water mask,<br/>so the planet stage DECLARES what it emitted rather than<br/>leaving a consumer to infer it from what is on disk")]
   end
 

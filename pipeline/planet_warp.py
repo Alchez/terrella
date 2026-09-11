@@ -43,7 +43,7 @@ from pipeline.look import (
 #
 # The vertical exaggeration left the same way and for a sharper reason: it is a LOOK decision, and
 # two bodies whose relief is a different fraction of their radius cannot read right at one value.
-# It is `Body.exaggeration`, threaded to the places that shade. Same rule as above: the number is
+# It is `Body.baked_exaggeration`, threaded to the places that shade. Same rule as above: the number is
 # not written out, because the same scan looks for its name.
 
 #: The band height `warp_inputs` builds each optional layer's raster in. Must stay 256: the
@@ -78,7 +78,7 @@ WATER_3857 = "water_3857.tif"
 #: Keyed by name and looked up unconditionally, so a layer added to the planet's set and forgotten
 #: here raises on the next pass of any body rather than being quietly skipped forever.
 WARP_CONSEQUENCE: dict[str, str] = {
-    layers.LAKE_DEPTH.name: "lakes stay flat; run pipeline.acquire.extract_globathy",
+    layers.LAKE_DEPTH.name: "lakes stay flat; run pipeline.acquire.earth.extract_globathy",
     layers.PERENNIAL_ICE.name: "no ice painted; the reader gets None and skips it",
     layers.GLACIERS.name: "persistence-only snow",
     layers.SEA_ICE.name: "bathymetry bare at the poles",

@@ -18,14 +18,13 @@ lands at the 1-arcsec grid, matching the standard WBM everywhere else (not World
 One WBM tile per void DEM tile, on that tile's exact grid, into data/raw/cop30_void/wbm/.
 build_mosaics.sh globs that dir into the WBM mosaic; fuse_heightfield then runs unchanged.
 
-Reuses snow_mask.py's WorldCover fetch (same bucket, dir, and naming). Idempotent: skips
-WBM tiles already built and WorldCover tiles already held; delete data/raw/cop30_void/wbm
-to redo.
+Fetches through acquire/earth/download_worldcover.py, which snow_mask.py reads for a
+different class of the same rasters. Idempotent: skips WBM tiles already built and
+WorldCover tiles already held; delete data/raw/cop30_void/wbm to redo.
 
 Usage: python3 build_void_wbm.py
 """
 
-import concurrent.futures as cf
 import os
 import subprocess
 import sys
@@ -36,12 +35,7 @@ import numpy as np
 import rasterio
 
 from pipeline import datasets
-from pipeline.fetch import download_one
-from pipeline.render.snow_mask import (
-    BUCKET_URL,
-    WORKERS,
-    tiles_for_bounds,
-)
+from pipeline.acquire.earth import download_worldcover
 
 WATER_CLASS = 80   # ESA WorldCover "permanent water bodies"
 WBM_LAKE = 2       # fuse_heightfield inland-lake class
@@ -62,35 +56,19 @@ def union_bounds(tiles: list[Path]):
 
 def ensure_worldcover(bounds) -> Path:
     """Fetch the WorldCover tiles overlapping bounds, build a VRT, return it."""
-    names = tiles_for_bounds(*bounds)
+    names = download_worldcover.tiles_for_bounds(*bounds)
     print(f"WorldCover: {len(names)} tiles overlap the void extent", flush=True)
-    wc_dir = datasets.worldcover()
-    wc_dir.mkdir(parents=True, exist_ok=True)
-    counts = {"ok": 0, "skipped": 0, "absent": 0}
-    failures = []
-    with cf.ThreadPoolExecutor(WORKERS) as pool:
-        futs = {pool.submit(download_one, f"{BUCKET_URL}/{nm}", wc_dir / nm,
-                            timeout=120, absent_on_404=True): nm
-                for nm in names}
-        for fut in cf.as_completed(futs):
-            status = fut.result()
-            if status.startswith("failed"):
-                failures.append(f"{futs[fut]}  {status}")
-            else:
-                counts[status] += 1
-    if failures:
-        sys.exit("WorldCover downloads failed — rerun to retry:\n  "
-                 + "\n  ".join(failures))
+    counts = download_worldcover.fetch_tiles(names)
     print(f"  fetched {counts['ok']}, held {counts['skipped']}, "
           f"absent {counts['absent']}", flush=True)
-    held = [wc_dir / nm for nm in names if (wc_dir / nm).exists()]
-    if not held:
+    tiles = download_worldcover.held(names)
+    if not tiles:
         sys.exit("no WorldCover tiles over the void extent — bucket/naming changed?")
     if counts["absent"]:
         print(f"  NOTE: {counts['absent']} tiles absent (ocean cells) — any Caspian "
               f"there falls back to land; check the per-tile water% below", flush=True)
     vrt = datasets.cop30_void() / "worldcover_void.vrt"
-    subprocess.run(["gdalbuildvrt", "-overwrite", str(vrt)] + [str(path) for path in held],
+    subprocess.run(["gdalbuildvrt", "-overwrite", str(vrt)] + [str(path) for path in tiles],
                    check=True, capture_output=True)
     return vrt
 

@@ -309,8 +309,8 @@ class TestPmtilesCommand:
     def test_destination_precedes_source(self):
         """ogr2ogr's argument order, which reads backwards and has been got wrong before."""
         command = vector_layers.pmtiles_command(
-            Path("in.gpkg"), Path("out.pmtiles"), name="x", min_zoom=0, max_zoom=8, buffer=0,
-            simplification=2.0, simplification_max_zoom=0.5)
+            Path("in.gpkg"), Path("out.pmtiles"), name="x", description="d", min_zoom=0,
+            max_zoom=8, buffer=0, simplification=2.0, simplification_max_zoom=0.5)
         assert command.index("out.pmtiles") < command.index("in.gpkg")
 
     def test_both_simplification_knobs_are_required(self, subtests):
@@ -319,19 +319,20 @@ class TestPmtilesCommand:
         SEGFAULTS on the gazetteer polygons when the option is absent or zero. A default here would
         make the crash reachable by forgetting rather than by choosing."""
         for missing in ("simplification", "simplification_max_zoom"):
-            arguments = {"name": "x", "min_zoom": 0, "max_zoom": 8, "buffer": 0,
-                         "simplification": 2.0, "simplification_max_zoom": 0.5}
+            arguments = {"name": "x", "description": "d", "min_zoom": 0, "max_zoom": 8,
+                         "buffer": 0, "simplification": 2.0, "simplification_max_zoom": 0.5}
             del arguments[missing]
             with subtests.test(without=missing), pytest.raises(TypeError):
                 vector_layers.pmtiles_command(Path("in.gpkg"), Path("out.pmtiles"), **arguments)
 
     def test_every_knob_reaches_the_command(self, subtests):
         command = " ".join(vector_layers.pmtiles_command(
-            Path("in.gpkg"), Path("out.pmtiles"), name="features", min_zoom=1, max_zoom=7,
-            buffer=0, simplification=3.0, simplification_max_zoom=0.25))
+            Path("in.gpkg"), Path("out.pmtiles"), name="features", description="what is in it",
+            min_zoom=1, max_zoom=7, buffer=0, simplification=3.0, simplification_max_zoom=0.25))
         for label, expected in (
             ("format", "-f PMTiles"),
             ("name", "NAME=features"),
+            ("description", "DESCRIPTION=what is in it"),
             ("min zoom", "MINZOOM=1"),
             ("max zoom", "MAXZOOM=7"),
             ("buffer", "BUFFER=0"),

@@ -35,7 +35,7 @@ from pipeline.profile import pass_memory
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "pipeline" / "profile" / "run_pass.sh"
 PASS_MEMORY_SOURCE = REPO / "pipeline" / "profile" / "pass_memory.py"
-PROCESS = REPO / "PROCESS.md"
+PROCESS = REPO / "docs" / "PROCESS.md"
 GIB_IN_KIB = 1024 * 1024
 
 #: A body that renders no polar caps — the resolver's OTHER branch, and synthetic on purpose.
@@ -437,27 +437,38 @@ class TestTheCapResolver:
         """
         assert pass_memory.STANDING_GIB != pass_memory.HEAVY_JOB_GIB
 
-    def test_every_figure_the_module_argues_from_is_one_PROCESS_still_carries(self, subtests):
-        """`pass_memory`'s docstring is a SECOND COPY of PROCESS.md's measurements, and this is what
-        makes the copy go red instead of quietly aging.
+    #: The one measurement that sizes each cap, and the stage docs/PROCESS.md measured it on. A cap is
+    #: only defensible if its own figure is current, so these are what the module may state.
+    SIZING_FIGURES = (("CAP_RENDERING_GIB", "14.41 GiB", "Earth's cap stage"),
+                      ("STANDING_GIB", "5.91 GiB", "Mars's ice alpha, its heaviest non-cap stage"),
+                      ("HEAVY_JOB_GIB", "17.0 GB", "the largest hero's base grid"))
 
-        The copy has to exist: the module is where someone reads why the cap is 16, and a pointer
-        alone does not survive being read at 3 a.m. under an OOM. What it must not do is drift, and
-        it already had twice over -- it argued from Earth's composite at 10.55 GiB and Mars at
-        4.01 GiB, both of which PROCESS had retired in the section it points at, so a reader
-        checking the source of the number found a different one and no sign of the disagreement.
-
-        Retired figures stay in scope on purpose: naming one as retired is exactly as much a claim
-        about PROCESS as citing it, and the retraction is the sentence most likely to be dropped.
-        """
-        figures = set(re.findall(r"\d+\.\d+ Gi?B", PASS_MEMORY_SOURCE.read_text()))
-        assert len(figures) >= 8, f"only {figures} found; this scan is broken, not the module"
+    def test_each_cap_cites_the_figure_PROCESS_sizes_it_from(self, subtests):
+        """Each constant states the one measurement behind it, and docs/PROCESS.md still carries it."""
+        source = PASS_MEMORY_SOURCE.read_text()
         process = PROCESS.read_text()
-        for figure in sorted(figures):
-            with subtests.test(figure):
+        for constant, figure, stage in self.SIZING_FIGURES:
+            with subtests.test(constant):
+                assert figure in source, f"{constant} no longer states the figure that sizes it"
                 assert figure in process, (
-                    f"pass_memory argues from {figure}, which PROCESS.md no longer carries anywhere"
-                )
+                    f"{constant} is sized from {figure} ({stage}), which docs/PROCESS.md no longer "
+                    f"carries anywhere")
+
+    def test_the_module_states_no_figure_it_is_not_sized_by(self, subtests):
+        """The half that stops the table growing back.
+
+        A restated measurement is a copy with one reader and no owner: it cannot go red when PROCESS
+        moves, only when someone edits it here. The previous guard scanned module to PROCESS and so
+        could not see the direction that actually failed -- PROCESS measured the raytraced block
+        producer at 8.18 GiB while this module went on calling it unmeasured, with nothing red.
+        """
+        sizing = {figure for _, figure, _ in self.SIZING_FIGURES}
+        for figure in sorted(set(re.findall(r"\d+\.\d+ Gi?B", PASS_MEMORY_SOURCE.read_text()))):
+            with subtests.test(figure):
+                assert figure in sizing, (
+                    f"pass_memory states {figure}, which sizes none of its constants. Stage figures "
+                    f"belong in docs/PROCESS.md § Memory, which owns them and can be re-measured "
+                    f"in one place")
 
     def test_that_scan_can_actually_miss_one(self):
         """The positive control. Every figure in the module happens to be current, which is the
@@ -481,6 +492,44 @@ class TestTheCapResolver:
         assert pass_memory.limit_for_argv(
             ["--body", "capless-small", "--tiles", "--out", "/x"]) == 12
         assert pass_memory.limit_for_argv(["--body", "earth"]) == 16
+
+
+class TestAnOperatorCanMoveTheHeavyJobCeiling:
+    """A box with more memory to give can raise the ceiling, and one with less can lower it, but only
+    by saying so: the ceiling never reads the host."""
+
+    def test_without_an_override_it_is_the_ratified_ceiling(self, monkeypatch):
+        monkeypatch.delenv(pass_memory.OVERRIDE_ENV, raising=False)
+        assert pass_memory.heavy_job_gib() == pass_memory.HEAVY_JOB_GIB
+
+    def test_an_override_replaces_it_and_says_so(self, monkeypatch, capsys):
+        monkeypatch.setenv(pass_memory.OVERRIDE_ENV, "96")
+        assert pass_memory.heavy_job_gib() == 96
+        assert "96" in capsys.readouterr().err
+
+    @pytest.mark.parametrize("malformed", ["lots", "32G", "-4", "12.5"])
+    def test_a_malformed_override_is_refused_rather_than_ignored(self, monkeypatch, malformed):
+        monkeypatch.setenv(pass_memory.OVERRIDE_ENV, malformed)
+        with pytest.raises(SystemExit, match=pass_memory.OVERRIDE_ENV):
+            pass_memory.heavy_job_gib()
+
+    def test_the_pass_reads_the_same_name_so_one_export_moves_both_lanes(self):
+        assert f"${{{pass_memory.OVERRIDE_ENV}:-}}" in SCRIPT.read_text()
+
+    def test_no_caller_reads_the_ceiling_past_the_override(self):
+        """Reading the constant directly is the silent half: the run caps at the ratified figure on a
+        box whose operator told it to give more, and announces nothing wrong."""
+        readers, callers = [], []
+        for source in sorted(REPO.joinpath("pipeline").rglob("*.py")):
+            if source == PASS_MEMORY_SOURCE:
+                continue
+            for node in ast.walk(ast.parse(source.read_text(encoding="utf-8"))):
+                if isinstance(node, ast.Attribute) and node.attr == "HEAVY_JOB_GIB":
+                    readers.append(str(source.relative_to(REPO)))
+                if isinstance(node, ast.Attribute) and node.attr == "heavy_job_gib":
+                    callers.append(str(source.relative_to(REPO)))
+        assert not readers, f"these read HEAVY_JOB_GIB past the operator's override: {readers}"
+        assert callers, "nothing takes the ceiling through heavy_job_gib, so this scan checked nothing"
 
 
 #: A cap spelled into prose: an integer, `G`, and the noun within reach. `GB`/`GiB` are excluded

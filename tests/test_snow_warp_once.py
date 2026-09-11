@@ -22,7 +22,7 @@ import rasterio
 import rasterio.transform  # rasterio's __init__ pulls this in at runtime; name it for the checker
 
 from pipeline import bodies, datasets
-from pipeline.acquire import download_rgi
+from pipeline.acquire.earth import download_rgi
 from pipeline.look import snow
 
 # --- shared geometry: a small WMQ-aligned 3857 target over a snowy region (the Alps) ---
@@ -124,16 +124,6 @@ class TestPersistenceWarpOnceEqualsPerWindow:
         shifted = snow.unpack_persistence(packed[64:192])
         assert not np.array_equal(top, shifted)  # the Alps have real spatial variation
 
-    def test_wrapper_preserves_region_path_behaviour(self, tmp_path):
-        """warp_persistence (region path) must still equal raster-then-unpack, byte-for-byte."""
-        bounds, width, rows = _alps_grid()
-        legacy = snow.warp_persistence(bounds, width, rows, tmp_path / "legacy.tif")
-        raster = tmp_path / "raster.tif"
-        snow.warp_persistence_raster(bounds, width, rows, raster)
-        with rasterio.open(raster) as dataset:
-            refactored = snow.unpack_persistence(dataset.read(1))
-        assert np.array_equal(legacy, refactored)
-
     def test_banded_mosaic_equals_single_band_warp(self, tmp_path):
         """A's core: warp-in-bands + mosaic must equal a single-band warp of the same grid, so the
         only thing banding changes is dodging the whole-grid decimation of the coarse source -- never
@@ -153,7 +143,7 @@ class TestPersistenceWarpOnceEqualsPerWindow:
 
     def test_a_tall_grid_is_actually_banded(self, tmp_path):
         """Companion: prove band_rows really splits the warp (else the test above is vacuous). With
-        band_rows >= height it must be ONE warp (region path); the two must agree regardless."""
+        band_rows >= height it must be ONE warp; the two must agree regardless."""
         bounds, width, rows = _alps_grid()
         one_band = tmp_path / "one.tif"
         snow.warp_persistence_raster(bounds, width, rows, one_band, band_rows=rows * 2)  # single

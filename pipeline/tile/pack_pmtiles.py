@@ -1,6 +1,6 @@
 """Pack the XYZ tile pyramid into an MBTiles file — the bridge to `pmtiles convert`.
 
-The vendored go-pmtiles CLI reads only MBTiles (its GDAL driver counterpart is
+The go-pmtiles CLI reads only MBTiles (its GDAL driver counterpart is
 vector-only), and our pyramid is a plain z/x/y directory, so packaging is
 dir -> MBTiles (this module) -> `tools/pmtiles convert` -> planet.pmtiles.
 Blobs are MOVED, never re-encoded: the archive must serve byte-identical tiles
@@ -16,7 +16,12 @@ while `gdal raster tile --convention=xyz` wrote XYZ rows (origin top-left) —
 `tms_row` is the single home of that conversion, pinned by tests either way
 (a silent flip error would serve a vertically mirrored planet).
 
-Usage: python -m pipeline.tile.pack_pmtiles --body earth [--tiles DIR] [--out FILE] [--name NAME]
+The archive also carries its own credit and its own description. `pipeline/attribution.py` composes
+both per body and layer and `pmtiles convert` copies them through, which is the only copy of either
+that survives a download.
+
+Usage: python -m pipeline.tile.pack_pmtiles --body earth --layer relief [--tiles DIR] [--out FILE]
+       [--name NAME]
 """
 import argparse
 import os
@@ -25,7 +30,7 @@ import sys
 import time
 from pathlib import Path
 
-from pipeline import bodies
+from pipeline import attribution, bodies
 from pipeline.tile import relief_scan
 
 #: The pyramid's geographic extent: the full Web-Mercator square, since the Antarctica fill. Shared
@@ -72,8 +77,14 @@ def iter_tiles(tiles_dir: Path):
                     yield zoom, column, int(tile_path.stem), tile_path
 
 
-def pack_directory(tiles_dir: Path, out_mbtiles: Path, name: str) -> int:
-    """Pack tiles_dir into out_mbtiles (.tmp + atomic replace). Returns the tile count."""
+def pack_directory(tiles_dir: Path, out_mbtiles: Path, name: str, attribution: str,
+                   description: str) -> int:
+    """Pack tiles_dir into out_mbtiles (.tmp + atomic replace). Returns the tile count.
+
+    Neither string has a default, for the reason `--body` has none: an archive packed without one
+    is complete, valid and silently uncredited or silently anonymous, and the copy on a stranger's
+    disk is the one no later change can reach.
+    """
     if not tiles_dir.is_dir():
         sys.exit(f"{tiles_dir} is not a directory — cut the pyramid first "
                  f"(python -m pipeline.tile.planet_pass --tiles)")
@@ -120,6 +131,8 @@ def pack_directory(tiles_dir: Path, out_mbtiles: Path, name: str) -> int:
             ("maxzoom", str(max(zooms))),
             ("bounds", BOUNDS),
             ("type", "baselayer"),
+            ("attribution", attribution),
+            ("description", description),
         ])
     os.replace(tmp, out_mbtiles)
     print(f"packed {count:,} tiles (z{min(zooms)}-z{max(zooms)}) -> {out_mbtiles} "
@@ -141,15 +154,25 @@ def main() -> int:
                              "which is a sibling of the relief one, is packed)")
     parser.add_argument("--out", type=Path, default=None,
                         help="override the MBTiles path")
-    # NOT body-derived, deliberately — see `TestTheArchiveNameIsNotTheBodys`. It reads
-    # {site}-{layer}, the body rides in the path, and this string reaches the archive header, which
-    # is inside the SHA that becomes the tile token in every served URL.
-    parser.add_argument("--name", default="terrella-relief")
+    # LAYER-derived and still not body-derived, which is the distinction
+    # `TestTheArchiveNameIsNotTheBodys` keeps: the name reads {site}-{layer}, the body rides in the
+    # path, and this string reaches the archive header, which is inside the SHA that becomes the
+    # tile token in every served URL. Deriving it from the body would change every URL; deriving it
+    # from the layer reproduces both shipped names exactly and removes the way they could disagree,
+    # which was an operator passing --layer terrain and leaving --name at its relief default.
+    parser.add_argument("--name", default=None,
+                        help="override the archive's declared name (default: terrella-{layer})")
+    # Required, on the same argument --body makes. It decides the credit stamped into the archive,
+    # and a relief credit on a terrain cut is a complete, valid archive naming sources not in it.
+    parser.add_argument("--layer", required=True, choices=attribution.RASTER_LAYERS,
+                        help="which pyramid this is, which decides its name and its credit")
     args = parser.parse_args()
     body = bodies.get(args.body)
     tiles = args.tiles if args.tiles is not None else default_tiles(body)
     out = args.out if args.out is not None else default_out(body)
-    pack_directory(tiles, out, name=args.name)
+    pack_directory(tiles, out, name=args.name or f"terrella-{args.layer}",
+                   attribution=attribution.for_archive(body, args.layer),
+                   description=attribution.describe(body, args.layer))
     return 0
 
 

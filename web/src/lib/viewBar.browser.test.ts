@@ -62,6 +62,12 @@ const TIGHT_MAX_PX = 420;
 const MIN_SLACK_PX = 16;
 
 /**
+ * The narrowest window that shows the auto tag when there is a pointer, which also shows the
+ * highlight button. The sheet's breakpoint sits one pixel below, and both sides are exercised.
+ */
+const TAG_MIN_PX = 350;
+
+/**
  * The face every width here is measured in — see the header for why it is pinned rather than
  * inherited. Named without a fallback ON PURPOSE: if the box has no DejaVu the text falls back to
  * the default face and the bar measures narrower, which is a guard quietly grading itself easier.
@@ -306,6 +312,10 @@ function mountBar(flags: BarFlags) {
   if (!flags.borders) hide("#border-toggle");
   if (!flags.spotlight) hide("#spotlight-toggle");
   if (!flags.quality) hide(".quality-fab");
+  // The auto tag rides on whichever tier is lit, so every measurement takes it on the widest.
+  const tiers = [...host.querySelectorAll<HTMLElement>(".quality-fab button")];
+  const widest = tiers.toSorted((a, b) => b.getBoundingClientRect().width - a.getBoundingClientRect().width)[0];
+  widest?.setAttribute("data-auto", "");
   // Mirrors the layout's own condition for the divider.
   if (!((flags.highlight || flags.borders || flags.spotlight) && flags.quality)) {
     hide(".view-bar-divider");
@@ -352,6 +362,10 @@ function mountBar(flags: BarFlags) {
         .map((button) => button.textContent!.trim()),
   };
 }
+
+/** What the lit tier's auto tag draws: its text, or `none` where the sheet hides it. */
+const tagOn = (bar: ReturnType<typeof mountBar>) =>
+  getComputedStyle(bar.bar.querySelector("button[data-auto]")!, "::after").content;
 
 describe("the view bar holds one row at the narrowest width the site serves", () => {
   it("is measuring the shipped markup and stylesheet, not an empty string", () => {
@@ -481,6 +495,23 @@ describe("the view bar holds one row at the narrowest width the site serves", ()
     const roomy = mountBar(FULLEST_BAR.flags).required();
 
     expect(tight).toBeLessThan(roomy);
+  });
+
+  it("shows the auto tag from the width it fits at, and drops it one pixel below", async () => {
+    await page.viewport(TAG_MIN_PX - 1, 823);
+    expect(tagOn(mountBar(FULLEST_BAR.flags)), `the tag still shows at ${TAG_MIN_PX - 1}px`).toBe("none");
+    mounted.splice(0).forEach((element) => element.remove());
+
+    await page.viewport(TAG_MIN_PX, 823);
+    for (const { label, flags } of PAGE_BARS.filter((entry) => entry.flags.quality)) {
+      const bar = mountBar(flags);
+      expect(tagOn(bar), `no tag on the ${label} bar at ${TAG_MIN_PX}px`).not.toBe("none");
+      expect(bar.rows(), `the tag wrapped the ${label} bar at ${TAG_MIN_PX}px: ${bar.labels().join(" ")}`).toBe(1);
+      expect(
+        Math.round(bar.allowed() - bar.required()),
+        `the tag leaves too little spare on the ${label} bar at ${TAG_MIN_PX}px`,
+      ).toBeGreaterThanOrEqual(MIN_SLACK_PX);
+    }
   });
 
   it("can tell a bar that does not fit, so a passing measurement means something", async () => {

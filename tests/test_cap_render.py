@@ -104,14 +104,18 @@ class TestCapGridGeometry:
             # THE RUNG THE LADDER WAS MISSING. Ordering alone is satisfied by a feather 0.05
             # degrees wide, which is what an edge-84 arm shipped and what showed the disc as a
             # hard-edged circle. The width is the thing that collapses silently when the edge moves.
-            assert (cap_render.feather_hi_deg() - found["FEATHER_LO"]
-                    >= cap_render.CAP_FEATHER_MIN_DEG)
+            assert cap_render.feather_is_wide_enough(found["FEATHER_LO"],
+                                                     cap_render.feather_hi_deg())
 
     def test_the_width_rung_rejects_a_collapsed_feather(self):
         """The rung above passes on the shipped numbers, so its catching power is asserted here.
 
         A guard added beside a configuration that already satisfies it has never been shown to fail,
         which is the shape that lets a broken check sit green for months.
+
+        This exercises `feather_is_wide_enough` because the rung CALLS it. It once restated the
+        comparison inline instead, numerically identical and a separate expression, so disarming the
+        rung to `>= 0.0` left all 7112 tests green with this control among them.
         """
         assert not cap_render.feather_is_wide_enough(84.0, 84.05)   # the arm that showed the disc
         assert not cap_render.feather_is_wide_enough(82.0, 83.05)   # 1.05, measured as visible

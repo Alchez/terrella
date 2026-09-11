@@ -18,7 +18,7 @@ import time
 
 import pytest
 
-from pipeline.acquire import download_nomenclature
+from pipeline.acquire.mars import download_nomenclature
 from pipeline.compose import features_geojson as fold
 
 

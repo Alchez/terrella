@@ -1,0 +1,241 @@
+{
+  "archives": {
+    "earth/relief": {
+      "credit": "Terrella (https://terrella.alchez.dev), CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/). produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved. The organisations in charge of the Copernicus programme by law or by delegation do not incur any liability for any use of the Copernicus WorldDEM-30. Reproduced from the GEBCO_2026 Grid, GEBCO Compilation Group (2026). © ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium. Gerrish, L. (2020). Automatically extracted rock outcrop dataset for Antarctica (7.3) [Data set]. UK Polar Data Centre, Natural Environment Research Council, UK Research & Innovation. https://doi.org/10.5285/178ec50d-1ffb-42a4-a4a3-1145419da2bb. RGI 7.0 Consortium (2023), Randolph Glacier Inventory 7.0 (doi:10.5067/F6JMOVY5NAVZ), CC-BY 4.0. Lake depth from GLOBathy: Khazaei, B., Read, L.K., Casali, M., Sampson, K.M., Yates, D.N. (2022), GLOBathy, the Global Lakes Bathymetry Dataset, Scientific Data 9, 36 (doi:10.1038/s41597-022-01132-9). Snow persistence from the MODIS/Terra Global Annual Snow-Cover Climatology (NSIDC-0791), NASA NSIDC DAAC (doi:10.5067/9R1AM6NNZLTV). Sea-ice climatology derived from the OSI SAF Global sea ice concentration climate data record 1978–2020 (v3.0, 2022), OSI-450-a, EUMETSAT Ocean and Sea Ice Satellite Application Facility (doi:10.15770/EUM_SAF_OSI_0013).",
+      "sources": [
+        {
+          "name": "Copernicus DEM GLO-30",
+          "href": "https://dataspace.copernicus.eu/explore-data/data-collections/copernicus-contributing-missions/collections-description/COP-DEM",
+          "role": "Land elevation",
+          "license": "Copernicus"
+        },
+        {
+          "name": "GEBCO 2026 Grid",
+          "href": "https://www.gebco.net",
+          "role": "Bathymetry",
+          "license": "Public domain"
+        },
+        {
+          "name": "ESA WorldCover 2021",
+          "href": "https://esa-worldcover.org",
+          "role": "Snow / ice mask",
+          "license": "CC-BY 4.0"
+        },
+        {
+          "name": "SCAR ADD Antarctic rock outcrop",
+          "href": "https://data.bas.ac.uk/items/178ec50d-1ffb-42a4-a4a3-1145419da2bb/",
+          "role": "Exposed rock, subtracted from the Antarctic white",
+          "license": "CC-BY 4.0"
+        },
+        {
+          "name": "RGI 7.0 Glaciers",
+          "href": "https://nsidc.org/data/nsidc-0770/versions/7",
+          "role": "Glaciers",
+          "license": "CC-BY 4.0"
+        },
+        {
+          "name": "GLOBathy",
+          "href": "https://springernature.figshare.com/collections/GLOBathy_the_Global_Lakes_Bathymetry_Dataset/5243309",
+          "role": "Lake depth",
+          "license": "CC0"
+        },
+        {
+          "name": "NSIDC-0791 Snow Persistence",
+          "href": "https://nsidc.org/data/nsidc-0791",
+          "role": "Snow persistence",
+          "license": "Public domain"
+        },
+        {
+          "name": "OSI SAF Sea Ice (OSI-450-a)",
+          "href": "https://osi-saf.eumetsat.int/products/osi-450-a",
+          "role": "Sea ice",
+          "license": "CC-BY 4.0"
+        }
+      ]
+    },
+    "earth/terrain": {
+      "credit": "Terrella (https://terrella.alchez.dev), CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/). produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved. The organisations in charge of the Copernicus programme by law or by delegation do not incur any liability for any use of the Copernicus WorldDEM-30. Reproduced from the GEBCO_2026 Grid, GEBCO Compilation Group (2026). © ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium.",
+      "sources": [
+        {
+          "name": "Copernicus DEM GLO-30",
+          "href": "https://dataspace.copernicus.eu/explore-data/data-collections/copernicus-contributing-missions/collections-description/COP-DEM",
+          "role": "Land elevation",
+          "license": "Copernicus"
+        },
+        {
+          "name": "GEBCO 2026 Grid",
+          "href": "https://www.gebco.net",
+          "role": "Bathymetry",
+          "license": "Public domain"
+        },
+        {
+          "name": "ESA WorldCover 2021",
+          "href": "https://esa-worldcover.org",
+          "role": "Snow / ice mask",
+          "license": "CC-BY 4.0"
+        }
+      ]
+    },
+    "earth/vector": {
+      "credit": "Terrella (https://terrella.alchez.dev), CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/). Made with Natural Earth (naturalearthdata.com).",
+      "sources": [
+        {
+          "name": "Natural Earth",
+          "href": "https://www.naturalearthdata.com",
+          "role": "Borders & coastlines",
+          "license": "Public domain"
+        }
+      ]
+    },
+    "mars/relief": {
+      "credit": "Terrella (https://terrella.alchez.dev), CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/). Fergason, R. L, Hare, T. M., & Laura, J. (2018). HRSC and MOLA Blended Digital Elevation Model at 200m v2. Astrogeology PDS Annex, U.S. Geological Survey. K.L. Tanaka, J.A. Skinner, Jr., J.M. Dohm, R.P. Irwin, III, E.J. Kolb, C.M. Fortezzo, Thomas Platz, G.G. Michael, and T.M. Hare, 2014, Geologic Map of Mars, Scale 1:20,000,000, U.S. Geological Survey Scientific Investigations Map SIM 3292, http://pubs.usgs.gov/sim/3292. U.S. Geological Survey Astrogeology Science Center, Viking Global Color Mosaic 925m.",
+      "sources": [
+        {
+          "name": "MOLA / HRSC Blended DEM",
+          "href": "https://astrogeology.usgs.gov/search/map/mars_mgs_mola_mex_hrsc_blended_dem_global_200m",
+          "role": "Surface elevation",
+          "license": "MOLA CC0 · HRSC CC BY-SA 3.0 IGO"
+        },
+        {
+          "name": "Geologic Map of Mars (SIM 3292)",
+          "href": "https://pubs.usgs.gov/sim/3292/",
+          "role": "Where the permanent polar ice is",
+          "license": "Public domain · cite authors"
+        },
+        {
+          "name": "Viking colour mosaic",
+          "href": "https://astrogeology.usgs.gov/search/map/mars_viking_colorized_global_mosaic_925m",
+          "role": "How bright each part of the ice is, and the planet's hue",
+          "license": "Public domain"
+        }
+      ]
+    },
+    "mars/terrain": {
+      "credit": "Terrella (https://terrella.alchez.dev), CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/). Fergason, R. L, Hare, T. M., & Laura, J. (2018). HRSC and MOLA Blended Digital Elevation Model at 200m v2. Astrogeology PDS Annex, U.S. Geological Survey.",
+      "sources": [
+        {
+          "name": "MOLA / HRSC Blended DEM",
+          "href": "https://astrogeology.usgs.gov/search/map/mars_mgs_mola_mex_hrsc_blended_dem_global_200m",
+          "role": "Surface elevation",
+          "license": "MOLA CC0 · HRSC CC BY-SA 3.0 IGO"
+        }
+      ]
+    },
+    "mars/vector": {
+      "credit": "Terrella (https://terrella.alchez.dev), CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/). IAU/USGS Gazetteer of Planetary Nomenclature, U.S. Geological Survey Astrogeology Science Center (https://planetarynames.wr.usgs.gov/).",
+      "sources": [
+        {
+          "name": "IAU Gazetteer of Planetary Nomenclature",
+          "href": "https://planetarynames.wr.usgs.gov/",
+          "role": "Every named feature the globe draws",
+          "license": "Public domain"
+        }
+      ]
+    }
+  },
+  "bodies": {
+    "earth": {
+      "sources": [
+        {
+          "name": "Copernicus DEM GLO-30",
+          "href": "https://dataspace.copernicus.eu/explore-data/data-collections/copernicus-contributing-missions/collections-description/COP-DEM",
+          "role": "Land elevation",
+          "license": "Copernicus",
+          "attribution": "produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved"
+        },
+        {
+          "name": "GEBCO 2026 Grid",
+          "href": "https://www.gebco.net",
+          "role": "Bathymetry",
+          "license": "Public domain",
+          "attribution": "Reproduced from the GEBCO_2026 Grid, GEBCO Compilation Group (2026)."
+        },
+        {
+          "name": "ESA WorldCover 2021",
+          "href": "https://esa-worldcover.org",
+          "role": "Snow / ice mask",
+          "license": "CC-BY 4.0",
+          "attribution": "© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium."
+        },
+        {
+          "name": "SCAR ADD Antarctic rock outcrop",
+          "href": "https://data.bas.ac.uk/items/178ec50d-1ffb-42a4-a4a3-1145419da2bb/",
+          "role": "Exposed rock, subtracted from the Antarctic white",
+          "license": "CC-BY 4.0",
+          "attribution": "Gerrish, L. (2020). Automatically extracted rock outcrop dataset for Antarctica (7.3) [Data set]. UK Polar Data Centre, Natural Environment Research Council, UK Research & Innovation. https://doi.org/10.5285/178ec50d-1ffb-42a4-a4a3-1145419da2bb"
+        },
+        {
+          "name": "RGI 7.0 Glaciers",
+          "href": "https://nsidc.org/data/nsidc-0770/versions/7",
+          "role": "Glaciers",
+          "license": "CC-BY 4.0",
+          "attribution": "RGI 7.0 Consortium (2023), Randolph Glacier Inventory 7.0 (doi:10.5067/F6JMOVY5NAVZ), CC-BY 4.0. NSIDC-0770 v7."
+        },
+        {
+          "name": "GLOBathy",
+          "href": "https://springernature.figshare.com/collections/GLOBathy_the_Global_Lakes_Bathymetry_Dataset/5243309",
+          "role": "Lake depth",
+          "license": "CC0",
+          "attribution": "Lake depth from GLOBathy: Khazaei, B., Read, L.K., Casali, M., Sampson, K.M., Yates, D.N. (2022), GLOBathy, the Global Lakes Bathymetry Dataset, Scientific Data 9, 36 (doi:10.1038/s41597-022-01132-9). Public-domain dedication (CC0). Depth is modelled; see the Lake depth note below."
+        },
+        {
+          "name": "NSIDC-0791 Snow Persistence",
+          "href": "https://nsidc.org/data/nsidc-0791",
+          "role": "Snow persistence",
+          "license": "Public domain",
+          "attribution": "Snow persistence from the MODIS/Terra Global Annual Snow-Cover Climatology (NSIDC-0791), NASA NSIDC DAAC (doi:10.5067/9R1AM6NNZLTV). Water years 2001-2023."
+        },
+        {
+          "name": "OSI SAF Sea Ice (OSI-450-a)",
+          "href": "https://osi-saf.eumetsat.int/products/osi-450-a",
+          "role": "Sea ice",
+          "license": "CC-BY 4.0",
+          "attribution": "Sea-ice climatology derived from the OSI SAF Global sea ice concentration climate data record 1978–2020 (v3.0, 2022), OSI-450-a, EUMETSAT Ocean and Sea Ice Satellite Application Facility (doi:10.15770/EUM_SAF_OSI_0013). Reduced to a 1991-2020 annual ice-frequency climatology."
+        },
+        {
+          "name": "Natural Earth",
+          "href": "https://www.naturalearthdata.com",
+          "role": "Borders & coastlines",
+          "license": "Public domain",
+          "attribution": "Made with Natural Earth (naturalearthdata.com)."
+        }
+      ],
+      "legal": [
+        "The organisations in charge of the Copernicus programme by law or by delegation do not incur any liability for any use of the Copernicus WorldDEM-30."
+      ]
+    },
+    "mars": {
+      "sources": [
+        {
+          "name": "MOLA / HRSC Blended DEM",
+          "href": "https://astrogeology.usgs.gov/search/map/mars_mgs_mola_mex_hrsc_blended_dem_global_200m",
+          "role": "Surface elevation",
+          "license": "MOLA CC0 · HRSC CC BY-SA 3.0 IGO",
+          "attribution": "Fergason, R. L, Hare, T. M., & Laura, J. (2018). HRSC and MOLA Blended Digital Elevation Model at 200m v2. Astrogeology PDS Annex, U.S. Geological Survey. MOLA flew on NASA's Mars Global Surveyor and HRSC on ESA's Mars Express; HRSC covers 44% of the planet, MOLA the rest."
+        },
+        {
+          "name": "Geologic Map of Mars (SIM 3292)",
+          "href": "https://pubs.usgs.gov/sim/3292/",
+          "role": "Where the permanent polar ice is",
+          "license": "Public domain · cite authors",
+          "attribution": "K.L. Tanaka, J.A. Skinner, Jr., J.M. Dohm, R.P. Irwin, III, E.J. Kolb, C.M. Fortezzo, Thomas Platz, G.G. Michael, and T.M. Hare, 2014, Geologic Map of Mars, Scale 1:20,000,000, U.S. Geological Survey Scientific Investigations Map SIM 3292, http://pubs.usgs.gov/sim/3292"
+        },
+        {
+          "name": "Viking colour mosaic",
+          "href": "https://astrogeology.usgs.gov/search/map/mars_viking_colorized_global_mosaic_925m",
+          "role": "How bright each part of the ice is, and the planet's hue",
+          "license": "Public domain",
+          "attribution": "U.S. Geological Survey Astrogeology Science Center, Viking Global Color Mosaic 925m. Built for albedo rather than for relief, which is why the ice grades against it."
+        },
+        {
+          "name": "IAU Gazetteer of Planetary Nomenclature",
+          "href": "https://planetarynames.wr.usgs.gov/",
+          "role": "Every named feature the globe draws",
+          "license": "Public domain",
+          "attribution": "IAU/USGS Gazetteer of Planetary Nomenclature, U.S. Geological Survey Astrogeology Science Center (https://planetarynames.wr.usgs.gov/)."
+        }
+      ],
+      "legal": []
+    }
+  }
+}

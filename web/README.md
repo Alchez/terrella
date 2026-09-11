@@ -279,9 +279,7 @@ These will otherwise waste a run:
 - **Headless Chrome reaches for SwiftShader on its own.** Dropping the GL flags entirely does not
   give you the GPU, it gives you the gallery. Read `UNMASKED_RENDERER_WEBGL` before believing a
   surprising number.
-- **Read the tier off the final screenshot.** The view bar's highlighted pill says which tier the
-  run actually got; `full` and `globe` differ by the idle spin and the in-globe hero panel, and
-  nothing else in the report distinguishes them.
+- **Read the tier off the final screenshot.** The view bar's highlighted pill says which tier the run actually got; `full` adds the raised terrain and the idle spin to `globe`, and nothing else in the report names the tier.
 - **One run is not evidence.** Take three, quote the median and the spread. TBT has swung by most of
   its own magnitude between consecutive runs of an identical command, which is larger than most
   effects worth chasing.

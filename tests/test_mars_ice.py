@@ -18,7 +18,7 @@ import pytest
 from scipy import ndimage
 
 from pipeline import datasets, mercator, vector_raster
-from pipeline.acquire import download_sim3292
+from pipeline.acquire.mars import download_sim3292
 from pipeline.look import mars_ice
 from pipeline.raster_io import row_bands
 

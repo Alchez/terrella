@@ -3,7 +3,7 @@
 WHY THIS STAGE EXISTS AT ALL. The acquired mosaic cannot be handed to either ice tier as published,
 for two independent reasons. It is SimpleCylindrical METRES on the Mars sphere where everything
 downstream speaks EPSG:4326 degrees; and it is three colour bands where the grading needs one
-number. `cap_render`'s warp takes a 4326 source and returns band 1, and the composite tier warps a
+number. `cap_render`'s warp takes a 4326 source and returns band 1, and the Mercator tier warps a
 4326 source onto the 3857 grid — so both consumers want the same thing, and this builds it once.
 
 WHOLE PLANET, DELIBERATELY, THOUGH ONLY THE POLES ARE EVER READ. A polar crop is about 240 MB
@@ -58,7 +58,7 @@ import rasterio
 from rasterio.windows import Window
 
 from pipeline import bodies, freshness
-from pipeline.acquire import download_viking_mosaic
+from pipeline.acquire.mars import download_viking_mosaic
 from pipeline.look import mars_ice
 from pipeline.raster_io import row_bands
 
@@ -159,9 +159,9 @@ def build_recipe(valid_fraction: float) -> str:
     mosaic under the same name is the failure the acquirer exists to catch, and this is what makes
     that catch reach the derived raster instead of stopping at the download.
 
-    THE WEIGHTS ARE HERE BECAUSE THEY REACH A PIXEL. A luma rebuilt through different weights is a
+    The weights are here because they reach a pixel. A luma rebuilt through different weights is a
     different field, and a field that changed without its recipe changing leaves a stale raster
-    looking fresh — the same rule that put every look constant into the composite's recipe.
+    looking fresh — the same rule that puts every look constant into its reader's recipe.
     """
     return json.dumps({
         "source": download_viking_mosaic.MOSAIC_NAME,
@@ -220,7 +220,7 @@ def main() -> int:
     mosaic = download_viking_mosaic.mosaic_path()
     if not mosaic.exists():
         sys.exit(f"{mosaic} is not on disk — run "
-                 f"`python3 -m pipeline.acquire.download_viking_mosaic` first")
+                 f"`python3 -m pipeline.acquire.mars.download_viking_mosaic` first")
 
     print(f"collapsing {mosaic.name} -> Rec. 709 luma on a 4326 grid ...", flush=True)
     out, valid_fraction = build(mosaic)

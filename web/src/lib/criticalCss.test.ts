@@ -32,7 +32,7 @@ const mapStylesheet = readFileSync(`${WEB_ROOT}src/components/MapStylesheet.astr
 const globe = readFileSync(`${WEB_ROOT}src/components/Globe.astro`, "utf8");
 const astroConfig = readFileSync(`${WEB_ROOT}astro.config.ts`, "utf8");
 
-// EVERY PAGE THAT DRAWS THE GLOBE, found rather than named. This guard read `pages/earth.astro`
+// Every page that draws the globe, found rather than named. This guard read Earth's page alone
 // while Earth was the only globe, and the day Mars got one the rule went on being checked in one
 // place and unchecked in the other — a Mars globe missing the forward would link MapLibre's sheet
 // nowhere and render every widget unstyled, with the whole suite green. The subject is not a file,

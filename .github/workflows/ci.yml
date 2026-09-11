@@ -14,7 +14,11 @@ jobs:
     name: pyright + pytest
     runs-on: ubuntu-latest
     steps:
+      # Full history, because the stale-file-name guard reads what the tree has lost, and a shallow
+      # clone has lost nothing. It fails on a shallow clone rather than passing.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       # pycairo (a project dep) builds against the system cairo headers, and
       # pyright needs it installed to type-check the compose modules. gdal-bin

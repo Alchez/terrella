@@ -782,7 +782,7 @@ export function addPolarCap(map: MaplibreMap, opts: CapOptions): void {
     },
 
     render(glCtx: WebGL2RenderingContext | WebGLRenderingContext, args: CustomRenderMethodInput) {
-      const gl = glCtx as WebGL2RenderingContext; // earth.astro's canvas is WebGL2 (capability probe)
+      const gl = glCtx as WebGL2RenderingContext; // Globe.astro's canvas is WebGL2 (capability probe)
       // Only meaningful in globe mode; on the flat Mercator map there is no pole to draw.
       if (args.defaultProjectionData.projectionTransition < 1) return;
       gl.useProgram(this.program!);
@@ -797,7 +797,7 @@ export function addPolarCap(map: MaplibreMap, opts: CapOptions): void {
       gl.uniform1i(this.uElev!, 1);
 
       // ONE source of truth for exaggeration, read live every frame. `map.terrain` is the object
-      // the ramp writes (earth.astro mutates `terrain.exaggeration` on zoom rather than re-calling
+      // the ramp writes (Globe.astro mutates `terrain.exaggeration` on zoom rather than re-calling
       // setTerrain, which would leak framebuffers), so `map.getTerrain()` — the spec handed in
       // once — goes stale after the first ramp step and must not be used here. Absent terrain
       // gives 0, which makes `capDisplacementScale` exactly 1.0: `?terrain=off`, the Globe tier
@@ -885,7 +885,7 @@ export function addPolarCap(map: MaplibreMap, opts: CapOptions): void {
  *  MapLibre recovers a lost context by re-applying a *serialized* style snapshot, and a `custom`
  *  layer has no serialized form. The library says so itself, by name, on every loss:
  *  `Custom layer with id 'polar-cap-north' cannot be restored after WebGL context loss.`
- *  The caps come back only because earth.astro calls this from `map.on("style.load")` and the
+ *  The caps come back only because Globe.astro calls this from `map.on("style.load")` and the
  *  restore's internal `setStyle` re-fires that event. Verified on the live site: forced
  *  loss + restore, both warnings logged, globe visually identical afterwards.
  *  Rebinding this to a one-shot `load` handler would leave every recovered globe permanently

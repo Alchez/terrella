@@ -48,9 +48,9 @@ export interface GlobeSubsystems {
   /** The white boundary overlay, which is its own GeoJSON download rather than part of the
    *  vector pyramid — hence its own answer, and not one derived from `countries`. */
   borders: boolean;
-  /** The in-globe hero panel a country click opens. Requires the `countries` product, since a click
-   *  is hit-tested against that pyramid and there is no other route into the panel; the registry
-   *  holds that rule, and `bodies.test.ts` enforces it. */
+  /** The country card a click opens, linking to that country's hero page. Requires the `countries`
+   *  product, since a click is hit-tested against that pyramid and there is no other route into
+   *  the card; the registry holds that rule, and its own tests enforce it. */
   heroes: boolean;
 }
 

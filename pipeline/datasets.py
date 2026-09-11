@@ -38,70 +38,71 @@ def _raw(*parts: str) -> Path:
 
 
 def addrock() -> Path:
-    """SCAR Antarctic rock outcrop, written by `acquire/download_add_rock.py`."""
+    """SCAR Antarctic rock outcrop, written by `acquire/earth/download_add_rock.py`."""
     return _raw("addrock")
 
 
 def addrock_gpkg() -> Path:
-    """The reprojected outcrop polygons, written by `acquire/download_add_rock.py`."""
+    """The reprojected outcrop polygons, written by `acquire/earth/download_add_rock.py`."""
     return _raw("addrock", "add_rock_3857.gpkg")
 
 
 def cop30_void() -> Path:
-    """Copernicus DEM void masks, written by `acquire/download_cop30_void.py`."""
+    """Copernicus DEM void masks, written by `acquire/earth/download_cop30_void.py`."""
     return _raw("cop30_void")
 
 
 def gebco() -> Path:
-    """GEBCO bathymetry tiles, written by `acquire/download_gebco.py`."""
+    """GEBCO bathymetry tiles, written by `acquire/earth/download_gebco.py`."""
     return _raw("gebco")
 
 
 def gebco_vrt() -> Path:
-    """The GEBCO global mosaic, built by `acquire/download_gebco.py`."""
+    """The GEBCO global mosaic, built by `acquire/earth/download_gebco.py`."""
     return _raw("gebco", "gebco_2026_global.vrt")
 
 
 def glo30() -> Path:
-    """Copernicus DEM GLO-30 tiles, written by `acquire/download_glo30.py`."""
+    """Copernicus DEM GLO-30 tiles, written by `acquire/earth/download_glo30.py`."""
     return _raw("glo30")
 
 
 def glo30_tile_list() -> Path:
-    """The GLO-30 tile manifest, written by `acquire/download_glo30.py`."""
+    """The GLO-30 tile manifest, written by `acquire/earth/download_glo30.py`."""
     return _raw("glo30", "tileList.txt")
 
 
 def globathy() -> Path:
-    """GLOBathy lake bathymetry, written by `acquire/download_globathy.py`."""
+    """GLOBathy lake bathymetry, written by `acquire/earth/download_globathy.py`."""
     return _raw("globathy")
 
 
 def globathy_zip() -> Path:
-    """The per-lake raster archive, written by `acquire/download_globathy.py`.
+    """The per-lake raster archive, written by `acquire/earth/download_globathy.py`.
 
-    Read by `acquire/extract_globathy.py`, which unpacks it into `work/`.
+    Read by `acquire/earth/extract_globathy.py`, which unpacks it into `work/`.
     """
     return _raw("globathy", "Bathymetry_Rasters.zip")
 
 
 def mars() -> Path:
-    """Mars rasters, written by both `acquire/download_mars_dem.py` and `download_viking_mosaic.py`."""
+    """Mars rasters, written by both `acquire/mars/download_mars_dem.py` and
+    `acquire/mars/download_viking_mosaic.py`."""
     return _raw("mars")
 
 
 def mars_nomenclature() -> Path:
-    """IAU Mars feature names, written by `acquire/download_nomenclature.py`."""
+    """IAU Mars feature names, written by `acquire/mars/download_nomenclature.py`."""
     return _raw("mars", "nomenclature")
 
 
 def mars_sim3292() -> Path:
-    """The USGS SIM 3292 geologic map, written by `acquire/download_sim3292.py`."""
+    """The USGS SIM 3292 geologic map, written by `acquire/mars/download_sim3292.py`."""
     return _raw("mars", "sim3292")
 
 
 def naturalearth() -> Path:
-    """Natural Earth vectors, written by `acquire/download_naturalearth.sh`.
+    """Natural Earth vectors, written by `acquire/earth/download_naturalearth.py`.
 
     `naturalearth.layer` is what turns a layer NAME into a shapefile beneath this, since that
     doubling convention is its own and no call site should spell it.
@@ -110,27 +111,27 @@ def naturalearth() -> Path:
 
 
 def rgi() -> Path:
-    """Randolph Glacier Inventory 7.0, written by `acquire/download_rgi.py`."""
+    """Randolph Glacier Inventory 7.0, written by `acquire/earth/download_rgi.py`."""
     return _raw("rgi")
 
 
 def rgi_gpkg() -> Path:
-    """All nineteen RGI regions merged and reprojected, written by `acquire/download_rgi.py`."""
+    """All nineteen RGI regions merged and reprojected, written by `acquire/earth/download_rgi.py`."""
     return _raw("rgi", "rgi7_g_3857.gpkg")
 
 
 def seaice() -> Path:
-    """Sea-ice concentration source data, written by `acquire/download_seaice.py`."""
+    """Sea-ice concentration source data, written by `acquire/earth/download_seaice.py`."""
     return _raw("seaice")
 
 
 def seaice_frequency() -> Path:
-    """The 1991-2020 sea-ice frequency composite, built by `acquire/download_seaice.py`."""
+    """The 1991-2020 sea-ice frequency composite, built by `acquire/earth/download_seaice.py`."""
     return _raw("seaice", "seaice_frequency_1991-2020_4326.tif")
 
 
 def seaice_monthly() -> Path:
-    """The monthly grids the composite is built from, written by `acquire/download_seaice.py`."""
+    """The monthly grids the composite is built from, written by `acquire/earth/download_seaice.py`."""
     return _raw("seaice", "monthly")
 
 
@@ -140,5 +141,6 @@ def snow_persistence() -> Path:
 
 
 def worldcover() -> Path:
-    """ESA WorldCover 2021 v200. NO ACQUIRER: download it by hand, source in ATTRIBUTIONS.md."""
+    """ESA WorldCover 2021 v200, written by `acquire/earth/download_worldcover.py`, which takes an
+    extent because the global land set is ~114 GB and both stages want one window of it."""
     return _raw("worldcover")

@@ -5,19 +5,23 @@ Everything here is about `web/`; the pipeline that *produces* the assets is `doc
 
 ## Where the site lives
 
-Only the shell is small enough to ship inside the build, so production is three origins:
+Only the shell is small enough to ship inside the build, so production is four origins. The three that are not the site are exactly the `PUBLIC_*_BASE` variables `build:deploy` sets, which is what makes the count checkable:
 
-| What                          | Where                                      |
-| :---------------------------- | :----------------------------------------- |
-| Shell — HTML, JS, CSS, caps   | site Worker (`wrangler.jsonc`), ~14 MB     |
-| Hero renders, border GeoJSON  | R2 bucket `terrella-assets`                |
-| Relief tiles, terrain-RGB DEM | tile Worker (`worker/`) over an R2 binding |
+| What                          | Where                                                       |
+| :---------------------------- | :---------------------------------------------------------- |
+| Shell: HTML, JS, CSS, caps    | site Worker (`wrangler.jsonc`), `du -sh dist` for its size  |
+| Hero renders, border GeoJSON  | R2 bucket `terrella-assets`, at `assets.terrella.alchez.dev` |
+| Relief tiles, terrain-RGB DEM | tile Worker (`worker/`) over an R2 binding                   |
+| Whole archives, as downloads  | `archives.terrella.alchez.dev`, the tile bucket direct       |
 
-The tile Worker serves **three** archives out of one bucket, told apart by the address:
+The last two are the same bucket reached two ways, and the difference is what the free tier charges for: a tile is a Worker invocation, a download is not. See § *What is public* in `.claude/rules/tile-worker-and-delivery.md`.
+
+The tile Worker serves **six** archives out of one bucket, told apart by the address:
 `{body}/{layer}/{token}/{z}/{x}/{y}.{ext}`, where the layer segment is `relief`, `terrain` or
-`countries`. That segment carries the whole distinction between the two raster pyramids — both are
-lossless WebP over z0–8 on the same grid, so there is nothing else in a tile URL to tell them
-apart, and serving the wrong one would displace the globe rather than fail.
+`vector`. **The segment is the layer's ROLE, never the object's product name**: Earth's vector cut is
+keyed `earth/countries-v3.pmtiles` and is still addressed `earth/vector/...`, so a URL built from the
+key 404s. That segment also carries the whole distinction between a body's two raster pyramids, which
+share a grid and a zoom span, so serving the wrong one would displace the globe rather than fail.
 
 Which archive each `{body}/{layer}` resolves to is the registry in `src/lib/tileAddress.ts`, which
 the Worker and the client both compile. Uploading a new archive is `aws --profile r2 --endpoint-url
@@ -46,27 +50,15 @@ config and its own command. Neither touches the other.
 
 ### What the free tier actually buys
 
-Two independent ceilings, and the tighter one is storage.
+The Workers account is on the free plan, which only the dashboard shows: the API does not answer it. Cloudflare's [Workers](https://developers.cloudflare.com/workers/platform/pricing/) and [R2](https://developers.cloudflare.com/r2/pricing/) pricing pages own every limit and rate, so none is copied here; this section owns how Terrella spends them. Two limits bind, and they fail differently, so neither is simply the tighter one.
 
-- **Requests: roughly 1,351 cold visits per day** at the `full` tier. That comes from **74 tile
-  requests per view at z6** — terrain roughly *doubles* the count, because both pyramids are drawn.
-  It was ~2,500 visits/day at ~40 requests per view, before terrain shipped.
-  - **A cache HIT still charges a request.** Caching improves latency, never the request count, so no
-    cache-tuning lever moves this number.
-  - An earlier estimate of "a fraction, not a doubling" assumed `tileSize: 512`; the shipping
-    declaration is 128, which is what makes it a doubling.
-- **Storage binds first, and the 10 GB-month allowance is already spent** — the two buckets together
-  are past it, which a second body's pyramids are what pushed them over.
-  - **Overage rounds UP to the next whole GB-month** at $0.015, so the bill moves in 1.5-cent steps
-    rather than continuously. That is what makes a new pyramid a disk-and-time decision rather than
-    a cost one, and it is the half of the pricing page easiest to read past.
-  - **Measure it rather than believing a figure written here.** The number this replaced drifted by
-    1.5 GB with nothing to catch it, because a total in prose has no reader that can go red:
-    `aws --profile r2 --endpoint-url "$R2_ENDPOINT" s3 ls --recursive --summarize s3://terrella-tiles`,
-    then the same for `terrella-assets`.
-- Priced against the published rates: **$5.00/month at 2,000 cold visits/day, ~$5.83 at 5,000** —
-  worst case, treating every request as a cache miss. The Workers Paid subscription *is* the bill;
-  usage barely registers against it.
+- **Requests stop the site.** The free plan's daily request limit is account-wide, and past it comes Error 1027 or fail-open. The site shell is static assets, which do not count, so the tile Worker spends it alone: **74 tile requests per view at z6** on the `full` tier, which makes the limit divided by 74 the number of cold visits a day the site serves.
+  - **A cache hit is billed as a request.** Caching improves latency, never the request count, so no cache-tuning lever moves this number.
+  - **Terrain roughly doubles the count by declaration, not by law**: relief declares `tileSize: 256` and terrain declares `tileSize: 128`, and it is the smaller one that makes terrain draw twice as many.
+  - **A download is not a Worker request** and spends none of the limit: `archives.terrella.alchez.dev` serves the bucket direct, one Class B operation per file and no egress charge. So the answer to anyone who wants the data is take an archive, not hit the tile endpoint.
+- **Storage costs money.** The two buckets together are past R2's free storage allowance, and overage is billed per GB-month, rounded up to the next whole one. At R2's rate that makes a new pyramid a disk-and-time decision rather than a cost one.
+  - **Measure it rather than believing a figure written here**: `aws --profile r2 --endpoint-url "$R2_ENDPOINT" s3 ls --recursive --summarize s3://terrella-tiles`, then the same for `terrella-assets`.
+- **Workers Paid is what buys past the request limit**: a flat monthly fee including an allowance of requests and CPU time, then a rate per million of each. A month at `full` is cold visits a day × 74 × 30 requests against that allowance, and the CPU time the tile Worker spends per request, which only the dashboard reports, prices the rest.
 
 ## 1. The tile Worker
 

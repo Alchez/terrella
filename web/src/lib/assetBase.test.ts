@@ -82,17 +82,32 @@ describe("tileUrlTemplate", () => {
     expect(new Set(templates).size).toBe(3);
   });
 
-  it("adds no fourth deploy variable — a base nobody supplies falls back to same-origin", () => {
+  it("gives no PYRAMID a base of its own, and lists every base that does exist", () => {
     // The failure mode this closes is the one that shipped 204 pages at /heroes/ on an origin
     // with no heroes: an unset PUBLIC_ base does not error, it silently becomes same-origin.
-    // Deriving means there is no new base to leave unset.
     //
-    // Matched on the `import.meta.env` READ rather than on the bare name, because the docstring
-    // above explains why there is no such variable — a guard that cannot tell code from prose
-    // goes red on its own rationale.
+    // WHAT IS REFUSED IS A PER-PYRAMID BASE, not a fourth variable. Relief, terrain and vector
+    // share TILE_BASE because they are one store behind one Worker and the address says which.
+    // PUBLIC_ARCHIVE_BASE is a different access path, not a fourth pyramid: the archives are
+    // whole objects served straight off the bucket by an R2 custom domain, with no Worker in
+    // front of them, so it is a second store rather than a second spelling of the first.
+    //
+    // Matched on the `import.meta.env` READ rather than on the bare name, because the docstrings
+    // above explain the refusal in prose — a guard that cannot tell code from prose goes red on
+    // its own rationale.
     const source = readFileSync(`${WEB_ROOT}src/lib/assetBase.ts`, "utf8");
     const bases = [...source.matchAll(/import\.meta\.env\.(PUBLIC_\w+)/g)].map((m) => m[1]);
-    expect(bases).toEqual(["PUBLIC_HERO_BASE", "PUBLIC_BORDERS_BASE", "PUBLIC_TILE_BASE"]);
+    expect(bases).toEqual([
+      "PUBLIC_HERO_BASE",
+      "PUBLIC_BORDERS_BASE",
+      "PUBLIC_TILE_BASE",
+      "PUBLIC_ARCHIVE_BASE",
+    ]);
+    // The half that still bites: every base the module reads must also be supplied by the deploy
+    // build, or it silently becomes same-origin in production.
+    const deployCommand = JSON.parse(readFileSync(`${WEB_ROOT}package.json`, "utf8"))
+      .scripts["build:deploy"] as string;
+    for (const base of bases) expect(deployCommand, base).toContain(`${base}=`);
   });
 });
 

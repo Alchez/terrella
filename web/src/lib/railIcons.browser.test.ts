@@ -8,7 +8,7 @@ import maplibreCss from "maplibre-gl/dist/maplibre-gl.css?raw";
  * The rail's icons are ALPHA STENCILS, not images, and nothing else in the suite can see it.
  *
  * Every MapLibre control icon ships as a `background-image` data-URI with its fill baked in, so
- * recolouring meant re-authoring an image per state. `earth.astro` retires that: the icon span gets
+ * recolouring meant re-authoring an image per state. `globe.css` retires that: the icon span gets
  * `background-image: none`, `background-color: currentColor` and `mask-image: var(--rail-icon)`, so
  * the glyph takes the button's `color` and every state falls out of the existing tokens.
  *

@@ -344,7 +344,7 @@ describe("the registry is the only thing that can switch a subsystem ON", () => 
       .toContain("if (subsystems.vectorProduct !== null) {");
   });
 
-  it("opens the hero panel only where a click has a country to land on", () => {
+  it("opens the country card only where a click has a country to land on", () => {
     // `heroes` without `countries` is a subsystem with no route into it — the panel opens exactly
     // one way, a map click hit-tested against the countries pyramid. The registry states the rule;
     // this holds it after the flags have had their say, which is where it could still come apart.

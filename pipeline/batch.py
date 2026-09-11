@@ -44,7 +44,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
-from pipeline import paths
+from pipeline import paths, render_files
 from pipeline.frame.country_config import (
     build_scope,
     country_render_dir,
@@ -56,7 +56,7 @@ from pipeline.frame.country_config import (
     stage_commands,
 )
 from pipeline.profile import pass_memory
-from pipeline.render import blender_proc, render_seam
+from pipeline.render import blender_proc
 
 #: The CHECKOUT, and the working directory every stage subprocess is run from — so the
 #: checkout-relative paths in those commands (`pipeline/…`, `blender/…`) resolve. Data paths do NOT
@@ -132,8 +132,8 @@ def log_failure(slug, stage_index, cmd, returncode, kind) -> None:
 
 def bootstrap() -> None:
     """One-time, idempotent global data: Natural Earth + global GEBCO."""
-    for cmd in ("bash pipeline/acquire/download_naturalearth.sh",
-                "python -m pipeline.acquire.download_gebco"):
+    for cmd in ("python -m pipeline.acquire.earth.download_naturalearth",
+                "python -m pipeline.acquire.earth.download_gebco"):
         print(f"[bootstrap] {cmd}", flush=True)
         if subprocess.run(cmd, shell=True, cwd=ROOT, env=stage_env(), check=False).returncode != 0:
             sys.exit(f"bootstrap failed: {cmd} — cannot proceed without it")
@@ -156,7 +156,7 @@ def run_country(slug, resolved, through, force, dry, cap_gib, use_cap, floor,
     """Run one country's stages; return a short outcome string."""
     do_clean = clean and through == "render" and not dry
     target = (ROOT / f"blender/renders/heroes/{slug}.png" if through == "render"
-              else country_render_dir(slug) / render_seam.LAKEDEPTH)
+              else country_render_dir(slug) / render_files.LAKEDEPTH)
     if target.exists() and not force:
         if do_clean:
             prune_intermediates(slug)
@@ -257,7 +257,7 @@ def main() -> int:
     # the one place in the tree that sized a cap that way. It also hid a real fault: the largest
     # hero under a base grid wants 17.0 GB, which dies loudly at the ratified cap below and would
     # have passed silently on a bigger box, shipping a hero lane that only works on big machines.
-    cap_gib = pass_memory.HEAVY_JOB_GIB
+    cap_gib = pass_memory.heavy_job_gib()
     print(f"batch: {len(slugs)} countries, through={args.through}, "
           f"mem-floor={args.mem_floor_gib:g} GiB, cgroup-cap="
           f"{f'{cap_gib:.0f} GiB' if use_cap else 'unavailable'}"
@@ -271,8 +271,8 @@ def main() -> int:
     if not use_cap and not args.dry_run:
         print(f"\n  !! NO CGROUP CAP IS IN FORCE. systemd --user scopes cannot enforce MemoryMax\n"
               f"     here, so the render stage runs with nothing bounding it and a bad frame can\n"
-              f"     take the desktop with it. The ratified ceiling is {cap_gib:.0f} GiB\n"
-              f"     (`pass_memory.HEAVY_JOB_GIB`) and this run cannot honour it.\n", flush=True)
+              f"     take the desktop with it. The ceiling is {cap_gib:.0f} GiB\n"
+              f"     (`pass_memory.heavy_job_gib`) and this run cannot honour it.\n", flush=True)
 
     outcomes: dict[str, list[str]] = {}
     for slug in slugs:

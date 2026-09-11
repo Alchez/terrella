@@ -16,7 +16,7 @@
  * mercator x is linear in longitude, so the scale stretch cancels the ground-distance shrink and a
  * `cos(lat)` correction would be a bug rather than a refinement; pitch because tilt pivots about the
  * centre, which leaves the centre's scale alone. Do not add any of the three back without a sweep
- * that disagrees. `web/.perf/ui-rigs/spin_rate.mjs` is the rig, and HISTORY carries the table.
+ * that disagrees.
  */
 
 /** The zoom whose speed every other zoom is held equal to. */

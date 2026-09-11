@@ -52,7 +52,7 @@ import shapefile
 from rasterio.warp import transform_bounds
 
 from pipeline import bodies, datasets, naturalearth, paths
-from pipeline.acquire.download_glo30 import in_extent, parse_tile_name, tile_files
+from pipeline.acquire.earth.download_glo30 import in_extent, parse_tile_name, tile_files
 from pipeline.frame.frame_country import pad_frame
 from pipeline.render.render_prep import aea_crs
 
@@ -177,7 +177,7 @@ def load_ne_rows():
     pays for parsing the whole world's rings."""
     shp = naturalearth.layer("ne_10m_admin_0_countries")
     if not shp.exists():
-        sys.exit(f"{shp} not found — run pipeline/acquire/download_naturalearth.sh")
+        sys.exit(f"{shp} not found — run python -m pipeline.acquire.earth.download_naturalearth")
     sf = shapefile.Reader(str(shp))
     rows = []
     for idx, sr in enumerate(sf.iterShapeRecords()):
@@ -311,7 +311,7 @@ def preflight_glo30(frame):
     missing; a needed tile is held iff both its DEM and WBM files exist."""
     tile_list = datasets.glo30_tile_list()
     if not tile_list.exists():
-        sys.exit(f"{tile_list} not found — run python -m pipeline.acquire.download_glo30 "
+        sys.exit(f"{tile_list} not found — run python -m pipeline.acquire.earth.download_glo30 "
                  f"once (any extent) to fetch the bucket index")
     needed = [name for name in tile_list.read_text().split()
               if in_extent(*parse_tile_name(name), frame)]
@@ -324,7 +324,7 @@ def preflight_gebco(frame) -> str | None:
     """None if the GEBCO mosaic covers the frame, else the failure."""
     gebco_vrt = datasets.gebco_vrt()
     if not gebco_vrt.exists():
-        return f"{gebco_vrt} not found — run python -m pipeline.acquire.download_gebco"
+        return f"{gebco_vrt} not found — run python -m pipeline.acquire.earth.download_gebco"
     with rasterio.open(gebco_vrt) as gebco:
         bounds = gebco.bounds
     west, south, east, north = frame
@@ -359,7 +359,7 @@ def stage_commands(resolved: dict) -> list[str]:
     if resolved["hero_long_overridden"]:
         prep += f" --hero-long-edge {resolved['hero_long']}"
     return [
-        f"python -m pipeline.acquire.download_glo30 --extent {fr}",
+        f"python -m pipeline.acquire.earth.download_glo30 --extent {fr}",
         "bash pipeline/fuse/build_mosaics.sh",
         (f"python -m pipeline.fuse.fuse_heightfield --bounds {fr}"
          f" --res-arcsec {FUSION_RES[resolved['fusion']]} --outdir {work}"),
@@ -427,8 +427,8 @@ def print_country(sf, scope, cfg, slug: str, emit_pin: bool) -> int:
 
     print("\nstages (repo root, venv active):")
     print("  0. (once per machine, skips if data present) "
-          "bash pipeline/acquire/download_naturalearth.sh && "
-          "python -m pipeline.acquire.download_gebco")
+          "python -m pipeline.acquire.earth.download_naturalearth && "
+          "python -m pipeline.acquire.earth.download_gebco")
     if gebco_err:
         print("     ^ complete the bootstrap above; then this country resolves"
               if "download_gebco" in gebco_err else
