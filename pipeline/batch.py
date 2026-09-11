@@ -257,7 +257,7 @@ def main() -> int:
     # the one place in the tree that sized a cap that way. It also hid a real fault: the largest
     # hero under a base grid wants 17.0 GB, which dies loudly at the ratified cap below and would
     # have passed silently on a bigger box, shipping a hero lane that only works on big machines.
-    cap_gib = pass_memory.HEAVY_JOB_GIB
+    cap_gib = pass_memory.heavy_job_gib()
     print(f"batch: {len(slugs)} countries, through={args.through}, "
           f"mem-floor={args.mem_floor_gib:g} GiB, cgroup-cap="
           f"{f'{cap_gib:.0f} GiB' if use_cap else 'unavailable'}"
@@ -271,8 +271,8 @@ def main() -> int:
     if not use_cap and not args.dry_run:
         print(f"\n  !! NO CGROUP CAP IS IN FORCE. systemd --user scopes cannot enforce MemoryMax\n"
               f"     here, so the render stage runs with nothing bounding it and a bad frame can\n"
-              f"     take the desktop with it. The ratified ceiling is {cap_gib:.0f} GiB\n"
-              f"     (`pass_memory.HEAVY_JOB_GIB`) and this run cannot honour it.\n", flush=True)
+              f"     take the desktop with it. The ceiling is {cap_gib:.0f} GiB\n"
+              f"     (`pass_memory.heavy_job_gib`) and this run cannot honour it.\n", flush=True)
 
     outcomes: dict[str, list[str]] = {}
     for slug in slugs:

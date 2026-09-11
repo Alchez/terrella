@@ -29,7 +29,7 @@
  * What trimming fixes is everything after the peak. Measured on this page at 2560x1265, globe,
  * pitch 60: at rest after a pan, 20 tiles hold 60 objects while **5,550 sit idle in the pool**,
  * 99% slack, retained until the tab closes. That resting occupancy is what left one Chrome tab
- * holding 8.2 GB of a 12 GB card with nothing on screen, starving every other GL client on the
+ * holding 8.2 GB of a desktop card's memory with nothing on screen, starving every other GL client on the
  * machine.
  *
  * The peak is the renderable-tile count, and that is MapLibre issue #5368, a design problem

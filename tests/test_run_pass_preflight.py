@@ -494,6 +494,44 @@ class TestTheCapResolver:
         assert pass_memory.limit_for_argv(["--body", "earth"]) == 16
 
 
+class TestAnOperatorCanMoveTheHeavyJobCeiling:
+    """A box with more memory to give can raise the ceiling, and one with less can lower it, but only
+    by saying so: the ceiling never reads the host."""
+
+    def test_without_an_override_it_is_the_ratified_ceiling(self, monkeypatch):
+        monkeypatch.delenv(pass_memory.OVERRIDE_ENV, raising=False)
+        assert pass_memory.heavy_job_gib() == pass_memory.HEAVY_JOB_GIB
+
+    def test_an_override_replaces_it_and_says_so(self, monkeypatch, capsys):
+        monkeypatch.setenv(pass_memory.OVERRIDE_ENV, "96")
+        assert pass_memory.heavy_job_gib() == 96
+        assert "96" in capsys.readouterr().err
+
+    @pytest.mark.parametrize("malformed", ["lots", "32G", "-4", "12.5"])
+    def test_a_malformed_override_is_refused_rather_than_ignored(self, monkeypatch, malformed):
+        monkeypatch.setenv(pass_memory.OVERRIDE_ENV, malformed)
+        with pytest.raises(SystemExit, match=pass_memory.OVERRIDE_ENV):
+            pass_memory.heavy_job_gib()
+
+    def test_the_pass_reads_the_same_name_so_one_export_moves_both_lanes(self):
+        assert f"${{{pass_memory.OVERRIDE_ENV}:-}}" in SCRIPT.read_text()
+
+    def test_no_caller_reads_the_ceiling_past_the_override(self):
+        """Reading the constant directly is the silent half: the run caps at the ratified figure on a
+        box whose operator told it to give more, and announces nothing wrong."""
+        readers, callers = [], []
+        for source in sorted(REPO.joinpath("pipeline").rglob("*.py")):
+            if source == PASS_MEMORY_SOURCE:
+                continue
+            for node in ast.walk(ast.parse(source.read_text(encoding="utf-8"))):
+                if isinstance(node, ast.Attribute) and node.attr == "HEAVY_JOB_GIB":
+                    readers.append(str(source.relative_to(REPO)))
+                if isinstance(node, ast.Attribute) and node.attr == "heavy_job_gib":
+                    callers.append(str(source.relative_to(REPO)))
+        assert not readers, f"these read HEAVY_JOB_GIB past the operator's override: {readers}"
+        assert callers, "nothing takes the ceiling through heavy_job_gib, so this scan checked nothing"
+
+
 #: A cap spelled into prose: an integer, `G`, and the noun within reach. `GB`/`GiB` are excluded
 #: because those are MEASUREMENTS, which belong in prose and are checked against PROCESS elsewhere.
 CAP_IN_PROSE = re.compile(r"\b\d{1,2}\s?G\b(?!i?B)(?=[^.]{0,40}\b(?:cap|rule)\b)")

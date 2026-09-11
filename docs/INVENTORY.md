@@ -2,11 +2,10 @@
 
 The **current** map of on-disk data stores: what each is, who reads it, whether it is reclaimable.
 
-- **At a glance**, measured 2026-09-03:
+- **At a glance**:
 
 | | size | |
 |---|---|---|
-| free | **405 GB** | of a 1.8 TB ext4 root, 77% used |
 | `data/raw/` | **689 GB** | sources, re-downloadable, never re-derivable |
 | `data/work/` | **365 GB** | intermediates, every byte rebuildable |
 | `blender/renders/` | **27.9 GB** | the hero products |

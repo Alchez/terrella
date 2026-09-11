@@ -4,7 +4,7 @@ Not one constant in the shell, because the peak stage is one a body can decline.
 invoking `cap_render` as a subprocess, which inherits the scope's cgroup and is the heaviest stage
 on both bodies. A body with `renders_polar_caps = False` never reaches it, so a flat 16 G is
 unbacked rather than protective there, and `run_pass.sh`'s `MemAvailable` preflight then refuses a
-pass the box could have run: available memory sits near 15 GiB here with a browser open.
+pass the box could have run, as it did on the reference machine with a browser open.
 
 The floor is a smaller planet's measurement, not a smaller stage's. That is the distinction to carry
 away: `STANDING_GIB` is backed by Mars entire, not by picking Earth's lightest stage.
@@ -18,6 +18,8 @@ would run capped somewhere arbitrary with nothing naming it. `bodies.get` raises
 so this does too, by delegating.
 """
 
+import os
+import re
 import sys
 
 from pipeline import bodies
@@ -50,15 +52,31 @@ STANDING_GIB = 12
 #: it. `grid_px` is `CELL_PX << tile_max_zoom`, so the orderings match; the tests assert that.
 STANDING_MEASURED_MAX_ZOOM = 7
 
-#: The ceiling any heavy job on this box runs under, in GiB. A ratified policy, not a measurement,
-#: which is what separates it from the two above: a maintainer's call about how much of a 30 GiB box
-#: one job may take before the desktop is at risk, holding whatever that job happens to peak at.
-#: Anything needing a cap with no measured pass behind it takes this one.
+#: The ceiling any heavy job runs under unless its operator says otherwise, in GiB. A ratified
+#: policy, not a measurement, which is what separates it from the two above: a maintainer's call
+#: about how much of the reference machine one job may take before the desktop is at risk. Anything
+#: needing a cap with no measured pass behind it takes this one, through `heavy_job_gib`.
 #:
 #: Do not derive it from the host, as `0.85 * MemTotal` once did: that scales the blast radius with
 #: the machine instead of bounding it, and it hides real regressions. The base grid needs 17.0 GB
 #: for the largest hero and died loudly at 16 G here, where a bigger box would have passed silently.
+#: A box with memory to spare raises it by `OVERRIDE_ENV`, which says so every time it is taken.
 HEAVY_JOB_GIB = 16
+
+#: The one name an operator exports to move the ceiling; `run_pass.sh` reads it for a pass too.
+OVERRIDE_ENV = "MEMORY_CAP_OVERRIDE_GIB"
+
+
+def heavy_job_gib() -> int:
+    """`HEAVY_JOB_GIB`, or the operator's override of it, announced on stderr when taken."""
+    override = os.environ.get(OVERRIDE_ENV, "")
+    if not override:
+        return HEAVY_JOB_GIB
+    if not re.fullmatch(r"[0-9]+", override):
+        raise SystemExit(f"ABORT: {OVERRIDE_ENV}={override} is not a whole number of GiB.")
+    print(f"memory cap overridden: {override} G instead of the ratified {HEAVY_JOB_GIB} G",
+          file=sys.stderr, flush=True)
+    return int(override)
 
 
 def limit_gib(body: bodies.Body) -> int:

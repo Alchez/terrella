@@ -85,8 +85,8 @@ Three readings, and only one answers "did it fit". The cgroup's `memory.peak` is
 - `memory.current` is not RSS. During tiling the cgroup sits at ~16 GiB, but that is reclaimable page cache (`anon` 0.58 GiB). Watch anon, not the total.
 - Which stage binds depends on the body's producer and its caps' freshness, and `pass_memory.py`'s field sees neither. On a raytraced Earth pass whose caps are current, neither the composite nor `cap_render` runs, so both peaks justifying 16 G are unbacked and the preflight can refuse a pass the machine could have run. 16 G stays correct as a worst-case bound; it is not the binding one in that state.
 - An idle machine means the browser too. A Tier-3 globe left open costs the block producer 1.37x, measured by comparing the same block across two passes, which is the only oracle that works: per-block cost ranges 29 s to 158 s by context alone.
-- `run_pass.sh` reads `MemAvailable` and refuses to start below the cap, because a cap the machine cannot back relocates the OOM to the most expensive moment. Override with `ALLOW_LOW_MEMORY=1`; point `MEMINFO` elsewhere to test the guard. The reference machine runs close to the line, ~16.7 GiB available against the 16 G cap with a browser and editor open.
-- `MEMORY_CAP_OVERRIDE_GIB` substitutes the number afterwards and prints that it did. It is read after the resolver, so `--body` stays enforced; a non-numeric value aborts, since bash would evaluate it as 0 and clear every cap.
+- `run_pass.sh` reads `MemAvailable` and refuses to start below the cap, because a cap the machine cannot back relocates the OOM to the most expensive moment. Override with `ALLOW_LOW_MEMORY=1`; point `MEMINFO` elsewhere to test the guard. The reference machine runs close to that line with a browser and editor open.
+- `MEMORY_CAP_OVERRIDE_GIB` substitutes the number afterwards and prints that it did, and the hero batch takes the same export as its ceiling, so a box with memory to spare raises both at once. It is read after the resolver, so `--body` stays enforced; a non-numeric value aborts, since bash would evaluate it as 0 and clear every cap.
 
 ### Device memory: the floor a GPU has to clear
 
@@ -142,7 +142,7 @@ The hero lane is per-country and `config/countries.toml` is Earth's, so Mars has
 | Targeted re-render (7 microstates) | **~28 min** (~4 min each) | per-country resume | the named heroes |
 | `batch --through prep`, warm walk | **1.25 s/country** (six guarded stages) | same | prep-complete markers |
 
-- 8K frames denoise on CPU, not GPU: GPU render + GPU OIDN contend for the 12 GB VRAM → Xid 31 MMU fault.
+- 8K frames denoise on CPU, not GPU: GPU render + GPU OIDN contend for the card's memory → Xid 31 MMU fault.
 - The wall is host RAM as well as VRAM. A render block near 21M micropolygons is comfortable, Nepal at 41.8M renders but takes 177% longer, and Australia at 67M fails with `Failed to build OptiX acceleration structure` having wanted **17.0 GB** of host. Which frame sizes sit on which side is unmeasured: Nepal clears at 36.8 Mpx and Australia does not at 58.8.
 - The warm walk is near-free because both expensive per-country redundancies are guarded: `build_mosaics.sh` skips on a matching `.sources` sidecar (17.6 → 0.63 s) and `download_glo30` runs one ETag preflight per day. What remains is the deliberate subprocess-import tax, six isolated GDAL/rasterio starts for OOM isolation.
 

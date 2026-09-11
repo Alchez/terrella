@@ -122,7 +122,7 @@ def main():
     # WarpedVRT block read: on a continent-scale frame a single destination block
     # spans a huge lon/lat source window (russia covers 161 deg of longitude =
     # thousands of 10 m tiles), and materialising that window in one read OOMs
-    # (~29 GB, killed russia+canada). gdalwarp chunks the warp to the -wm cap and
+    # (killed russia+canada). gdalwarp chunks the warp to the -wm cap and
     # reads only the source tiles each chunk needs. -te/-ts reproduce the
     # heightfield grid exactly, so the mask still registers pixel-for-pixel.
     tmp_cls = out_png.with_name(out_png.name + ".cls.tif.tmp")

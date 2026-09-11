@@ -5933,6 +5933,24 @@ def _earth_lake_depth''',
         replacement='    tile_max_zoom=6,',
         guard='test_the_readme_states_the_pyramid_size_its_delivery_argument_rests_on',
     ),
+    # Both cost answers were written long before a reader could find one: the route to hosting ran
+    # through a line labelled for the frontend, which is the state `TECH-6` sat PARTIAL in.
+    Sabotage(
+        suite='python',
+        label='the hosting route stops saying cost, so a reader asking what this costs never takes it',
+        path='README.md',
+        needle='What serving it on Cloudflare costs, and where the free tier runs out',
+        replacement='Serving it on Cloudflare, and where the free tier runs out',
+        guard='test_a_reader_asking_what_this_costs_meets_the_word_on_the_route_to_both_answers',
+    ),
+    Sabotage(
+        suite='python',
+        label="the runbook's cost heading is renamed and README's link lands on the top of the file",
+        path='web/DEPLOY.md',
+        needle='### What the free tier actually buys',
+        replacement='### What the free tier buys',
+        guard='test_every_section_read_next_links_is_a_heading_its_file_still_has',
+    ),
     # The field is `Body.baked_exaggeration` and this record's key is not, which reads as a rename
     # left half done. Carrying it through is the tempting tidy-up, and every pinned frame on disk
     # spells the old key, so the fleet stops matching what regenerates beside it.
@@ -6510,7 +6528,7 @@ def _earth_lake_depth''',
         suite='web',
         label="one declared tile size stands in for the two that differ",
         path='web/DEPLOY.md',
-        needle='relief declares `tileSize: 256` and terrain\n    declares `tileSize: 128`',
+        needle='relief declares `tileSize: 256` and terrain declares `tileSize: 128`',
         replacement='both declare `tileSize: 256`',
         guard='keeps the two declared tile sizes apart',
     ),
@@ -6521,6 +6539,24 @@ def _earth_lake_depth''',
         needle='production is four origins',
         replacement='production is three origins',
         guard='names every origin the built site addresses',
+    ),
+    # Cloudflare's pages own its prices, and a copy here reads as current after they move. Updating
+    # the figure is the realistic edit, since the runbook is the one doc whose job is pricing.
+    Sabotage(
+        suite='web',
+        label="a Cloudflare rate is copied back into the hosting section",
+        path='web/DEPLOY.md',
+        needle='overage is billed per GB-month, rounded up',
+        replacement='overage is billed at $0.015 per GB-month, rounded up',
+        guard='links the two pricing pages the hosting section spends against',
+    ),
+    Sabotage(
+        suite='web',
+        label="the hosting section stops linking the page that prices its storage",
+        path='web/DEPLOY.md',
+        needle='[R2](https://developers.cloudflare.com/r2/pricing/)',
+        replacement='R2',
+        guard='links the two pricing pages the hosting section spends against',
     ),
     Sabotage(
         suite='web',
@@ -8946,6 +8982,24 @@ def _earth_lake_depth''',
         needle='#: 14.41 GiB peak on Earth, so the headroom is 1.11x.',
         replacement='#: 13.02 GiB peak on Earth, so the headroom is 1.23x.',
         guard='test_each_cap_cites_the_figure_PROCESS_sizes_it_from',
+    ),
+    # A box with 64 or 128 GiB exports the override and the hero batch should take it. Reading the
+    # constant again is the tidy-looking edit, and it caps that box at the ratified figure silently.
+    Sabotage(
+        suite='python',
+        label="the hero batch reads the ceiling past the operator's override",
+        path='pipeline/batch.py',
+        needle='    cap_gib = pass_memory.heavy_job_gib()',
+        replacement='    cap_gib = pass_memory.HEAVY_JOB_GIB',
+        guard='test_no_caller_reads_the_ceiling_past_the_override',
+    ),
+    Sabotage(
+        suite='python',
+        label='the override is read and then ignored, so every box runs at the ratified ceiling',
+        path='pipeline/profile/pass_memory.py',
+        needle='    override = os.environ.get(OVERRIDE_ENV, "")',
+        replacement='    override = ""',
+        guard='test_an_override_replaces_it_and_says_so',
     ),
     # `set -u` does NOT catch this: a failed command substitution assigns the EMPTY STRING rather
     # than leaving the name unset, so the cap becomes `G`, the arithmetic compares against zero, and

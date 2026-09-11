@@ -15,6 +15,13 @@ const deployDoc = readFileSync(new URL("../../DEPLOY.md", import.meta.url), "utf
  *  pass on a rewritten value, which is backwards. */
 const prose = deployDoc.replace(/\s+/g, " ");
 
+const PRICING_PAGES = [
+  "https://developers.cloudflare.com/workers/platform/pricing/",
+  "https://developers.cloudflare.com/r2/pricing/",
+];
+/** A price, the free plan's daily request limit, or a visit count divided out of that limit. */
+const COPIED_FIGURE = /\$\s?\d|\b100(?:,000|k)\b|\d[\d,]*\s*cold[- ]visits?/;
+
 const publishedArchives = Object.values(PUBLISHED).flatMap((body) =>
   Object.values(body).filter((archive) => archive !== null),
 );
@@ -58,5 +65,14 @@ describe("the deploy runbook's copies of values this directory owns", () => {
     expect(hosts.length).toBeGreaterThan(0);
     const origins = new Set(hosts).size + 1;
     expect(prose).toContain(`production is ${NUMBER_WORDS[origins]} origins`);
+  });
+});
+
+describe("the prices Cloudflare owns", () => {
+  it("links the two pricing pages the hosting section spends against, and copies no figure from them", () => {
+    const section = deployDoc.match(/^### What the free tier actually buys$([\s\S]*?)^#/m)?.[1];
+    expect(section, "DEPLOY.md no longer has the section README routes a cost question to").toBeDefined();
+    for (const page of PRICING_PAGES) expect(section).toContain(`](${page})`);
+    expect(section?.replace(/\s+/g, " ")).not.toMatch(COPIED_FIGURE);
   });
 });

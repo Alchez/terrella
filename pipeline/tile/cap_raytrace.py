@@ -45,7 +45,7 @@ from pipeline.tile import block_render, cap_render
 CAP_AZIMUTH_PASSES = 24
 
 #: Where OIDN runs for a cap, which is the HERO lane's answer and not the block lane's. A quadrant
-#: frame is 4096 squared against a block's 2048, and the 12 GB card faults when render and denoise
+#: frame is 4096 squared against a block's 2048, and the reference card faults when render and denoise
 #: contend at that size — the rule CLAUDE.md states for 8K heroes, reaching the cap for the same
 #: reason. The judged discs were rendered this way.
 CAP_DENOISE_DEVICE = "cpu"

@@ -73,7 +73,7 @@ class TestTheProducersOwnOutputIsReportedOrDeliberatelyQuiet:
         return capsys.readouterr().out.strip()
 
     def test_the_run_starting_is_a_stage(self, capsys):
-        block_render.log("earth: 0/4096 blocks already done, 4096 to render, 812 GB free",
+        block_render.log("earth: 0/4096 blocks already done, 4096 to render, 500 GB free",
                          stage=True)
         assert watchdog.classify(self._emitted(capsys)) == "STAGE"
 

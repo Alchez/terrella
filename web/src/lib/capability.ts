@@ -62,7 +62,7 @@ const DEFAULT_QUALITY: Quality = "auto";
  * Lighthouse's own mobile reference device**, which reports exactly 4.
  *
  * Measured rather than taken from the spec, because the spec is out of date here: the W3C text
- * describes an 8 GiB upper clamp, and current Chrome does not apply it — a 29 GiB machine reports
+ * describes an 8 GiB upper clamp, and current Chrome does not apply it: a desktop well above the clamp reports
  * **32**. Neither the clamp nor the rounding direction changes the argument above; only the claim
  * that the set is small and has no odd numbers in it does, and that holds.
  *
