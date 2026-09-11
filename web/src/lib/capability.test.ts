@@ -888,7 +888,7 @@ describe("the scripted-diagnosis seam is gated by the module boundary", () => {
   });
 
   it("is not also written from the page, where nothing structural would gate it", () => {
-    // The first version of this seam DID live in earth.astro behind the flag, guarded by a test
+    // The first version of this seam did live in the page behind the flag, guarded by a test
     // asserting the assignment appeared within the flag block's text span. A sabotage that closed
     // the block early and re-opened it after the assignment passed that test: the statement was
     // outside the gate and still inside the span. A region match cannot decide what encloses a

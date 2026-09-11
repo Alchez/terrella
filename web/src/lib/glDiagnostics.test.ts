@@ -440,7 +440,7 @@ describe("formatGpuInitFailure — MapLibre names what we used to infer from a t
 
 describe("canary — the MapLibre surface this module depends on", () => {
   it("GPUInitializationError is still a constructable VALUE, not just a type", () => {
-    // The instanceof branch in earth.astro fails SILENTLY if this becomes type-only or is renamed:
+    // The instanceof branch in Globe.astro fails silently if this becomes type-only or is renamed:
     // the check simply never matches, and the GPU-dead case goes back to being inferred from a
     // four-second timeout with no error in the console.
     expect(typeof maplibregl.GPUInitializationError).toBe("function");
@@ -528,7 +528,7 @@ describe("canary — the MapLibre surface this module depends on", () => {
   });
 });
 
-describe("earth.astro wires the diagnostics rather than re-stating them", () => {
+describe("Globe.astro wires the diagnostics rather than re-stating them", () => {
   const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
 
   const restoredHandler = globe
@@ -852,7 +852,7 @@ describe("the snapshot names its library and what the camera needed", () => {
   });
 });
 
-describe("earth.astro feeds the snapshot the version and the covering count", () => {
+describe("Globe.astro feeds the snapshot the version and the covering count", () => {
   const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
   const reader = globe.match(/const readGlState = [\s\S]*?\n    \}\);/)?.[0];
 

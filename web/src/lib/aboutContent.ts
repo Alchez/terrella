@@ -163,9 +163,9 @@ export const ABOUT: Record<BodySlug, BodyAbout> = {
         title: "Borders",
         text: "Natural Earth boundaries composite on top as crisp vector lines. They are never baked into the terrain, so they stay sharp and toggle on demand.",
       },
-      // WAS "a permanent snow and ice mask from ESA WorldCover", which the tiles REPLACED: class 70
-      // is permanent ice only and left mid- and high-latitude ranges bare (`tile/shade.py` says so
-      // where it swaps them). WorldCover still dresses the heroes, so it keeps its credit below.
+      // Not "a permanent snow and ice mask from ESA WorldCover": the tiles do not use it, class 70
+      // being permanent ice only, which leaves mid- and high-latitude ranges bare. WorldCover still
+      // dresses the heroes, so it keeps its credit below.
       {
         title: "Snow",
         text: "Permanent snow from a MODIS persistence climatology and the Randolph glacier inventory, faded at its margins so the edges take the hillshade. Antarctica is painted white outright: the climatology saturates over the continent but leaves clustered gaps, and the glacier inventory only reaches its coastal fringe.",

@@ -10,7 +10,7 @@ import type {
 import { COUNTRIES_MAX_ZOOM, COUNTRIES_MIN_ZOOM } from "./countryTiles";
 import { requireSourceLayer } from "./sourceLayers";
 
-// The country hover-highlight, factored out of earth.astro so its load-bearing wiring is
+// The country hover-highlight, kept out of `Globe.astro` so its load-bearing wiring is
 // unit-testable (see countryHighlight.test.ts). Two choices here are non-obvious and each
 // fixes a globe artifact that a future edit could silently reintroduce, and BOTH are now decided
 // at cut time rather than here — see countries_pmtiles.py:

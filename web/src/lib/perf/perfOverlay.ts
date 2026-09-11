@@ -22,7 +22,7 @@ import {
 import type { Interval } from "./perfTrace";
 import type { RttPoolStats } from "../rttPoolTrim";
 
-/** Map-event stamps recorded by the PAGE at map construction (earth.astro), not by this
+/** Map-event stamps recorded by the page at map construction (Globe.astro), not by this
  *  module: the overlay is dynamically imported and loses the race on fast (prod-built)
  *  pages — "load" can fire before the module mounts, and the idle-triggered spin then
  *  keeps the map from ever idling again. The page fills this live object; the overlay

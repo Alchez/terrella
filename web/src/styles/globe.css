@@ -6,7 +6,7 @@
    inlined in the page exactly as the block did, and every rule below already wins on repeated-class
    specificity rather than on source order — which is the only property a move could have disturbed.
 
-   The page's SCOPED block stays in globe.astro and cannot follow it here. Astro rewrites a scoped
+   The component's scoped block stays in Globe.astro and cannot follow it here. Astro rewrites a scoped
    selector with a `[data-astro-cid-…]` attribute at build time, so the same rule in a `.css` file is
    one specificity level weaker and silently loses to things it currently beats. */
 

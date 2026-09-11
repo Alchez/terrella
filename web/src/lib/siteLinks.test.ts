@@ -208,9 +208,9 @@ describe("the site footer", () => {
   });
 });
 
-/** The CREDITS expression as written in earth.astro, spanning however many lines it takes. */
+/** The CREDITS expression as written in Globe.astro, spanning however many lines it takes. */
 function creditsMarkup(): string {
   const match = globe.match(/const CREDITS =([\s\S]*?);\n/);
-  if (!match) throw new Error("earth.astro no longer declares a CREDITS constant");
+  if (!match) throw new Error("Globe.astro no longer declares a CREDITS constant");
   return match[1];
 }

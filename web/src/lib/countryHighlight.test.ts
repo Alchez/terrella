@@ -209,7 +209,7 @@ describe("featureStateTargets — the hover flag reaches both painted layers", (
     // A literal `source:` inside a setFeatureState call is that mistake, in the only shape it takes.
     const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
     const calls = globe.match(/setFeatureState\([^)]*\)/g) ?? [];
-    expect(calls.length, "earth.astro must still paint the hover highlight").toBeGreaterThan(0);
+    expect(calls.length, "Globe.astro must still paint the hover highlight").toBeGreaterThan(0);
     for (const call of calls) {
       expect(call, "spread a featureStateTargets entry instead").not.toMatch(/\bsource:/);
     }

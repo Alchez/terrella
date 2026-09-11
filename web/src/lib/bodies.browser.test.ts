@@ -237,7 +237,7 @@ describe("a body's slug is its route", () => {
     // THE ACCEPTANCE CRITERION FOR THIS WHOLE DESCRIPTOR: adding a planet should be a registry
     // entry plus data, and this is the half a type cannot check. Astro routes by filename, so
     // `slug` and the page name are one fact stored in two places — add `mars` to the registry with
-    // no `mars.astro` and the switcher would link at a 404, with every other gate green.
+    // no `mars/index.astro` and the switcher would link at a 404, with every other gate green.
     //
     // `import.meta.glob` is resolved by Vite at build time, so this sees the real page directory
     // rather than a list someone maintained by hand.
@@ -285,8 +285,8 @@ describe("a body's slug is its route", () => {
   });
 
   it("dresses every page a body owns in that body, and not in the one next door", () => {
-    // A SECOND GLOBE IS WHAT MAKES THIS REACHABLE. `mars.astro` is `earth.astro` with two words
-    // changed, and the way to get it wrong is to change one of them: a page served at `/mars/` that
+    // A second globe is what makes this reachable. `mars/index.astro` is Earth's page with its
+    // descriptor changed, and the way to get it wrong is to leave it: a page served at `/mars/` that
     // passes Earth's descriptor draws Mars's relief in Earth's teal, sends its Lite button to the
     // gallery, and steers a WebGL2-less visitor onto a planet they never asked for. Nothing else
     // compares a page's ROUTE to the body it dresses itself in, so all of that ships green.
