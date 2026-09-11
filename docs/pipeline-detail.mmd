@@ -59,7 +59,7 @@ flowchart TD
 
   subgraph HERO["Hero render path: done, 203 countries (204 in scope, Kiribati deferred)"]
     P["render/render_prep.py<br/>warp EPSG:4326 to Albers equal-area conic,<br/>~16k Float32 TIFF + nearest-warped masks<br/>+ 0/255 lake & river PNGs for the shader"]
-    B["render/scene_build.py: Blender Cycles, RTX 4070S / OptiX, headless -b<br/>true displacement + adaptive subdivision<br/>two ColorRamps switched by ocean mask<br/>+ GLOBathy depth-keyed lake ramp (render/lake_mask.py), rivers flat teal<br/>locked look: 15x, sun alt 45 (shared palette.SUN_ALT_DEG), OIDN denoise"]
+    B["render/scene_build.py: Blender Cycles, OptiX, headless -b<br/>true displacement + adaptive subdivision<br/>two ColorRamps switched by ocean mask<br/>+ GLOBathy depth-keyed lake ramp (render/lake_mask.py), rivers flat teal<br/>locked look: 15x, sun alt 45 (shared palette.SUN_ALT_DEG), OIDN denoise"]
     SV["look/sky_view.py: burn-only horizon SVF<br/>darkens land valleys post-render"]
     H8["8K hero (long edge 7680) + 6 WebP rungs 640..7680<br/>q85 to 1920, q95 above<br/>(compose/hero_variants.py)"]
     OV["compose/overlay_borders.py<br/>pyshp + pyproj + pycairo, same Albers +<br/>ortho-margin mapping; coastline oracle;<br/>cased white borders, dashed disputed/maritime"]

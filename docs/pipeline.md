@@ -80,7 +80,7 @@ pipeline/profile/run_pass.sh --body earth            # shade only
 pipeline/profile/run_pass.sh --body earth --tiles    # shade (skipped when fresh), then cut tiles
 ```
 
-- **It caps memory in a systemd scope**, sized per body by `pipeline/profile/pass_memory.py` so an overrun kills the job and not the box, and sets `GDAL_CACHEMAX=512`.
+- **It caps memory in a systemd scope**, sized per body by `pipeline/profile/pass_memory.py` so an overrun kills the job and not the box, and sets `GDAL_CACHEMAX=512`. A box with more memory to give raises the cap by exporting `MEMORY_CAP_OVERRIDE_GIB`, which the hero batch honours too.
 - **One heavy job at a time.** The cap is sized for a single pass, and the planet pass ends by invoking `cap_render` inside the same cgroup.
 
 **The four planet-raster stages take a required `--body`**: `planet_pass`, `cap_pass`, `terrain_rgb` and `pack_pmtiles`. None of them defaults to Earth.

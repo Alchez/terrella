@@ -526,7 +526,7 @@ def base_patches(span_px):
     Reached only through `--base-grid fitted`, and the reason is a hard VRAM ceiling rather than a
     cost: the grid multiplies micropolygons by 4x on both callers alike, but a hero's plane is
     entirely in frame where `RIG.offscreen_dicing_scale` coarsens the ~69% of a block's plane its
-    camera never sees. On this box's 12 GB card the largest heroes fail outright to build an OptiX
+    camera never sees. On the reference machine's card the largest heroes fail outright to build an OptiX
     acceleration structure, so the hero lane keeps the single quad, knowingly under-diced, the
     alternative being no hero at all. Which frame sizes sit on which side of that wall is unmeasured.
     """

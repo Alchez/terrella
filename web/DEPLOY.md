@@ -50,33 +50,15 @@ config and its own command. Neither touches the other.
 
 ### What the free tier actually buys
 
-**Workers is on the FREE plan**, which only the dashboard can tell you: the API does not answer it.
-Two ceilings, and they fail differently, so neither is simply the tighter one.
+The Workers account is on the free plan, which only the dashboard shows: the API does not answer it. Cloudflare's [Workers](https://developers.cloudflare.com/workers/platform/pricing/) and [R2](https://developers.cloudflare.com/r2/pricing/) pricing pages own every limit and rate, so none is copied here; this section owns how Terrella spends them. Two limits bind, and they fail differently, so neither is simply the tighter one.
 
-- **Requests stop the site.** 100,000 per day for the WHOLE account, shared with the site's own
-  shell, then Error 1027 or fail-open. At **74 tile requests per view at z6** that is roughly 1,351
-  cold visits a day at the `full` tier, against ~2,500 at ~40 requests per view before terrain
-  shipped, since terrain roughly *doubles* the count by drawing both pyramids.
-  - **A cache HIT still charges a request.** Caching improves latency, never the request count, so no
-    cache-tuning lever moves this number.
-  - **The doubling is a declaration, not a law**: relief declares `tileSize: 256` and terrain
-    declares `tileSize: 128`, and it is the smaller one that makes terrain draw twice as many. An
-    earlier estimate of "a fraction, not a doubling" read the relief number for both.
-  - **A download is NOT a Worker request** and spends none of this: `archives.terrella.alchez.dev`
-    serves the bucket direct at one Class B operation out of ten million free, egress free at every
-    tier. So the answer to anyone who wants the data is take an archive, not hit the tile endpoint.
-- **Storage costs money.** The 10 GB-month allowance is spent, the two buckets together being past
-  it, which a second body's pyramids are what pushed them over.
-  - **Overage rounds UP to the next whole GB-month** at $0.015, so the bill moves in 1.5-cent steps
-    rather than continuously. That is what makes a new pyramid a disk-and-time decision rather than
-    a cost one, and it is the half of the pricing page easiest to read past.
-  - **Measure it rather than believing a figure written here.** The number this replaced drifted by
-    1.5 GB with nothing to catch it, because a total in prose has no reader that can go red:
-    `aws --profile r2 --endpoint-url "$R2_ENDPOINT" s3 ls --recursive --summarize s3://terrella-tiles`,
-    then the same for `terrella-assets`.
-- **Moving to Workers Paid is what buys past the request ceiling**, and at that point usage barely
-  registers against the subscription: **$5.00/month at 2,000 cold visits/day, ~$5.83 at 5,000**,
-  priced against the published rates, worst case, treating every request as a cache miss.
+- **Requests stop the site.** The free plan's daily request limit is account-wide, and past it comes Error 1027 or fail-open. The site shell is static assets, which do not count, so the tile Worker spends it alone: **74 tile requests per view at z6** on the `full` tier, which makes the limit divided by 74 the number of cold visits a day the site serves.
+  - **A cache hit is billed as a request.** Caching improves latency, never the request count, so no cache-tuning lever moves this number.
+  - **Terrain roughly doubles the count by declaration, not by law**: relief declares `tileSize: 256` and terrain declares `tileSize: 128`, and it is the smaller one that makes terrain draw twice as many.
+  - **A download is not a Worker request** and spends none of the limit: `archives.terrella.alchez.dev` serves the bucket direct, one Class B operation per file and no egress charge. So the answer to anyone who wants the data is take an archive, not hit the tile endpoint.
+- **Storage costs money.** The two buckets together are past R2's free storage allowance, and overage is billed per GB-month, rounded up to the next whole one. At R2's rate that makes a new pyramid a disk-and-time decision rather than a cost one.
+  - **Measure it rather than believing a figure written here**: `aws --profile r2 --endpoint-url "$R2_ENDPOINT" s3 ls --recursive --summarize s3://terrella-tiles`, then the same for `terrella-assets`.
+- **Workers Paid is what buys past the request limit**: a flat monthly fee including an allowance of requests and CPU time, then a rate per million of each. A month at `full` is cold visits a day × 74 × 30 requests against that allowance, and the CPU time the tile Worker spends per request, which only the dashboard reports, prices the rest.
 
 ## 1. The tile Worker
 

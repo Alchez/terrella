@@ -222,7 +222,7 @@ function visit({
   steered = false,
   webgl2 = true,
   saveData = false,
-  unmaskedRenderer = "NVIDIA GeForce RTX 4070 SUPER",
+  unmaskedRenderer = "NVIDIA GeForce RTX 3060",
   renderer = "WebKit WebGL",
 }: GuardVisit): GuardOutcome {
   const session = new Map<string, string>(steered ? [["rg:steered", "1"]] : []);
@@ -609,7 +609,7 @@ describe("isLowMemory — the threshold that let the reference phone through", (
   // The API reports RAM rounded to the NEAREST power of two, so these are the only values that
   // exist — which is what makes `< 4` and `<= 4` differ by a whole tier of real devices rather
   // than by a rounding edge. The 8 GiB upper clamp in the W3C text is not applied by current
-  // Chrome: a 29 GiB machine measured 32, hence the top of this list.
+  // Chrome: a desktop well above the clamp measured 32, hence the top of this list.
   const REPORTABLE = [0.25, 0.5, 1, 2, 4, 8, 16, 32];
 
   it("treats every value the API can actually report, on the right side of the line", () => {
@@ -697,7 +697,7 @@ describe("isSoftwareRenderer — and the two browsers that report it differently
 
   it("leaves real GPUs alone", () => {
     for (const renderer of [
-      "NVIDIA GeForce RTX 4070 SUPER/PCIe/SSE2",
+      "NVIDIA GeForce RTX 3060/PCIe/SSE2",
       "Apple M2 Pro",
       "Adreno (TM) 730",
       "Mali-G78 MP14",
@@ -759,7 +759,7 @@ describe("the guard and capability.ts must not drift apart", () => {
   // has to run before the bundle. So the agreement is asserted rather than assumed, over the
   // same scenarios, by running BOTH.
   const scenarios = [
-    { name: "real GPU", webgl2: true, renderers: ["NVIDIA GeForce RTX 4070 SUPER"] },
+    { name: "real GPU", webgl2: true, renderers: ["NVIDIA GeForce RTX 3060"] },
     { name: "SwiftShader via the extension", webgl2: true, renderers: ["Google SwiftShader"] },
     { name: "llvmpipe via RENDERER only", webgl2: true, renderers: ["llvmpipe (LLVM 15.0.7)"] },
     { name: "Mesa OffScreen", webgl2: true, renderers: ["Mesa OffScreen"] },

@@ -24,6 +24,25 @@ def flattened(path: Path) -> str:
     return FLATTEN.sub(" ", path.read_text(encoding="utf-8"))
 
 
+READ_NEXT = re.compile(r"^## Read next$(.*?)(?=^## |\Z)", re.MULTILINE | re.DOTALL)
+ROUTE = re.compile(
+    r"^- (?P<label>.+?) → \[[^\]]*\]\((?P<target>[^)#\s]+)(?:#(?P<anchor>[^)\s]+))?\)$", re.MULTILINE
+)
+
+
+def read_next_routes() -> list[dict[str, str | None]]:
+    section = READ_NEXT.search((ROOT / "README.md").read_text(encoding="utf-8"))
+    assert section, "README has no *Read next* section to route a reader from"
+    routes = [match.groupdict() for match in ROUTE.finditer(section.group(1))]
+    assert routes, "no *Read next* line parsed as a route, so every check below would pass on nothing"
+    return routes
+
+
+def github_anchor(heading: str) -> str:
+    """The fragment GitHub gives a heading: lower case, punctuation dropped, each space a hyphen."""
+    return re.sub(r"[^\w\- ]", "", heading.strip().lower()).replace(" ", "-")
+
+
 def test_the_readme_carries_the_identity_claim_contributing_opens_with() -> None:
     """`REPO-2` sat `PARTIAL` because the only answer in the tree was behind the one door a reader
     asking it has no reason to open."""
@@ -35,6 +54,31 @@ def test_the_readme_carries_the_identity_claim_contributing_opens_with() -> None
         "README does not carry CONTRIBUTING's identity sentence, so the two front doors can drift "
         f"apart on what this is:\n  {claim}"
     )
+
+
+def test_a_reader_asking_what_this_costs_meets_the_word_on_the_route_to_both_answers() -> None:
+    """`TECH-6`: a render costs hours on one machine, and hosting is priced for Cloudflare alone."""
+    costed = {route["target"]: route["anchor"] for route in read_next_routes()
+              if "cost" in str(route["label"]).lower()}
+    missing = {"PROCESS.md", "web/DEPLOY.md"} - set(costed)
+    assert not missing, (
+        f"no *Read next* label says cost on the way to {sorted(missing)}, so a reader asking what "
+        "this costs has no reason to take the line that answers it"
+    )
+    assert costed["web/DEPLOY.md"] == "what-the-free-tier-actually-buys", (
+        "the hosting route lands on DEPLOY.md's opening, two sections above the prices"
+    )
+
+
+def test_every_section_read_next_links_is_a_heading_its_file_still_has() -> None:
+    for route in read_next_routes():
+        if route["anchor"] is None:
+            continue
+        text = (ROOT / str(route["target"])).read_text(encoding="utf-8")
+        anchors = {github_anchor(heading) for heading in re.findall(r"^#+ (.+)$", text, re.MULTILINE)}
+        assert route["anchor"] in anchors, (
+            f"*Read next* links {route['target']}#{route['anchor']}, a heading that file no longer has"
+        )
 
 
 def test_the_ci_only_coverage_floor_contributing_names_still_exists() -> None:

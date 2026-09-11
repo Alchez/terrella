@@ -9,7 +9,7 @@ latitude-varying per-row scaling it needs, `prep_block.row_scale`) to the later 
 
 Why chunk, given fuse_heightfield is already windowed and memory-flat? Not for memory —
 for three things a single whole-planet invocation can't give: parallelism (one serial
-window loop uses 1 of 16 cores), resumable-at-cell-granularity (a crash re-runs only the
+window loop uses one core), resumable-at-cell-granularity (a crash re-runs only the
 unfinished cells, not the planet), and per-cell coverage correctness (below). Cells are
 10x10 degree, whole-degree aligned so their edges fall on exact output-pixel boundaries
 (1 deg = 360 px at 10") — adjacent cells then share bit-identical seam columns, because the
@@ -32,8 +32,8 @@ Idempotent: a cell whose heightfield exists is skipped; delete to redo. Re-runni
 `--build-vrts` alone is free — a VRT is replaced only when its XML changes.
 
 Memory budget: fuse_heightfield holds ~1-1.5 GB per process; --workers W costs ~W*1.5 GB
-against MemAvailable. Default 12 (~14 GB) suits this 16-core / 18-GiB-free box -- CPU-bound
-at 10-degree cells, not RAM-bound.
+against MemAvailable. Default 12 (~14 GB) was sized on the reference machine -- CPU-bound
+at 10-degree cells, not RAM-bound, so --workers follows the cores a box has.
 
 Usage:
   python -m pipeline.fuse.fuse_planet --dry-run                 # classify, no fusion

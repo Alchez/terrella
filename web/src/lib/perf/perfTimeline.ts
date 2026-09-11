@@ -52,7 +52,7 @@ export interface TimelineSample {
  * How many samples the ring holds.
  *
  * At the overlay's 300 ms tick this is two minutes of history, which spans the ~60 s of dragging
- * that exhausts a 12 GB card. A HARD bound rather than a target: the instrument must not become the
+ * that exhausts a desktop card. A HARD bound rather than a target: the instrument must not become the
  * unbounded-growth defect it exists to find.
  */
 export const TIMELINE_CAPACITY = 400;

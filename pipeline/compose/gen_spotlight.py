@@ -29,7 +29,7 @@ but the ceiling is memory, and it sits lower than the arithmetic suggests: the l
 countries hold several float arrays over a native (~42 MP) grid and peak near 8 GB each,
 so two workers meet the heavy-job cgroup cap on their own and the full 203-set OOMs at
 --jobs>1. Serial is the default for that reason; budget ~8 GB per job before raising it.
-The cap itself is `pass_memory.HEAVY_JOB_GIB` and is deliberately not retyped here.
+The cap itself is `pass_memory.heavy_job_gib()` and is deliberately not retyped here.
 
 Usage:
   gen_spotlight.py --only saintlucia            # one (or a comma list)
