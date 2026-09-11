@@ -4,7 +4,7 @@ A static site of ray-traced relief maps, navigable as an interactive globe, cove
 on Earth plus Mars as a second body.
 The look sits in the tradition of Frank Ramspott's topographic renders: soft raytraced shadows,
 heavy vertical exaggeration, warm sand land, desaturated teal sea with bathymetry, white vector
-borders, minimal typography. The aesthetic decisions live in ART.md.
+borders, minimal typography. The aesthetic decisions live in docs/ART.md.
 
 This file is the standing brief for anyone working on the repo, human or agent. It states current
 truth only; it is not a changelog.
@@ -90,7 +90,7 @@ own skill (`.claude/skills/acquire-data/`).
 - Blender's own version, path, interpreter boundary and crash recipe are in `.claude/skills/blender-rig/`, which loads when a session touches the rig.
 - **One heavy job at a time, under the ratified cgroup cap that `pipeline/profile/pass_memory.py` owns as `HEAVY_JOB_GIB`**, which is where the number lives and why it is not spelled here. The category that matters is "touches a full-planet raster" rather than "is a pipeline stage", so third-party tools and ad-hoc measurements are in scope, while the hero lane's per-country windowed stages sit outside it by that same category rather than by exemption. `run_pass.sh` sizes it per body from that owner and a hook refuses an unwrapped heavy command; `batch.py`'s cap is best effort, and where systemd user scopes cannot enforce one it says so loudly and runs on.
 - Keep project data and temp on ext4, never tmpfs `/tmp` and never large rasters on NTFS.
-- Keep intermediates out of backups. INVENTORY.md is the storage map: current sizes, what each store feeds, and which are reclaimable.
+- Keep intermediates out of backups. docs/INVENTORY.md is the storage map: current sizes, what each store feeds, and which are reclaimable.
 
 ## Working conventions
 
@@ -102,7 +102,7 @@ own skill (`.claude/skills/acquire-data/`).
 - **Anything with two readers needs one owner**, and the kind of thing is incidental: a path, a procedure, a constant, a header, an explanation. Trigger: change one copy, what goes red? Nothing red means it needs an owner. Where one owner is impossible, such as a latitude that must live in both Python and TypeScript, make one copy executable so drift fails loudly.
 - **For an explanation nothing ever goes red**, so ask instead how many places you would edit if the concept changed. One block owns a concept; every site that needs it gets one line pointing there. `scripts/prose_report.py` measures it, as an instrument you run rather than a gate.
 - **"Comment" means docstring too, in every rule here.** They are one instrument in two syntaxes, and a bound that names only the `#` form sends the prose into the `"""` form instead.
-- **A comment explains its own subject and claims nothing that can rot behind its back.** Trigger: could this sentence go false without anyone touching this function? Counts, measurements taken elsewhere and system-wide properties all can, and belong in a test, in PROCESS.md, or nowhere. Keep the concept, the context needed to read the code, and the anti-redo guard.
+- **A comment explains its own subject and claims nothing that can rot behind its back.** Trigger: could this sentence go false without anyone touching this function? Counts, measurements taken elsewhere and system-wide properties all can, and belong in a test, in docs/PROCESS.md, or nowhere. Keep the concept, the context needed to read the code, and the anti-redo guard.
 - **No figure describes the maintainer's machine**, in a doc, a comment or a test: not a GPU or its memory, RAM, cores, a disk or its free space. `docs/PROCESS.md` names the reference machine once, at its top, so its runtimes have a baseline, and everywhere else says "the reference machine". Measurements of the work are not machine figures. A limit a visitor's box may exceed is a default with an announced override, never a number read off the host.
 - **A comment carries two things and nothing else: what the code IS, and the guard against redoing work already done and reverted.** Everything else is justification, and its home is HISTORY. The test that catches it: **if the sentence would sit comfortably in the HISTORY entry for this change, it does not go in the comment.** The tell is the past tense, since the urge peaks at the moment of the edit and what it wants to narrate is what the site used to be: grep your own added lines for *used to*, *was*, *before*, *previously*, *outlived*, *went with*, *no longer* before calling an edit done.
 - **A docstring longer than the function it documents is the signal to check, not a violation by itself.** A constants block earns one; a four-line function almost never does. `python -m scripts.prose_report` already counts docstrings as prose and is the instrument for asking.
@@ -114,7 +114,7 @@ own skill (`.claude/skills/acquire-data/`).
 - Plan first (Plan Mode) before any multi-file or architectural task.
 - CONTRIBUTING.md is the entry point for anyone working here, human or agent: what runs without the render store, the one gate command, and the AI-assistance policy.
 - Knowledge needed only sometimes lives in `.claude/skills/` when a TASK calls for it, or `.claude/rules/` when a matching FILE is opened. Neither belongs here, and content moves between them rather than being copied.
-- The other docs, so facts are looked up rather than re-guessed: **PROCESS.md** measured runtimes (the authority, read it before estimating), **INVENTORY.md** the storage map, **ART.md** the aesthetic decisions, **FUTURE.md** the v2 parking lot (check it before designing a "new" feature), **docs/pipeline.md** how to run a pass, **docs/adding-a-body.md** what a new planet must answer for, **docs/pipeline-layout.md** where a module goes, **docs/*.mmd** the pipeline diagrams. A body seam is read from `pipeline/bodies.py` and its web twin, which own every per-body fact between them.
+- The other docs, so facts are looked up rather than re-guessed: **docs/PROCESS.md** measured runtimes (the authority, read it before estimating), **docs/INVENTORY.md** the storage map, **docs/ART.md** the aesthetic decisions, **FUTURE.md** the v2 parking lot (check it before designing a "new" feature), **docs/pipeline.md** how to run a pass, **docs/adding-a-body.md** what a new planet must answer for, **docs/pipeline-layout.md** where a module goes, **docs/*.mmd** the pipeline diagrams. A body seam is read from `pipeline/bodies.py` and its web twin, which own every per-body fact between them.
 
 Working in Blender, the version's shader gotchas and the crash recipe are their own skill
 (`.claude/skills/blender-rig/`), loaded when a session actually touches the rig.

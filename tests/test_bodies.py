@@ -107,8 +107,9 @@ class TestTheCompositePlanetProducerIsDeletedAndCannotReturn:
 
         `composite_params` was the only thing that recorded `KNOBS` and `SHADOW_TINT`, so with it
         gone they reached no pixel and no recipe, and a value that reaches neither is a look
-        decision nobody can act on. ART.md holds what each was and how it was chosen; this refuses
-        the code copy coming back to be read as a live lever.
+        decision nobody can act on. What each was and how it was chosen is in HISTORY, *the shader's
+        orphaned tunables are pruned*; this refuses the code copy coming back to be read as a live
+        lever.
 
         SCOPED TO THE PACKAGE RATHER THAN TO ONE MODULE, because `tile/shade.py` -- which used to
         be the module this asked -- is itself gone now, its lake ramp having moved to

@@ -88,9 +88,9 @@ LAKE_MAX_M = 1642.0  # Baikal — the deepest lake GLOBathy carries; the lake ra
 SUN_ALT_DEG = 45.0
 
 # The fill, in the compass convention: altitude, and the main sun's mirror azimuth. Geometry rather
-# than an art dial, the NW bearing being a locked cartographic convention (ART.md § Sun altitude &
-# azimuth), which is why they sit here rather than among the tunables. `RIG.fill_rotation` derives
-# its euler from both, so editing one here moves the rendered fill.
+# than an art dial, the NW bearing being a locked cartographic convention (docs/ART.md § Sun
+# altitude & azimuth), which is why they sit here rather than among the tunables.
+# `RIG.fill_rotation` derives its euler from both, so editing one here moves the rendered fill.
 FILL_ALTITUDE = 60.0
 FILL_AZIMUTH = 135.0
 

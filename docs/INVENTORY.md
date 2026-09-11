@@ -19,7 +19,7 @@ The **current** map of on-disk data stores: what each is, who reads it, whether 
 ## The chain, from download to browser
 
 - **Organised by BYTES, which is this file's axis and nothing else's.**
-  `docs/pipeline-overview.mmd` draws the same chain as a process and `PROCESS.md` draws it as stage
+  `docs/pipeline-overview.mmd` draws the same chain as a process and `docs/PROCESS.md` draws it as stage
   timings; neither says what is on disk or who can delete it. Read this one to find a store, those
   to find a stage.
 - **The dashed edges are the only ones that leave the box, and they have two destinations.** The
@@ -112,7 +112,7 @@ flowchart LR
 | `cap/` | **3.25 GB** | Earth's cap intermediates: the AEQD warps, the full-size `cap_{north,south}.tif`, the freshness sidecars, the prepped `render_{north,south}/` (0.39 GB) and the 28 Cycles frames per pole in `frames_{north,south}/` (0.93 GB), plus ~0.5 GB of superseded A/B discs (`cap_*_raytraced82.tif`, `ab_ice_damp`, `ab_pole_taper`, `ab_prod`) | Mixed. The render dirs and frames are kept on purpose: they make a stopped render cost one frame instead of the ring. The A/B discs are decision records whose decisions have landed. Budget **>=16 G** for any re-render: the stage peaks ~14.4 GiB |
 | `borders/` | 21 MB | `countries.geojson` + `boundary_lines.geojson` (NE to GeoJSON emitters), served at `/borders/` | Keep (tiny); regenerable from `naturalearth/` |
 | `planet_vector/` | **10.2 MB** | Earth's VECTOR tiles (MVT), cut by `compose/countries_pmtiles.py` from `borders/countries.geojson` plus the two layers it derives. One archive, three source-layers (`country_fill`, `country_outline`, `country_hit`), z0-8, stamped `countries_tiles_params.json`. **Three orders of magnitude smaller than the raster pyramids**: it is geometry, not pixels | Keep. Re-cuts from `countries.geojson` in **17 s**; the recipe sidecar is what makes a settings change visible, since the filename cannot carry one |
-| `_profile_tiles/` · `_profile_pass/` · `_profile_mars_tiles/` · `_profile_tiles_earth_z8/` | 41 MB | `pass.log` (stage timings) + `samples.jsonl` per run label. `samples.jsonl` is rewritten every run; `pass.log` is ROTATED to `pass-<timestamp>.log`, because a producer that resumes across nights would otherwise keep only the last night's record of which blocks failed | **Keep: the source of every number in PROCESS.md.** These are the four directories a reclaim must never sweep along with their leading-underscore siblings |
+| `_profile_tiles/` · `_profile_pass/` · `_profile_mars_tiles/` · `_profile_tiles_earth_z8/` | 41 MB | `pass.log` (stage timings) + `samples.jsonl` per run label. `samples.jsonl` is rewritten every run; `pass.log` is ROTATED to `pass-<timestamp>.log`, because a producer that resumes across nights would otherwise keep only the last night's record of which blocks failed | **Keep: the source of every number in docs/PROCESS.md.** These are the four directories a reclaim must never sweep along with their leading-underscore siblings |
 | `_*/` experiment scratch | 0 now | A/B and investigation output, by convention leading-underscore | **Reclaim as soon as the decision is written down**: the finding is the product, the pixels are not |
 
 ### `planet_tiles/` breakdown (Earth, 112 GB)

@@ -15,4 +15,4 @@ description: Adding a third body (a moon or another planet) to Terrella, or chan
 Two things to hold on to while working:
 
 - **Anything ratified by eye is Rohan's, not a default.** The ramp, the ice white and the terrain exaggeration all reach the globe.
-- **Do not price the work off Mars.** The month it cost went on making the seams body-agnostic, which is paid and inherited. `PROCESS.md`'s planet columns price a body's pass, never its arrival.
+- **Do not price the work off Mars.** The month it cost went on making the seams body-agnostic, which is paid and inherited. `docs/PROCESS.md`'s planet columns price a body's pass, never its arrival.

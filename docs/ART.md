@@ -4,7 +4,7 @@ The knobs that shape the look, what each is set to, and what moving it costs. Th
 
 **The code is the system of record.** Shared constants in `pipeline/look/palette.py`, the hero and tile rig in `pipeline/render/scene_build.py`, per-body geometry in `pipeline/bodies.py`, per-country knobs in `config/countries.toml`. Where a row here and the code disagree, the code is right and the row is the bug, so a lever change updates its row in the same edit.
 
-Ramp constants are Earth's unless a row says otherwise. Each body resolves its own `Look`, so every cost quoted here is Earth's, and PROCESS.md § What a look change costs carries the measured bill.
+Ramp constants are Earth's unless a row says otherwise. Each body resolves its own `Look`, so every cost quoted here is Earth's, and docs/PROCESS.md § What a look change costs carries the measured bill.
 
 ## Lever index (every tunable, by what a pull costs)
 

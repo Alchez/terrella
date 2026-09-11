@@ -21,7 +21,7 @@ A capability probe picks one pessimistically and upgrades from there; the visito
 - **Heroes**: Blender Cycles, from Copernicus GLO-30 land and GEBCO bathymetry fused into one heightfield. Low sun, coloured by elevation and depth, in an aesthetic Frank Ramspott's topographic renders helped define.
 - **Tiles**: the same rig again, ray traced block by block, so the globe and the heroes are lit by one renderer rather than by two that have to be kept agreeing.
 - **Mars is the same pipeline with a different body.** Exaggeration, zoom ceiling, ramp and radii all belong to the body. It arrives pre-fused, as the USGS MOLA/HRSC blend, so there is no fusion tier to run, and it has no ocean, borders or heroes.
-- **Why a renderer and not a hillshade**: QGIS and `gdaldem` shade each pixel from the slope beneath it, so nothing in the result knows a ridge stands between that pixel and the sun, and at this exaggeration a gentle real slope presents as a steep one, runs past a low sun and clips to zero across a large share of a mountain range, which `ART.md` measures. That is not a prediction here: Mars shipped the other way once, a hillshade with a ported fill sun and a sky-view term composited in GDAL, and it was replaced by Cycles rather than tuned.
+- **Why a renderer and not a hillshade**: QGIS and `gdaldem` shade each pixel from the slope beneath it, so nothing in the result knows a ridge stands between that pixel and the sun, and at this exaggeration a gentle real slope presents as a steep one, runs past a low sun and clips to zero across a large share of a mountain range, which `docs/ART.md` measures. That is not a prediction here: Mars shipped the other way once, a hillshade with a ported fill sun and a sky-view term composited in GDAL, and it was replaced by Cycles rather than tuned.
 - **Delivery**: three PMTiles archives per body (relief, terrain, vector), the names `{layer}` takes, addressed `{body}/{layer}/{token}/{z}/{x}/{y}` so an address names its own archive. The browser never opens one; a tile server returns a single tile per request.
 - **Why an archive and not a directory of tiles**: not deduplication, which saves 6 tiles of Earth's 87,381 and none of Mars's 21,845, and not request cost, which loose tiles win. It is the re-cut: a new key, never an overwrite, so shipping one is six uploads against 280,000 under a new prefix and as many deletes R2 cannot undo. The archive is also the download, its credit inside the file.
 - **And not opened by the browser either**, the usual way PMTiles is served: Workers Caching strips a `Range` header and asks for the whole body, so a browser ranging the archive fetches every gigabyte per tile. The Worker does the arithmetic instead.
@@ -48,8 +48,8 @@ The tile endpoint is open as well, and it is the wrong thing to build on. It run
 - What adding a moon or another planet would take → [`docs/adding-a-body.md`](docs/adding-a-body.md)
 - Framing math → [`docs/framing-math.md`](docs/framing-math.md)
 - Frontend, and running the dev server → [`web/README.md`](web/README.md)
-- Aesthetic decisions → [`ART.md`](ART.md)
-- What a render costs, in hours on one machine → [`PROCESS.md`](PROCESS.md)
+- Aesthetic decisions → [`docs/ART.md`](docs/ART.md)
+- What a render costs, in hours on one machine → [`docs/PROCESS.md`](docs/PROCESS.md)
 - What serving it on Cloudflare costs, and where the free tier runs out → [`web/DEPLOY.md`](web/DEPLOY.md#what-the-free-tier-actually-buys)
 - Data sources & licenses → [`ATTRIBUTIONS.md`](ATTRIBUTIONS.md)
 - Downloading a tile archive instead of rendering one → [`CONTRIBUTING.md`](CONTRIBUTING.md)

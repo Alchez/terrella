@@ -60,7 +60,7 @@ def test_a_reader_asking_what_this_costs_meets_the_word_on_the_route_to_both_ans
     """`TECH-6`: a render costs hours on one machine, and hosting is priced for Cloudflare alone."""
     costed = {route["target"]: route["anchor"] for route in read_next_routes()
               if "cost" in str(route["label"]).lower()}
-    missing = {"PROCESS.md", "web/DEPLOY.md"} - set(costed)
+    missing = {"docs/PROCESS.md", "web/DEPLOY.md"} - set(costed)
     assert not missing, (
         f"no *Read next* label says cost on the way to {sorted(missing)}, so a reader asking what "
         "this costs has no reason to take the line that answers it"

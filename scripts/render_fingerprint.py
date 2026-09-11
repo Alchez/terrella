@@ -11,7 +11,7 @@ Neither can appear below, and their absence is not visible from what does.
 
 Collecting the rest answers, without the 1.1 TB store and without a GPU, whether a change moved a
 recorded constant. A changed fingerprint names the stages and fields, and the cost of the pass that
-owes is in PROCESS.md § The planet tile pipeline.
+owes is in docs/PROCESS.md § The planet tile pipeline.
 
 Read in one direction only, which is the limit of the instrument. A moved fingerprint proves a
 re-render is owed. An unmoved fingerprint proves only that no recorded constant moved, and not that
@@ -78,11 +78,11 @@ BASELINE = Path(__file__).resolve().parents[1] / "tests" / "render_fingerprint.j
 REGENERATE = "uv run python -m scripts.render_fingerprint --write"
 
 #: Where the measured cost of a moved recipe lives, cited by heading and never by copying a
-#: duration: PROCESS.md is the authority. It lives here rather than in the test that prints it,
+#: duration: docs/PROCESS.md is the authority. It lives here rather than in the test that prints it,
 #: because `test_doc_pointers` scans `pipeline`, `scripts` and `web/scripts` and not `tests` — so
 #: stated there, a heading that got renamed would go unnoticed by the guard built to catch exactly
 #: that.
-OWED_PASS = "PROCESS.md § The planet tile pipeline"
+OWED_PASS = "docs/PROCESS.md § The planet tile pipeline"
 
 #: See the module docstring. Empty rather than a synthetic list, so the recorded value is visibly
 #: "no blocks" instead of a plausible number nobody derived.

@@ -172,7 +172,7 @@ The globe's detail card carries a country's name, its continent and a link, and 
 - **State at analysis:** `scene_build.rig_recipe` exists and has exactly one caller, `pipeline/tile/block_render.py`. The hero lane never invokes it, and `batch.py`'s freshness test is bare file existence (`target.exists() and not force`). So a hero is "current" if its PNG is present, whatever produced it.
 - **This is the producer-declares rule, unimplemented on the lane holding 203 approved artefacts.** The block tier states what it emitted, per stage, precisely so a consumer never has to infer it. The hero tier infers everything from one file's existence.
 - **Two rig changes have already landed that the heroes cannot see.** The sun moved to 315 degrees and the base grid became a per-caller argument that heroes deliberately do not take. Every hero on disk carries the old sun and the single quad, and nothing beside them records either fact.
-- **The live hazard is the TARGETED re-render, which PROCESS.md documents as a normal ~28 minute workflow.** Re-rendering a handful of countries today emits heroes that differ from their 202 neighbours in lighting, and the only way to tell afterwards is to look at the pixels.
+- **The live hazard is the TARGETED re-render, which docs/PROCESS.md documents as a normal ~28 minute workflow.** Re-rendering a handful of countries today emits heroes that differ from their 202 neighbours in lighting, and the only way to tell afterwards is to look at the pixels.
 - **What it would take:** the block tier's shape, a recipe written beside the output and compared on the next run. The hero lane's own `frame.json` is per-country and never overwritten, so it is not a candidate; this wants a separate file with the rig's constants in it.
 - **Parked deliberately** rather than deferred by accident: the fleet re-render is itself waiting on the tiles carrying raytraced terrain, and a recipe with no re-render behind it only records that everything is stale. Revisit when that re-render is scheduled.
 
@@ -304,7 +304,7 @@ Presets decompose into **three kinds by where the variation lives**: costs diffe
 
 ### Kind 2: raster recolors (one PMTiles archive per look)
 
-- Green sea, sepia, dark relief: the look is baked into pixels, so each look = its own archive. **Per look: a whole planet render** (PROCESS.md carries the row; it was ~28 min when a look was an SVF pass plus a composite, and a look is now every block through Cycles) **and +3 GB storage**: the storage term was +15 GB before tiles became WebP q95, and that was the number that made this kind expensive; web swaps `PUBLIC_TILE_BASE` (or a per-look path the Worker routes on) + the cap pair. Now plausibly scales to several looks, not just a curated few.
+- Green sea, sepia, dark relief: the look is baked into pixels, so each look = its own archive. **Per look: a whole planet render** (docs/PROCESS.md carries the row; it was ~28 min when a look was an SVF pass plus a composite, and a look is now every block through Cycles) **and +3 GB storage**: the storage term was +15 GB before tiles became WebP q95, and that was the number that made this kind expensive; web swaps `PUBLIC_TILE_BASE` (or a per-look path the Worker routes on) + the cap pair. Now plausibly scales to several looks, not just a curated few.
 - **One-time prerequisite: look parameterization (~a day).** Today every guardrail treats a second look as drift: correctly: `test_palette` pins `WATER_RGB` relationally (+7% of sea surface), palette is shared by import so editing it in place marks the heroes stale. Looks must become first-class: named looks in palette, with the render recipes, freshness, output dirs and cap recipes keyed by look, and relational pins per look. Corollary to remember: `LAKE_STOPS[0]` derives from `WATER_RGB`, so a naive green sea also greens every lake and river: a choice, not an accident.
 - One-off stunt rungs, if a *single day* ever justifies a gag without the plumbing: `raster-hue-rotate` on the relief layer (free, but rotates land too, and our custom-layer caps ignore raster paint properties: they'd need a shader tint uniform), or a translucent green ocean `fill` veil (client-only, bathymetry shading survives underneath, reads as a veil not a repaint).
 
@@ -555,7 +555,7 @@ Raised while reviewing the gallery after the sea-sync sweep (the sea look was ap
 ### Small steep islands look like "pinecones" (Saint Lucia, Dominica)
 
 - **Measured root cause:** exaggeration is a global **15×** applied to real height ÷ width, so visual steepness = `15 × (relief / frame-width)`. A 950 m peak on a 30 km island → ~0.47 (peak stands ~half the frame tall → bristly); a continent → ~0.025 (gentle). Same constant, wildly different look.
-- **The principled fix = adaptive exaggeration:** taper the factor for small high-relief-ratio frames. This makes the *visual* relief MORE consistent across the gallery, not less: the "tuned once, applied globally" rule (ART.md) is what currently makes the look *inconsistent*. Bounded cost: only ~20-30 small steep islands re-render (~1 h, not a planet sweep). Touches the FROZEN `render_prep.py`, which takes the 15.0 off `Body.baked_exaggeration` rather than carrying a constant of its own, so it wants the sea-sync freeze lifted (ratified) first.
+- **The principled fix = adaptive exaggeration:** taper the factor for small high-relief-ratio frames. This makes the *visual* relief MORE consistent across the gallery, not less: the "tuned once, applied globally" rule (docs/ART.md) is what currently makes the look *inconsistent*. Bounded cost: only ~20-30 small steep islands re-render (~1 h, not a planet sweep). Touches the FROZEN `render_prep.py`, which takes the 15.0 off `Body.baked_exaggeration` rather than carrying a constant of its own, so it wants the sea-sync freeze lifted (ratified) first.
 - **Note:** validated that atoll/island heroes themselves read well (Maldives/Marshall are striking): the problem is only over-exaggeration of *steep* small islands, not small frames per se.
 
 ## Hero and block renders differ in their contents, when only their projection should (raised 2026-08-24)
@@ -603,8 +603,8 @@ The same reason as the entry below it: the working plan is live state and one qu
 
 ### `pmtiles convert` needs a `--tmpdir` and nothing supplies one (parked 2026-09-09)
 
-- **`/tmp` is a RAM-backed tmpfs on the reference box and the conversion stages ~12 GB through it**, so an uncapped uncorrected run holds that scratch in memory. PROCESS.md § *PMTiles packaging* holds the measurement.
-- **The requirement lives in four prose copies and no guard**: `CLAUDE.md`, `PROCESS.md`, and two `INVENTORY.md` rows. `pack_pmtiles.py` stops at the MBTiles and never invokes `convert`, `run_pass.sh` does not reach packing at all, so the flag is typed by hand every time.
+- **`/tmp` is a RAM-backed tmpfs on the reference box and the conversion stages ~12 GB through it**, so an uncapped uncorrected run holds that scratch in memory. `docs/PROCESS.md`'s *PMTiles packaging* row holds the measurement.
+- **The requirement lives in four prose copies and no guard**: `CLAUDE.md`, `docs/PROCESS.md`, and two `docs/INVENTORY.md` rows. `pack_pmtiles.py` stops at the MBTiles and never invokes `convert`, `run_pass.sh` does not reach packing at all, so the flag is typed by hand every time.
 - **`blender_proc.env()` is the pattern to copy**, setting `TMPDIR` under `paths.DATA` with `test_blender_proc` asserting it is not under `/tmp`. Either the packer grows the `convert` call it currently only names, or a wrapper owns the flag; both are more than a doc fix, which is why this is parked rather than done.
 
 ### Values a doc spells that a constant owns
@@ -615,7 +615,7 @@ The same reason as the entry below it: the working plan is live state and one qu
 
 ### The per-country render knobs live only in the config file that reads them (found 2026-09-10)
 
-- **`fusion = "1s" | "3s"` overrides the automatic source-DEM choice per country and appears in zero tracked `.md`.** Its one home is `config/countries.toml`'s own header comment, so it is discoverable only by opening the file you were going to edit anyway. `resolution_floor_m` and `sky_view_strength` are in the same position; `ART.md` § *Resolution floor* covers the third of these and titles it for heroes.
+- **`fusion = "1s" | "3s"` overrides the automatic source-DEM choice per country and appears in zero tracked `.md`.** Its one home is `config/countries.toml`'s own header comment, so it is discoverable only by opening the file you were going to edit anyway. `resolution_floor_m` and `sky_view_strength` are in the same position; `docs/ART.md` § *Resolution floor* covers the third of these and titles it for heroes.
 - **It surfaced from `REUSE-5`, where it did not belong**: that row asks about the tile zoom ceiling, and this is a hero-lane knob on the source raster. Filing it here rather than against a row, since no question covers per-country render config.
 - **`config/countries.toml` says it is read by `pipeline/country_config.py` and the module is `pipeline/frame/country_config.py`.** Nothing can catch it: `test_doc_pointers` scans `.py` and `.md`, and a `.toml` is neither, which is the same boundary the entry below is about.
 

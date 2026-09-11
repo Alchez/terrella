@@ -45,7 +45,7 @@ The groups are re-derivable rather than maintained by hand: the first is every t
 - Its own page, and credits carrying each source's own licence terms.
 - Archives, and a deploy.
 
-**The rehearsal above reaches none of this**, which is the boundary of what a dataless walk buys. **How much a third body inherits here is unmeasured**, nobody having tried one, and `PROCESS.md`'s two planet columns do not answer it either: they price a body's pass, never its arrival. → HISTORY, *the second body's page*.
+**The rehearsal above reaches none of this**, which is the boundary of what a dataless walk buys. **How much a third body inherits here is unmeasured**, nobody having tried one, and `docs/PROCESS.md`'s two planet columns do not answer it either: they price a body's pass, never its arrival. → HISTORY, *the second body's page*.
 
 **One precondition decides which producer you need, and it is not resolution.** Earth's is a 648-cell fusion of two datasets; Mars's is `fuse/relabel_mars.py`, a few lines that declare a published lon/lat raster to be EPSG:4326 and resample nothing.
 

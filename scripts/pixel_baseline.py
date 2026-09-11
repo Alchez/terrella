@@ -55,7 +55,7 @@ REGENERATE = "uv run python -m scripts.pixel_baseline --write"
 #: Where the measured cost of a moved pixel lives, cited by heading and never by copying a duration.
 #: Here rather than in the test, because `test_doc_pointers` scans `scripts` and not `tests`, so a
 #: renamed heading would go unnoticed by the guard built to catch exactly that.
-OWED_PASS = "PROCESS.md § The planet tile pipeline"
+OWED_PASS = "docs/PROCESS.md § The planet tile pipeline"
 
 #: Square, and small enough that the whole baseline stays readable in a diff.
 FIXTURE_SIZE = 32

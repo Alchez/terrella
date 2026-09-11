@@ -89,7 +89,7 @@ BACKUP_SUFFIX = ".sabotage-backup"
 # The only directories a case may write to. Paths are repo-root-relative, and this list is what keeps
 # "relative path" from meaning "anywhere in the repo" now that cases reach outside `web/`. Widen it
 # when a case genuinely needs to — deliberately, since `tests/test_sabotage_cases.py` enforces it.
-# PROCESS.md joins the roots because the structural-integrity guard covers repo docs, and a case
+# docs/PROCESS.md joins the roots because the structural-integrity guard covers repo docs, and a case
 # it cannot write to is a case that cannot prove anything.
 MUTABLE_ROOTS = (
     "web/src",
@@ -100,7 +100,7 @@ MUTABLE_ROOTS = (
     # mutation-tested, and the mutations have to be able to reach it.
     "web/scripts",
     "scripts",
-    "PROCESS.md",
+    "docs/PROCESS.md",
     "web/vitest.config.ts",
     # Joined when `build.inlineStylesheets` became load-bearing: the globe's own 12 KB sheet sits
     # just past Vite's 4 KB inline limit, so the default 'auto' left it blocking first paint.
@@ -109,7 +109,7 @@ MUTABLE_ROOTS = (
     # the page, so the mutations that matter (a rung that stops being produced, an overlay that
     # stops sharing the ladder) can only be made here.
     "pipeline/compose",
-    # A single test file, on the same principle as PROCESS.md above. The mobile ladder contract
+    # A single test file, on the same principle as docs/PROCESS.md above. The mobile ladder contract
     # carries an exemption list, and a skip-list nobody can mutate is a skip-list nobody can prove
     # is still doing anything — which is the failure mode it exists to prevent.
     "tests/test_hero_variants.py",
@@ -179,14 +179,14 @@ MUTABLE_ROOTS = (
     # at once and shows up as a rebuilt planet that quietly kept one empty layer. There is no output
     # to inspect for a stage that DIDN'T run, which is the whole reason mutation is the only proof.
     "pipeline/freshness.py",
-    # Joined on PROCESS.md's reasoning, one document over: this file's sentence enumerating the
+    # Joined on docs/PROCESS.md's reasoning, one document over: this file's sentence enumerating the
     # stages that take a required `--body` is a CLAIM ABOUT FOUR ENTRY POINTS, and a guard drives
     # every one of them to check it. A doc nobody can mutate is a doc whose guard cannot be shown to
     # fire, and this sentence carried a module that had stopped having a CLI for a whole arc.
     "docs/pipeline.md",
     # Joined for the same reason one document over: its producer names and its true-sphere
     # precondition are what a reader follows into the tree, and a name that moved is the defect this
-    # doc has already shipped once, in ART.md, against a constant that had changed modules.
+    # doc has already shipped once, in docs/ART.md, against a constant that had changed modules.
     "docs/adding-a-body.md",
     # Joined with the stage sentinel, whose subject is a PRINT: the pass runs correctly whichever
     # way this module is broken, and what changes is only what a reader learns about a night that
@@ -391,7 +391,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='clip the closing pipe off a markdown table row',
-        path='PROCESS.md',
+        path='docs/PROCESS.md',
         needle='| 1 | warp height → 3857 | **6:49** | **4:37** | ~0 s | `height_3857.tif` 44 GB | `is_stale` |',
         replacement='| 1 | warp height → 3857 | **6:49** | **4:37** | ~0 s | `height_3857.tif` 44 GB | `is_stale`',
         guard='test_markdown_table_rows_are_terminated',
@@ -399,7 +399,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='leave a code fence unclosed',
-        path='PROCESS.md',
+        path='docs/PROCESS.md',
         needle='```mermaid\nflowchart LR\n  LK([',
         replacement='```mermaid\n```extra\nflowchart LR\n  LK([',
         guard='test_code_fences_are_balanced',
@@ -2869,8 +2869,8 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='a doc pointer goes back to naming a line number, which is what rotted three times',
         path='pipeline/compose/overlay_borders.py',
-        needle='here (ART.md\n# § Borders',
-        replacement='here (ART.md:447\n# § Borders',
+        needle='here (docs/ART.md\n# § Borders',
+        replacement='here (docs/ART.md:447\n# § Borders',
         guard='test_no_pointer_cites_a_line_number',
     ),
     # The document is renamed or leaves version control. Existence on the author's disk is NOT the
@@ -2879,12 +2879,12 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='a doc pointer names a document no clone receives',
         path='pipeline/compose/overlay_borders.py',
-        needle='(ART.md\n# § Borders):',
-        replacement='(ARTDIRECTION.md\n# § Borders):',
+        needle='(docs/ART.md\n# § Borders):',
+        replacement='(docs/ARTDIRECTION.md\n# § Borders):',
         guard='test_every_document_a_pointer_names_reaches_a_clone',
     ),
     # The heading moves out from under a pointer that still names a real file. This is the live case
-    # rather than a hypothetical: ART.md took 42 commits in three months carrying 95 heading
+    # rather than a hypothetical: docs/ART.md took 42 commits in three months carrying 95 heading
     # changes, and the `look/` split renamed two of them the same day it landed.
     Sabotage(
         suite='python',
@@ -2894,18 +2894,40 @@ SABOTAGES: list[Sabotage] = [
         replacement='# § Boundaries): width in render',
         guard='test_every_section_citation_lands_on_a_heading',
     ),
-    # The same rot in the other direction: the doc points at code. ART.md carried four of these at
-    # once, naming `shade.py` as `LAKE_CURVE`'s home and giving tuning recipes for a flag the same
+    # The same rot in the other direction: the doc points at code. docs/ART.md carried four of these
+    # at once, naming `shade.py` as `LAKE_CURVE`'s home and giving tuning recipes for a flag the same
     # file said twice had been removed. The realistic mutation is a revert to the producer's old
-    # name; it is planted here because ART.md is not a MUTABLE_ROOT and the defect has no
+    # name; it is planted here because docs/ART.md is not a MUTABLE_ROOT and the defect has no
     # preferred site.
     Sabotage(
         suite='python',
         label='a doc names the module a stage used to live in, which is no longer in the tree',
-        path='PROCESS.md',
+        path='docs/PROCESS.md',
         needle='| 4 | `tile/block_render.py`, the raytraced producer',
         replacement='| 4 | `tile/shade.py`, the raytraced producer',
         guard='test_every_module_a_doc_names_still_exists',
+    ),
+    # The realistic mutation is the move itself: a file goes under `docs/` and a root doc keeps
+    # linking its old path. The pointer checks above also resolve a bare name under `docs/`, so
+    # none of them sees it.
+    Sabotage(
+        suite='python',
+        label='a doc links a moved file at the path it had before the move',
+        path='README.md',
+        needle='[`docs/ART.md`](docs/ART.md)',
+        replacement='[`docs/ART.md`](ART.md)',
+        guard='test_every_link_in_a_doc_reaches_a_file_a_clone_has',
+    ),
+    # A link from a nested doc written as though the doc sat at the root. A resolver that reads
+    # every link from the repo root passes this one, so this is the case that proves a link is
+    # resolved from its own directory.
+    Sabotage(
+        suite='python',
+        label='a doc under docs/ links a sibling by its path from the root',
+        path='docs/pipeline.md',
+        needle='[`pipeline-layout.md`](pipeline-layout.md)',
+        replacement='[`pipeline-layout.md`](docs/pipeline-layout.md)',
+        guard='test_every_link_in_a_doc_reaches_a_file_a_clone_has',
     ),
     # The archive is gitignored, so a pointer without its heading resolves for the author and for
     # nobody else. A brevity pass is what takes the heading off.
@@ -8922,7 +8944,7 @@ def _earth_lake_depth''',
     ),
     # The body-contract paragraph answers "could I run this for the Moon" by naming the two producers
     # a body can have, so a reader follows those names into the tree. A name that moved is the defect
-    # this doc has already shipped once, in ART.md, against a constant that had changed modules.
+    # this doc has already shipped once, in docs/ART.md, against a constant that had changed modules.
     Sabotage(
         suite='python',
         label='the body contract names a planet producer that is not in the tree',
