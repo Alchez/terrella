@@ -130,7 +130,7 @@ new token a visitor would keep the tiles they already have for up to a year.
 web/
 ├── astro.config.ts        # build config + the dev-only /heroes, /borders, /tiles middleware
 ├── wrangler.jsonc         # the site Worker, serving dist/ as static assets
-├── pnpm-workspace.yaml    # allowed build scripts
+├── pnpm-workspace.yaml    # allowed build scripts + the strict release-age wait
 ├── public/
 │   └── caps/              # polar cap WebP rungs + caps.json (generated; gitignored)
 ├── scripts/

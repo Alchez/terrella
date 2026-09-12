@@ -4,6 +4,7 @@
 // is not a crash, it is a silent return to three reads that nothing would notice.
 
 import { readFileSync } from "node:fs";
+import ts from "typescript";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RangeResponse, Source } from "pmtiles";
 import worker, {
@@ -714,4 +715,53 @@ describe("fetch — a missing archive is a 404, not an exception", () => {
     for (const call of waitUntil.mock.calls) void call;
     expect(cache.put).not.toHaveBeenCalledWith("https://tiles.example/5/1/2.webp", expect.anything());
   });
+});
+
+describe("the Worker's type-check rejects what its runtime lacks", () => {
+  // The program `check:worker` builds, plus one in-memory probe. Neither Worker config enables
+  // `nodejs_compat`, so these globals would throw at runtime while the Worker's tests, which run
+  // under node, pass.
+  const probe = [
+    "export const fromProcess = process.env.PROBE;",
+    "export const fromBuffer = Buffer.from('probe');",
+    "export const fromGlobal = global;",
+    "export const fromCaches = caches.default;",
+  ];
+
+  it("refuses process, Buffer and global while caches.default still resolves", () => {
+    const parsed = ts.getParsedCommandLineOfConfigFile(
+      new URL("./tsconfig.json", import.meta.url).pathname,
+      {},
+      { ...ts.sys, onUnRecoverableConfigFileDiagnostic: () => undefined },
+    );
+    expect(parsed, "worker/tsconfig.json did not parse").toBeDefined();
+    const probePath = new URL("./type-probe.ts", import.meta.url).pathname;
+    const probeSource = probe.join("\n");
+    const host = ts.createCompilerHost(parsed!.options);
+    const getSourceFile = host.getSourceFile.bind(host);
+    const fileExists = host.fileExists.bind(host);
+    host.getSourceFile = (file, language, ...rest) =>
+      file === probePath ? ts.createSourceFile(file, probeSource, language) : getSourceFile(file, language, ...rest);
+    host.fileExists = (file) => file === probePath || fileExists(file);
+    const program = ts.createProgram({ rootNames: [probePath], options: parsed!.options, host });
+
+    const setup = [...program.getOptionsDiagnostics(), ...program.getGlobalDiagnostics()].map((diagnostic) =>
+      ts.flattenDiagnosticMessageText(diagnostic.messageText, " "),
+    );
+    expect(setup, "the Worker's runtime types are missing: run `pnpm run check:worker`").toEqual([]);
+
+    const probeFile = program.getSourceFile(probePath)!;
+    const flaggedLines = new Set(
+      program
+        .getSemanticDiagnostics(probeFile)
+        .map((diagnostic) => probeFile.getLineAndCharacterOfPosition(diagnostic.start ?? 0).line),
+    );
+    const flagged = probe.map((line, index) => ({ line, flagged: flaggedLines.has(index) }));
+    expect(flagged).toEqual([
+      { line: probe[0], flagged: true },
+      { line: probe[1], flagged: true },
+      { line: probe[2], flagged: true },
+      { line: probe[3], flagged: false },
+    ]);
+  }, 30_000);
 });

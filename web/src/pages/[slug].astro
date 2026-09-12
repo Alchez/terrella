@@ -18,7 +18,7 @@ const { country } = Astro.props as { country: Country };
 
 // The hero starts at the smallest variant that still fills a full-bleed figure, for a light
 // initial paint; the zoom script swaps in the native variant the first time you zoom in (see the
-// <script>). A FLOOR, not sizes[0]: this is a CSS background-image, so nothing negotiates a rung
+// script below). A FLOOR, not sizes[0]: this is a CSS background-image, so nothing negotiates a rung
 // for it, and the gallery's 640/960/1280 rungs sit below what this page displays at.
 const HERO_DISPLAY_FLOOR_PX = 1920;
 const displayRung = smallestRungAtLeast(country.sizes, HERO_DISPLAY_FLOOR_PX);
