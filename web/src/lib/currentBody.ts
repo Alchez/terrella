@@ -3,7 +3,7 @@
 //
 // `bodies.ts` is the registry: slugs, accents, the space floor. `tileAddress.ts` imports `BodySlug`
 // from it, and the tile Worker imports `tileAddress.ts` — so the registry is compiled by a runtime
-// with no DOM at all, under `@cloudflare/workers-types`. A single `document` reference anywhere in
+// with no DOM at all, under the Workers runtime types. A single `document` reference anywhere in
 // that file therefore fails the Worker's own type-check, and adding `DOM` to its lib is not the
 // escape: DOM's `CacheStorage` has no `default`, which is the Cloudflare-specific property the
 // Worker's cache path is built on. Measured, both ways.

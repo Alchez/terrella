@@ -1,6 +1,6 @@
 {
   // Deliberately standalone rather than extending ../tsconfig.json. The Worker runtime is not
-  // the browser: @cloudflare/workers-types redefines fetch, Response and friends, and letting
+  // the browser: the Workers runtime types redefine fetch, Response and friends, and letting
   // those types into the Astro project's program breaks `astro check`. So the site excludes
   // this directory and the Worker gets its own program.
   //
@@ -34,7 +34,8 @@
     // specifier, and an extension that satisfies node must then satisfy every program that reads
     // the same file. Legal here only because `noEmit` is set, which it is, above.
     "allowImportingTsExtensions": true,
-    "types": ["@cloudflare/workers-types"],
+    // Generated from wrangler.jsonc's compatibility date by `check:worker`, and gitignored.
+    "types": ["./worker-configuration.d.ts"],
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,

@@ -515,5 +515,8 @@ export default defineConfig({
       tilesDevServer(),
       perfSnapshotServer(),
     ],
+    // The browsers the CSS is compiled for. Astro builds with `esnext`, which names no browser, so
+    // without this the minifier targets none.
+    build: { cssTarget: ['chrome111', 'edge111', 'firefox114', 'safari16.4', 'ios16.4'] },
   },
 });

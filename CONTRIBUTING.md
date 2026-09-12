@@ -23,7 +23,7 @@ The first row runs on a fresh clone with nothing configured, and it is both test
 git clone https://github.com/Alchez/terrella.git
 cd terrella
 uv sync              # Python: builds .venv from uv.lock
-pnpm install -C web  # frontend: also applies a vendored MapLibre patch, explained in web/README.md
+pnpm install -C web  # frontend: builds web/node_modules from pnpm-lock.yaml
 ./scripts/check.sh
 ```
 

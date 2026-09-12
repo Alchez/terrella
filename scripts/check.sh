@@ -92,7 +92,7 @@ if [ "$WANT_WEB" = 1 ]; then
   fi
 
   # TWO PROGRAMS, and `pnpm check` runs both. `astro check` excludes worker/ on purpose, because
-  # @cloudflare/workers-types redefines fetch/Response and breaks the site's program, so the Worker
+  # the Workers runtime types redefine fetch/Response and break the site's program, so the Worker
   # carries its own tsconfig. For a while nothing ran that second one and nothing would have
   # noticed: wrangler's esbuild strips types without checking them, so a deploy ships regardless.
   run "astro check + worker" pnpm -C web run check

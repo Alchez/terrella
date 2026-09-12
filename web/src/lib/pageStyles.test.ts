@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 
 /**
  * Invariants that live in the globe's CSS rather than in its behaviour.
@@ -159,3 +160,110 @@ describe("the globe's stylesheets stay split the way the cascade needs", () => {
     }
   });
 });
+
+describe("the stylesheets keep what their declared browsers need once minified", () => {
+  // The minifier the build runs, loaded through vite so the test cannot drift onto another copy.
+  const vite = createRequire(import.meta.url).resolve("vite/package.json");
+  const { transform } = createRequire(vite)("lightningcss") as {
+    transform: (options: {
+      filename: string;
+      code: Uint8Array;
+      minify: boolean;
+      targets?: Record<string, number>;
+    }) => { code: Uint8Array };
+  };
+  const declared = readFileSync(`${WEB_ROOT}astro.config.ts`, "utf8").match(
+    /cssTarget:\s*\[([^\]]*)\]/,
+  )?.[1];
+  // Undeclared, the minifier gets no browser list: Astro builds with `esnext`, which names none.
+  const targets = declared === undefined ? undefined : lightningTargets(declared);
+  const minified = (source: string) =>
+    new TextDecoder().decode(
+      transform({ filename: "sheet.css", code: new TextEncoder().encode(source), minify: true, targets })
+        .code,
+    );
+
+  it("declares the browsers its CSS is compiled for", () => {
+    expect(declared, "astro.config.ts sets no vite.build.cssTarget").toBeDefined();
+  });
+
+  it("keeps every -webkit-backdrop-filter the sheets author", () => {
+    for (const [name, source] of [
+      ["globe.css", globe],
+      ["global.css", global],
+    ] as const) {
+      // At least as many as authored, per value: splitting a rule the target cannot merge copies
+      // its declarations, so the shipped count may exceed the source's.
+      const authored = prefixedValues(source.matchAll(/^\s*-webkit-backdrop-filter\s*:\s*([^;]+);/gm));
+      expect(authored.size, `${name} authors none, so this would check nothing`).toBeGreaterThan(0);
+      const shipped = prefixedValues(minified(source).matchAll(/-webkit-backdrop-filter:([^;}]+)/g));
+      for (const [value, count] of authored) {
+        expect(
+          shipped.get(value) ?? 0,
+          `${name} loses -webkit-backdrop-filter: ${value}, which Safari needs before 18`,
+        ).toBeGreaterThanOrEqual(count);
+      }
+    }
+  });
+
+  it("never folds a :has() selector into a rule that must survive without it", () => {
+    // A browser that cannot parse `:has()` drops the whole selector list, not the one selector.
+    const lists = [...minified(globe).matchAll(/([^{}]+)\{/g)]
+      .map((match) => match[1] ?? "")
+      .filter((prelude) => !prelude.startsWith("@"))
+      .map(splitSelectors);
+    const withHas = lists.filter((selectors) => selectors.some((selector) => selector.includes(":has(")));
+    expect(withHas.length, "globe.css has no :has() rule, so this would check nothing").toBeGreaterThan(0);
+    for (const selectors of withHas) {
+      expect(
+        selectors.every((selector) => selector.includes(":has(")),
+        `merged into one rule: ${selectors.join(", ")}`,
+      ).toBe(true);
+    }
+  });
+});
+
+const LIGHTNING_BROWSERS: Record<string, string> = {
+  chrome: "chrome",
+  edge: "edge",
+  firefox: "firefox",
+  safari: "safari",
+  ios: "ios_saf",
+};
+
+function lightningTargets(list: string): Record<string, number> {
+  const targets: Record<string, number> = {};
+  for (const entry of list.match(/[a-z]+[\d.]+/g) ?? []) {
+    const parts = /^([a-z]+)(\d+)(?:\.(\d+))?$/.exec(entry);
+    const browser = parts?.[1] === undefined ? undefined : LIGHTNING_BROWSERS[parts[1]];
+    if (!parts || browser === undefined) throw new Error(`cssTarget names ${entry}, which this test cannot read`);
+    targets[browser] = (Number(parts[2]) << 16) | (Number(parts[3] ?? 0) << 8);
+  }
+  return targets;
+}
+
+function prefixedValues(matches: Iterable<RegExpMatchArray>): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const match of matches) {
+    const value = (match[1] ?? "").trim();
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function splitSelectors(prelude: string): string[] {
+  const selectors: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let index = 0; index < prelude.length; index++) {
+    const character = prelude[index];
+    if (character === "(") depth++;
+    else if (character === ")") depth--;
+    else if (character === "," && depth === 0) {
+      selectors.push(prelude.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+  selectors.push(prelude.slice(start).trim());
+  return selectors;
+}

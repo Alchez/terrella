@@ -6,8 +6,8 @@
   // "pre-existing finding" allowance, exactly as `astro check` and `pyright` do.
   //
   // No path argument in the script either — oxlint walks from here and follows .gitignore, so
-  // `dist/`, `node_modules/` and the dev asset stores are out without being named. It reaches all
-  // 95 sources: `src/`, `scripts/`, `worker/`, the eight `.astro` pages, and the two configs.
+  // `dist/`, `node_modules/` and the dev asset stores are out without being named. It reaches every
+  // source under `src/`, `scripts/` and `worker/`, `.astro` pages included, and the root configs.
   //
   // `pnpm lint` also passes `--report-unused-disable-directives-severity=error`, which is a FLAG
   // and has no home in this file. It makes a suppression that no longer suppresses anything a red
