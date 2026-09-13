@@ -170,8 +170,8 @@ importers:
         specifier: ^7.3.2
         version: 7.3.2(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(@types/node@26.5.1)(yaml@2.9.0)
       maplibre-gl:
-        specifier: 6.8.0
-        version: 6.8.0
+        specifier: 6.9.0
+        version: 6.9.0
       pmtiles:
         specifier: 4.5.0
         version: 4.5.0
@@ -988,8 +988,8 @@ packages:
   '@maplibre/geojson-vt@6.1.1':
     resolution: {integrity: sha512-FVMOcmSP/yqol45t7StApEyTL5/vmqBCuFhH9n+fFuINenhaX+YgHHIt1yJ86S8kln3uJLcMvmEU2cfn6E2eCQ==}
 
-  '@maplibre/maplibre-gl-style-spec@26.4.1':
-    resolution: {integrity: sha512-I/qcIKVFHFSg1Meu/eqHrkSTjIez0gCsSaK56TNPutM3TkE61aSq6F1cZ4Kg4KiNs3cpViLtubDjfyRcQCdEJQ==}
+  '@maplibre/maplibre-gl-style-spec@26.4.2':
+    resolution: {integrity: sha512-6J0vZqMZvRAJKtdWJdDGHEh1YJ2ZHG08/GOur8gCArYhO8ZkM//OXqtI2AAEz4jc2G+Wq4MfcePg8qNK5TZ4Kg==}
     hasBin: true
 
   '@maplibre/mlt@1.2.1':
@@ -1440,6 +1440,9 @@ packages:
   bail@2.0.2:
     resolution: {integrity: sha512-0xO6mYd7JB2YesxDKplafRpsiOzPt9V02ddPCLbY1xYGPOX24NTyN50qnUxgCPcSoYMhKpAuBTjQoRZCAkUDRw==}
 
+  bidi-js@1.1.0:
+    resolution: {integrity: sha512-fX1Onk0tdVPC7obPWB5EbJ1z7NVhLq4m2xZLq2YXBkxzMXIGRpNMU88n0EPgWseKl12J7zXs7qrDxPK4sRs2fg==}
+
   blake3-wasm@2.1.5:
     resolution: {integrity: sha512-F1+K8EbfOZE49dtoPtmxUQrpXaBIl3ICvasLh+nJta0xkz+9kF/7uet9fLnwKqhDrmj6g+6K3Tw9yQPUg2ka5g==}
 
@@ -1818,8 +1821,8 @@ packages:
   magicast@0.5.5:
     resolution: {integrity: sha512-UicdXN8zQ3JHlxVq+28afMXPr1z7WNY6+7EJnzTdQWkTAlMLF5fNCCKxJHBQwGaNGR11581EiQmQzx73+MvszA==}
 
-  maplibre-gl@6.8.0:
-    resolution: {integrity: sha512-+ZkjKTodsVLY0ewQThvXRxXQsclcsSgOm5LlnrBM3G8AloMJKt6Haw8mY4xrOl8T0WMqH6DTYjktZ9zGQXZd4w==}
+  maplibre-gl@6.9.0:
+    resolution: {integrity: sha512-vFMwMK0Zs+NM/rOMSdtu8bO30DIexhBEVi5KC6f70/XtI+L/K2wC3LsDCAXFZ4s8ik5gAuDugfCNbpllpdJ9bA==}
     engines: {node: '>=16.14.0', npm: '>=8.1.0'}
 
   mdast-util-to-hast@13.2.1:
@@ -3138,7 +3141,7 @@ snapshots:
     dependencies:
       kdbush: 4.1.0
 
-  '@maplibre/maplibre-gl-style-spec@26.4.1':
+  '@maplibre/maplibre-gl-style-spec@26.4.2':
     dependencies:
       '@mapbox/jsonlint-lines-primitives': 2.0.3
       '@mapbox/unitbezier': 1.0.0
@@ -3618,6 +3621,10 @@ snapshots:
 
   bail@2.0.2: {}
 
+  bidi-js@1.1.0:
+    dependencies:
+      require-from-string: 2.0.2
+
   blake3-wasm@2.1.5: {}
 
   boolbase@1.0.0: {}
@@ -3979,17 +3986,18 @@ snapshots:
       '@babel/types': 7.29.8
       source-map-js: 1.2.1
 
-  maplibre-gl@6.8.0:
+  maplibre-gl@6.9.0:
     dependencies:
       '@mapbox/point-geometry': 1.1.0
       '@mapbox/tiny-sdf': 2.2.0
       '@mapbox/unitbezier': 1.0.0
       '@mapbox/vector-tile': 3.0.0
       '@maplibre/geojson-vt': 6.1.1
-      '@maplibre/maplibre-gl-style-spec': 26.4.1
+      '@maplibre/maplibre-gl-style-spec': 26.4.2
       '@maplibre/mlt': 1.2.1
       '@maplibre/vt-pbf': 4.3.2
       '@types/geojson': 7946.0.16
+      bidi-js: 1.1.0
       earcut: 3.2.3
       gl-matrix: 3.4.4
       kdbush: 4.1.0

@@ -24,7 +24,7 @@
   },
   "dependencies": {
     "astro": "^7.3.2",
-    "maplibre-gl": "6.8.0",
+    "maplibre-gl": "6.9.0",
     "pmtiles": "4.5.0"
   },
   "devDependencies": {
