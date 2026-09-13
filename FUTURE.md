@@ -38,6 +38,10 @@ Ideas deliberately **not** planned: analysed enough to record, parked without co
 - [Pinned low-zoom base layer](#pinned-low-zoom-base-layer-a-deterministic-floor-under-missing-tiles-analysed-2026-07-26) · look-call
 - [Mobile lightweight identify](#mobile-lightweight-identify-what-is-this-without-committing-analysed-2026-07-26) · product
 
+**The launch posts are scheduled.**
+
+- [A pointer over empty space names a place on the globe](#a-pointer-over-empty-space-names-a-place-on-the-globe-analysed-2026-09-12) · no-data-needed
+
 **An authoritative summit source is adopted.**
 
 - [The detail card cannot state an elevation the DEM does not know](#the-detail-card-cannot-state-an-elevation-the-dem-does-not-know-analysed-2026-08-27) · product · needs-data
@@ -584,7 +588,7 @@ Deferred past the 22h Earth pass deliberately: every part of it is a HERO defici
 
 ## Doc and guard debts, carried out of the working plan (parked 2026-09-08)
 
-> **MIXED**, and the subsections below carry the states. Most is a maintainer call or needs this project's own account; the doc-pointer widening below is the exception and needs a clone and nothing else. See also *One concept with two homes* in the entry below.
+> **MIXED**, and the subsections below carry the states. Most is a maintainer call or needs this project's own account; the doc-pointer widening and the invisible-character test below are the exceptions and need a clone and nothing else. See also *One concept with two homes* in the entry below.
 
 The same reason as the entry below it: the working plan is live state and one question in hand, not a backlog, and these had no deadline and no relation to the arc that carried them. None is urgent. Each is here so it is greppable rather than compressed away.
 
@@ -623,6 +627,11 @@ The same reason as the entry below it: the working plan is live state and one qu
 
 - **`test_doc_pointers` scans `pipeline`, `scripts` and `web/scripts`, so no citation in frontend code is checked by anything.** Grepping `web/src` for document names and `test_` identifiers reaches 30 of them across 20 files, and the Python side has already shipped the exact defect this catches: `cap_pass.py` named a test that had been renamed under it, and the one line telling a reader what enforced a flag pointed at nothing. Widening `SCANNED_ROOTS` is the whole mechanism; the cost is however many of those 30 turn out to dangle, which nobody has counted, plus teaching the comment stripper `.astro` syntax.
 
+### A character no reviewer can see
+
+- **Nothing fails on an invisible format character in source**: a byte-order mark, a zero-width space or joiner, a word joiner. `pipeline/compose/downloads.py` and its test both once spelled the XMP packet's byte-order mark as the literal character, written by an editing tool that turns a typed `﻿` escape into the character itself, so deleting it from both would have stayed green. → HISTORY, *GDAL cannot see a WebP packet written to the current spec, so Pillow reads that half*.
+- **None is in the tracked tree today**, so a test failing on any of them needs no allowlist. A hook would catch one author's edits and a test catches everyone's.
+
 ### An audit finding that is not a repair
 
 - **The sabotage classifier's remaining comment-anchored needles are its own lexer miscounting** `//`, `/*`, `///` and `{/*`. No needle anchors a code mutation on a comment any more, python and web both, so what an audit still lists under that heading is instrument error rather than a case to repair.
@@ -649,7 +658,7 @@ The same reason as the entry below it: the working plan is live state and one qu
 
 ## Small debts and open calls, carried out of the working plan (parked 2026-08-24)
 
-> **MIXED**, and the subsections below carry the states. The guard repairs under *One concept with two homes* are the most pickable work in this file: they need a clone and nothing else.
+> **MIXED**, and the subsections below carry the states. The `WHITE_UNION` pin and the RGI path under *One concept with two homes* need a clone and nothing else.
 
 The working plan had become the project's only backlog as well as its live state, which is why it kept hitting its own line cap. These are the items that had no deadline and no relation to the arc in hand. None is urgent; each is here so it is greppable rather than compressed away.
 
@@ -669,7 +678,7 @@ The working plan had become the project's only backlog as well as its live state
   - Measured on `e010_n70` and `e080_n20` against a fuse through each cell's own tiles at their native spacing: the shipped land heights are off by 6 to 9 cm at the median, about 2 m at the 99th percentile and 24 m at the worst pixel. Re-fusing through today's grid is no closer.
   - `enforce_land_guard` covers a different case, a mosaic too stale to serve a cell's tiles at all.
   - Restaging on a moved grid treats the symptom and re-fuses all 648 cells on any download. The fix is a grid that does not depend on the tile set, which moves every land height slightly and so costs a re-fuse and a whole Earth pass.
-  - Judged by eye and parked on that: the worst Himalayan block rendered from shipped and from corrected heights showed Rohan no difference. It rides the next Earth pass that is owed for another reason.
+  - Judged by eye and parked on that: the worst Himalayan block rendered from shipped and from corrected heights showed no difference. It rides the next Earth pass that is owed for another reason.
 
 ### One concept with two homes
 
@@ -677,28 +686,9 @@ The working plan had become the project's only backlog as well as its live state
   - `render_prep` and `prep_block` are the same category of stage: build a render directory, then shell into `scene_build`. Nothing in HISTORY justifies the difference, so it is drift.
   - `pipeline/render/__init__.py` says "the rest of this package is the hero path" and enumerates four modules. `prep_block.py` sits in that package, is not the hero path, and is not enumerated.
   - Renaming changes no recipe, so it is neither cheaper nor dearer after the render pass.
-- **15 mutation cases name a guard that does not catch them**, found by `sabotage.py --audit` on 2026-08-24. Each is a guard repair rather than a pipeline change, and none of them changes a rendered pixel, so none gates a render pass. HISTORY's *the audit runs* entry carries every conclusion about the audit and none of the items, which is why they are enumerated here.
-  - **The list is re-derivable in 8.5 min** by re-running `--audit`, and a re-run is the honest list rather than this one, which rots as the table changes. Prefer it if any of the 15 has been touched since.
-  - **It was 17, and two went with the compositor rather than being fixed**: a region preview regrowing its own exaggeration and a hillshade forgetting the ground scale, both mutating modules that no longer exist. Matching the list back against the live labels is a prefix match, since each item here is the first clause of a longer one.
-  - The 394 web and collection cases could not be audited at all, since neither suite can be narrowed to one guard, so their guards remain unproven and are not counted here.
-  1. *a refactor moves a needle out from under its case*. A regression from the same day: the in-flight skip keys on the mutated PATH, so every needle pointing at that file is skipped, the moved one included. Fix is to key it on the in-flight CASE.
-  2. *the warp asks the disk before the body*, caught by three other tests and naming a fourth.
-  3. *the reprojection stops removing its target*. CONFIRMED WRONG against the full suite; the real catcher is `test_a_corrupt_intermediate_does_not_survive_into_the_burn`.
-  4. *the brightness recipe stops recording its weights*, `test_changed_weights_are_STALE`.
-  5. *the recipe drops the source edition*, `test_a_republished_source_edition_is_STALE`.
-  6. *the cap recipe stops recording which layers are off*, `test_turning_a_layer_off_restages_although_its_source_stops_being_a_dependency`.
-  7. *the gazetteer extracts as it verifies*, `test_a_bad_digest_writes_NOTHING_not_even_the_members_before_it`.
-  8. *an edge ACROSS the meridian counts as one along it*. CONFIRMED MISSED against the full suite; nothing catches it.
-  9. *the writer re-derives the law instead of calling it*. The replacement is numerically identical, so only asserting `row_scale` is CALLED can catch it.
-  10. *the context is sized at the block centre*, `test_no_block_row_is_narrower_than_sizing_at_its_centre`.
-  11. *the scratch VRT is built outside the directory*, `test_an_unchanged_source_set_leaves_the_file_untouched`.
-  12. *served assets are resolved against the data store*, `test_served_assets_follow_the_checkout_not_the_data_store`.
-  13. *the About page keeps the superseded output licence*, `test_every_site_states_the_output_license`.
-  14. *gen_spotlight restates the ladder instead of importing it*, `test_the_ladder_matches_the_spotlight_overlay`.
-  15. *the render dir drifts from the work dir*, `test_it_follows_a_relocated_store`.
 - **A freshness recipe could be derived from the built scene rather than enumerated by hand.** `scene_dump.py` already dumps the graph exhaustively, including sampled ramp evaluations, and it reads the BUILT graph rather than the source, so it sees values written inline. Hashing it would have caught all three instances of the enumeration going short. The obstacle is that it needs real Blender, where the freshness check today runs with `bpy` stubbed; the graph is body-shaped rather than block-shaped, so one invocation per pass would do.
 - **CLOSED, and by deletion rather than by doing the work: every live tier now records the white law.** `block_render.params` and `cap_raytrace.params` both spread `layer_producers.white_law`. The two recipes that folded the law without recording it were the compositor's and the composited cap's, and both are deleted. Do not re-park this: the entry said it "does not retire with the switch", which was written while a second producer still existed and is the reason it is worth saying so here.
-- **No test pins that `PERENNIAL_ICE` and `GLACIERS` are IN `WHITE_UNION`.** Every membership assertion in the suite is negative, so a layer silently ceasing to be white is caught by nothing. Belongs with the guard repairs above rather than with the recipe work, since it changes no recipe.
+- **No test pins that `PERENNIAL_ICE` and `GLACIERS` are IN `WHITE_UNION`.** Every membership assertion in the suite is negative, so a layer silently ceasing to be white is caught by nothing. It changes no recipe, so it is a guard to add rather than recipe work.
 - **The RGI glacier path is spelled twice and its burn argv has no owner.**
   - `snow.RGI_GPKG` and `download_rgi.GPKG` are one path written in two places, and `rasterize_glaciers_raster` carries a copy of the argv `vector_raster.rasterize_argv` now owns.
   - The rock layer deliberately has one of each, so this is the last instance rather than a pattern.
@@ -736,6 +726,13 @@ The working plan had become the project's only backlog as well as its live state
 - **`MARS_MODAL_GROUND` is the authored stop and the tiles ship the RENDERED one**, so the space floor behind a missing tile is cooler than its surroundings. The gap was measured against composited tiles and Mars raytraces now, so re-measure before acting; the defect's shape is unchanged but its size is unverified. Cosmetic, pre-existing, a colour call.
 - **Mars phase 4 is an open product question rather than queued work**: whether the body gets a curated landmark set or a hero per feature. Nothing downstream is waiting on the answer.
 
+### An upstream report nobody has filed
+
+- **GDAL's WebP driver reads XMP only from the draft container**, a `META` chunk under VP8X flag 0x08, where the current container spec puts an `XMP ` chunk under 0x04 and libwebp and Pillow read only that. So GDAL sees no packet in a stamped full-size WebP, and `tests/test_downloads.py` reads that half through Pillow. → HISTORY, *GDAL cannot see a WebP packet written to the current spec, so Pillow reads that half*.
+- **Nobody has reported it and no fix is open.** GDAL's own test file carries the draft layout, which is why its suite stays green.
+- **Test what GDAL's lossless `CreateCopy` writes before drafting a report**: its source writes a `META` chunk there too, and the report should say whether GDAL's own output is invisible to every other reader. It goes through the Bug report form on GDAL's GitHub, and needs a clone and nothing else.
+- **A fix changes one reader here**: once rasterio bundles it, the WebP half could read through GDAL like the PNG half.
+
 ## Render passes and open calls, carried out of the working plan (parked 2026-09-06)
 
 > **MIXED**, and the subsections below carry the states. The render items wait on a night and a decision rather than on a finding, so none of them is analysis anyone can advance. Price any pass from PROCESS, never from this file.
@@ -759,9 +756,18 @@ The working plan went back to holding one onboarding question at a time, which i
 - **The sky-view march wraps around the frame, so a hero's west-edge ridge occludes its east edge as though the two were adjacent.** Measured on a 256 px grid: the far edge reads 0.5625, matching the pixel one px from the ridge, while mid-grid reads a fully open 1.0000. `test_the_march_wraps_around_the_grid_edge` pins that value, so padding the march instead goes red here rather than silently restaging every hero. The fix costs a re-shade and not a re-render, no GPU and minutes off the kept `heroes/raw/*.png`, but it moves the edge band on all 203, which makes it a look call.
 
 - **Three items defer with the 203-hero re-render**, each needing a frame rendered under the new sky: `SHADOW_TINT`'s re-derivation, the `locked_hero_hex` re-freeze, and the hero hairline backdrop. The mismatch behind them is real, every hero carrying a warm ambient and the old tone map that the tiles do not, so a country click opens a hero that does not match its globe.
+- **The re-render's publish pass also regenerates 609 live Focus overlays**, the 1920, 3840 and 7680 of every country, which predate the 24 July re-shade and so dim the old shading outside each border. They wait for it, by the maintainer's call. `gen_manifest` refuses the store until they are redone, and the pass is untimed at those sizes, so time one country first. → HISTORY, *`SITE-4`'s manifest refuses a stale image*.
+- **`SITE-4`'s publish waits for the re-render, by the maintainer's call, so the download files go up once and already re-rendered.** The download line under every country image, the PNG copies for print and the country maps bundle are built. `docs/pipeline.md` § *Publishing heroes (Earth only)* runs the rest, with his look at the live page before the deploy.
+  - Until then no tree carrying the download line can deploy. The preflight refuses while R2 lacks a download file the manifest records, and `SKIP_ASSET_SYNC_CHECK=1` would ship 203 dead print links and a dead bundle link.
+  - His look also judges what the build left open: "Download:" alone on its line at 320 px, the Country maps card alone on a second row at 1440, the SHA-256 on that card, and the words of the bundle's `README.txt`. Zooming a country image in Zen is the only check that a full-size file marked to download still paints in Firefox, which was tested in Chromium alone.
+- **Once the bundle is public, a re-render changes its bytes, and nothing stops the rebuilt one going up over `earth/country-maps-webp-v1.zip`.** It first goes up with the re-render above, so this starts at the one after. The bucket is additive by decision, so it goes up as v2 with v1 kept, which needs `downloads.BUNDLE_KEY` bumped and a superseded row the Archives page can list, `ARCHIVED` holding tile cuts alone. The deploy preflight refuses until R2 holds what `web/src/data/downloads.json` records, and an upload over v1 satisfies it.
 - **The tier picker has no way back to automatic, deferred until a visitor asks for one.** A press of Lite, Globe or Full pins that tier in `rg:quality` for good, and only clearing the site's data hands the choice back to the probe, which the About note says. An Auto button was offered and declined for now; Earth's bar at 320 px has its one-row fit held by the view bar test, so a fourth tier button is measured against that before it is designed.
 - **Do two GPU backends render identically?** Blocked on hardware, this box having one card. If they differ, the backend belongs in the recipe rather than in `scene_build`'s module-constant allowlist, and `GPU_BACKENDS`'s own comment says so.
 - **The fold's law is deferred on the composite and cap tiers, and its stated reason is now false**, having rested on both bodies being composited. Re-argue it rather than citing it.
+- **A change to the hero's size needs three things first**, none built because none is planned. → HISTORY, *what a change to the hero's size would take*.
+  - The size has two owners and only one is read: `[defaults].hero_long_edge` in `config/countries.toml` reaches `country_config`'s preview alone, and every country renders at `render_prep.HERO_LONG_EDGE`, because the batch passes a size only for an override. One owner wants the batch always passing it, and a test.
+  - Each country's `frame.json` pins its render size and render prep never overwrites it, so `batch --force` renders the old size again. Render prep should refuse a pin that disagrees with the size asked for, and name the file.
+  - The ladder and overlay writers rewrite nothing that exists unless forced, and nothing is written to remove a file a master stopped producing. The manifest refuses both states and names the fix, so this one is convenience rather than correctness.
 
 ### The full sabotage sweep, the one owed verification
 
@@ -770,18 +776,20 @@ The working plan went back to holding one onboarding question at a time, which i
 - **About 46 minutes measured, and `--audit` is the pre-flight**: it costs a tenth and answers what a sweep cannot, since escalation lets a sibling failure report a mislabelled case as caught. → HISTORY, *`--audit` prices the sweep at 46 minutes*.
 - **It owns the tree while it runs, so a worktree is the isolation.** `sabotage.py` takes `REPO_ROOT` from `__file__` and `tree-is-mutated.py` hardcodes the main checkout, so a run elsewhere blocks nothing. A worktree needs `uv sync`, `pnpm install`, and `MAPS_DATA` left unset, no skipped test being a named guard.
 - **Re-run `--audit` on whatever tree is swept**, since a recorded pass describes the table it was measured on and `sabotage.py` moves most sessions.
-- **The web suite has no narrow path, which is 28.5 of those 46 minutes**: 400 cases each rebuild 71 files' module graphs at 4.27 s, 87% of it transform and import. A file-scoped `vitest run <file>` roughly halves it, and what blocks it is that a case names the sabotaged source rather than the guard's test file, where a pytest guard is a name `-k` takes.
+- **The web suite has no narrow path, which is 28.5 of those 46 minutes**: 400 cases each rebuild 71 files' module graphs at 4.27 s, 87% of it transform and import. A file-scoped `vitest run <file>` roughly halves it, and what blocks it is that a case names the sabotaged source rather than the guard's test file, where a pytest guard is a name `-k` takes. `--audit` skips every web and collection case, since neither suite can run one guard alone.
 
 ### Changes that want a yes before they are made
 
 - **`fold_white`'s `merge` parameter has no shipped caller**: both sites discard the second return and only `test_prep_block` passes one. Deleting it is a signature change with test surface.
 - **`cap_render`'s remainder is structural rather than a prose pass**: 59 functions in one module across five subjects, so three docstring lines each is 177 lines before anything is explained.
 - **The module family census**: 16 of 16 `verb_object` in `acquire` and `fuse`, against 39 to 10 elsewhere. It needs a verb list from the maintainer, so it is a style opinion rather than a measurement.
+- **`overlay_borders` draws a hero overlay that no hero carries.** Its `borders` mode writes a bordered hero and a toggle layer, and its `hydro` mode an India demo; neither the batch nor the runbook runs either, and `gen_spotlight` imports only its camera mapping.
+  - ART § Borders styles that overlay as a hero lever, and three sabotage cases are planted in the module's pointer to that section. Deleting both modes, or putting borders on a surface again, such as the print downloads, is a look call.
 
 ### The em-dash population, restated because the old figure named the wrong set
 
-- **65 occurrences in two tracked markdown docs**: `ATTRIBUTIONS` 46 and `web/DEPLOY` 19. `ART` and `PROCESS` carried 144 and 102 and are now at zero, each having taken its own sitting, which is what the remaining two need: the rule names which mark replaces each, so it is not a single regex.
-- **The figure had been called "the whole tracked population" and it is not.** The tracked tree carries 4,447, so 4,382 sit in code comments and docstrings across roughly 280 files, led by `scripts/sabotage.py` and `web/src/components/Globe.astro`.
+- **61 occurrences in two tracked markdown docs**: `ATTRIBUTIONS` 46 and `web/DEPLOY` 15. `ART` and `PROCESS` carried 144 and 102 and are now at zero, each having taken its own sitting, which is what the remaining two need: the rule names which mark replaces each, so it is not a single regex.
+- **The figure had been called "the whole tracked population" and it is not.** The tracked tree carries 4,391, so 4,330 sit in code comments and docstrings across 320 files, led by `scripts/sabotage.py` and `web/src/components/Globe.astro`.
   - **Whether the rule reaches a comment is the maintainer's call**, and it separates a two-sitting doc pass from a four-thousand-occurrence sweep. Visitor-visible copy is not implicated: every occurrence checked in the page templates and `aboutContent.ts` sat inside a comment.
 
 ### Findings from the recipe-seam arc that had nowhere else to live
@@ -800,3 +808,14 @@ The working plan went back to holding one onboarding question at a time, which i
   - Wrong at both edges too, since `tile/pack_pmtiles` moves blobs without re-encoding and `mercator.py` defines the tile grid.
   - **And it had nowhere to be delivered**: a tier is computed from a diff so it cannot be committed, a workflow cannot comment on a fork's pull request, and CI checks out shallow.
 - **The starter kit, all three parts**: the 148 KB manifest into git, a roughly 60 MB pixel fixture, and `PUBLIC_*_BASE` defaults pointing at production. Parked together rather than separately, since any one of them alone still leaves a contributor unable to run the thing.
+
+## A pointer over empty space names a place on the globe (analysed 2026-09-12)
+
+> **OPEN** · no-data-needed · **reopens when** the launch posts are scheduled, since a visitor moving the pointer off the planet meets it on both bodies.
+
+- **What happens:** with the pointer resting on empty space beside the disc, the globe names a place as if the pointer were on it, with the name chip, the hover outline and the pointer cursor.
+  - Measured on the live site at the four corners of a 1920 by 1080 window, with a pointer on the disc centre as the control: Earth named China and Brazil from two corners, and Mars named Noachis Terra, Arabia Terra and Terra Sirenum from three.
+- **One cause on both bodies:** `countryAt` and `featureAt` in `web/src/components/Globe.astro` both take `map.queryRenderedFeatures` at the pointer without asking whether it is on the planet, and on the globe that query returns features for a point off the disc. Mars shows it from more directions because its gazetteer polygons cover the whole surface.
+- **The gate does not exist yet:** `locateOnDatum` returns a location for any screen point, its return type never being null, so nothing in the tree answers whether a point is on the planet.
+- **A fix can be proved on a fresh clone:** `web/src/lib/testing/mountGlobe.ts` mounts a real globe with no sources, and a test adds inline GeoJSON of its own, which is enough to assert that a point beyond the disc names nothing while one on it still does.
+- The measurement → HISTORY, *twelve candidate globe frames for the launch, and a pointer over empty space names a place on either globe*.

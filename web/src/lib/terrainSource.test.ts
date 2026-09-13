@@ -866,7 +866,7 @@ describe("the deploy preflight must refuse a globe production cannot serve", () 
     expect(occurrences("checkTerrainIsRoutable"), "declared and called exactly once").toBe(2);
     expect(occurrences("checkEveryPublishedArchiveIsUploaded"), "declared and called once").toBe(2);
     expect(script, "and main() is what calls them").toMatch(
-      /checkTerrainIsRoutable\(\);\s*\n\s*checkEveryPublishedArchiveIsUploaded\(endpoint\);/,
+      /checkTerrainIsRoutable\(\);\s*\n\s*const archives = listBucket\(endpoint, ARCHIVE_BUCKET\);\s*\n\s*checkEveryPublishedArchiveIsUploaded\(archives\);/,
     );
     // The route half is two greps, because routing lives in the registry: the Worker has to
     // dispatch through the shared resolver, AND the registry has to publish a terrain archive for

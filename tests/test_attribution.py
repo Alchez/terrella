@@ -47,7 +47,7 @@ class TestTheRegistryIsTotal:
 
     def test_every_key_named_anywhere_resolves_to_a_source(self, subtests):
         for name, credits in attribution.CREDITS.items():
-            named = {*credits.heightfield, *credits.vector, *credits.heroes,
+            named = {*credits.heightfield, *credits.vector, *credits.heroes, *credits.focus,
                      *(key for keys in credits.painted.values() for key in keys)}
             with subtests.test(name):
                 assert named <= set(attribution.SOURCES), (
@@ -59,7 +59,7 @@ class TestTheRegistryIsTotal:
         that still reads as a credit being given."""
         used = {key for credits in attribution.CREDITS.values()
                 for key in (*credits.heightfield, *credits.vector, *credits.heroes,
-                            *(k for keys in credits.painted.values() for k in keys))}
+                            *credits.focus, *(k for keys in credits.painted.values() for k in keys))}
         assert set(attribution.SOURCES) == used
 
 
@@ -161,7 +161,7 @@ class TestTheRequiredNoticesReachTheArchiveThatOwesThem:
         for body in bodies.BODIES.values():
             for layer in attribution.ARCHIVE_LAYERS:
                 with subtests.test(f"{body.name}/{layer}"):
-                    assert "CC BY-SA 4.0" in attribution.for_archive(body, layer)
+                    assert attribution.OUTPUT_LICENCE in attribution.for_archive(body, layer)
 
     def test_the_three_pyramids_do_not_compose_one_credit(self):
         """The vacuity control: every assertion here is a substring test, and a function returning
@@ -183,7 +183,7 @@ class TestThePageListIsDerived:
     def test_a_source_the_body_uses_anywhere_gets_a_card(self, subtests):
         for body in bodies.BODIES.values():
             credits = attribution.CREDITS[body.name]
-            expected = {*credits.heightfield, *credits.vector, *credits.heroes,
+            expected = {*credits.heightfield, *credits.vector, *credits.heroes, *credits.focus,
                         *(key for keys in credits.painted.values() for key in keys)}
             carded = {source.name for source in attribution.on_the_page(body)}
             with subtests.test(body.name):
@@ -267,6 +267,100 @@ class TestWhatAnArchiveSaysItIs:
     def test_an_unknown_layer_raises_rather_than_describing_something(self):
         with pytest.raises(ValueError, match="not an archive layer"):
             attribution.describe(bodies.EARTH, "")
+
+
+#: What each step of the hero lane puts into a hero's pixels, keyed by the module or script it runs.
+#: Keyed by step so that a step added to the lane goes red here until someone says what it reads.
+HERO_STEP_SOURCES: dict[str, set[str]] = {
+    "pipeline.acquire.earth.download_glo30": {"glo30"},
+    # The void tiles' water mask, which `fuse/build_void_wbm.py` synthesises from WorldCover.
+    "pipeline/fuse/build_mosaics.sh": {"glo30", "worldcover"},
+    "pipeline.fuse.fuse_heightfield": {"glo30", "gebco"},
+    "pipeline.render.render_prep": set(),
+    "pipeline.render.snow_mask": {"worldcover"},
+    "pipeline.render.lake_mask": {"globathy"},
+    "pipeline/render/scene_build.py": set(),
+    # The batch's own steps. Natural Earth frames the image and draws nothing into it.
+    "pipeline.acquire.earth.download_naturalearth": set(),
+    "pipeline.acquire.earth.download_gebco": {"gebco"},
+    "pipeline.look.sky_view": set(),
+}
+
+
+def hero_lane_steps() -> set[str]:
+    """Every module or script the hero lane runs: one country's stage list, plus the batch's own."""
+    from pipeline.frame import country_config
+
+    config = {"defaults": {"pad_pct": 5.0, "hero_long_edge": 7680, "warp_long_edge": 8192,
+                           "fusion": "auto", "sky_view_strength": 0.2,
+                           "resolution_floor_m": 60.0},
+              "scope": {"exclude": [], "include": []}, "countries": {}}
+    row = {"admin": "Nepal", "sov": "Nepal", "bbox": (80.0, 26.0, 88.0, 30.0), "idx": 0}
+    resolved = country_config.resolve("nepal", row, config)
+    assert resolved is not None
+    steps = set()
+    for command in country_config.stage_commands(resolved):
+        words = command.split()
+        flag = next((word for word in ("-m", "--python", "bash") if word in words), None)
+        assert flag is not None, f"cannot tell what this stage runs: {command}"
+        steps.add(words[words.index(flag) + 1])
+    steps |= set(re.findall(r"python -m (pipeline\.[\w.]+)", " ".join(batch_code_strings())))
+    return steps
+
+
+def batch_code_strings() -> list[str]:
+    """Every string literal in `pipeline/batch.py` that is code, which leaves out its docstrings:
+    the usage lines there run the batch itself, and name no step of it."""
+    import ast
+
+    tree = ast.parse((REPO_ROOT / "pipeline/batch.py").read_text(encoding="utf-8"))
+    docstrings = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.ClassDef)) \
+                and ast.get_docstring(node) is not None \
+                and isinstance(node.body[0], ast.Expr):
+            docstrings.add(id(node.body[0].value))
+    return [node.value for node in ast.walk(tree)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)
+            and id(node) not in docstrings]
+
+
+class TestWhatAHeroIsBuiltFrom:
+    """A hero file carries its credit inside it once it is downloaded, so the credit has to be the
+    hero lane's own sources: nothing it does not read, and nothing it reads left out."""
+
+    def test_every_step_of_the_lane_says_what_it_reads(self):
+        steps = hero_lane_steps()
+        assert steps == set(HERO_STEP_SOURCES), (
+            f"the hero lane runs {sorted(steps - set(HERO_STEP_SOURCES))} with no entry here, and "
+            f"{sorted(set(HERO_STEP_SOURCES) - steps)} have an entry and no longer run. Say what a "
+            "new step puts into the pixels, then credit it in `CREDITS['earth'].heroes`")
+
+    def test_the_hero_credit_is_what_the_lane_reads(self):
+        read = set().union(*HERO_STEP_SOURCES.values())
+        assert set(attribution.hero_keys(bodies.EARTH)) == read
+
+    def test_the_hero_file_carries_every_licence_required_notice(self, subtests):
+        credit = attribution.for_hero(bodies.EARTH)
+        for key in attribution.hero_keys(bodies.EARTH):
+            if attribution.SOURCES[key].obligation:
+                with subtests.test(key):
+                    assert attribution.SOURCES[key].notice in credit
+        with subtests.test("Copernicus 6(c)"):
+            assert attribution.COPERNICUS_LIABILITY in credit
+        with subtests.test("the output licence"):
+            assert attribution.OUTPUT_LICENCE in credit
+
+    def test_natural_earth_frames_the_hero_and_is_not_credited_inside_it(self):
+        assert attribution.SOURCES["naturalearth"].notice not in \
+               attribution.for_hero(bodies.EARTH)
+
+    def test_the_focus_layer_draws_natural_earth(self):
+        assert attribution.CREDITS["earth"].focus == ("naturalearth",)
+
+    def test_a_body_with_no_hero_renders_has_no_hero_credit(self):
+        with pytest.raises(ValueError, match="no hero renders"):
+            attribution.for_hero(bodies.MARS)
 
 
 class TestTheCommittedJsonIsInStep:

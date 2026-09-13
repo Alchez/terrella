@@ -103,17 +103,15 @@ there as an absolute URL, so adding a fourth cannot silently ship as same-origin
 `public/caps/`, both generated from the render store and both gitignored. Regenerate them first —
 see `docs/pipeline.md`.
 
-**The preflight can refuse.** `scripts/check_deploy_sync.ts` runs before the upload and blocks on
-three things: an object the manifest promises that R2 does not have, a globe that would request
-terrain no Worker routes, and **any archive the registry publishes** that is not in
-`terrella-tiles`. All three are silent in production — a 404ing tile does not stop the globe
-rendering, it just renders wrong, flat, or blank with nothing in any log. The refusal message names
-the file to change.
+**The preflight can refuse.** `scripts/check_deploy_sync.ts` runs before the upload and blocks on each of these, every one silent in production: a 404ing tile does not stop the globe rendering, it just renders wrong, flat, or blank with nothing in any log, and a download saved from the wrong file still opens. The refusal message names the file to change.
 
-The third enumerates rather than naming keys, and that is what closed a real hole: it used to read
-two named variables out of the Worker's config, so the country pyramid was never checked at all and
-a deploy missing it reported clean. A fourth archive is now checked the day it is published, by a
-script nobody edited.
+- An object the manifest promises that R2 does not have.
+- A download file R2 holds at another size than the manifest records. A stamp keeps a file's key, so this is what an upload made before the stamp looks like.
+- The country maps bundle absent from `terrella-tiles`, uploaded at another size than `src/data/downloads.json` records, or holding other images than the pages offer.
+- A globe that would request terrain no Worker routes.
+- **Any archive the registry publishes** that is not in `terrella-tiles`.
+
+The last enumerates the registry rather than naming keys, so an archive is checked the day it is published, by a script nobody edited. Naming keys, say out of the Worker's config, looks simpler and leaves each new archive unchecked while every deploy reports clean.
 
 It is also the one to expect after a re-cut: packing and uploading an archive are separate steps
 from deploying, so bumping the registry entry before the upload finishes is the easy mistake. The
@@ -177,13 +175,10 @@ silently, so a fresh setup needs all three.
 
 Why each is needed, since none is obvious from its failure:
 
-- **Cache Rule** — `.geojson` and `.json` are not default-cached extensions (`.webp` and `.png`
-  are), so without it every visit pulls the border GeoJSON from origin. R2 sends no `Cache-Control`
-  at all, which is why the TTL must *ignore* the header rather than honour it.
-  `cf-cache-status: DYNAMIC` is the signature of a missing rule; `MISS` then `HIT` is success.
-- **CORS** — the globe `fetch`es both GeoJSON files, and a `fetch` needs CORS where an `<img>` hero
+- **Cache Rule**: `.geojson` and `.json` are not default-cached extensions (`.webp` and `.png` are), so without it every visit pulls the border GeoJSON from origin. R2 sends no `Cache-Control` at all, which is why the TTL must *ignore* the header rather than honour it. On a GET, `cf-cache-status: DYNAMIC` is the signature of a missing rule and `MISS` then `HIT` is success. Ask with a GET: a HEAD skips the cache and answers `DYNAMIC` with the rule in place.
+- **CORS**: the globe `fetch`es both GeoJSON files, and a `fetch` needs CORS where an `<img>` hero
   does not. Getting this wrong breaks only the borders, not the heroes.
-- **`Timing-Allow-Origin`** — without it, cross-origin Resource Timing reports `transferSize` and
+- **`Timing-Allow-Origin`**: without it, cross-origin Resource Timing reports `transferSize` and
   `decodedBodySize` as `0` rather than as unknown, so the site's own instrumentation reads its
   largest payload as free. It also degrades LCP attribution for the gallery's hero images. The tile
   Worker sets this header itself (`worker/index.ts`) and needs no rule.

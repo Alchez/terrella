@@ -237,5 +237,44 @@
       ],
       "legal": []
     }
+  },
+  "heroes": {
+    "earth": {
+      "credit": "Terrella (https://terrella.alchez.dev), CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/). produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved. The organisations in charge of the Copernicus programme by law or by delegation do not incur any liability for any use of the Copernicus WorldDEM-30. Reproduced from the GEBCO_2026 Grid, GEBCO Compilation Group (2026). © ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium. Lake depth from GLOBathy: Khazaei, B., Read, L.K., Casali, M., Sampson, K.M., Yates, D.N. (2022), GLOBathy, the Global Lakes Bathymetry Dataset, Scientific Data 9, 36 (doi:10.1038/s41597-022-01132-9).",
+      "sources": [
+        {
+          "name": "Copernicus DEM GLO-30",
+          "href": "https://dataspace.copernicus.eu/explore-data/data-collections/copernicus-contributing-missions/collections-description/COP-DEM",
+          "role": "Land elevation",
+          "license": "Copernicus"
+        },
+        {
+          "name": "GEBCO 2026 Grid",
+          "href": "https://www.gebco.net",
+          "role": "Bathymetry",
+          "license": "Public domain"
+        },
+        {
+          "name": "ESA WorldCover 2021",
+          "href": "https://esa-worldcover.org",
+          "role": "Snow / ice mask",
+          "license": "CC-BY 4.0"
+        },
+        {
+          "name": "GLOBathy",
+          "href": "https://springernature.figshare.com/collections/GLOBathy_the_Global_Lakes_Bathymetry_Dataset/5243309",
+          "role": "Lake depth",
+          "license": "CC0"
+        }
+      ],
+      "focus": [
+        {
+          "name": "Natural Earth",
+          "href": "https://www.naturalearthdata.com",
+          "role": "Borders & coastlines",
+          "license": "Public domain"
+        }
+      ]
+    }
   }
 }

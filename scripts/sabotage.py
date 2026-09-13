@@ -8389,7 +8389,7 @@ def _earth_lake_depth''',
         suite='web',
         label='the preflight goes back to naming archive keys instead of enumerating them',
         path='web/scripts/check_deploy_sync.ts',
-        needle='  checkEveryPublishedArchiveIsUploaded(endpoint);',
+        needle='  checkEveryPublishedArchiveIsUploaded(archives);',
         replacement='',
         guard='checks BOTH halves — that the route exists and that the bytes do',
     ),
@@ -8400,6 +8400,205 @@ def _earth_lake_depth''',
         needle='  if (keys.length === 0) {',
         replacement='  if (false) {',
         guard='checks BOTH halves — that the route exists and that the bytes do',
+    ),
+
+    # --- the preflight holds R2 to the download files and the bundle -----------------------------------
+    # A stamp keeps each download file's key, so a size is all that tells a stamped upload from one
+    # made before it.
+    Sabotage(
+        suite='web',
+        label="the preflight advertises the full-size WebPs and not the PNGs beside them",
+        path='web/scripts/check_deploy_sync.ts',
+        needle='  for (const name of [...webp.keys(), ...png.keys()]) keys.add(`${HERO_PREFIX}${name}`);\n',
+        replacement='  for (const name of webp.keys()) keys.add(`${HERO_PREFIX}${name}`);\n',
+        guard="advertises both of a rendered country's download files, and nothing for an unrendered one",
+    ),
+    Sabotage(
+        suite='web',
+        label="the preflight passes a download file R2 holds without its credit",
+        path='web/scripts/check_deploy_sync.ts',
+        needle='    return held === undefined || held === recorded\n',
+        replacement='    return held === undefined || held !== undefined\n',
+        guard='names a download file R2 holds without its credit, which presence alone cannot see',
+    ),
+    Sabotage(
+        suite='web',
+        label="the preflight sizes the full-size WebPs and not the PNGs beside them",
+        path='web/scripts/check_deploy_sync.ts',
+        needle='  return [...webp, ...png].flatMap(([name, recorded]) => {\n',
+        replacement='  return [...webp].flatMap(([name, recorded]) => {\n',
+        guard='names a PNG copy R2 holds from an earlier render of its master',
+    ),
+    Sabotage(
+        suite='web',
+        label="the preflight reports a download file R2 lacks as one it holds at another size",
+        path='web/scripts/check_deploy_sync.ts',
+        needle='    return held === undefined || held === recorded\n',
+        replacement='    return held === recorded\n',
+        guard='leaves a file R2 lacks to the missing list rather than calling it resized',
+    ),
+    Sabotage(
+        suite='web',
+        label="the preflight passes a bundle that was never uploaded",
+        path='web/scripts/check_deploy_sync.ts',
+        needle='  if (held === undefined) problems.push(`${bundle.key} is not in s3://${ARCHIVE_BUCKET}/`);\n',
+        replacement='  if (held === undefined) {}\n',
+        guard='names a bundle that was never uploaded',
+    ),
+    Sabotage(
+        suite='web',
+        label="the preflight passes a bundle uploaded at another size than its record",
+        path='web/scripts/check_deploy_sync.ts',
+        needle='  else if (held !== bundle.bytes) {\n',
+        replacement='  else if (false) {\n',
+        guard='names a bundle uploaded at another size than its record',
+    ),
+    # Names alone look like enough to hold a bundle to the pages, and a re-render renames nothing.
+    Sabotage(
+        suite='web',
+        label="the preflight passes a bundle holding an earlier render's images",
+        path='web/scripts/check_deploy_sync.ts',
+        needle="    else if (size !== recorded) problems.push(`the bundle's ${name} is ${size} bytes, "
+               "the page's ${recorded}`);\n",
+        replacement='',
+        guard='names an image the bundle holds from before a re-render',
+    ),
+    Sabotage(
+        suite='web',
+        label="the preflight passes a bundle holding an image no page offers",
+        path='web/scripts/check_deploy_sync.ts',
+        needle='    if (!offered.has(name)) problems.push(`the bundle holds ${name}, which no page offers`);\n',
+        replacement='',
+        guard='names an image the pages offer that the bundle lacks, and one it holds that no page offers',
+    ),
+    Sabotage(
+        suite='web',
+        label="the preflight never asks about the bundle",
+        path='web/scripts/check_deploy_sync.ts',
+        needle='  checkTheBundle(manifest, archives);\n',
+        replacement='',
+        guard="holds the bundle to its record and the pages against the archive bucket's listing",
+    ),
+    Sabotage(
+        suite='web',
+        label="the preflight finds the bundle's problems and deploys anyway",
+        path='web/scripts/check_deploy_sync.ts',
+        needle='  if (problems.length) {\n',
+        replacement='  if (false) {\n',
+        guard="holds the bundle to its record and the pages against the archive bucket's listing",
+    ),
+    Sabotage(
+        suite='web',
+        label="the preflight finds download files at another size and deploys anyway",
+        path='web/scripts/check_deploy_sync.ts',
+        needle='  if (resized.length) {\n',
+        replacement='  if (false) {\n',
+        guard='refuses a download file R2 holds at another size',
+    ),
+    # A listing that fails reads naturally as an empty bucket, and the preflight then reports every
+    # object missing for a reason nobody can act on.
+    Sabotage(
+        suite='web',
+        label="a bucket R2 cannot list reads as an empty one",
+        path='web/scripts/r2.ts',
+        needle='    throw new R2Unreachable([\n      `could not list s3://${bucket}/.`,\n',
+        replacement='    return new Map();\n    throw new R2Unreachable([\n      `could not list s3://${bucket}/.`,\n',
+        guard='throws rather than reading as an empty one',
+    ),
+
+    # --- the upload of the download files, and the check of what a visitor is served -------------------
+    # `attachment` alone saves a file under the URL's last segment, which reads as the same thing; the
+    # name is what survives a link served from anywhere else.
+    Sabotage(
+        suite='web',
+        label="the uploader marks a file to save without naming it",
+        path='web/scripts/upload_downloads.ts',
+        needle='    contentDisposition: `attachment; filename="${name}"`,\n',
+        replacement='    contentDisposition: "attachment",\n',
+        guard='marks every file to save under its own name, as its own type',
+    ),
+    Sabotage(
+        suite='web',
+        label="the uploader sends the print copies as bytes of no type",
+        path='web/scripts/upload_downloads.ts',
+        needle='  png: "image/png",\n',
+        replacement='  png: "application/octet-stream",\n',
+        guard='marks every file to save under its own name, as its own type',
+    ),
+    Sabotage(
+        suite='web',
+        label="the uploader puts the bundle in the hero bucket, which the archive host does not serve",
+        path='web/scripts/upload_downloads.ts',
+        needle='    uploadOf(bundleName, `${store.archives.replace(/\\/?$/, "/")}${bundle.key}`, ARCHIVE_BUCKET,\n',
+        replacement='    uploadOf(bundleName, `${store.archives.replace(/\\/?$/, "/")}${bundle.key}`, ASSET_BUCKET,\n',
+        guard='sends each file to the key the site links it at, from the store that wrote it',
+    ),
+    # Presence looks like enough, and an unstamped or earlier file is present at another size.
+    Sabotage(
+        suite='web',
+        label="the uploader sends a store file at another size than the records give",
+        path='web/scripts/upload_downloads.ts',
+        needle='    return size === item.bytes ? [] : [`${item.name}: ${size} bytes in the store, ${item.bytes} recorded`];\n',
+        replacement='    return [];\n',
+        guard='names a file the store lacks and one at another size',
+    ),
+    Sabotage(
+        suite='web',
+        label="the uploader copies a file without its disposition",
+        path='web/scripts/upload_downloads.ts',
+        needle='    "--content-disposition", item.contentDisposition,\n',
+        replacement='',
+        guard="copies the file to its key with its type and disposition, through R2's options",
+    ),
+    Sabotage(
+        suite='web',
+        label="the verifier passes the edge's copy from before the upload",
+        path='web/scripts/upload_downloads.ts',
+        needle='  if (disposition !== item.contentDisposition) {\n',
+        replacement='  if (false) {\n',
+        guard="names the edge's copy from before the upload: no disposition, and another size",
+    ),
+    Sabotage(
+        suite='web',
+        label="the verifier reads the headers of a file the host does not serve",
+        path='web/scripts/upload_downloads.ts',
+        needle='  if (response.status !== 206) return [`${item.url}: ${response.status} where one byte was asked for`];\n',
+        replacement='',
+        guard='names a file the host does not serve',
+    ),
+    Sabotage(
+        suite='web',
+        label="the uploader treats a bare run as an upload",
+        path='web/scripts/upload_downloads.ts',
+        needle='  return uploading ? "upload" : verifying ? "verify" : "dry run";\n',
+        replacement='  return uploading ? "upload" : verifying ? "verify" : "upload";\n',
+        guard='reads a bare run as a dry run',
+    ),
+    Sabotage(
+        suite='web',
+        label="the uploader sends a store the records do not describe",
+        path='web/scripts/upload_downloads.ts',
+        needle='  if (problems.length) {\n    throw new StoreMismatch(\n',
+        replacement='  if (false) {\n    throw new StoreMismatch(\n',
+        guard='uploads nothing from a store the records do not describe',
+    ),
+    Sabotage(
+        suite='web',
+        label="the uploader uploads on a dry run",
+        path='web/scripts/upload_downloads.ts',
+        needle='  if (mode === "upload") actions.upload(planned);\n',
+        replacement='  if (mode !== "verify") actions.upload(planned);\n',
+        guard='describes and uploads nothing on a dry run',
+    ),
+    # An empty base makes every URL relative, and a verify of relative URLs fails for a reason that
+    # names nothing about the deploy.
+    Sabotage(
+        suite='web',
+        label="the verifier takes a base the deploy build does not set as empty",
+        path='web/scripts/upload_downloads.ts',
+        needle='  if (!value) throw new Error(`build:deploy sets no ${name}`);\n',
+        replacement='  if (!value) return "";\n',
+        guard='refuses a base the deploy build does not set',
     ),
     # The vars are gone; what stops them growing back is that nothing in the Worker's config may name
     # an object at all. A fourth key under a new name would slip past a check written on the old names.
@@ -8571,6 +8770,424 @@ def _earth_lake_depth''',
         replacement='    if layer == "terrain-disabled":',
         guard='test_a_terrain_cut_does_not_claim_the_surface_layers_it_has_none_of',
     ),
+    # A hero's download files carry this credit once they leave the site, so it has to be the hero
+    # lane's own sources. The tempting edit is the one the tiles already have: a sea-ice step for the
+    # heroes, added to the stage list without anyone saying what it puts into the pixels.
+    Sabotage(
+        suite='python',
+        label='the hero lane gains a step and nobody says what it puts into the pixels',
+        path='pipeline/frame/country_config.py',
+        needle='        f"python -m pipeline.render.lake_mask --render-dir {rd}",\n',
+        replacement='        f"python -m pipeline.render.lake_mask --render-dir {rd}",\n'
+                    '        f"python -m pipeline.render.seaice_mask --render-dir {rd}",\n',
+        guard='test_every_step_of_the_lane_says_what_it_reads',
+    ),
+    Sabotage(
+        suite='python',
+        label='the hero credit drops the lake tint the hero lane paints',
+        path='pipeline/attribution.py',
+        needle='        heroes=("worldcover", "globathy"),',
+        replacement='        heroes=("worldcover",),',
+        guard='test_the_hero_credit_is_what_the_lane_reads',
+    ),
+    Sabotage(
+        suite='python',
+        label='a hero file credits Natural Earth, which only frames it',
+        path='pipeline/attribution.py',
+        needle='        heroes=("worldcover", "globathy"),',
+        replacement='        heroes=("worldcover", "globathy", "naturalearth"),',
+        guard='test_natural_earth_frames_the_hero_and_is_not_credited_inside_it',
+    ),
+    Sabotage(
+        suite='web',
+        label='the country caption types a dataset name beside the derived list',
+        path='web/src/pages/[slug].astro',
+        needle='      Ray-traced relief · {credited.map((source) => source.name).join(" · ")}\n',
+        replacement='      Ray-traced relief · {credited.map((source) => source.name).join(" · ")} · '
+                    'Natural Earth boundaries\n',
+        guard='types no dataset name into it',
+    ),
+    Sabotage(
+        suite='web',
+        label='the country caption credits Natural Earth where no Focus layer draws it',
+        path='web/src/pages/[slug].astro',
+        needle='  ...(country.hasSpotlight ? CREDITS.heroes.earth.focus : []),',
+        replacement='  ...CREDITS.heroes.earth.focus,',
+        guard="lists the hero's sources, and Natural Earth only where a Focus layer draws it",
+    ),
+    # The display rung's URL is already to hand, and it is the same picture, smaller and without
+    # the credit inside it.
+    Sabotage(
+        suite='web',
+        label='the country page offers its display rung as the full-size download',
+        path='web/src/pages/[slug].astro',
+        needle='          <a href={nativeHero}>\n',
+        replacement='          <a href={displayHero}>\n',
+        guard='links it, rather than only swapping it in behind the zoom',
+    ),
+    # "The PNG master" is the render store's `heroes/<slug>.png`, a name nothing serves; the
+    # stamped copy beside the WebP is the file with the credit in it.
+    Sabotage(
+        suite='web',
+        label="the country page's print link names the master rather than its stamped copy",
+        path='web/src/pages/[slug].astro',
+        needle='const nativePng = `${HERO_BASE}${country.slug}-${country.native}.png`;',
+        replacement='const nativePng = `${HERO_BASE}${country.slug}.png`;',
+        guard='links the PNG copy beside it, for print',
+    ),
+    Sabotage(
+        suite='web',
+        label="the country page states the WebP's bytes as the PNG's",
+        path='web/src/pages/[slug].astro',
+        needle='PNG for print, {humanSize(country.download.pngBytes)}',
+        replacement='PNG for print, {humanSize(country.download.webpBytes)}',
+        guard="states each file's pixels and bytes as the manifest records them",
+    ),
+    # Every other link on the site to About lands on its top, well above the terms.
+    Sabotage(
+        suite='web',
+        label="the country page's licence links the top of About rather than the terms",
+        path='web/src/pages/[slug].astro',
+        needle='<a href="/about/#using-this-work">',
+        replacement='<a href="/about/">',
+        guard='links its licence to the section of About that states the terms',
+    ),
+    Sabotage(
+        suite='python',
+        label='the country page offers its downloads under the superseded licence',
+        path='web/src/pages/[slug].astro',
+        needle='<a href="/about/#using-this-work">CC BY-SA 4.0</a>',
+        replacement='<a href="/about/#using-this-work">CC BY-NC 4.0</a>',
+        guard='test_every_site_states_the_output_license',
+    ),
+    # A template comment is the only comment form an Astro template allows, and it states nothing
+    # to a visitor.
+    Sabotage(
+        suite='python',
+        label='the country page states its licence only inside a template comment',
+        path='web/src/pages/[slug].astro',
+        needle='<a href="/about/#using-this-work">CC BY-SA 4.0</a>',
+        replacement='<a href="/about/#using-this-work">the licence</a> {/* CC BY-SA 4.0 */}',
+        guard='test_every_site_states_the_output_license',
+    ),
+    Sabotage(
+        suite='python',
+        label='the Archives page keeps the superseded licence',
+        path='web/src/pages/archives.astro',
+        needle='          rel="noopener noreferrer">CC BY-SA 4.0</a\n',
+        replacement='          rel="noopener noreferrer">CC BY-NC 4.0</a\n',
+        guard='test_every_site_states_the_output_license',
+    ),
+    Sabotage(
+        suite='python',
+        label='the licence check reads a template comment as stating the licence',
+        path='tests/test_attributions.py',
+        needle='        source = LINE_COMMENT.sub("", BLOCK_COMMENT.sub("", source))\n',
+        replacement='        source = LINE_COMMENT.sub("", source)\n',
+        guard='test_a_notice_that_exists_only_in_a_comment_does_not_count',
+    ),
+    # GDAL reads a WebP's XMP under the draft container's bit, and the pipeline reads everything
+    # else through GDAL, so matching it looks like the way to verify the stamp. Every current
+    # reader then sees an EXIF flag with no EXIF chunk.
+    Sabotage(
+        suite='python',
+        label="a download file's WebP flags its packet as GDAL reads it rather than as the spec says",
+        path='pipeline/compose/downloads.py',
+        needle='XMP_FLAG = 0x04',
+        replacement='XMP_FLAG = 0x08',
+        guard='test_pillow_reads_the_packet_from_the_stamped_file',
+    ),
+    # IPTC's Credit Line reads like a byline, and a byline is one name. A re-user copying it would
+    # then leave out the Copernicus notice the data's licence requires.
+    Sabotage(
+        suite='python',
+        label="a download file's credit line names the publisher alone",
+        path='pipeline/compose/downloads.py',
+        needle='   <photoshop:Credit>{credit}</photoshop:Credit>',
+        replacement='   <photoshop:Credit>{publisher}</photoshop:Credit>',
+        guard='test_both_credit_fields_are_the_hero_credit',
+    ),
+    Sabotage(
+        suite='python',
+        label="a download file names a terms section About no longer anchors",
+        path='web/src/pages/about.astro',
+        needle='        <section class="note-block" id="using-this-work">',
+        replacement='        <section class="note-block">',
+        guard='test_the_terms_page_it_names_carries_the_anchor',
+    ),
+    Sabotage(
+        suite='python',
+        label="a download file's WebP is rewritten on every pass",
+        path='pipeline/compose/downloads.py',
+        needle='    if existing == packet:\n        return False\n',
+        replacement='',
+        guard='test_stamping_again_writes_nothing',
+    ),
+    Sabotage(
+        suite='python',
+        label="a download file is written in place, so an interruption leaves half of it",
+        path='pipeline/compose/downloads.py',
+        needle='    staging = target.with_name(target.name + ".tmp")\n',
+        replacement='    staging = target\n',
+        guard='test_an_interrupted_stamp_leaves_the_file_as_it_was',
+    ),
+    # An encode with alpha still ends in its VP8 chunk, so taking the last chunk as the frame reads
+    # as general. The stamp then rewraps that chunk alone and the alpha channel is gone.
+    Sabotage(
+        suite='python',
+        label="a download file's WebP of an unknown shape is stamped rather than refused",
+        path='pipeline/compose/downloads.py',
+        needle='    if tags == [b"VP8 "]:\n        _, offset, length = chunks[0]\n',
+        replacement='    if tags[-1:] == [b"VP8 "]:\n        _, offset, length = chunks[-1]\n',
+        guard='test_a_container_it_does_not_know_is_refused_and_left_alone',
+    ),
+    # The XMP specification allows the packet anywhere before IEND, and appending is the simplest
+    # edit. A reader streaming the file then meets the whole image before it meets the credit.
+    Sabotage(
+        suite='python',
+        label="a download file's PNG carries its packet after the pixels",
+        path='pipeline/compose/downloads.py',
+        needle='    replace_atomically(out, data[:header_end] + chunk + data[header_end:], '
+               'source.st_mtime_ns)',
+        replacement='    replace_atomically(out, data[:-12] + chunk + data[-12:], source.st_mtime_ns)',
+        guard='test_the_copy_is_the_master_plus_one_chunk_before_its_pixels',
+    ),
+    Sabotage(
+        suite='python',
+        label="a download file's PNG is stamped into the master instead of a copy",
+        path='pipeline/compose/downloads.py',
+        needle='    replace_atomically(out, data[:header_end] + chunk + data[header_end:], '
+               'source.st_mtime_ns)',
+        replacement='    replace_atomically(master, data[:header_end] + chunk + data[header_end:], '
+                    'source.st_mtime_ns)',
+        guard='test_the_master_is_never_written',
+    ),
+    # Length and packet look like enough to call a copy current, and two renders of one frame can
+    # compress to the same length.
+    Sabotage(
+        suite='python',
+        label="a download file's PNG outlives a re-render of its master",
+        path='pipeline/compose/downloads.py',
+        needle='            and current.st_mtime_ns == source.st_mtime_ns and png_packet(out) == packet)',
+        replacement='            and png_packet(out) == packet)',
+        guard='test_a_rerendered_master_is_recopied_even_at_the_same_length',
+    ),
+    Sabotage(
+        suite='python',
+        label="a download file's PNG is recopied on every pass",
+        path='pipeline/compose/downloads.py',
+        needle='            os.utime(staging, ns=(mtime_ns, mtime_ns))\n',
+        replacement='            pass\n',
+        guard='test_copying_again_writes_nothing',
+    ),
+    # "Missing or stale" reads as a question about the packet, and a copy of an earlier render
+    # carries the current one.
+    Sabotage(
+        suite='python',
+        label="a download file's PNG copied from an earlier render counts as stamped",
+        path='pipeline/compose/downloads.py',
+        needle='    if not copy_is_current(master, png, packet):\n',
+        replacement='    if not png.exists() or png_packet(png) != packet:\n',
+        guard='test_the_copy_alone_once_its_master_has_changed',
+    ),
+    Sabotage(
+        suite='python',
+        label="a download file's WebP stamped for another name counts as stamped",
+        path='pipeline/compose/downloads.py',
+        needle='    if webp_packet(webp) != packet:\n',
+        replacement='    if webp_packet(webp) is None:\n',
+        guard='test_both_files_when_they_carry_another_name',
+    ),
+    # `writestr` with a bare name is the zip module's own idiom, and it dates the entry now.
+    Sabotage(
+        suite='python',
+        label="the bundle's credit file is dated when the bundle is built",
+        path='pipeline/compose/downloads.py',
+        needle='            archive.writestr(zip_entry(README, len(credit)), credit)\n',
+        replacement='            archive.writestr(README, credit)\n',
+        guard='test_a_rebuild_is_byte_identical_whatever_the_clock_the_files_and_their_order',
+    ),
+    # `ZipInfo.from_file` is how the zip module adds a file, and it copies the file's time and mode.
+    Sabotage(
+        suite='python',
+        label="the bundle's images carry their files' times and modes",
+        path='pipeline/compose/downloads.py',
+        needle='                entry = zip_entry(webp.name, webp.stat().st_size)\n',
+        replacement='                entry = zipfile.ZipInfo.from_file(webp, webp.name)\n',
+        guard='test_a_rebuild_is_byte_identical_whatever_the_clock_the_files_and_their_order',
+    ),
+    Sabotage(
+        suite='python',
+        label="the bundle holds its images in whatever order it is handed them",
+        path='pipeline/compose/downloads.py',
+        needle='            for webp in sorted(webps, key=lambda path: path.name):\n',
+        replacement='            for webp in webps:\n',
+        guard='test_a_rebuild_is_byte_identical_whatever_the_clock_the_files_and_their_order',
+    ),
+    # A permission mask reads as the whole of a mode, and without the type bits an unzipper lists
+    # each entry as a file of unknown kind.
+    Sabotage(
+        suite='python',
+        label="the bundle's entries carry permissions without saying they are files",
+        path='pipeline/compose/downloads.py',
+        needle='    entry.external_attr = (stat.S_IFREG | 0o644) << 16\n',
+        replacement='    entry.external_attr = 0o644 << 16\n',
+        guard='test_every_entry_unpacks_as_a_file_anyone_can_read',
+    ),
+    # A zip is compressed by habit, and a WebP gives almost nothing back to deflate.
+    Sabotage(
+        suite='python',
+        label="the bundle deflates images that are already compressed",
+        path='pipeline/compose/downloads.py',
+        needle='    entry.compress_type = zipfile.ZIP_STORED\n',
+        replacement='    entry.compress_type = zipfile.ZIP_DEFLATED\n',
+        guard='test_every_entry_is_stored_and_dated_the_zip_formats_first_instant',
+    ),
+    Sabotage(
+        suite='python',
+        label="the bundle is written in place, so an interruption loses the last one",
+        path='pipeline/compose/downloads.py',
+        needle='    staging = out.with_name(out.name + ".tmp")\n',
+        replacement='    staging = out\n',
+        guard='test_an_interrupted_rebuild_leaves_the_last_bundle_whole',
+    ),
+    # The licence line opens the hero credit and reads as the credit on its own.
+    Sabotage(
+        suite='python',
+        label="the bundle's credit file gives the licence without the datasets' notices",
+        path='pipeline/compose/downloads.py',
+        needle='            f"{attribution.for_hero(bodies.EARTH)}\\n\\n"\n',
+        replacement='            f"{attribution.TERRELLA}\\n\\n"\n',
+        guard='test_the_credit_file_gives_the_count_the_hero_credit_and_where_the_terms_are',
+    ),
+    Sabotage(
+        suite='python',
+        label="the bundle takes a full-size WebP that was never stamped",
+        path='pipeline/compose/downloads.py',
+        needle='        if webp_packet(webp) != xmp_packet(titles[master.stem]):\n',
+        replacement='        if False:\n',
+        guard='test_a_webp_without_its_credit_is_refused_by_name',
+    ),
+    Sabotage(
+        suite='python',
+        label="the bundle takes a full-size WebP stamped for another country",
+        path='pipeline/compose/downloads.py',
+        needle='        if webp_packet(webp) != xmp_packet(titles[master.stem]):\n',
+        replacement='        if webp_packet(webp) is None:\n',
+        guard='test_a_webp_carrying_another_countrys_name_is_refused',
+    ),
+    Sabotage(
+        suite='python',
+        label="the bundle command warns about an unstamped WebP and bundles it anyway",
+        path='pipeline/compose/downloads.py',
+        needle='        sys.exit(f"refusing to bundle: {refusal}")\n',
+        replacement='        print(f"warning: {refusal}")\n'
+                    '        webps = [full_size_files(master, VARIANTS)[0] for master in masters]\n',
+        guard='test_it_writes_nothing_while_a_webp_lacks_its_credit',
+    ),
+    # Earth is the only body with a bundle, so the body's key looks like ceremony; the site reads
+    # the record through it.
+    Sabotage(
+        suite='python',
+        label="the bundle's record is written without the body the site reads it under",
+        path='pipeline/compose/downloads.py',
+        needle='    RECORD.write_text(json.dumps({bodies.EARTH.name: record}, indent=2) + "\\n")\n',
+        replacement='    RECORD.write_text(json.dumps(record, indent=2) + "\\n")\n',
+        guard='test_it_writes_the_bundle_and_the_record_the_site_reads',
+    ),
+    # Writing the manifest anyway lets the page link a file whose credit is not inside it.
+    Sabotage(
+        suite='python',
+        label='the manifest records download files a stamp pass would still write',
+        path='web/scripts/gen_manifest.py',
+        needle='    unstamped = [] if reladdered else downloads.unstamped(master, variants, name)\n',
+        replacement='    unstamped = []\n',
+        guard='test_a_file_that_was_never_stamped_is_refused',
+    ),
+    # A reframed master at the same long edge leaves the old full-size WebP stamped and current by
+    # its packet, and in a store copied without its times the age check misses it too.
+    Sabotage(
+        suite='python',
+        label="the manifest offers a full-size WebP that is not its master's image",
+        path='web/scripts/gen_manifest.py',
+        needle='        reshaped = webp.name not in leftover and (image.width, image.height) != shape\n',
+        replacement='        reshaped = False\n',
+        guard='test_a_full_size_webp_that_is_not_its_masters_image_is_refused',
+    ),
+    # A re-render at the same size renames nothing, so every rung and overlay keeps a name its new
+    # master produces, and only the time says which render it holds.
+    Sabotage(
+        suite='python',
+        label='the manifest offers rungs an earlier render made',
+        path='web/scripts/gen_manifest.py',
+        needle='        elif extension == "webp" and path.stat().st_mtime_ns < rendered:\n',
+        replacement='        elif False:\n',
+        guard='test_at_the_same_size_every_rung_is_refused_until_the_ladder_is_redone',
+    ),
+    # An overlay reads as geometry, but outside the country it is the master's own pixels, dimmed.
+    Sabotage(
+        suite='python',
+        label='the manifest holds no overlay to its master',
+        path='web/scripts/gen_manifest.py',
+        needle='            (older_overlays if overlay else older).append(path.name)\n',
+        replacement='            if not overlay:\n                older.append(path.name)\n',
+        guard='test_an_overlay_is_held_to_its_master_as_the_ladder_is',
+    ),
+    # Without it, a rung a smaller re-render left behind reads as merely older, and re-running the
+    # ladder never rewrites it, so the refusal repeats however often it is followed.
+    Sabotage(
+        suite='python',
+        label='the manifest keeps rungs a smaller re-render no longer produces',
+        path='web/scripts/gen_manifest.py',
+        needle='        if size not in produced or (extension == "png" and size != max(shape)):\n',
+        replacement='        if extension == "png" and size != max(shape):\n',
+        guard='test_smaller_the_rungs_it_no_longer_produces_are_refused_until_deleted',
+    ),
+    # A larger render's ladder can include the old full size as an ordinary rung, which the ladder
+    # rewrites; the print copy at that size it does not.
+    Sabotage(
+        suite='python',
+        label="the manifest keeps a print copy at its master's old size",
+        path='web/scripts/gen_manifest.py',
+        needle='        if size not in produced or (extension == "png" and size != max(shape)):\n',
+        replacement='        if size not in produced:\n',
+        guard='test_larger_the_old_print_copy_is_refused_until_deleted',
+    ),
+    # The ladder's rewrite of the full-size WebP carries no credit, so this fix alone is refused
+    # again on the next run.
+    Sabotage(
+        suite='python',
+        label='a refusal redoes the ladder without restamping',
+        path='web/scripts/gen_manifest.py',
+        needle='    if reladdered or unstamped:\n',
+        replacement='    if unstamped:\n',
+        guard='test_at_the_same_size_every_rung_is_refused_until_the_ladder_is_redone',
+    ),
+    Sabotage(
+        suite='python',
+        label='a refusal names what is left over without saying to delete it',
+        path='web/scripts/gen_manifest.py',
+        needle='        fixes.append(f"delete {\' \'.join(leftover)} from {variants}")\n',
+        replacement='',
+        guard='test_smaller_the_rungs_it_no_longer_produces_are_refused_until_deleted',
+    ),
+    # The master is the print file, and it is one chunk short of the copy a reader downloads.
+    Sabotage(
+        suite='python',
+        label="the manifest states the master's bytes as the PNG download's",
+        path='web/scripts/gen_manifest.py',
+        needle='                webpBytes=webp.stat().st_size, pngBytes=png.stat().st_size)',
+        replacement='                webpBytes=webp.stat().st_size, pngBytes=master.stat().st_size)',
+        guard='test_a_rendered_country_states_the_pixels_and_bytes_of_both_files',
+    ),
+    Sabotage(
+        suite='python',
+        label='the download record declares a field the manifest never writes',
+        path='web/src/lib/manifest.ts',
+        needle='  pngBytes: number;\n}',
+        replacement='  pngBytes: number;\n  sha256: string;\n}',
+        guard='test_the_download_record_and_its_interface_name_the_same_fields',
+    ),
     # The vector cut writes its credit into the TEMPORARY archive and then promotes. Doing it after
     # the promote still produces a credited archive, and leaves a window where the live one is being
     # rewritten in place, which is the state the .tmp convention exists to make impossible.
@@ -8621,6 +9238,50 @@ def _earth_lake_depth''',
         needle='    superseded: ARCHIVED.filter((cut) => cut.body === body.slug).map((cut) =>',
         replacement='    superseded: ARCHIVED.filter(() => false).map((cut) =>',
         guard='carries every superseded cut, so a re-cut cannot drop a row from the index',
+    ),
+    # The country maps bundle lives in a record of its own rather than the tile registry, so the
+    # index can build every pyramid's card and simply never read it.
+    Sabotage(
+        suite='web',
+        label='the archives index leaves out the country maps bundle',
+        path='web/src/lib/archiveIndex.ts',
+        needle='    bundles: bundleRows(body),\n',
+        replacement='    bundles: [],\n',
+        guard='is offered under Earth, and under no body that renders no country maps',
+    ),
+    Sabotage(
+        suite='web',
+        label='the country maps card links the tile host, which serves no whole file',
+        path='web/src/lib/archiveIndex.ts',
+        needle='      href: `${ARCHIVE_BASE}${record.key}`,\n',
+        replacement='      href: `${TILE_BASE}${record.key}`,\n',
+        guard='is downloaded from the archive host, at the size, count and hash its record gives',
+    ),
+    Sabotage(
+        suite='web',
+        label='the country maps card counts the files in the zip, credit file included',
+        path='web/src/lib/archiveIndex.ts',
+        needle='      images: Object.keys(record.images).length,\n',
+        replacement='      images: Object.keys(record.images).length + 1,\n',
+        guard='is downloaded from the archive host, at the size, count and hash its record gives',
+    ),
+    # Every other card on the page credits a pyramid, and relief's credit names every dataset a
+    # country's image uses and more, so it reads as the generous choice.
+    Sabotage(
+        suite='web',
+        label="the country maps card credits the relief pyramid rather than the images",
+        path='web/src/lib/archiveIndex.ts',
+        needle='      credit: heroes.credit,\n',
+        replacement='      credit: CREDITS.archives[`${body.slug}/relief`].credit,\n',
+        guard="credits what a country's image is built from, which is not what any pyramid is",
+    ),
+    Sabotage(
+        suite='web',
+        label='the Archives page draws the pyramids and not the country maps bundle',
+        path='web/src/pages/archives.astro',
+        needle='            {[...world.current, ...world.bundles].map((row) => (\n',
+        replacement='            {world.current.map((row) => (\n',
+        guard='is drawn on the Archives page beside the pyramids',
     ),
     # --- the shared-dataset seam ------------------------------------------------------------
     # Everything here is invisible on a developer box, because `MAPS_DATA` is unset and the two

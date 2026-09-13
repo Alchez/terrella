@@ -21,7 +21,7 @@ const worlds = archiveIndex();
     right here is `all-bodies` on the main and `data-body` on each section below. */}
 <Base
   title={pageTitle("Archives")}
-  description="Download Terrella's tile archives: PMTiles for relief, terrain and vector geometry, on both bodies."
+  description="Download Terrella's tile archives, PMTiles for relief, terrain and vector geometry on both bodies, and every country's full-size image in one zip."
   body="earth"
   pageRole="plain"
 >
@@ -37,8 +37,9 @@ const worlds = archiveIndex();
         href="https://github.com/protomaps/PMTiles"
         target="_blank"
         rel="noopener noreferrer">PMTiles</a
-      > archive it is served out of. Each file carries its own credit and a line saying what is in it,
-      so a copy on your disk stays attributable to whatever you make from it.
+      > archive it is served out of, and every country's full-size image in one zip. Each file carries
+      its own credit and a line saying what is in it, so a copy on your disk stays attributable to
+      whatever you make from it.
     </p>
   </Masthead>
 
@@ -66,22 +67,33 @@ const worlds = archiveIndex();
         <section class="world" data-body={world.slug}>
           <h2>{world.label}</h2>
           <ul class="cuts">
-            {world.current.map((row) => (
+            {[...world.current, ...world.bundles].map((row) => (
               <li class="cut">
                 <div class="head">
-                  <h3>{row.layer}</h3>
+                  <h3>{row.heading}</h3>
                   <span class="size">{row.size}</span>
                 </div>
                 <p class="role">{row.role}</p>
                 <dl>
-                  <dt>Zooms</dt>
-                  <dd>{row.zooms}</dd>
-                  <dt>Tiles</dt>
-                  <dd class="mono">{row.tiles}</dd>
-                  {row.decode && (
+                  {"tiles" in row ? (
                     <Fragment>
-                      <dt>Metres</dt>
-                      <dd class="mono">{row.decode}</dd>
+                      <dt>Zooms</dt>
+                      <dd>{row.zooms}</dd>
+                      <dt>Tiles</dt>
+                      <dd class="mono">{row.tiles}</dd>
+                      {row.decode && (
+                        <Fragment>
+                          <dt>Metres</dt>
+                          <dd class="mono">{row.decode}</dd>
+                        </Fragment>
+                      )}
+                    </Fragment>
+                  ) : (
+                    <Fragment>
+                      <dt>Images</dt>
+                      <dd>{row.images} WebP</dd>
+                      <dt>SHA-256</dt>
+                      <dd class="mono">{row.sha256}</dd>
                     </Fragment>
                   )}
                 </dl>
@@ -104,7 +116,7 @@ const worlds = archiveIndex();
                     ))}
                   </ul>
                   <details class="credit">
-                    <summary>The exact credit inside the file</summary>
+                    <summary>The exact credit inside {"tiles" in row ? "the file" : "each image"}</summary>
                     <p>{row.credit}</p>
                   </details>
                 </div>
@@ -223,7 +235,6 @@ const worlds = archiveIndex();
     font-weight: 600;
     font-size: 1.1rem;
     margin: 0;
-    text-transform: capitalize;
   }
 
   .size {

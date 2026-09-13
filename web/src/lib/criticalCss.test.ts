@@ -18,7 +18,7 @@ import { readdirSync, readFileSync } from "node:fs";
  * ---------------------------------------------------
  * A bare `import "maplibre-gl/dist/maplibre-gl.css"` in the client script makes Vite hoist it into
  * a render-blocking `<link>`. That put **70 KB of widget CSS in front of first paint** on a page
- * where the first widget cannot exist until the 265 KB globe chunk has downloaded and executed —
+ * where the first widget cannot exist until the globe chunk has downloaded and executed —
  * measured at 1,209 ms for the stylesheet against 1,894 ms for the chunk, so it was blocking paint
  * for something ~700 ms away from needing it. Reverting the import costs FCP 629 → 1,264 ms.
  */

@@ -502,7 +502,7 @@ export default defineConfig({
     // you remove. The rule is "inline what blocks paint, link what does not".
     //
     // The cost is real and accepted: page CSS is no longer separately cacheable across navigations.
-    // It is 12 KB on the globe and 5 KB on the gallery, against a 265 KB script that dwarfs both.
+    // It is 12 KB on the globe and 5 KB on the gallery, against a globe script that dwarfs both.
     inlineStylesheets: 'always',
   },
   vite: {

@@ -8,6 +8,7 @@
 import { ARCHIVE_BASE, TILE_BASE } from "./assetBase";
 import { BODIES, type BodyDescriptor, type BodySlug } from "./bodies";
 import CREDITS from "../data/attributions.json";
+import BUNDLES from "../data/downloads.json";
 import { TERRAIN_QUANTISATION_M, terrainDecodeExpression } from "./terrainSource";
 import {
   ARCHIVED,
@@ -47,27 +48,77 @@ export interface ArchiveSource {
   license: string;
 }
 
-export interface ArchiveRow {
-  layer: LayerId;
+/** What every card on the page carries, whatever kind of file it offers. */
+interface ArchiveCard {
+  heading: string;
   role: string;
   key: string;
   href: string;
   size: string;
-  zooms: string;
   /** The credit inside the file, verbatim: what a downloader reproduces. */
   credit: string;
   /** The same obligation as a list, which is what a reader deciding on a download is asking. */
   sources: ArchiveSource[];
+}
+
+export interface ArchiveRow extends ArchiveCard {
+  layer: LayerId;
+  zooms: string;
   /** How to turn this archive's pixels into what they encode, or null where they are the thing. */
   decode: string | null;
   tiles: string;
+}
+
+/** A zip of images the site also offers one at a time, each carrying its credit inside it. */
+export interface BundleRow extends ArchiveCard {
+  images: number;
+  sha256: string;
 }
 
 export interface ArchiveWorld {
   slug: BodySlug;
   label: string;
   current: ArchiveRow[];
+  bundles: BundleRow[];
   superseded: (ArchivedCut & { href: string })[];
+}
+
+/** One bundle as `pipeline/compose/downloads.py bundle` records it. */
+export interface BundleRecord {
+  key: string;
+  bytes: number;
+  sha256: string;
+  /** Each image the bundle holds, by name, with its size in bytes. */
+  images: Record<string, number>;
+}
+
+const BUNDLE_RECORDS: Partial<Record<BodySlug, BundleRecord>> = BUNDLES;
+const HERO_CREDITS: Partial<Record<BodySlug, { credit: string; sources: ArchiveSource[] }>> =
+  CREDITS.heroes;
+
+/** A body's country maps bundle as its card lists it, credited as the images inside it are. */
+function bundleRows(body: BodyDescriptor): BundleRow[] {
+  const record = BUNDLE_RECORDS[body.slug];
+  if (!record) return [];
+  const heroes = HERO_CREDITS[body.slug];
+  if (!heroes) {
+    throw new Error(`${record.key} is recorded, and attributions.json credits no image of ${body.label}`);
+  }
+  return [
+    {
+      heading: "Country maps",
+      role:
+        "Every country's image at the full size it was rendered, as WebP, with its credit inside " +
+        "each file. A PNG copy of each, for print, is on its country's page.",
+      key: record.key,
+      href: `${ARCHIVE_BASE}${record.key}`,
+      size: humanSize(record.bytes),
+      images: Object.keys(record.images).length,
+      sha256: record.sha256,
+      credit: heroes.credit,
+      sources: heroes.sources,
+    },
+  ];
 }
 
 /** Decimal GB and MB, because that is what a download manager and a bucket both report. */
@@ -94,6 +145,7 @@ export function archiveIndex(): ArchiveWorld[] {
         const { credit, sources } = CREDITS.archives[`${body.slug}/${layer}`];
         return {
           layer,
+          heading: `${layer.charAt(0).toUpperCase()}${layer.slice(1)}`,
           role: LAYER_ROLE[layer](body),
           key: archive.objectKey,
           href: `${ARCHIVE_BASE}${archive.objectKey}`,
@@ -107,6 +159,7 @@ export function archiveIndex(): ArchiveWorld[] {
           tiles: `${TILE_BASE}${tilePathTemplate(body.slug, layer)}`,
         };
       }),
+    bundles: bundleRows(body),
     superseded: ARCHIVED.filter((cut) => cut.body === body.slug).map((cut) =>
       Object.assign({ href: `${ARCHIVE_BASE}${cut.key}` }, cut),
     ),

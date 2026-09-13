@@ -48,6 +48,8 @@ pnpm install -C web  # frontend: builds web/node_modules from pnpm-lock.yaml
 
 Node 22.12 or newer. pnpm and the Python toolchain are pinned by `web/package.json` and the lockfile.
 
+Before `uv sync`, install the system packages named on the `apt-get install` line of `.github/workflows/ci.yml`: pycairo builds against cairo's headers, and the Python tests call GDAL's tools.
+
 ## Platforms
 
 Linux only, so far. CI runs Ubuntu, and the render pipeline expects a Blender tarball at a fixed path. macOS and Windows are untested rather than known-broken, so getting either working is worth an issue.

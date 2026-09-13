@@ -10,8 +10,8 @@ route that names it.
 LICENCE: public domain, and read at the product rather than off a web page. The archive ships
 `metadata_nomenclature_polygons_MARS.xml`, whose `useconst` is "Public domain." and whose `distliab`
 is "none"; `assert_licence` re-reads that field on every acquisition rather than trusting this
-sentence, so a republished archive with different terms stops the pipeline instead of flowing into a
-CC BY-SA 4.0 site unnoticed. The access constraint is about tooling, not rights: "GIS software is
+sentence, so a republished archive with different terms stops the pipeline instead of flowing into
+the site unnoticed. The access constraint is about tooling, not rights: "GIS software is
 required to view these data."
 
 THE ARCHIVE IS REGENERATED AND ITS BYTES ARE NOT THE THING TO PIN. The bucket rebuilds on a nightly
@@ -71,7 +71,7 @@ import sys
 import zipfile
 from pathlib import Path
 
-from pipeline import datasets, fetch
+from pipeline import attribution, datasets, fetch
 
 #: The regional endpoint rather than the global alias. Both answer today; naming the region means a
 #: recorded recipe says WHERE the bytes came from, which the global alias leaves ambiguous.
@@ -301,7 +301,7 @@ def assert_licence() -> None:
 
     THE TERMS COME FROM THE PRODUCT ON EVERY RUN, not from this module's docstring. A republished
     archive that changed its licence is otherwise indistinguishable from one that did not, and the
-    consequence lands in the site's own CC BY-SA 4.0 rather than here.
+    consequence lands in the site's own licence rather than here.
     """
     path = datasets.mars_nomenclature() / METADATA_MEMBER
     if not path.exists():
@@ -315,7 +315,7 @@ def assert_licence() -> None:
     if stated != USE_CONSTRAINT:
         sys.exit(f"{path.name}: use constraint is {stated!r}, pinned to {USE_CONSTRAINT!r} — the "
                  f"gazetteer's terms changed. Nothing may be published from it until the new terms "
-                 f"are read against the site's CC BY-SA 4.0.")
+                 f"are read against the site's {attribution.OUTPUT_LICENCE}.")
 
 
 def build_recipe() -> str:

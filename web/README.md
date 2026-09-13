@@ -49,13 +49,11 @@ until all three exist**. In order:
    its canaries are what tell you that state moved. A range lets it move on an install nobody ran
    deliberately, which is the one case those canaries cannot date.
 
-3. **The gallery manifest** `src/data/countries.json`, generated from the hero-variant store
-   and imported by all three pages (index, `[slug]`, globe), so its absence 500s the whole site.
-   Also gitignored. Regenerate it whenever heroes are re-rendered:
+3. **The gallery manifest** `src/data/countries.json`, generated from the render store and imported by all three pages (index, `[slug]`, globe), so its absence 500s the whole site. Also gitignored. Regenerate it whenever heroes are re-rendered:
    ```sh
    ../.venv/bin/python scripts/gen_manifest.py --out src/data/countries.json
    ```
-   Requires the hero WebP variants and the Natural Earth admin-0 shapefile to already exist.
+   Requires the hero WebP variants, the download files `python -m pipeline.compose.downloads stamp` writes, and the Natural Earth admin-0 shapefile to already exist.
 
    Its Mars counterpart, `src/lib/featureIndex.json`, needs no step here. It is **committed**,
    because it derives from a digest-pinned archive rather than from this machine's render store.
@@ -134,16 +132,18 @@ web/
 ├── public/
 │   └── caps/              # polar cap WebP rungs + caps.json (generated; gitignored)
 ├── scripts/
-│   ├── gen_manifest.py    # reads the variant store → src/data/countries.json
+│   ├── gen_manifest.py    # reads the render store → src/data/countries.json
 │   ├── gen_feature_index.py   # reads the folded gazetteer → src/lib/featureIndex.json
-│   └── check_deploy_sync.ts   # deploy preflight: R2 objects vs the manifest
+│   ├── check_deploy_sync.ts   # deploy preflight: R2 objects vs the manifest and the bundle's record
+│   ├── upload_downloads.ts    # uploads the download files and the bundle with their headers, and verifies them
+│   └── r2.ts                  # the R2 endpoint, buckets and bucket listing those two read
 ├── src/
-│   ├── pages/             # index (gallery) · [slug] (country) · earth · mars · mars/lite · about
+│   ├── pages/             # index (gallery) · [slug] (country) · earth · earth/lite · mars · mars/lite · about · archives
 │   ├── components/        # Globe.astro is the globe itself; a body's page only wraps it
 │   ├── layouts/ styles/
 │   ├── lib/               # the tested logic, see below
 │   │   └── perf/          # the ?perf instrument, behind a lazy boundary
-│   └── data/              # countries.json (generated; gitignored)
+│   └── data/              # countries.json (generated; gitignored), attributions.json and downloads.json (generated; committed)
 └── worker/                # the tile Worker: one z/x/y out of the PMTiles archive in R2
 ```
 

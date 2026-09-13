@@ -8,7 +8,7 @@ The **current** map of on-disk data stores: what each is, who reads it, whether 
 |---|---|---|
 | `data/raw/` | **689 GB** | sources, re-downloadable, never re-derivable |
 | `data/work/` | **365 GB** | intermediates, every byte rebuildable |
-| `blender/renders/` | **27.9 GB** | the hero products |
+| `blender/renders/` | **40.9 GB** | the hero products |
 | `web/public/caps/` | **12.3 MB** | the only rendered assets inside the site build |
 
 - **This file is maintained, not a snapshot: re-measure when the chain moves, and if a row and the
@@ -50,7 +50,8 @@ flowchart LR
     TER["terrain.pmtiles · 2.53 + 0.75 GB"]
     VEC["vector.pmtiles · 10.2 MB"]
     CAP["web/public/caps/ · 12.3 MB"]
-    HERO["variants/ · 3.07 GB<br/>hero WebP + overlays"]
+    HERO["variants/ · 14.45 GB<br/>hero WebP + overlays + PNG downloads"]
+    BUN["archives/ · 1.67 GB<br/>country maps bundle"]
   end
 
   GLO --> FUSE
@@ -66,10 +67,12 @@ flowchart LR
   GLO --> CTRY
   GEB --> CTRY
   CTRY --> HERO
-  PM -.-> R2[("R2 · ranged by the tile Worker")]
+  HERO --> BUN
+  PM -.-> R2[("R2 · PMTiles ranged by the tile Worker, the rest served whole")]
   TER -.-> R2
   VEC -.-> R2
   HERO -.-> R2
+  BUN -.-> R2
   CAP -.-> SITE[("web/dist · the site Worker's static assets")]
 ```
 
@@ -168,7 +171,7 @@ CRS-relabelled VRT over the raw blend plus its seam declaration, no copy of the 
 | `ice/` | 205 MB | `viking_luma_4326.tif`: the Viking mosaic collapsed to one Float32 brightness band on a 4326 grid covering the whole sphere, which is the field BOTH ice tiers grade against, beside the two VRTs that reach it. Whole-planet on purpose though only the poles are read: a polar crop would save ~160 MB and cost a crop latitude whose failure is ice quietly missing at the band edge | Keep: a 45 s rebuild from the raw mosaic, and the sidecar makes a re-run a skip. `mars_ice.ALPHA_LEVELS` is four percentiles OF THIS FILE, so rebuilding it on a different grid means re-measuring them |
 | `features/` · `planet_vector/` | 33 MB | nomenclature labels and the vector cut | Keep (tiny) |
 
-## Hero products: `blender/renders/` (27.9 GB)
+## Hero products: `blender/renders/` (40.9 GB)
 
 The only heavy store outside `data/`, gitignored the same way. Listed here because an unlisted store
 is an unaudited one: a 26 GB dead rollback archive lived here unnoticed.
@@ -176,7 +179,8 @@ is an unaudited one: a 26 GB dead rollback archive lived here unnoticed.
 | Store | Size | What it is | Reclaim? |
 |---|---|---|---|
 | `heroes/` incl. `heroes/raw/` | 24.2 GB | `raw/` is the un-post-processed Cycles frames, one 8K PNG per country; beside it the shaded finals (raw + `sky_view`) | Keep: `sky_view` re-shades finals from `raw/` with **no GPU re-render** (the AO retune took 203 countries off them in minutes), and the finals are what `hero_variants` encodes from |
-| `variants/` | **3.07 GB** | **the served store**: 1,243 hero WebP (6 rungs, q85 to 1920 / q95 above, + a per-country portrait fill rung on 25 of them) and 1,243 spotlight overlays | Keep: this is what the browser fetches. The 1,010 `*-border-*.png` rungs that used to sit here are gone, in R2 as well as on disk |
+| `variants/` | **14.45 GB** | **the served store**: 1,243 hero WebP (6 rungs, q85 to 1920 / q95 above, + a per-country portrait fill rung on 25 of them), 1,243 spotlight overlays, and each country's PNG master copied beside its full-size WebP as the print download (203 files, 11.38 GB) | Keep: this is what the browser fetches. The PNG copies are the reclaimable part, since `downloads.py stamp` rebuilds them from `heroes/`. R2's `heroes/` still holds the deleted border ladder's 1,010 `*-border-*.png` rungs, which nothing references; deleting them is the maintainer's call |
+| `archives/` | 1.67 GB | the country maps bundle at its archive-host key, `earth/country-maps-webp-v1.zip`: the credit file and every stamped full-size WebP in one stored zip | Reclaimable: `downloads.py bundle` rebuilds it byte for byte from `variants/` |
 | `archive/` | 595 MB | one-off look experiments (india/nepal/swiss look v1-v3): the visual record behind ART's decisions | Keep (small); **not** a place for rollback trees |
 | `*.log`, `batch_failures*.jsonl` | <10 MB | sweep logs + the failure roster batch retries from | Keep (tiny) |
 
@@ -193,12 +197,12 @@ is an unaudited one: a 26 GB dead rollback archive lived here unnoticed.
   Cloudflare: a **site Worker** serving `web/dist` as static assets (`web/wrangler.jsonc`, *not*
   Pages), R2 for the hero store, and a **separate tile Worker** for tiles. The site addresses all
   three through `web/src/lib/assetBase.ts`, whose defaults are the same-origin dev paths.
-- The build (`web/dist/`, **20.2 MB**, 209 pages) contains **only markup and code**: every heavy
+- The build (`web/dist/`, **20.7 MB**, 210 pages) contains **only markup and code**: every heavy
   asset stays in its store and is fetched at runtime, so `pnpm build` never copies gigabytes.
 
 | Asset | Wire size (prod, gz) | Dev | Prod | Store |
 |---|---|---|---|---|
-| globe JS chunk (MapLibre + the **bundled** `countries.json` manifest: an import, never a fetch) | 280 KB (1.08 MB raw) | vite, unminified, larger | edge gzip/brotli | `web/dist/_astro/` |
+| globe JS chunk (MapLibre + the **bundled** `countries.json` manifest: an import, never a fetch) | 291 KB (1.08 MB raw) | vite, unminified, larger | edge gzip/brotli | `web/dist/_astro/` |
 | page CSS | **inlined into every document** (`build.inlineStylesheets: 'always'`), so it costs document bytes and no request: 12 KB on the globe, 5 KB on the gallery, uncompressed | dev injects it as `<style>` via Vite instead, which is a different cascade order | same | in the HTML |
 | MapLibre's stylesheet | 70 KB raw, a **non-blocking** `<link media="print">` promoted on load: it styles widgets that cannot exist until the globe chunk has run | same link; dev *also* injects it as `<style>`, so it loads twice | same | `web/dist/_astro/maplibre-gl.*.css` |
 | small chunks (polarCaps, capability probe) | ~3 KB total | same | same | `web/dist/_astro/` |

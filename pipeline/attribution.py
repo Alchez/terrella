@@ -220,8 +220,12 @@ class BodyCredits:
     painted: dict[str, tuple[str, ...]]
     #: The geometry behind this body's vector pyramid.
     vector: tuple[str, ...]
-    #: Used by the hero renders and by no tile archive, so it reaches the page and nothing else.
+    #: What a hero render paints beyond its heightfield, so the two together are everything in a
+    #: hero's pixels. Empty on a body with no hero renders.
     heroes: tuple[str, ...] = ()
+    #: The geometry a country page's Focus overlay draws over its hero, which reaches the page and
+    #: not the hero's own file.
+    focus: tuple[str, ...] = ()
     #: Disclaimers this body's own licences oblige, rendered under its cards.
     legal: tuple[str, ...] = field(default_factory=tuple)
 
@@ -251,7 +255,9 @@ CREDITS: dict[str, BodyCredits] = {
             "antarctic_rock": ("addrock",),
         },
         vector=("naturalearth",),
-        heroes=("worldcover",),
+        # WorldCover again, as the snow mask, and GLOBathy as the lake tint.
+        heroes=("worldcover", "globathy"),
+        focus=("naturalearth",),
         legal=(f"{COPERNICUS_LIABILITY}.",),
     ),
     "mars": BodyCredits(
@@ -270,10 +276,14 @@ ARCHIVE_LAYERS = ("relief", "terrain", "vector")
 #: PMTiles with ogr2ogr, so the packer's `--layer` must not offer it.
 RASTER_LAYERS = ("relief", "terrain")
 
-#: What this archive is and what a recipient may do with it, before any input credit. The
-#: pipeline's only copy of the site hostname; the site's own copies are under `web/`.
-TERRELLA = ("Terrella (https://terrella.alchez.dev), CC BY-SA 4.0 "
-            "(https://creativecommons.org/licenses/by-sa/4.0/).")
+#: Who publishes the output, where, and under which licence.
+PUBLISHER = "Terrella"
+SITE_URL = "https://terrella.alchez.dev"
+OUTPUT_LICENCE = "CC BY-SA 4.0"
+OUTPUT_LICENCE_URL = "https://creativecommons.org/licenses/by-sa/4.0/"
+
+#: What this archive is and what a recipient may do with it, before any input credit.
+TERRELLA = f"{PUBLISHER} ({SITE_URL}), {OUTPUT_LICENCE} ({OUTPUT_LICENCE_URL})."
 
 #: What each pyramid holds, in the words a stranger holding the file needs. The layer name alone is
 #: this project's vocabulary rather than anyone else's, and `vector` is a role that means countries
@@ -308,15 +318,32 @@ def keys_for(body: bodies.Body, layer: str) -> tuple[str, ...]:
     return (*credits.heightfield, *painted)
 
 
-def for_archive(body: bodies.Body, layer: str) -> str:
-    """The `attribution` an archive of this body and layer carries inside its own bytes."""
-    keys = keys_for(body, layer)
+def compose(keys: tuple[str, ...]) -> str:
+    """One credit for a file built from these sources: Terrella's line, then each notice."""
     lines = [TERRELLA, *(SOURCES[key].notice for key in keys)]
     # Follows the DEM rather than the body: Earth's vector archive is Natural Earth geometry with
     # no WorldDEM-30 in it, and carried this sentence until the module printed itself.
     if "glo30" in keys:
-        lines.insert(2, COPERNICUS_LIABILITY)
+        lines.insert(keys.index("glo30") + 2, COPERNICUS_LIABILITY)
     return " ".join(line if line.endswith(".") else f"{line}." for line in lines)
+
+
+def for_archive(body: bodies.Body, layer: str) -> str:
+    """The `attribution` an archive of this body and layer carries inside its own bytes."""
+    return compose(keys_for(body, layer))
+
+
+def hero_keys(body: bodies.Body) -> tuple[str, ...]:
+    """The source keys one hero image is built from: its heightfield, then what the lane paints."""
+    credits = CREDITS[body.name]
+    if not credits.heroes:
+        raise ValueError(f"{body.name} has no hero renders")
+    return tuple(dict.fromkeys((*credits.heightfield, *credits.heroes)))
+
+
+def for_hero(body: bodies.Body) -> str:
+    """The credit a hero image carries inside its own file."""
+    return compose(hero_keys(body))
 
 
 def describe(body: bodies.Body, layer: str) -> str:
@@ -344,7 +371,7 @@ def on_the_page(body: bodies.Body) -> tuple[Source, ...]:
     credits = CREDITS[body.name]
     ordered = [*credits.heightfield,
                *(key for name in sorted(credits.painted) for key in credits.painted[name]),
-               *credits.vector, *credits.heroes]
+               *credits.vector, *credits.heroes, *credits.focus]
     seen: dict[str, None] = dict.fromkeys(ordered)
     return tuple(SOURCES[key] for key in seen)
 

@@ -5,8 +5,8 @@ desaturates everything OUTSIDE the subject country and strokes its boundary — 
 a viewer can read the country's extent at a glance. Toggled on the web
 (body.spotlight-on), never baked into the hero.
 
-The only toggle asset: every hero's borders are composited in by `overlay_borders`
-and are baked, not toggleable.
+A hero's only overlay. No hero carries borders, so this boundary is the only one a
+country page draws.
 
 The subject region is DEM-land MINUS the neighbours' Natural Earth polygons:
   - its seaward edge is therefore the *rendered* 30 m coastline (pixel-exact

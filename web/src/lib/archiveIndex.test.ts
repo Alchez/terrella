@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 
+import CREDITS from "../data/attributions.json";
+import BUNDLES from "../data/downloads.json";
 import { archiveIndex, humanSize } from "./archiveIndex";
+import { ARCHIVE_BASE } from "./assetBase";
 import { BODIES, type BodySlug } from "./bodies";
 import { terrainDecodeExpression } from "./terrainSource";
 import { ARCHIVED, PUBLISHED } from "./tileAddress";
@@ -136,5 +140,42 @@ describe("archiveIndex", () => {
   it("reports sizes in the units a download manager shows", () => {
     expect(humanSize(2_353_330_123)).toBe("2.35 GB");
     expect(humanSize(10_239_263)).toBe("10.2 MB");
+  });
+});
+
+describe("the country maps bundle", () => {
+  const worlds = archiveIndex();
+  const bundles = (slug: BodySlug) => worlds.find((world) => world.slug === slug)?.bundles ?? [];
+
+  it("is offered under Earth, and under no body that renders no country maps", () => {
+    expect(bundles("earth").map((bundle) => bundle.key)).toEqual([BUNDLES.earth.key]);
+    for (const slug of Object.keys(BODIES) as BodySlug[]) {
+      if (slug !== "earth") expect(bundles(slug), slug).toEqual([]);
+    }
+  });
+
+  it("is downloaded from the archive host, at the size, count and hash its record gives", () => {
+    const [bundle] = bundles("earth");
+    expect(bundle.href).toBe(`${ARCHIVE_BASE}${BUNDLES.earth.key}`);
+    expect(bundle.size).toBe(humanSize(BUNDLES.earth.bytes));
+    expect(bundle.images).toBe(Object.keys(BUNDLES.earth.images).length);
+    expect(bundle.sha256).toBe(BUNDLES.earth.sha256);
+  });
+
+  it("credits what a country's image is built from, which is not what any pyramid is", () => {
+    const [bundle] = bundles("earth");
+    expect(bundle.credit).toBe(CREDITS.heroes.earth.credit);
+    expect(bundle.sources).toEqual(CREDITS.heroes.earth.sources);
+    for (const layer of ["relief", "terrain", "vector"] as const) {
+      expect(bundle.credit, layer).not.toBe(CREDITS.archives[`earth/${layer}`].credit);
+    }
+  });
+
+  it("is drawn on the Archives page beside the pyramids", () => {
+    const page = readFileSync(new URL("../pages/archives.astro", import.meta.url), "utf8")
+      .split(/^---$/m)
+      .at(-1)
+      ?.replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
+    expect(page).toMatch(/\[\s*\.\.\.world\.current,\s*\.\.\.world\.bundles\s*\]\.map\(/);
   });
 });

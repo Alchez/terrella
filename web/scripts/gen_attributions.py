@@ -68,6 +68,18 @@ def payload() -> dict:
             }
             for name, body in sorted(bodies.BODIES.items())
         },
+        # A hero's own credit, which its download files carry, and the Focus overlay's sources,
+        # which only its page shows. Keyed by body, for the bodies that render heroes.
+        "heroes": {
+            name: {
+                "credit": attribution.for_hero(body),
+                "sources": [card(attribution.SOURCES[key]) for key in attribution.hero_keys(body)],
+                "focus": [card(attribution.SOURCES[key])
+                          for key in attribution.CREDITS[name].focus],
+            }
+            for name, body in sorted(bodies.BODIES.items())
+            if attribution.CREDITS[name].heroes
+        },
     }
 
 

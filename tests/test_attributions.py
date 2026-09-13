@@ -31,21 +31,20 @@ ABOUT_PAGE = REPO_ROOT / "web/src/pages/about.astro"
 # `legal`. Committed, so this is what the built page renders.
 ABOUT_CONTENT = REPO_ROOT / "web/src/data/attributions.json"
 
-# The licence on the site's OWN output, as opposed to the input obligations below. Every site listed
-# restates it and, until these two checks, none was verified — which is how a licence change leaves a
-# stale copy behind. The failure is not legal but epistemic: a reader believes whichever copy they
-# land on, and nothing tells them the others disagree.
+# Every file that states the site's own output licence to a reader, as opposed to the input
+# obligations below. None of them can import `attribution.OUTPUT_LICENCE`, so each is held to it here.
 #
 # LICENSE is deliberately NOT a site, and adding it back would undo a decision rather than tighten
 # one. It is pure MIT so that GitHub's licence detection reports MIT instead of "Other", which is the
 # truthful label: no rendered asset is in git, so everything the repository actually contains is MIT.
 # The output licence has better owners in ATTRIBUTIONS.md and on the About page, where the imagery is
 # published. The cost of appending here again is invisible from inside the repo, which is the point.
-OUTPUT_LICENSE = "CC BY-SA 4.0"
 LICENSE_SITES: list[Path] = [
     REPO_ROOT / "README.md",
     ATTRIBUTIONS,
     ABOUT_PAGE,
+    REPO_ROOT / "web/src/pages/archives.astro",
+    REPO_ROOT / "web/src/pages/[slug].astro",
 ]
 
 # Assembled from two halves on purpose: this file is inside the sweep that forbids the string, so
@@ -121,6 +120,9 @@ def test_the_obligations_are_the_ones_the_registry_marks() -> None:
 #: A line whose first non-space characters are `//`. Anchored at the start on purpose: `https://`
 #: appears in every licence URL on these pages, so a mid-line rule would delete the declarations.
 LINE_COMMENT = re.compile(r"^[ \t]*//.*$", re.MULTILINE)
+#: A block comment in a stylesheet or a script, and so `{/* */}`, the only comment form an Astro
+#: template allows.
+BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
 
 
 def _normalised(path: Path) -> str:
@@ -139,7 +141,7 @@ def _normalised(path: Path) -> str:
     """
     source = path.read_text(encoding="utf-8")
     if path.suffix in {".astro", ".ts", ".js"}:
-        source = LINE_COMMENT.sub("", source)
+        source = LINE_COMMENT.sub("", BLOCK_COMMENT.sub("", source))
     return re.sub(r"\s+", " ", source)
 
 
@@ -265,9 +267,10 @@ def test_every_site_states_the_output_license(site: Path) -> None:
     A restatement that drifts is worse than one never written, because each copy reads as
     authoritative on its own — nothing on the page a reader lands on says a sibling disagrees.
     """
-    assert OUTPUT_LICENSE in _normalised(site), (
-        f"{site.relative_to(REPO_ROOT)} does not state the output licence {OUTPUT_LICENSE!r} "
-        "verbatim. If the licence changed, change all four sites and this constant together."
+    assert attribution.OUTPUT_LICENCE in _normalised(site), (
+        f"{site.relative_to(REPO_ROOT)} does not state the output licence "
+        f"{attribution.OUTPUT_LICENCE!r} verbatim. If the licence changed, change every file in "
+        "LICENSE_SITES with it."
     )
 
 
@@ -276,16 +279,23 @@ def test_a_notice_that_exists_only_in_a_comment_does_not_count(tmp_path: Path) -
 
     Every licence assertion here PASSES on a substring being present, so a stripper that quietly
     removed nothing would leave all of them green and say so in exactly the same words. This plants
-    the licence in a comment and nowhere else, and requires it to be invisible; the second half
-    plants a URL on the same line to hold the anchoring, since `https://` is `//` too.
+    the licence in each comment form a page can hold and nowhere else, and requires it to be
+    invisible; the last plants a URL on the same line to hold the anchoring, since `https://` is `//`
+    too.
     """
-    commented = tmp_path / "commented.astro"
-    commented.write_text(f"// the imagery is {OUTPUT_LICENSE}\nconst nothing = 1;\n")
-    assert OUTPUT_LICENSE not in _normalised(commented)
+    licence = attribution.OUTPUT_LICENCE
+    for form, source in {
+        "a line comment": f"// the imagery is {licence}\nconst nothing = 1;\n",
+        "a template comment": f"<p>{{/* the imagery is {licence} */}}</p>\n",
+        "a block comment": f"<style>\n  /* the imagery is {licence} */\n</style>\n",
+    }.items():
+        commented = tmp_path / "commented.astro"
+        commented.write_text(source)
+        assert licence not in _normalised(commented), f"the stripper leaves {form} standing"
 
     declared = tmp_path / "declared.astro"
-    declared.write_text(f'const html = "see {CURRENT_LICENSE_URL} for {OUTPUT_LICENSE}";\n')
-    assert OUTPUT_LICENSE in _normalised(declared), (
+    declared.write_text(f'const html = "see {CURRENT_LICENSE_URL} for {licence}";\n')
+    assert licence in _normalised(declared), (
         "the stripper removed a declaration containing a URL, so it is cutting on `//` anywhere "
         "rather than at the start of a line")
 
@@ -321,6 +331,52 @@ def test_no_tracked_file_links_the_superseded_output_license() -> None:
     )
     assert not linking, (
         f"these files still LINK the superseded output licence: {linking}. The site's renders are "
-        f"{OUTPUT_LICENSE}; a live link to the old one grants rights that were withdrawn and "
+        f"{attribution.OUTPUT_LICENCE}; a live link to the old one grants rights that were withdrawn and "
         "withholds rights that were granted. Naming it in prose is fine — linking it is not."
+    )
+
+
+# Read off LICENSE rather than spelled here, which would make this file a third place naming them.
+COPYRIGHT_LINE = re.compile(r"^Copyright \(c\) \d{4} (?P<holder>.+)$", re.MULTILINE)
+
+
+def test_the_maintainer_is_named_only_in_the_two_credits() -> None:
+    """LICENSE's copyright line and ATTRIBUTIONS.md's credit string, and no other line in the repo."""
+    copyright_line = COPYRIGHT_LINE.search((REPO_ROOT / "LICENSE").read_text(encoding="utf-8"))
+    assert copyright_line, "LICENSE has no copyright line to read the maintainer's name from"
+    name = copyright_line["holder"].strip()
+    credits = {"LICENSE": copyright_line.group(0), "ATTRIBUTIONS.md": f"Terrella ({name})"}
+    any_part = re.compile(r"\b(?:" + "|".join(map(re.escape, name.split())) + r")\b", re.IGNORECASE)
+    assert all(any_part.search(credit) for credit in credits.values()), "the pattern misses the name"
+
+    # Untracked files too, since a new file is exactly where the name arrives before anyone stages it.
+    listing = subprocess.run(
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+        cwd=REPO_ROOT, capture_output=True, text=True, check=True,
+    ).stdout.splitlines()
+    credits_seen: set[str] = set()
+    elsewhere: list[str] = []
+    for relative in sorted(set(listing)):
+        path = REPO_ROOT / relative
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        credit = credits.get(relative)
+        for number, line in enumerate(text.splitlines(), start=1):
+            if credit and credit in line:
+                credits_seen.add(relative)
+                line = line.replace(credit, "")
+            if any_part.search(line):
+                elsewhere.append(f"{relative}:{number}: {line.strip()[:120]}")
+
+    assert credits_seen == set(credits), (
+        f"the sweep found the credits in {sorted(credits_seen)} rather than {sorted(credits)}, so it "
+        "cannot be trusted to find the name anywhere else either"
+    )
+    assert not elsewhere, (
+        "these lines name the maintainer outside the two credits; write \"the maintainer's call\", "
+        "or say what was decided without saying who:\n  " + "\n  ".join(elsewhere)
     )

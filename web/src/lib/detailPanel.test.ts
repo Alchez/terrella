@@ -36,8 +36,7 @@ function country(overrides: Partial<Country> = {}): Country {
     sizes: [640, 1920, 3840],
     native: 3840,
     rendered: true,
-    hasBorder: true,
-    borderSizes: [640, 1920],
+    download: { width: 1920, height: 3840, webpBytes: 4_000_000, pngBytes: 30_000_000 },
     hasSpotlight: false,
     spotlightSizes: [],
     ...overrides,
@@ -235,7 +234,7 @@ describe("the panel seam the module cannot check itself", () => {
 describe("the content contract stays body-neutral", () => {
   it("names no country field", () => {
     // `PanelContent` exists so a second body can fill the card. A `slug`, a `continent` or a
-    // `borderSizes` creeping back in would re-couple it to Earth's manifest without anything
+    // `spotlightSizes` creeping back in would re-couple it to Earth's manifest without anything
     // failing, because Earth's builder would go on supplying them.
     const content: PanelContent = countryPanelContent(country());
     expect(Object.keys(content).toSorted()).toEqual(["eyebrow", "link", "name", "note"]);

@@ -1,6 +1,6 @@
 ---
 name: prose-pass
-description: Cutting a module's comments and docstrings, or a markdown doc's prose, back to what the code cannot say for itself. Load when asked to reduce prose or verbosity in any file, when a doc reads like an essay or an archive, when deciding whether to split a doc or prune it, when a docstring is longer than the body it documents, or before writing a long one. Carries the order the checks run in, why that order is itself the finding, and the defect classes each one turns up.
+description: Cutting a module's comments and docstrings, or a markdown doc's prose, back to what the code cannot say for itself. Load when asked to reduce prose or verbosity in any file, when a doc reads like an essay or an archive, when deciding whether to split a doc or prune it, when a docstring is longer than the body it documents, before writing a long one, or before reporting any change that adds comments, docstrings or doc lines. Carries the order the checks run in, why that order is itself the finding, and the defect classes each one turns up.
 ---
 
 # Cutting a module's prose
@@ -48,6 +48,15 @@ Stays:
 - **Then sort every bullet by word count.** Paragraphs grow inside bullets and read as bullets; the worst was 50 words holding three separate facts, and splitting it was the fix rather than trimming.
 - **The two checks at the top of this file apply unchanged, and one hazard is doc-only: a guard may PARSE a sentence.** `test_planet_pass` reads `docs/pipeline.md` for the line naming the stages that take `--body` and drives all four as subprocesses, so rewording that sentence breaks a test rather than staling a claim.
 - **Cut the reason a line exists, never the reason a reader acts.** A step saying what to run without saying when to skip it is the one that gets skipped.
+
+## On a diff rather than a module
+
+Asked to pass "the changes", the population is what the diff adds, not a module `prose_report` ranks.
+
+- **Take every added prose line in every language**: comments and docstrings, messages and `help=` strings, and every doc line, from `git diff -U0` against `HEAD` plus each untracked file whole. `prose_report` reads Python alone, so a pass that starts from it never meets the TypeScript, the Astro or the docs.
+- **Expect the four checks to come back clean, because the reading is the pass.** Over one arc's 262 added lines they found nothing, while reading each line against the code found six claims false or incomplete, every one of them wrong on the day it was written: a set claim nobody enumerated, a comment generalising from one field to all of them, a warning naming one of the two file types it applied to, and a summary of refusals missing two.
+- **Word-count a doc line from the diff itself.** A dump that truncates lines for display undercounts exactly the long ones the count exists to find.
+- **Re-flow any block you edit to the width the rest of its file uses.** An edit inside an early-wrapped docstring inherits its early wrap, and the file ends up carrying two widths.
 
 ## What the pass has not reached yet
 

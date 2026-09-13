@@ -145,18 +145,37 @@ The chain `country_config` prints per country, in order. Each stage finalizes it
 
 ## Publishing heroes (Earth only)
 
-Two compose steps and a manifest regeneration turn finished heroes into what the site serves. Both compose steps take `--only <slug,slug>` and `--force`.
+Four compose steps and a manifest regeneration turn finished heroes into what the site serves. The first three take `--only <slug,slug>`, and the first two `--force`; the bundle always takes every country.
 
 ```bash
 python -m pipeline.compose.hero_variants --jobs 8   # 6 srcset rungs per hero (downscale-only, idempotent)
 python -m pipeline.compose.gen_spotlight            # transparent Focus layer: dims everything outside the country
+python -m pipeline.compose.downloads stamp          # the credit inside each full-size WebP and a PNG copy of its master
 python web/scripts/gen_manifest.py --out web/src/data/countries.json
+python -m pipeline.compose.downloads bundle         # every full-size WebP in one zip, recorded in web/src/data/downloads.json
 pnpm --dir web build
 ```
 
 - **Both share one rung ladder**, 640/960/1280/1920/3840/native: the gallery stacks their outputs under one `sizes`, so a rung in one and not the other fetches mismatched files. `tests/test_hero_variants.py` guards it.
 - **Parallelism is a memory question, per script.** `--jobs 8` suits `hero_variants`; `gen_spotlight` is serial because its **native** rung peaks near 8 GB. Time one slug first; `docs/PROCESS.md` has the pass costs.
 - **`hero_variants_recipe.json` records rung to WebP quality**, since existence cannot tell a q95 file from the q85 it replaced. Changing `quality_for()` restages that rung and only that rung.
-- **Borders are baked, not toggled.** `compose/overlay_borders.py` draws them over the finished render; the spotlight is a hero's only toggle asset.
-- **The manifest reads variant dimensions off disk**, so the gallery and detail pages fill in as renders complete.
+- **A hero carries no borders.** Its one overlay is the spotlight, the Focus toggle's asset, which strokes the country's own boundary through `compose/overlay_borders.py`'s camera mapping.
+- **The manifest reads variant dimensions off disk**, so the gallery and detail pages fill in as renders complete. It refuses to write while a rendered country has an image older than its master, a file its master no longer produces, or a download without its credit, and names what fixes each. After a re-render at the same size, that is `--force` on the first two steps for those countries.
+- **The bundle comes after the manifest**, which is what holds each full-size WebP to its master. It refuses an unstamped WebP, and its record lists each image's size, so the deploy preflight refuses a bundle whose images differ from the pages'. A rebuild of unchanged files is byte-identical, so its record changes only when an image or the credit does.
 - **`pnpm --dir web build` builds the whole site**, both bodies, whatever heroes exist.
+
+Then the upload to R2, a purge, a check of what a visitor is served, and the deploy. `<r2>` is `R2_ENDPOINT` from `web/.env`.
+
+```bash
+aws --profile r2 --endpoint-url <r2> s3 sync blender/renders/variants/ s3://terrella-assets/heroes/ \
+  --exclude "*.aux.xml" --exclude "*_recipe.json" --exclude "*.png"
+node web/scripts/upload_downloads.ts            # checks the store against the records, uploads nothing
+node web/scripts/upload_downloads.ts --upload   # each download file and the bundle, marked to save under its own name
+# purge assets.terrella.alchez.dev/heroes/ by prefix in the Cloudflare dashboard
+node web/scripts/upload_downloads.ts --verify   # one byte of each public URL: its size, type and disposition
+pnpm --dir web run deploy
+```
+
+- **The download files go up through the script, after any sync.** A plain `s3 sync` uploads a changed full-size WebP or PNG without the header that makes a link save it rather than open it. The sync above leaves the PNGs out, and the script re-sends the full-size WebPs it carried. Interrupted, the script starts again from the first file, and R2 keeps each file's last complete upload.
+- **Purge before verifying.** The edge answers the hero host from its cache, so until the purge it serves each file as it was before the upload, and the verify names each one. One byte of an uncached file makes the edge fetch all of it, so the first verify after a purge fills the cache with the whole set. A returning visitor's browser can keep its old copy for as long as the host's `max-age` allows.
+- **The deploy's preflight refuses** while R2 lacks a download file, holds one at another size than the manifest records, or holds a bundle other than the one its record describes. `web/DEPLOY.md` has the rest of what it checks.

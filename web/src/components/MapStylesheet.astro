@@ -12,7 +12,7 @@
 // `?url` gives the emitted asset's href WITHOUT injecting the stylesheet, which is the whole point:
 // a bare `import "maplibre-gl/dist/maplibre-gl.css"` in the globe's client script made Vite hoist
 // it into a render-blocking <link>, so **70 KB of widget CSS gated first paint** on a page where no
-// widget exists until the 265 KB globe chunk has downloaded and run. Measured: FCP 1,264 -> 629 ms.
+// widget exists until the globe chunk has downloaded and run. Measured: FCP 1,264 -> 629 ms.
 //
 // Imported from the package, never copied into public/: the version is pinned exactly, and a
 // hand-copied stylesheet is the copy that silently stops matching the bundle it styles.

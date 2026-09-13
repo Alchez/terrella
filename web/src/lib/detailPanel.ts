@@ -1,11 +1,10 @@
 // What the globe's detail card shows, as data rather than as a country.
 //
-// THE PANEL WAS TYPED ON EARTH'S MANIFEST RECORD, which is the thing this module exists to undo.
-// `openPanel(country: Country)` reached for `slug`, `continent`, `aspect`, `sizes`, `borderSizes`
-// and `hasBorder` — six fields no other body has and one of which (`slug`) is a route Mars has no
-// page behind. A second body could not open the card without either growing `Country` with fields
-// that mean nothing on Earth, or forking the panel. `PanelContent` is the third answer: the card
-// takes what it renders, and each body owns the builder that produces it.
+// The card is not typed on Earth's manifest record, which carries fields no other body has, `slug`
+// among them: a route Mars has no page behind. Typed on `Country`, a second body could open the card
+// only by growing `Country` with fields that mean nothing on Earth, or by forking the panel.
+// `PanelContent` is the third answer: the card takes what it renders, and each body owns the
+// builder that produces it.
 //
 // THE NOTE IS A FIELD BECAUSE IT MAKES A CLAIM ABOUT WHAT THE CARD IS SHOWING. It sat in the
 // markup as a sentence about a ray-traced render — true wherever a hero exists, false on a body

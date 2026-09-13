@@ -22,19 +22,27 @@ export interface Country {
   searchTerms: string[];
   /** Authored hero frame [west, south, east, north] in EPSG:4326 — the globe's fly-to target. */
   bbox: [number, number, number, number];
-  /** width / height of the smallest rendered variant (1.5 fallback when unrendered). */
+  /** width / height of the largest rendered variant (1.5 fallback when unrendered). */
   aspect: number;
   /** Long-edge sizes of the rendered hero WebP variants, ascending; empty if unrendered. */
   sizes: number[];
   /** Largest rendered size, or null if unrendered. */
   native: number | null;
   rendered: boolean;
-  hasBorder: boolean;
-  /** Long-edge sizes of the standalone border-layer PNGs. */
-  borderSizes: number[];
+  /** The full-size files the country's page offers for download, or null if unrendered. */
+  download: DownloadFiles | null;
   hasSpotlight: boolean;
   /** Long-edge sizes of the subject-spotlight overlay WebPs (dims neighbours, strokes the boundary). */
   spotlightSizes: number[];
+}
+
+/** The full-size WebP and the PNG copy of its master, each carrying the country's credit. */
+export interface DownloadFiles {
+  /** The full-size image's pixels, the same in both files. */
+  width: number;
+  height: number;
+  webpBytes: number;
+  pngBytes: number;
 }
 
 export interface Manifest {
