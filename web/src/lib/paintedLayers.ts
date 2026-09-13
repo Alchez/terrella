@@ -37,8 +37,15 @@ export type PaintTiming =
 export interface RatifiedLayer {
   /** The layer id as MapLibre sees it. */
   id: string;
-  /** Which bodies can add it. `"all"` where every planet gets it. */
-  bodies: BodySlug[] | "all";
+  /** Which bodies can add it, named one by one.
+   *
+   *  NO BLANKET, AND THAT IS THE WHOLE POINT OF THE FIELD. This was `BodySlug[] | "all"`, and `"all"`
+   *  meant every planet including ones nobody has rendered: a third body would have arrived already
+   *  approved for five layers, on pixels the maintainer had never seen, which is the failure this
+   *  file exists to have caught. A body absent from every entry gets nothing painted, which is the
+   *  right default for an un-consented planet, and `paintedLayers.test.ts` announces the absence so
+   *  it stays a prompt rather than an oversight. */
+  bodies: BodySlug[];
   timing: PaintTiming;
   /** What it looks like, in one line — enough that a reader can tell whether the thing on screen is
    *  the thing that was approved. Not a description of the code; a description of the pixels. */
@@ -49,26 +56,31 @@ export interface RatifiedLayer {
 export const RATIFIED_LAYERS: RatifiedLayer[] = [
   {
     id: "space-floor",
-    bodies: "all",
+    bodies: ["earth", "mars"],
     timing: "always",
     looks: "flat space colour behind the planet, per body — never seen except as the gap around it",
   },
   {
     id: "relief-base",
-    bodies: "all",
+    bodies: ["earth", "mars"],
     timing: "always",
     looks: "the z0 tile stretched under everything, so a slow fill reads as the planet's own colour",
   },
-  { id: "relief", bodies: "all", timing: "always", looks: "the shaded relief raster — the planet" },
+  {
+    id: "relief",
+    bodies: ["earth", "mars"],
+    timing: "always",
+    looks: "the shaded relief raster — the planet",
+  },
   {
     id: "polar-cap-north",
-    bodies: "all",
+    bodies: ["earth", "mars"],
     timing: "always",
     looks: "azimuthal cap repairing Mercator above ~85°; Earth's snow white, Mars's two ice whites",
   },
   {
     id: "polar-cap-south",
-    bodies: "all",
+    bodies: ["earth", "mars"],
     timing: "always",
     looks: "the same repair at the other pole, in that body's southern white",
   },

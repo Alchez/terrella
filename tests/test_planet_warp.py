@@ -16,7 +16,6 @@ import rasterio
 from rasterio.transform import from_bounds
 
 from pipeline import bodies, freshness, mercator, planet_seam, planet_warp
-from pipeline.look import palette
 
 #: A planet whose seam emitted all three rasters — what Earth declares, and the only
 #: shape these tests care about unless they say otherwise.
@@ -333,16 +332,6 @@ class TestWriteIfChanged:
     def test_absent_file_is_written(self, tmp_path):
         path = freshness.write_if_changed(tmp_path / "new.json", "{}")
         assert path.read_text() == "{}"
-
-
-class TestPaletteTextRefactor:
-    @pytest.mark.parametrize("kind", ["land", "sea"])
-    def test_text_matches_the_written_file_byte_for_byte(self, tmp_path, kind):
-        """color_relief_text was split out of write_color_relief; if it drifts, every
-        ramp comparison silently re-colours the planet on every run."""
-        path = tmp_path / f"ramp_{kind}.txt"
-        palette.write_color_relief(path, kind, look=palette.EARTH_LOOK)
-        assert path.read_text() == palette.color_relief_text(kind, look=palette.EARTH_LOOK)
 
 
 class TestTheWarpPassAsksTheSeamBeforeTheDisk:

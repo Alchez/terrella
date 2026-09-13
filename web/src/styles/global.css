@@ -22,6 +22,17 @@
      switcher is floating chrome on pages the globe's stylesheet never reaches. The rail's own
      constants stayed behind: they describe a control stack only the globe has. */
   --page-inset: 1.2rem;
+  /* How much room the last row of a document needs so the view bar does not float over it. The
+     pill is 36.2px at 320 and 38.5px at 1280, held one `--page-inset` off the edge, and it never
+     wraps at any width the site serves. Trusted by nothing: `footer.browser.test.ts` asserts the
+     links clear the bar rather than that this number is still large enough. */
+  --view-bar-clear: 4.5rem;
+  /* HOW FAR A PAGE'S CONTENT SITS FROM THE EDGE OF ITS CONTAINER. `Masthead.astro` pads itself and
+     each page pads its own main, so a heading lines up with the sections under it only because
+     both spell this. It was spelled seven times across five files, and the archives page shipped
+     with none: its heading stood 40px right of every section below it at 2560px.
+     `pageGutter.test.ts` keeps the count at one. */
+  --page-gutter: clamp(1.1rem, 4vw, 2.5rem);
   /* How far anything else centred in the top band has to start, so it clears the body switcher.
      One property because the two elements live in different components — the switcher below, the
      globe's country chip in `Globe.astro` — and a literal in each is two numbers with nothing
@@ -45,26 +56,50 @@
    pretending to be nobody's, and a page that forgot to declare its body would inherit it silently
    rather than showing an unstyled accent the moment it loads.
 
+   NOT ANCHORED TO `:root`, so any subtree can wear a body. A page whose subject is both planets
+   holds one section per body in one document, and the root can only ever name one of them: with
+   `:root` in front of these selectors the archives page drew Mars's three archives in Earth's
+   teal, and nothing in the tree disagreed, because the root said Earth and said it truthfully.
+
    The pairs here are pinned against `lib/bodies.ts` by bodies.browser.test.ts, which reads this
    file and then checks what the browser actually computes from it. A copied colour with nothing
    comparing it back is how WATER_RGB drifted 15% off the sea it was supposed to match. */
-:root[data-body="earth"] {
+[data-body="earth"] {
   --accent: #3a6e7d; /* SEA_STOPS[5], the trench floor */
 }
 @media (prefers-color-scheme: dark) {
-  :root[data-body="earth"] {
+  [data-body="earth"] {
     --accent: #7cb8b8; /* shallow teal in the dark */
   }
 }
 
 /* Mars: eye-ratified, not ramp-derived. lib/bodies.ts holds the measurement that reverted a
    derivation from ramp stops — don't retry it. */
-:root[data-body="mars"] {
+[data-body="mars"] {
   --accent: #8c4a32;
 }
 @media (prefers-color-scheme: dark) {
-  :root[data-body="mars"] {
+  [data-body="mars"] {
     --accent: #d08b6a;
+  }
+}
+
+/* A page about EVERY body wears none of their colours, and the sections inside it put a planet
+   back. `body` is a required `BodySlug` with no neutral member, deliberately: widening it would
+   oblige the tile registry, the dev store and the body registry to answer for something that is
+   not a planet, so the page says which it is by holding an `.all-bodies` container instead.
+
+   MATCHED THROUGH `:has()` FROM THE ROOT, because the masthead is the main's SIBLING: a rule on
+   the container alone leaves the page's heading and lede wearing whichever body the root names,
+   which is the half you notice, since that is where the page's first link is. The neutral is the
+   ink desaturated rather than a third hue, so it competes with neither accent when both are on
+   screen at once. */
+:root:has(.all-bodies) {
+  --accent: #5d564a;
+}
+@media (prefers-color-scheme: dark) {
+  :root:has(.all-bodies) {
+    --accent: #a49b8a;
   }
 }
 
@@ -141,7 +176,7 @@ a {
 .view-bar {
   position: fixed;
   /* Also the containing block for the globe's scale ruler, which is absolutely positioned onto
-     this pill's top edge (see `.view-bar-ruler` in globe.astro). `fixed` already establishes one,
+     this pill's top edge (see `.view-bar-ruler` in globe.css). `fixed` already establishes one,
      so this is a statement of intent rather than a new behaviour — but the ruler's `bottom: 100%`
      silently retargets the viewport if this element ever stops being positioned. */
   bottom: var(--page-inset);
@@ -249,6 +284,46 @@ a {
 .quality-fab {
   display: inline-flex;
   gap: 0.2rem; /* the pill, blur and border are .view-bar's; this is only the segment's spacing */
+}
+/* The site picked the lit tier, until the visitor presses one. */
+.quality-fab button[data-auto]::after {
+  content: "· auto";
+  margin-left: 0.3em;
+  font-size: 0.9em;
+  opacity: 0.72;
+}
+/* Narrower than this, a pointer's bar also carries the highlight button and the tag would wrap it.
+   Phones hide that button, so they keep the tag down to the narrowest width served. */
+@media (max-width: 349px) and (hover: hover) {
+  .quality-fab button[data-auto]::after {
+    content: none;
+  }
+}
+/* A tier this browser cannot draw, refused where it is pressed rather than saved and bounced back. */
+.view-bar button[aria-disabled="true"],
+.view-bar button[aria-disabled="true"]:hover {
+  color: var(--muted);
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+/* Why it was refused, over the bar's right end, where Globe and Full sit. Out of flow and absent
+   while empty, so it never takes a row from the bar it hangs off. */
+.picker-refusal {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 0.7rem);
+  margin: 0;
+  padding: 0.4rem 0.7rem;
+  border-radius: 8px;
+  white-space: nowrap;
+  font-size: 0.78rem;
+  line-height: 1.3;
+  color: var(--bg);
+  background: var(--text);
+  box-shadow: var(--shadow);
+}
+.picker-refusal:empty {
+  display: none;
 }
 @media (prefers-reduced-motion: no-preference) {
   .view-bar button {

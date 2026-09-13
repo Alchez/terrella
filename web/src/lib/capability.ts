@@ -62,12 +62,12 @@ const DEFAULT_QUALITY: Quality = "auto";
  * Lighthouse's own mobile reference device**, which reports exactly 4.
  *
  * Measured rather than taken from the spec, because the spec is out of date here: the W3C text
- * describes an 8 GiB upper clamp, and current Chrome does not apply it — a 29 GiB machine reports
+ * describes an 8 GiB upper clamp, and current Chrome does not apply it: a desktop well above the clamp reports
  * **32**. Neither the clamp nor the rounding direction changes the argument above; only the claim
  * that the set is small and has no odd numbers in it does, and that holds.
  *
- * Being wrong in this direction is cheap: a demoted device loses the idle animation (and, once
- * Tier 3 wires up, the terrain mesh). It never loses the globe.
+ * Being wrong in this direction is cheap: a demoted device loses the raised terrain and the idle
+ * spin. It never loses the globe.
  */
 export const LOW_MEMORY_GIB = 4;
 
@@ -177,6 +177,15 @@ export function canRunGlobe(signals: CapabilitySignals): boolean {
 }
 
 /**
+ * Whether `Base.astro`'s pre-paint guard would bounce this device off a globe it navigated to. The
+ * guard reads WebGL2 and the renderer string and not the caveat, which only a module can ask, so
+ * this is narrower than {@link canRunGlobe}: a caveated device is let onto the globe and runs there.
+ */
+export function guardBouncesOffGlobe(signals: Pick<CapabilitySignals, "webgl2" | "softwareGpu">): boolean {
+  return !signals.webgl2 || signals.softwareGpu;
+}
+
+/**
  * Decide the tier from a signals snapshot and the persisted quality choice.
  *
  * Precedence:
@@ -200,7 +209,7 @@ export function decideTier(signals: CapabilitySignals, quality: Quality): Tier {
   // `/earth/` was told the device could not run it — while `Base.astro`'s pre-paint guard, which
   // consults `saveData` and has never consulted this, had already let them in. The two places
   // disagreed, and the module's answer was the harsh one. A slow network buys the same treatment as
-  // low memory: keep the globe, drop what `full` adds (the idle spin and the in-globe hero panel).
+  // low memory: keep the globe, drop what `full` adds (the raised terrain and the idle spin).
   if (signals.lowMemory || signals.reducedMotion || signals.slowNetwork) return "globe";
   return "full";
 }

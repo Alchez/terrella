@@ -11,11 +11,14 @@ public domain or CC0) are deliberately excluded: adding them would make the test
 that are not legal ones, and a check that cries wolf gets deleted.
 """
 
+import json
 import re
 import subprocess
 from pathlib import Path
 
 import pytest
+
+from pipeline import attribution
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ATTRIBUTIONS = REPO_ROOT / "ATTRIBUTIONS.md"
@@ -23,23 +26,25 @@ ABOUT_PAGE = REPO_ROOT / "web/src/pages/about.astro"
 # The credits moved off the page and into a per-body module; the OUTPUT licence did not. Two
 # constants rather than one because the two obligations now live in two files, and pointing both at
 # whichever file happens to hold one of them is how a sweep goes quietly vacuous.
-ABOUT_CONTENT = REPO_ROOT / "web/src/lib/aboutContent.ts"
+# The cards themselves, which moved out of `aboutContent.ts` when `pipeline/attribution.py` became
+# their one owner: that module keeps the page's prose and imports this for its `sources` and
+# `legal`. Committed, so this is what the built page renders.
+ABOUT_CONTENT = REPO_ROOT / "web/src/data/attributions.json"
 
-# The licence on the site's OWN output, as opposed to the input obligations below. Every site listed
-# restates it and, until these two checks, none was verified — which is how a licence change leaves a
-# stale copy behind. The failure is not legal but epistemic: a reader believes whichever copy they
-# land on, and nothing tells them the others disagree.
+# Every file that states the site's own output licence to a reader, as opposed to the input
+# obligations below. None of them can import `attribution.OUTPUT_LICENCE`, so each is held to it here.
 #
 # LICENSE is deliberately NOT a site, and adding it back would undo a decision rather than tighten
 # one. It is pure MIT so that GitHub's licence detection reports MIT instead of "Other", which is the
 # truthful label: no rendered asset is in git, so everything the repository actually contains is MIT.
 # The output licence has better owners in ATTRIBUTIONS.md and on the About page, where the imagery is
 # published. The cost of appending here again is invisible from inside the repo, which is the point.
-OUTPUT_LICENSE = "CC BY-SA 4.0"
 LICENSE_SITES: list[Path] = [
     REPO_ROOT / "README.md",
     ATTRIBUTIONS,
     ABOUT_PAGE,
+    REPO_ROOT / "web/src/pages/archives.astro",
+    REPO_ROOT / "web/src/pages/[slug].astro",
 ]
 
 # Assembled from two halves on purpose: this file is inside the sweep that forbids the string, so
@@ -71,60 +76,53 @@ def tracked_license_bearing_files() -> list[Path]:
         and (REPO_ROOT / name).is_file()
     ]
 
-# Each entry: (label, the exact string the licence requires).
-# Sourced from ATTRIBUTIONS.md § Required / requested attribution strings, which records that the
-# Copernicus terms were verified against the primary licence PDF rather than a secondary summary.
+# DERIVED, and it was the fourth hand-kept copy of one fact until it was.
+#
+# The list said which notices are obligations; `Source.obligation` says the same thing beside the
+# notice itself, so the two could disagree and did: SCAR ADD is CC-BY, is named required in
+# ATTRIBUTIONS.md, and was in neither this list nor the About page.
+#
+# Each entry is now the FULL notice rather than a distinguishing fragment. The fragments were chosen
+# to be robust against wording that has since stopped being allowed to vary.
+#
+# The courtesy citations are still excluded, by the same rule and now structurally: a public-domain
+# source carries `obligation=False`, so asserting it would take a deliberate edit rather than an
+# oversight. The Viking mosaic is the case that keeps this honest — acquired in the same arc as
+# SIM 3292 and credited beside it, but its fields read public domain with no use constraint, so
+# listing it would assert an obligation the publisher does not make.
 REQUIRED_STRINGS: list[tuple[str, str]] = [
-    (
-        "Copernicus WorldDEM-30 Art. 6(b) notice",
-        ("produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and "
-         "Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all "
-         "rights reserved"),
-    ),
-    (
-        "Copernicus WorldDEM-30 Art. 6(c) liability sentence",
-        ("The organisations in charge of the Copernicus programme by law or by delegation do not "
-         "incur any liability for any use of the Copernicus WorldDEM-30"),
-    ),
-    (
-        "ESA WorldCover CC-BY notice",
-        "© ESA WorldCover project 2021",
-    ),
-    (
-        "RGI 7.0 CC-BY creator credit",
-        "Randolph Glacier Inventory 7.0",
-    ),
-    (
-        "OSI SAF CC-BY creator credit",
-        "EUMETSAT Ocean and Sea Ice",
-    ),
-    # Not a courtesy, which is why it is in this list rather than excluded with GEBCO and GLOBathy.
-    # The USGS product page states a Use Constraint of "Please cite authors" — the publisher asking
-    # in its own terms field, where the excluded ones are public-domain sources asking for nothing.
-    # Held to the same standard as the notices above: the exact citation, on the page a reader sees.
-    (
-        "MOLA / HRSC blend requested citation",
-        ("Fergason, R. L, Hare, T. M., & Laura, J. (2018). HRSC and MOLA Blended Digital "
-         "Elevation Model at 200m v2. Astrogeology PDS Annex, U.S. Geological Survey."),
-    ),
-    # ADMITTED ON THE SAME RULE AS THE BLEND ABOVE, and the rule is what keeps this list honest:
-    # `Use_Constraints: please cite authors.` is the publisher asking in its own terms field. The
-    # Viking mosaic, acquired in the same arc and credited beside this one, is deliberately ABSENT —
-    # its fields read public domain and no use constraint, so listing it would assert an obligation
-    # the publisher does not make.
-    (
-        "SIM 3292 requested citation",
-        ("K.L. Tanaka, J.A. Skinner, Jr., J.M. Dohm, R.P. Irwin, III, E.J. Kolb, C.M. Fortezzo, "
-         "Thomas Platz, G.G. Michael, and T.M. Hare, 2014, Geologic Map of Mars, Scale "
-         "1:20,000,000, U.S. Geological Survey Scientific Investigations Map SIM 3292, "
-         "http://pubs.usgs.gov/sim/3292"),
-    ),
+    (source.name, source.notice)
+    for source in attribution.SOURCES.values()
+    if source.obligation
 ]
+# Plus the one required string that is not any source's citation: Article 6(c) is a disclaimer the
+# licence obliges alongside 6(b), rendered under Earth's cards rather than on the DEM's own.
+REQUIRED_STRINGS.append(
+    ("Copernicus WorldDEM-30 Art. 6(c) liability sentence", attribution.COPERNICUS_LIABILITY)
+)
+
+
+def test_the_obligations_are_the_ones_the_registry_marks() -> None:
+    """Set EQUALITY, so a source losing `obligation=True` fails here rather than going unasserted.
+
+    One-way containment is satisfied by a derivation that produced nothing, which is exactly the
+    failure that let SCAR ADD sit uncredited while every licence test passed.
+    """
+    marked = {name for name, source in attribution.SOURCES.items() if source.obligation}
+    assert marked == {"glo30", "worldcover", "rgi", "addrock", "seaice", "mars_dem",
+                      "mars_sim3292"}, (
+        "the set of licence-required sources changed. That is a legal claim, not a refactor: "
+        "confirm it against ATTRIBUTIONS.md § Required / requested attribution strings, then "
+        "update this literal."
+    )
 
 
 #: A line whose first non-space characters are `//`. Anchored at the start on purpose: `https://`
 #: appears in every licence URL on these pages, so a mid-line rule would delete the declarations.
 LINE_COMMENT = re.compile(r"^[ \t]*//.*$", re.MULTILINE)
+#: A block comment in a stylesheet or a script, and so `{/* */}`, the only comment form an Astro
+#: template allows.
+BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
 
 
 def _normalised(path: Path) -> str:
@@ -143,7 +141,7 @@ def _normalised(path: Path) -> str:
     """
     source = path.read_text(encoding="utf-8")
     if path.suffix in {".astro", ".ts", ".js"}:
-        source = LINE_COMMENT.sub("", source)
+        source = LINE_COMMENT.sub("", BLOCK_COMMENT.sub("", source))
     return re.sub(r"\s+", " ", source)
 
 
@@ -160,7 +158,15 @@ def test_about_page_carries_the_required_string(label: str, required: str) -> No
     way this can pass, and searching one file would make the guard turn on where prose happens to
     sit rather than on whether it is there at all.
     """
-    haystack = f"{_normalised(ABOUT_CONTENT)} {_normalised(ABOUT_PAGE)}"
+    # The CARDS and the page, never the whole generated file: it also carries the archive credits,
+    # and those hold every notice too, so searching the file would let a card lose a citation and
+    # still match. Found by a sabotage case escalating instead of reporting CAUGHT.
+    cards = json.loads(ABOUT_CONTENT.read_text(encoding="utf-8"))["bodies"]
+    rendered = " ".join(
+        [card["attribution"] for body in cards.values() for card in body["sources"]]
+        + [line for body in cards.values() for line in body["legal"]]
+    )
+    haystack = f"{re.sub(r'\\s+', ' ', rendered)} {_normalised(ABOUT_PAGE)}"
     assert re.sub(r"\s+", " ", required) in haystack, (
         f"{label}: ATTRIBUTIONS.md records this as licence-REQUIRED, but neither "
         f"web/src/lib/aboutContent.ts nor web/src/pages/about.astro contains it verbatim.\n"
@@ -180,15 +186,72 @@ def test_attributions_file_still_records_the_required_string(label: str, require
     )
 
 
+#: The one required notice no ARCHIVE owes. WorldCover is the heroes' snow mask and the tiles
+#: replaced it with NSIDC-0791 plus RGI, so a pyramid crediting it would name a source not in it.
+#: It stays in `REQUIRED_STRINGS` because the heroes are published and still owe it.
+# EMPTY, and the entry it used to hold is why the list is exceptions rather than targets. WorldCover
+# was exempted here as "the heroes' snow mask, replaced in the tiles by NSIDC-0791 plus RGI", which
+# is true of the SNOW mask and not of the dataset: it also synthesises the watermask for the void
+# GLO-30 tiles, which reaches every Earth raster archive through the fused heightfield. An exemption
+# stated in a standing brief's own words survived until the acquisition chain was read.
+NOT_IN_ANY_ARCHIVE: set[str] = set()
+
+
+def every_archive_credit() -> str:
+    """What the four raster pyramids say about themselves, composed the way a pack composes it.
+
+    Values rather than source text: the notices are built from adjacent string literals, so a
+    substring search over this module's own file would be matching across the quote seams.
+    """
+    from pipeline import attribution, bodies
+
+    return " ".join(
+        attribution.for_archive(body, layer)
+        for body in bodies.BODIES.values()
+        for layer in attribution.ARCHIVE_LAYERS
+    )
+
+
+@pytest.mark.parametrize("label,required", REQUIRED_STRINGS, ids=[e[0] for e in REQUIRED_STRINGS])
+def test_an_archive_carries_the_required_string_in_its_own_bytes(label: str, required: str) -> None:
+    """The third place the same obligation has to hold, and the only one that survives a download.
+
+    The About page discharges it for a visitor and ATTRIBUTIONS.md records it for us, but both are
+    on a host a downloaded `.pmtiles` has left behind. `pmtiles convert` copies the MBTiles
+    `attribution` row into the archive metadata, so this is the copy that travels with the file.
+    """
+    if label in NOT_IN_ANY_ARCHIVE:
+        pytest.skip(f"{label} is baked into heroes, never into a tile pyramid")
+    assert re.sub(r"\s+", " ", required) in every_archive_credit(), (
+        f"{label}: ATTRIBUTIONS.md records this as licence-required and no published archive "
+        "carries it. Add it to the right entry in pipeline/attribution.py — a notice that reaches "
+        "only the website does not travel with a file someone downloaded."
+    )
+
+
+def test_the_archive_credit_check_can_fail(monkeypatch) -> None:
+    """The control for the sweep above, which is a substring test over a long composed string and
+    would pass just as quietly against a credit that had lost a notice."""
+    assert "a notice no licence has ever required" not in every_archive_credit()
+
+
 def test_every_source_on_the_about_page_declares_a_licence() -> None:
-    """A missing licence badge is the failure mode that reads as 'no licence needed'."""
-    about = ABOUT_CONTENT.read_text(encoding="utf-8")
-    names = re.findall(r'^\s*name: "([^"]+)",', about, re.MULTILINE)
-    licences = re.findall(r'^\s*license: "([^"]+)",', about, re.MULTILINE)
-    assert names, "no source entries parsed — the aboutContent.ts `sources` shape changed"
-    assert len(names) == len(licences), (
-        f"{len(names)} data sources but {len(licences)} licence fields — every source card must "
-        f"declare one. Sources: {names}"
+    """A missing licence badge is the failure mode that reads as 'no licence needed'.
+
+    Reads the generated cards rather than the module that renders them: every field is required on
+    `attribution.Source`, so an omission can no longer be a blank line, but a card can still carry
+    a data CENTRE where a licence belongs, which is a wrong answer rather than a missing one.
+    """
+    cards = [card
+             for body in json.loads(ABOUT_CONTENT.read_text(encoding="utf-8"))["bodies"].values()
+             for card in body["sources"]]
+    assert cards, "no source cards parsed — the attributions.json shape changed"
+    licences = [card["license"] for card in cards]
+    assert all(card["name"] and card["href"] and card["role"] and card["attribution"]
+               for card in cards), f"a card is missing a field: {cards}"
+    assert len(cards) == len(licences), (
+        f"{len(cards)} data sources but {len(licences)} licence fields — every source card must "
+        f"declare one."
     )
     assert "NSIDC" not in licences and "EUMETSAT" not in licences, (
         "a data CENTRE is not a licence: NSIDC-0791 is public domain and OSI SAF is CC-BY 4.0. "
@@ -204,9 +267,10 @@ def test_every_site_states_the_output_license(site: Path) -> None:
     A restatement that drifts is worse than one never written, because each copy reads as
     authoritative on its own — nothing on the page a reader lands on says a sibling disagrees.
     """
-    assert OUTPUT_LICENSE in _normalised(site), (
-        f"{site.relative_to(REPO_ROOT)} does not state the output licence {OUTPUT_LICENSE!r} "
-        "verbatim. If the licence changed, change all four sites and this constant together."
+    assert attribution.OUTPUT_LICENCE in _normalised(site), (
+        f"{site.relative_to(REPO_ROOT)} does not state the output licence "
+        f"{attribution.OUTPUT_LICENCE!r} verbatim. If the licence changed, change every file in "
+        "LICENSE_SITES with it."
     )
 
 
@@ -215,16 +279,23 @@ def test_a_notice_that_exists_only_in_a_comment_does_not_count(tmp_path: Path) -
 
     Every licence assertion here PASSES on a substring being present, so a stripper that quietly
     removed nothing would leave all of them green and say so in exactly the same words. This plants
-    the licence in a comment and nowhere else, and requires it to be invisible; the second half
-    plants a URL on the same line to hold the anchoring, since `https://` is `//` too.
+    the licence in each comment form a page can hold and nowhere else, and requires it to be
+    invisible; the last plants a URL on the same line to hold the anchoring, since `https://` is `//`
+    too.
     """
-    commented = tmp_path / "commented.astro"
-    commented.write_text(f"// the imagery is {OUTPUT_LICENSE}\nconst nothing = 1;\n")
-    assert OUTPUT_LICENSE not in _normalised(commented)
+    licence = attribution.OUTPUT_LICENCE
+    for form, source in {
+        "a line comment": f"// the imagery is {licence}\nconst nothing = 1;\n",
+        "a template comment": f"<p>{{/* the imagery is {licence} */}}</p>\n",
+        "a block comment": f"<style>\n  /* the imagery is {licence} */\n</style>\n",
+    }.items():
+        commented = tmp_path / "commented.astro"
+        commented.write_text(source)
+        assert licence not in _normalised(commented), f"the stripper leaves {form} standing"
 
     declared = tmp_path / "declared.astro"
-    declared.write_text(f'const html = "see {CURRENT_LICENSE_URL} for {OUTPUT_LICENSE}";\n')
-    assert OUTPUT_LICENSE in _normalised(declared), (
+    declared.write_text(f'const html = "see {CURRENT_LICENSE_URL} for {licence}";\n')
+    assert licence in _normalised(declared), (
         "the stripper removed a declaration containing a URL, so it is cutting on `//` anywhere "
         "rather than at the start of a line")
 
@@ -260,6 +331,52 @@ def test_no_tracked_file_links_the_superseded_output_license() -> None:
     )
     assert not linking, (
         f"these files still LINK the superseded output licence: {linking}. The site's renders are "
-        f"{OUTPUT_LICENSE}; a live link to the old one grants rights that were withdrawn and "
+        f"{attribution.OUTPUT_LICENCE}; a live link to the old one grants rights that were withdrawn and "
         "withholds rights that were granted. Naming it in prose is fine — linking it is not."
+    )
+
+
+# Read off LICENSE rather than spelled here, which would make this file a third place naming them.
+COPYRIGHT_LINE = re.compile(r"^Copyright \(c\) \d{4} (?P<holder>.+)$", re.MULTILINE)
+
+
+def test_the_maintainer_is_named_only_in_the_two_credits() -> None:
+    """LICENSE's copyright line and ATTRIBUTIONS.md's credit string, and no other line in the repo."""
+    copyright_line = COPYRIGHT_LINE.search((REPO_ROOT / "LICENSE").read_text(encoding="utf-8"))
+    assert copyright_line, "LICENSE has no copyright line to read the maintainer's name from"
+    name = copyright_line["holder"].strip()
+    credits = {"LICENSE": copyright_line.group(0), "ATTRIBUTIONS.md": f"Terrella ({name})"}
+    any_part = re.compile(r"\b(?:" + "|".join(map(re.escape, name.split())) + r")\b", re.IGNORECASE)
+    assert all(any_part.search(credit) for credit in credits.values()), "the pattern misses the name"
+
+    # Untracked files too, since a new file is exactly where the name arrives before anyone stages it.
+    listing = subprocess.run(
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+        cwd=REPO_ROOT, capture_output=True, text=True, check=True,
+    ).stdout.splitlines()
+    credits_seen: set[str] = set()
+    elsewhere: list[str] = []
+    for relative in sorted(set(listing)):
+        path = REPO_ROOT / relative
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        credit = credits.get(relative)
+        for number, line in enumerate(text.splitlines(), start=1):
+            if credit and credit in line:
+                credits_seen.add(relative)
+                line = line.replace(credit, "")
+            if any_part.search(line):
+                elsewhere.append(f"{relative}:{number}: {line.strip()[:120]}")
+
+    assert credits_seen == set(credits), (
+        f"the sweep found the credits in {sorted(credits_seen)} rather than {sorted(credits)}, so it "
+        "cannot be trusted to find the name anywhere else either"
+    )
+    assert not elsewhere, (
+        "these lines name the maintainer outside the two credits; write \"the maintainer's call\", "
+        "or say what was decided without saying who:\n  " + "\n  ".join(elsewhere)
     )

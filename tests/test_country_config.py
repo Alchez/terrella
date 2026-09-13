@@ -385,7 +385,7 @@ class TestTheHeroRenderStaysOnTheSingleQuad:
     `--base-grid fitted` gives adaptive subdivision one micropolygon per pixel, which every hero on
     disk has been missing since the rig was built. It cannot simply be switched on for them: it
     multiplies micropolygons by 4x, a hero's plane is entirely in frame where a block's is mostly
-    outside it, and on this box's 12 GB card Australia at 67M dies on `Failed to build OptiX
+    outside it, and on the reference machine's card Australia at 67M dies on `Failed to build OptiX
     acceleration structure` after 18 s. Nepal at 41.8M renders and takes 177% longer. So the hero
     lane keeps the bare quad, knowingly under-diced, until the hero path has an answer.
 

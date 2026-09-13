@@ -29,6 +29,7 @@ from scripts.sabotage import (
     SABOTAGES,
     SUITES,
     Sabotage,
+    apply_needle,
     leftover_backups,
 )
 
@@ -134,11 +135,16 @@ def test_case_path_is_inside_a_mutable_root(case: Sabotage) -> None:
 
 
 @pytest.mark.parametrize("case", [case for case in SABOTAGES if case.needle], ids=case_id)
-def test_needle_matches_exactly_once(case: Sabotage) -> None:
-    """`str.replace(needle, replacement, 1)` mutates the FIRST match.
+def test_needle_matches_the_declared_number_of_times(case: Sabotage) -> None:
+    """A case mutates `mutate_match` of `expected_matches`, and both are pinned here.
 
-    Two matches means the case perturbs whichever one happens to come first in the file, which is not
-    the thing its label claims to break.
+    The default is one of one, so a needle that stops being unique still fails: the original guard's
+    whole job. What the pair adds is a way for a needle to be pure code where the only thing telling
+    two sites apart is the comment above them — quoting that comment makes an unrelated wording edit
+    move the case onto the wrong site or off it entirely.
+
+    Pinning the COUNT and not just the index is what keeps that safe. An index alone would silently
+    slide onto a different site the day a refactor removed one of the matches.
 
     SKIPPED FOR THE FILE A RUN IS HOLDING, on the backup check's rule below. Most python cases
     remove their own needle, so this fired inside almost every run and was read as ordinary noise —
@@ -149,7 +155,41 @@ def test_needle_matches_exactly_once(case: Sabotage) -> None:
     if in_flight == case.path:
         pytest.skip(f"{case.path} is sabotaged right now; its needles are expected to be disturbed")
     matches = (REPO_ROOT / case.path).read_text(encoding="utf-8").count(case.needle)
-    assert matches == 1, f"needle appears {matches}x in {case.path}, expected exactly 1"
+    assert matches == case.expected_matches, (
+        f"needle appears {matches}x in {case.path}, declared {case.expected_matches}"
+    )
+    assert 1 <= case.mutate_match <= case.expected_matches, (
+        f"mutate_match {case.mutate_match} is outside 1..{case.expected_matches}"
+    )
+
+
+class TestApplyNeedleTakesTheDeclaredOccurrence:
+    """The whole point of `mutate_match`: mutate the second site and leave the first alone.
+
+    Driven on a synthetic source rather than a real file, so it keeps testing the selection when
+    every case in the table happens to be unique.
+    """
+
+    SOURCE = "a = 1\n# first\nradius = 6371000.0\n# second\nradius = 6371000.0\n"
+
+    def _case(self, mutate_match: int) -> Sabotage:
+        return Sabotage(suite="python", label="nth", path="x.py",
+                        needle="radius = 6371000.0", replacement="radius = 3396190.0",
+                        guard="g", expected_matches=2, mutate_match=mutate_match)
+
+    def test_the_first_occurrence_is_taken_by_default(self):
+        out = apply_needle(self.SOURCE, self._case(1))
+        assert out.splitlines()[2] == "radius = 3396190.0"
+        assert out.splitlines()[4] == "radius = 6371000.0"
+
+    def test_the_second_occurrence_leaves_the_first_untouched(self):
+        out = apply_needle(self.SOURCE, self._case(2))
+        assert out.splitlines()[2] == "radius = 6371000.0"
+        assert out.splitlines()[4] == "radius = 3396190.0"
+
+    def test_an_occurrence_past_the_end_raises_rather_than_silently_missing(self):
+        with pytest.raises(ValueError, match="occurrence 3 not found"):
+            apply_needle(self.SOURCE, self._case(3))
 
 
 @pytest.mark.parametrize("case", SABOTAGES, ids=case_id)

@@ -1,7 +1,7 @@
 // The relief tile contract — the shape of a tile request, and the zoom range behind it.
 //
 // Deliberately dependency-free and free of `import.meta.env`, because this module is imported
-// from three runtimes that share nothing else: the browser (earth.astro builds the MapLibre
+// from three runtimes that share nothing else: the browser (Globe.astro builds the MapLibre
 // source), the Astro dev server (astro.config.ts, which is Node and evaluates before any Vite
 // env exists), and eventually the tile Worker. Anything env-shaped belongs in assetBase.ts.
 

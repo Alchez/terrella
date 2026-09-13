@@ -46,8 +46,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--tiles", action="store_true",
                     help="also cut tiles from the raster, z0 to the body's own ceiling")
-    # No `--knob`: every entry it tuned was a composite constant, so it can no longer reach a planet
-    # pixel. `shade.KNOBS` itself survives, read by the hero lake mask.
+    # No `--knob`: every constant it tuned belonged to the compositor, and `tests/test_bodies.py`
+    # holds them deleted rather than merely unused.
     return ap
 
 
@@ -117,7 +117,7 @@ def main() -> None:
     elif args.tiles:
         cut_tiles.build_tiles(planet_tif, work, body)
 
-    # The polar caps are pass outputs too: they run the same composite over the same sources, so a
+    # The polar caps are pass outputs too: they run the same look over the same sources, so a
     # look change that restages the raster must restage them. Both caps once sat stale against the
     # tiles they feather into (the north -6.7 DN adrift) because nothing coupled them to the recipe.
     # cap_render guards itself (cap_is_fresh), so a fresh pass pays only the ~2 s import here.

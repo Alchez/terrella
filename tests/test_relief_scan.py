@@ -6,8 +6,6 @@ pass on a scan that reduced the wrong axis. Every invariance test here therefore
 proving it can fail, in the idiom `test_terrain_rgb` established for the same master.
 """
 
-from __future__ import annotations
-
 import dataclasses
 import json
 from typing import Any
@@ -57,16 +55,10 @@ def _raster(path, array, *, nodata=None) -> None:
         writer.write(array, 1)
 
 
-def _prepare(body, elevations, *, ocean=None, nodata=None, declare=("heightfield",)):
-    """Put a master (and optionally an ocean mask) on disk and declare the seam, as a producer does.
-
-    `declare` is separate from `ocean` on purpose: the pair is what lets a test put a mask on disk
-    that the seam does not declare, which is the case the gating rule exists for.
-    """
+def _prepare(body, elevations, *, nodata=None, declare=("heightfield",)):
+    """Put a master on disk and declare the seam, as a producer does."""
     work = relief_scan.work_dir(body)
     _raster(relief_scan.master_path(work), elevations, nodata=nodata)
-    if ocean is not None:
-        _raster(relief_scan.ocean_master_path(work), ocean)
     planet_seam.planet_dir(body).mkdir(parents=True, exist_ok=True)
     for raster in declare:
         write_planet_vrt(planet_seam.vrt_path(body, raster))
@@ -159,31 +151,6 @@ class TestNoDataIsMaskedByDeclarationAndNotByRange:
         assert high[0, 0] == pytest.approx(21202.0), "an Earth-shaped clamp was ported"
 
 
-class TestTheOceanArmFollowsTheSeamAndNotTheFilesystem:
-    def test_a_body_declaring_a_mask_gets_a_share_grid(self, store) -> None:
-        body = _body("wet")
-        ocean = np.zeros((TEST_EDGE, TEST_EDGE), dtype=np.uint8)
-        ocean[: block_plan.CELL_PX, : block_plan.CELL_PX] = 1
-        work = _prepare(body, _flat(0.0), ocean=ocean,
-                        declare=("heightfield", "oceanmask"))
-        _, ocean_out = relief_scan.scan(body)
-        assert ocean_out is not None
-        share = relief_scan.read_ocean(work)
-        assert share[0, 0] == pytest.approx(1.0)
-        assert share[0, 1] == pytest.approx(0.0)
-
-    def test_a_mask_on_disk_that_the_seam_does_not_declare_is_ignored(self, store) -> None:
-        """A missing raster cannot tell 'this body has none' from 'the producer crashed', so the
-        declaration decides and the file's presence never does."""
-        body = _body("dry")
-        ocean = np.ones((TEST_EDGE, TEST_EDGE), dtype=np.uint8)
-        work = _prepare(body, _flat(0.0), ocean=ocean, declare=("heightfield",))
-        assert relief_scan.ocean_master_path(work).exists()
-        _, ocean_out = relief_scan.scan(body)
-        assert ocean_out is None
-        assert not relief_scan.ocean_path(work).exists()
-
-
 class TestTheRecipe:
     def test_the_body_goes_in_the_path_and_not_the_recipe(self, store) -> None:
         body = _body("named")
@@ -193,20 +160,15 @@ class TestTheRecipe:
         assert "named" not in json.dumps(recorded)
         assert work.is_relative_to(store / "work" / "named")
 
-    def test_a_body_emitting_everything_records_no_rasters_off(self, store) -> None:
-        """The conditional-record idiom: an unconditional key restages a planet for no pixel."""
-        body = _body("complete")
-        work = _prepare(body, _flat(0.0), ocean=np.zeros((TEST_EDGE, TEST_EDGE), dtype=np.uint8),
-                        declare=planet_seam.PLANET_RASTERS)
-        relief_scan.scan(body)
-        assert "rasters_off" not in json.loads(relief_scan.params_path(work).read_text())
-
-    def test_a_body_missing_a_raster_records_which(self, store) -> None:
-        body = _body("partial")
-        work = _prepare(body, _flat(0.0))
-        relief_scan.scan(body)
-        recorded = json.loads(relief_scan.params_path(work).read_text())
-        assert recorded["rasters_off"] == ["oceanmask", "watermask"]
+    def test_which_rasters_the_seam_declares_does_not_reach_the_recipe(self, store) -> None:
+        """The cache folds the heightfield alone, so a body's other rasters cannot move a number in
+        it, and recording them would restage a planet for no pixel."""
+        wet = _prepare(_body("wet"), _flat(0.0), declare=planet_seam.PLANET_RASTERS)
+        dry = _prepare(_body("dry"), _flat(0.0), declare=("heightfield",))
+        relief_scan.scan(_body("wet"))
+        relief_scan.scan(_body("dry"))
+        assert (relief_scan.params_path(wet).read_text()
+                == relief_scan.params_path(dry).read_text())
 
 
 class TestFreshness:

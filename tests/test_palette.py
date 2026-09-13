@@ -9,7 +9,7 @@ THIS FILE IS THE ORACLE, not a copy of one. The values were transcribed from the
 locked-constants section, which is kept outside the repository, so nothing a reader can reach holds
 them independently of `palette.py` itself. That is the point: an oracle stored beside the code it
 checks is no oracle at all, and these literals are deliberately hand-written rather than derived.
-Changing one means re-rendering every hero. See ART.md for the look decisions behind them.
+Changing one means re-rendering every hero. See docs/ART.md for the look decisions behind them.
 
 WHAT THIS ORACLE CAN NO LONGER SEE. "The approved hero look" meant these stops encoded to these
 hexes because the rig's view transform was a plain sRGB encode, exactly like `_srgb8`. It is
@@ -35,7 +35,7 @@ def _hex(code: str) -> tuple[int, int, int]:
 
 
 # The frozen hero ramp endpoints. Hand-transcribed on purpose — deriving them from `palette.py`
-# would make this test tautological. See ART.md § Lever index for what each one costs to move.
+# would make this test tautological. See docs/ART.md § Lever index for what each one costs to move.
 LAND_COAST = _hex("E9D9C0")   # land ramp @ 0 m
 LAND_PEAK = _hex("E9DCC8")    # land ramp @ 6000 m
 SEA_SHALLOW = _hex("85B9B7")  # sea ramp @ 0 m (shallowest; deepened ~15% from 8FC7C5)
@@ -154,15 +154,29 @@ class TestSharedConstants:
         assert palette.SUN_ALT_DEG == 45.0
 
     def test_the_authored_exaggeration_is_pinned(self):
-        """THREE legs have left this test and the last one took the comparison with it.
+        """The authored value itself, which is the whole of what this constant is.
 
-        Every path that draws more than one body reads `Body.exaggeration`, and `test_bodies.py`
-        pins Earth's field against this constant. The planet leg went first, the render leg when
-        `scene_numbers` stopped importing it, and the region leg when `shade.EXAG` went with the
-        `--cells` preview. What is left is the authored value itself, which the bridge in
-        `test_bodies.py` is the other half of.
+        Every path that draws more than one body reads `Body.baked_exaggeration`; the bridge
+        holding Earth's field equal to this constant is the other half of the pin.
         """
         assert palette.EXAGGERATION == 15.0
+
+    def test_the_authored_exaggeration_has_no_reader_outside_its_own_module(self):
+        """Set equality, so `palette.py` losing the name fails here rather than emptying the sweep.
+
+        The temptation is to import it wherever a displacement is needed, and `scene_numbers` did:
+        every Mars block came out at 15/20 of its displacement, which is a flatter planet rather
+        than an error. Every path that draws more than one body reads `Body.baked_exaggeration`.
+        """
+        naming = {
+            str(path.relative_to(REPO_ROOT))
+            for path in sorted((REPO_ROOT / "pipeline").rglob("*.py"))
+            if re.search(r"\bEXAGGERATION\b", path.read_text(encoding="utf-8"))
+        }
+        assert naming == {"pipeline/look/palette.py"}, (
+            "the authored constant is read from production code. It is Earth's alone, and a path "
+            "that draws more than one body must ask `Body.baked_exaggeration`"
+        )
 
     def test_web_palette_matches_the_ramp_it_copies(self):
         """web/src/lib/palette.ts restates pipeline colours for the browser, which cannot
@@ -236,18 +250,6 @@ class TestSharedConstants:
         )
 
 
-class TestWriteColorRelief:
-    def test_writes_gdaldem_format_with_nodata(self, tmp_path):
-        out = tmp_path / "ramp_land.txt"
-        palette.write_color_relief(out, "land", look=palette.EARTH_LOOK)
-        lines = out.read_text().splitlines()
-        assert lines[-1] == "nv 0 0 0"
-        first = lines[0].split()
-        assert len(first) == 4                       # elevation R G B
-        assert first[0] == "0.00"
-        assert all(0 <= int(v) <= 255 for v in first[1:])
-
-
 class TestTheLookIsByteStable:
     """Golden hashes over every artefact the ramps produce.
 
@@ -296,8 +298,8 @@ class TestTheLookIsByteStable:
 # What each registered body's TILES are painted in today, hand-transcribed, every stop of every
 # ramp its look declares. Mars has no sea, so it has no sea row and that is a statement.
 #
-# HAND-WRITTEN FOR THE SAME REASON `LAND_COAST` IS: deriving these from `palette.py` and `shade.py`
-# would make the guard tautological. Unlike `TestTheLookIsByteStable` above, which hashes the LUT
+# Hand-written for the same reason `LAND_COAST` is: deriving these from `palette.py` would make
+# the guard tautological. Unlike `TestTheLookIsByteStable` above, which hashes the LUT
 # and so can only say that nothing moved, this says WHOSE answer the ramp is currently giving.
 SHIPPED_TILE_HEX: dict[str, dict[str, list[str]]] = {
     "earth": {

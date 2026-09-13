@@ -2,6 +2,10 @@
 dist/
 # generated types
 .astro/
+# The gallery manifest, generated from whichever heroes this machine's render store holds. It sits
+# here rather than in the root ignore because that one is anchored to the render store at `/data/`
+# and no longer reaches this directory.
+src/data/countries.json
 
 # dependencies
 node_modules/

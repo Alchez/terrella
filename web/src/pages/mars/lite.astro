@@ -51,7 +51,6 @@ const indexLetters = [...byLetter.keys()];
     eyebrow="Gazetteer"
     legend={false}
     back="/"
-    backLabel="← Gallery"
     maxWidth="min(1500px, 92vw)"
   />
 
@@ -116,7 +115,7 @@ const indexLetters = [...byLetter.keys()];
   .lite {
     max-width: min(1500px, 92vw);
     margin: 0 auto;
-    padding: 0 clamp(1.1rem, 4vw, 2.5rem) 5rem;
+    padding: 0 var(--page-gutter) 5rem;
     color: var(--muted);
     line-height: 1.65;
   }

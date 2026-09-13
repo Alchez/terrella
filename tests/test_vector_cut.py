@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from pipeline import bodies, paths
+from pipeline import attribution, bodies, paths
 from pipeline.compose import (
     countries_pmtiles,
     features_pmtiles,
@@ -27,7 +27,8 @@ from pipeline.compose import (
 #: What every body records, whatever it cuts. `seam_recipe`'s two keys ride along because the
 #: geometry handed to the cut is as much a setting as the cut's own.
 SHARED_KEYS = {"layers", "min_zoom", "max_zoom", "simplification", "simplification_max_zoom",
-               "buffer", "extent", "seam_band_degrees", "seam_twin_latitude_epsilon"}
+               "buffer", "extent", "seam_band_degrees", "seam_twin_latitude_epsilon",
+               "attribution", "description"}
 
 #: Earth names the one GeoJSON its whole pyramid descends from; Mars's four layers come from four
 #: separate gazetteer files and it names none. That asymmetry is the reason `extra_recipe` exists
@@ -147,6 +148,74 @@ class TestNeitherStageKeepsAPrivateCopyOfTheDriver:
         for name in self.DRIVER_FUNCTIONS:
             with subtests.test(function=name):
                 assert f"def {name}(" in source
+
+
+class TestTheCutCarriesItsCredit:
+    """The GDAL PMTiles driver has no creation option for `attribution`, so a vector archive can
+    only be credited by rewriting its metadata after the cut. Two things can go wrong quietly:
+    the rewrite lands on the promoted file instead of the temporary one, leaving a window where the
+    live archive is half-edited; and a missing `tools/pmtiles` skips it, shipping an uncredited cut.
+    """
+
+    @pytest.mark.parametrize("cut", list(EXPECTED_KEYS), ids=lambda cut: cut.name)
+    def test_the_credit_is_the_bodys_vector_credit(self, cut):
+        assert vector_cut.attribution.for_archive(cut.body, "vector") == \
+               attribution.for_archive(cut.body, "vector")
+
+    def test_the_command_replaces_metadata_from_a_file(self):
+        command = vector_cut.credit_command(Path("out.pmtiles"), Path("meta.json"))
+        assert command[1:3] == ["edit", "out.pmtiles"]
+        assert command[3] == "--metadata=meta.json"
+        assert command[0].endswith("tools/pmtiles")
+
+    def test_the_credit_is_written_before_the_archive_is_promoted(self, monkeypatch, tmp_path):
+        """On the temporary path, not the final one. Editing after the promote would leave the
+        live archive briefly holding metadata that has been replaced but not yet rewritten."""
+        cut = countries_pmtiles.CUT
+        archive = tmp_path / "vector.pmtiles"
+        seen: list[Path] = []
+
+        def fake_ogr2ogr(command, **kwargs):
+            # ogr2ogr's argument order is [options] DESTINATION SOURCE, so the destination is the
+            # one path that does not yet exist; write it so the promote has something to move.
+            Path(command[3]).write_bytes(b"cut")
+
+        monkeypatch.setattr(vector_cut, "out_dir", lambda _: tmp_path)
+        monkeypatch.setattr(vector_cut.subprocess, "run", fake_ogr2ogr)
+        monkeypatch.setattr(vector_cut, "write_credit",
+                            lambda _cut, path: seen.append(Path(path)))
+        vector_cut.cut_archive(cut)
+        assert seen == [archive.with_suffix(".pmtiles.tmp")]
+        assert archive.exists()
+
+    def test_a_missing_pmtiles_binary_stops_the_cut_rather_than_skipping_the_credit(
+            self, monkeypatch, tmp_path):
+        monkeypatch.setattr(vector_cut, "PMTILES_TOOL", tmp_path / "absent/pmtiles")
+        with pytest.raises(SystemExit, match="cannot carry its credit"):
+            vector_cut.write_credit(countries_pmtiles.CUT, tmp_path / "any.pmtiles")
+
+
+class TestTheCutSaysWhatIsInIt:
+    """The driver's other composed string, and the one GDAL can write itself: `DESCRIPTION` is a
+    creation option where `attribution` is not, so this rides the conversion rather than the
+    rewrite after it.
+    """
+
+    @pytest.mark.parametrize("cut", list(EXPECTED_KEYS), ids=lambda cut: cut.name)
+    def test_the_description_is_the_bodys_vector_description(self, cut):
+        command = " ".join(vector_cut.pmtiles_command(cut, Path("in.gpkg"), Path("out.pmtiles")))
+        assert f"DESCRIPTION={attribution.describe(cut.body, 'vector')}" in command
+
+    @pytest.mark.parametrize("cut", list(EXPECTED_KEYS), ids=lambda cut: cut.name)
+    def test_both_composed_strings_are_recorded_beside_the_archive(self, cut, subtests):
+        """A credit or a description edited in `attribution.py` changes the archive's bytes and
+        nothing else on disk, so without these keys `is_fresh` keeps answering yes for an archive
+        cut under the previous wording and the pass skips the stage that would fix it."""
+        recorded = vector_cut.recipe(cut)
+        with subtests.test("attribution"):
+            assert recorded["attribution"] == attribution.for_archive(cut.body, "vector")
+        with subtests.test("description"):
+            assert recorded["description"] == attribution.describe(cut.body, "vector")
 
 
 class TestTheKnobsStayPerBody:

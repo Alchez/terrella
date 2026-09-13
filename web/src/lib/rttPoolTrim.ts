@@ -10,12 +10,12 @@
  *   acquireRTT(size)   pool.pop() ?? new Texture(size, size)   <- creates only when the pool is EMPTY
  *   releaseRTT(obj)    pool.push(obj)                          <- no cap, no eviction
  *
- * The sibling pool in the same class caps itself — `saveTileTexture` keeps at most
+ * The sibling pool in the same class caps itself: `saveTileTexture` keeps at most
  * `MAX_TEXTURE_POOL_SIZE_PER_BUCKET = 50` per size and destroys the rest. `releaseRTT` has no
  * such branch, and the only thing that ever empties the pool is `Painter.destroy()`, reachable
  * only from `map.remove()` and from a lost context. `Terrain.destroy()` does not touch it: it
  * calls `tileManager.destruct()` -> `releaseAllRTT()`, which PUSHES every tile's objects in. So
- * `setTerrain(null)` — the degradation ladder's most drastic rung — grows the pool instead of
+ * `setTerrain(null)`, the degradation ladder's most drastic rung, grows the pool instead of
  * draining it.
  *
  * WHAT THIS FIXES, AND WHAT IT CANNOT
@@ -27,24 +27,24 @@
  * no pool policy changes that.
  *
  * What trimming fixes is everything after the peak. Measured on this page at 2560x1265, globe,
- * pitch 60: at rest after a pan, 20 tiles hold 60 objects while **5,550 sit idle in the pool** —
+ * pitch 60: at rest after a pan, 20 tiles hold 60 objects while **5,550 sit idle in the pool**,
  * 99% slack, retained until the tab closes. That resting occupancy is what left one Chrome tab
- * holding 8.2 GB of a 12 GB card with nothing on screen, starving every other GL client on the
+ * holding 8.2 GB of a desktop card's memory with nothing on screen, starving every other GL client on the
  * machine.
  *
- * The peak is the renderable-tile count, and that is MapLibre issue #5368 — a design problem,
+ * The peak is the renderable-tile count, and that is MapLibre issue #5368, a design problem
  * open over a year. This module is hygiene, deliberately not a cure.
  *
  * WHY `moveend` AND NOT `idle`
  * ----------------------------
  * This page's idle spin means `idle` may never fire at all: starting an ease cancels it, and the
- * spin is a permanent chain of eases at tier `full` — the only tier that has terrain. `moveend`
+ * spin is a permanent chain of eases at tier `full`, the only tier that has terrain. `moveend`
  * fires for every gesture AND for every spin step, so it is the hook that exists in both states.
  * `idle` is bound too, but only as an opportunistic extra.
  *
  * EVERY SYMBOL BELOW IS PRIVATE MAPLIBRE STATE. The canary tests in `rttPoolTrim.test.ts` read the
  * shipped bundle and fail loudly when any of it moves, because the failure mode of a silent rename
- * is a trim that quietly stops running while VRAM climbs back — the same shape as a guard that
+ * is a trim that quietly stops running while VRAM climbs back, the same shape as a guard that
  * encodes a bug rather than catching it.
  */
 
@@ -83,8 +83,8 @@ export interface RttPoolStats {
   /**
    * Terrain tiles being DRAWN this frame, or null when there is no terrain to count.
    *
-   * The quantity the profile accuses. Per-tile main-thread work — a `Float64Array(16)` per
-   * renderable tile per call, then texture upload, then `uniformMatrix4fv` — makes this number the
+   * The quantity the profile accuses. Per-tile main-thread work (a `Float64Array(16)` per
+   * renderable tile per call, then texture upload, then `uniformMatrix4fv`) makes this number the
    * multiplier on everything else, so an arm that changes it changes the cost and an arm that does
    * not, does not. It is NOT `heldTiles`: that counts the manager's whole cache, which is a
    * superset and moves for different reasons.
@@ -96,12 +96,18 @@ export interface RttPoolStats {
 }
 
 /**
- * Objects to keep in the pool. 512 MiB of slack against a measured working set of 78 objects at a
- * settled camera — generous enough that ordinary panning re-uses rather than reallocates, small
- * enough that a resting tab returns the card. Tunable: the cost of going lower is GPU allocation
- * churn on the next gesture, which is exactly what upstream PR #7549 bought by growing this pool.
+ * Idle objects to keep, as a multiple of those the scene is currently using.
+ *
+ * A multiple rather than a count, because the working set moves with the camera: 22 objects at the
+ * globe view against 80 zoomed in, so one number cannot be right at both. Measured per rendered
+ * frame, an ordinary pan or zoom needs new objects for about half the tiles on screen at its
+ * ninetieth percentile, and a flick needs close to one per tile. 0.5 covers pan and zoom and
+ * deliberately does not cover a flick, which stalls rarely and is already the least smooth moment.
+ *
+ * The cost of going lower is a GPU reallocation on the next gesture, measured at roughly 7 ms each
+ * and landing inside one frame, which is what upstream PR #7549 bought by growing this pool.
  */
-export const DEFAULT_RTT_POOL_BOUND = 512;
+export const DEFAULT_RTT_POOL_SPARE_RATIO = 0.5;
 
 /** How long after the last `moveend` to trim. Long enough that a flick of several eases settles. */
 export const RTT_TRIM_SETTLE_MS = 400;
@@ -111,7 +117,7 @@ export function rttObjectBytes(object: RttObject): number {
   return object.size * object.size * 4;
 }
 
-/** Total bytes a pool is holding. Sums per object rather than assuming one size — the pool mixes
+/** Total bytes a pool is holding. Sums per object rather than assuming one size: the pool mixes
  *  sizes whenever `acquireRTT` re-cuts a recycled object to a different edge. */
 export function rttPoolBytes(pool: readonly RttObject[]): number {
   let bytes = 0;
@@ -140,7 +146,7 @@ export function trimRttPool(pool: RttObject[], bound: number): number {
   return destroyed;
 }
 
-/** The pool, or null when MapLibre has moved it — a rename must degrade to "no trimming", never
+/** The pool, or null when MapLibre has moved it: a rename must degrade to "no trimming", never
  *  to a throw inside a `moveend` handler. */
 export function rttPoolOf(map: RttMap): RttObject[] | null {
   const pool = map.painter?._rttObjectRecyclePool;
@@ -153,14 +159,14 @@ export function rttPoolOf(map: RttMap): RttObject[] | null {
  * `_renderableTilesKeys` is underscore-prefixed but IS declared in the shipped `.d.ts`, so this is
  * typed rather than cast. The canary still guards it: a name upstream is free to change is one that
  * would otherwise turn this reading into a permanent null nobody notices, which reads exactly like
- * "terrain is off" — the same false-negative shape as the trim quietly ceasing to run.
+ * "terrain is off", the same false-negative shape as the trim quietly ceasing to run.
  */
 export function renderableTerrainTiles(map: RttMap): number | null {
   const keys = map.terrain?.tileManager?._renderableTilesKeys;
   return Array.isArray(keys) ? keys.length : null;
 }
 
-/** Objects currently owned by terrain tiles. Not trimmable — this is the working set. */
+/** Objects currently owned by terrain tiles. Not trimmable: this is the working set. */
 export function rttHeldBy(map: RttMap): { held: number; tiles: number } {
   const tiles = map.terrain?.tileManager?._tiles;
   if (tiles === undefined) return { held: 0, tiles: 0 };
@@ -174,19 +180,22 @@ export function rttHeldBy(map: RttMap): { held: number; tiles: number } {
 }
 
 /**
- * Detach the shared FBO's colour attachment before destroying textures.
+ * Clear the shared FBO's colour attachment before pooled textures are destroyed, so the framebuffer
+ * does not hold a destroyed handle until the next `bindRTT` reattaches.
  *
- * `bindRTT` leaves the last-rendered texture attached to `_rttSharedFbo`. Destroying that texture
- * while it is still the attachment leaves the FBO referencing a deleted name — and because
- * `colorAttachment` is a cached `BaseValue`, a later `set()` of a RECYCLED GL name would compare
- * equal and skip the rebind. Clearing it costs one call and closes that window.
+ * Defensive only, and deliberately not a cache-staleness guard: `ColorAttachment.set` compares
+ * object identity, and `createTexture` never returns a handle equal to a destroyed one, so a
+ * skipped rebind cannot happen.
  */
 function detachSharedFboColour(painter: RttPainter): void {
   painter._rttSharedFbo?.fbo?.colorAttachment?.set(null);
 }
 
 export interface RttPoolTrimOptions {
-  bound?: number;
+  /** Idle objects to keep per object in use. Defaults to {@link DEFAULT_RTT_POOL_SPARE_RATIO}. */
+  spareRatio?: number;
+  /** `false` keeps the census and skips every trim, for the `?nortt` A/B arm. */
+  enabled?: boolean;
   settleMs?: number;
   /** Injected by tests; defaults to the real timers. */
   scheduler?: { setTimeout(fn: () => void, ms: number): number; clearTimeout(handle: number): void };
@@ -203,11 +212,12 @@ export interface RttPoolTrimHandle {
 
 /**
  * Trim the pool whenever the camera settles. Returns a handle exposing a live census for the
- * `?perf` panel — the panel row matters as much as the trim, because once the crash stops the
+ * `?perf` panel: the panel row matters as much as the trim, because once the crash stops the
  * 295x tile overdraw underneath it becomes invisible, which is how it went unnoticed for weeks.
  */
 export function attachRttPoolTrim(map: RttMap, options: RttPoolTrimOptions = {}): RttPoolTrimHandle {
-  const bound = options.bound ?? DEFAULT_RTT_POOL_BOUND;
+  const spareRatio = options.spareRatio ?? DEFAULT_RTT_POOL_SPARE_RATIO;
+  const enabled = options.enabled ?? true;
   const settleMs = options.settleMs ?? RTT_TRIM_SETTLE_MS;
   const timers = options.scheduler ?? {
     setTimeout: (fn: () => void, ms: number) => window.setTimeout(fn, ms),
@@ -236,7 +246,10 @@ export function attachRttPoolTrim(map: RttMap, options: RttPoolTrimOptions = {})
   const trimNow = (): number => {
     const pool = rttPoolOf(map);
     if (pool === null) return 0;
+    if (!enabled) return 0;
     if (map.isMoving?.() === true) return 0; // a moving map is about to re-acquire; let it settle
+    // Read demand at trim time, not at attach: the working set moves with the camera.
+    const bound = Math.ceil(rttHeldBy(map).held * spareRatio);
     if (pool.length <= bound) return 0;
     const painter = map.painter;
     if (painter !== undefined) detachSharedFboColour(painter);
@@ -284,7 +297,7 @@ export function attachRttPoolTrim(map: RttMap, options: RttPoolTrimOptions = {})
  * `renderable` is deliberately NOT here. It is the most useful number in this census, and at the
  * pathological widths this line is tested against it lands the row on exactly 53 characters with a
  * four-digit count and over it with five. The budget is a measured phone constraint rather than a
- * preference, so the count goes where it is actually read instead — the exported report, which is
+ * preference, so the count goes where it is actually read instead: the exported report, which is
  * what a harness parses. A panel row is for a glance; a field is for an arm.
  */
 export function rttPoolLine(stats: RttPoolStats): string {

@@ -107,8 +107,9 @@ class TestTheCompositePlanetProducerIsDeletedAndCannotReturn:
 
         `composite_params` was the only thing that recorded `KNOBS` and `SHADOW_TINT`, so with it
         gone they reached no pixel and no recipe, and a value that reaches neither is a look
-        decision nobody can act on. ART.md holds what each was and how it was chosen; this refuses
-        the code copy coming back to be read as a live lever.
+        decision nobody can act on. What each was and how it was chosen is in HISTORY, *the shader's
+        orphaned tunables are pruned*; this refuses the code copy coming back to be read as a live
+        lever.
 
         SCOPED TO THE PACKAGE RATHER THAN TO ONE MODULE, because `tile/shade.py` -- which used to
         be the module this asked -- is itself gone now, its lake ramp having moved to
@@ -171,7 +172,7 @@ class TestTheCompositePlanetProducerIsDeletedAndCannotReturn:
 def test_a_body_is_frozen() -> None:
     """Mutating a body at runtime would let one stage's change leak into another's freshness key."""
     with pytest.raises(dataclasses.FrozenInstanceError):
-        bodies.EARTH.exaggeration = 1.0  # pyright: ignore[reportAttributeAccessIssue]
+        bodies.EARTH.baked_exaggeration = 1.0  # pyright: ignore[reportAttributeAccessIssue]
 
 
 def test_the_registry_key_is_the_body_s_own_name() -> None:
@@ -307,8 +308,12 @@ def test_every_body_s_grid_resolution_agrees_with_its_own_tile_ceiling() -> None
 
 
 def test_exaggeration_agrees_with_the_shared_palette_constant() -> None:
-    """The hero scene imports this value; a divergence restages 203 renders."""
-    assert bodies.EARTH.exaggeration == palette.EXAGGERATION
+    """Earth's field against the authored value in `palette.py`, which no production path reads.
+
+    A divergence draws the tiles and the heroes at two different reliefs with nothing else to
+    notice, both lanes being internally consistent at whichever number they read.
+    """
+    assert bodies.EARTH.baked_exaggeration == palette.EXAGGERATION
 
 
 def test_the_cut_differs_between_bodies_in_exactly_one_setting() -> None:
@@ -755,6 +760,30 @@ def test_the_two_registries_hold_one_radius_for_a_body_that_is_really_a_sphere()
     assert 1.001 < ratio < 1.0012, f"Earth's two radii differ by {ratio:.6f}, which is not the ellipsoid"
 
 
+def test_the_two_registries_agree_on_the_vertical_scale_the_relief_is_drawn_at() -> None:
+    """The scale the browser states against the one the pipeline renders at.
+
+    The archives page tells a downloader the relief pyramid is a picture at this scale. A look
+    change that moves only the pipeline's number leaves the page quoting a specific figure that is
+    wrong, which is worse than the page saying nothing.
+
+    The two bodies differ, 15 against 20, so a scan reading one planet's entry for every name fails
+    here rather than agreeing with itself.
+    """
+    blocks = _browser_descriptor_blocks()
+    assert set(blocks) == set(bodies.BODIES), (
+        f"the pipeline knows {sorted(bodies.BODIES)} and the browser's BODIES record holds "
+        f"{sorted(blocks)} — the scan is reading a different set of planets than it is judging"
+    )
+    for name, block in blocks.items():
+        declared = re.search(r"\bbakedExaggeration:\s*([0-9_.]+)\b", block)
+        assert declared, f"the browser descriptor for {name} declares no bakedExaggeration"
+        assert float(declared.group(1).replace("_", "")) == bodies.BODIES[name].baked_exaggeration, (
+            f"{name}: the pipeline renders relief at {bodies.BODIES[name].baked_exaggeration}x and the "
+            f"browser tells a downloader {declared.group(1)}x"
+        )
+
+
 def test_the_two_registries_agree_on_which_bodies_render_polar_caps() -> None:
     """One fact, two languages, and each half decides something the other cannot see.
 
@@ -914,7 +943,7 @@ def test_neither_shading_module_carries_its_own_exaggeration() -> None:
     for module in (planet_warp, cut_tiles, cap_render):
         source = Path(module.__file__).read_text(encoding="utf-8")  # pyright: ignore[reportArgumentType]
         assert re.search(r"\bEXAG", source) is None, (
-            f"{module.__name__} has regrown a module-scope exaggeration — it is Body.exaggeration, "
+            f"{module.__name__} has regrown a module-scope exaggeration — it is Body.baked_exaggeration, "
             "and a constant here draws every planet at whichever one happens to be written down"
         )
 
@@ -927,12 +956,12 @@ def test_the_cap_recipe_records_the_body_s_own_exaggeration() -> None:
     render reports fresh against a recipe that cannot see the change."""
     from pipeline.tile import cap_raytrace, cap_render
 
-    flatter = dataclasses.replace(bodies.EARTH, exaggeration=3.0)
+    flatter = dataclasses.replace(bodies.EARTH, baked_exaggeration=3.0)
 
     earth = json.loads(cap_raytrace.params(cap_render.north_grid(bodies.EARTH), WHOLE_PLANET))
     other = json.loads(cap_raytrace.params(cap_render.north_grid(flatter), WHOLE_PLANET))
 
-    assert earth["exaggeration"] == bodies.EARTH.exaggeration
+    assert earth["exaggeration"] == bodies.EARTH.baked_exaggeration
     assert other["exaggeration"] == 3.0
     earth.pop("exaggeration")
     other.pop("exaggeration")
@@ -956,6 +985,53 @@ def test_the_projection_s_sphere_and_earth_s_own_are_the_same_number_for_a_reaso
     """
     assert mercator.WEB_MERCATOR_RADIUS_M == bodies.EARTH.mercator_radius_m
     assert bodies.ground_metres_per_mercator_unit(bodies.EARTH) == 1.0
+
+
+#: A module resolving its parsed `--body` through the registry, which raises naming what it knows.
+#: The other accepted guard is a `choices=` on the argument itself, whatever list it derives from:
+#: `scene_build` takes the look registry's, correctly, since ramps are what it needs a body for.
+RESOLVES_THROUGH_THE_REGISTRY = re.compile(r"bodies\.get\(\s*\w+\.body\s*\)")
+
+
+def _declares_a_body_argument(call: ast.Call) -> bool:
+    """True if `call` is an `add_argument("--body", ...)`, rather than a line passing one along.
+
+    The distinction is the whole test: `cap_raytrace` spells `"--body"` while assembling the argv
+    it hands Blender, and a source grep reads that as a stage declaring one. Only a call can
+    declare, so parsing separates them where no regex over the text can.
+    """
+    name = call.func.attr if isinstance(call.func, ast.Attribute) else None
+    return (name == "add_argument" and bool(call.args)
+            and isinstance(call.args[0], ast.Constant) and call.args[0].value == "--body")
+
+
+def test_every_stage_that_takes_a_body_refuses_one_it_does_not_know() -> None:
+    """A mistyped `--body` must not reach the stage, and the set is what this asks about.
+
+    Ten modules declare one and two mechanisms cover them: argparse refuses the string against a
+    `choices=` list, or the registry's own lookup raises naming what it knows. A bare
+    `BODIES[args.body]` behind neither answers a typo with a `KeyError` naming neither the flag nor
+    the planets that exist, and that module is invisible from inside itself: both spellings read as
+    correct locally, so only walking the set can see which one is alone.
+
+    Scanned rather than run, since the lookup lives in `main` whose next statement opens the master.
+    """
+    unguarded = []
+    for path in sorted((paths.ROOT / "pipeline").rglob("*.py")):
+        source = path.read_text(encoding="utf-8")
+        declarations = [node for node in ast.walk(ast.parse(source))
+                        if isinstance(node, ast.Call) and _declares_a_body_argument(node)]
+        if not declarations:
+            continue
+        if RESOLVES_THROUGH_THE_REGISTRY.search(source):
+            continue
+        if not all(any(word.arg == "choices" for word in call.keywords) for call in declarations):
+            unguarded.append(str(path.relative_to(paths.ROOT)))
+    assert not unguarded, (
+        f"these stages declare a --body and refuse nothing: {unguarded}. Give the argument a "
+        "`choices=` list, or resolve it with `bodies.get(args.body)` — a bare `BODIES[args.body]` "
+        "answers a typo with a KeyError that names neither the flag nor the planets that exist"
+    )
 
 
 def test_every_body_rides_the_projection_s_sphere_because_proj_allows_no_other() -> None:

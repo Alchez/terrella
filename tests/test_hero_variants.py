@@ -349,8 +349,8 @@ class TestLadderServesTheLayout:
     def test_the_border_ladders_producer_cannot_return(self):
         """`gen_borders.py` is deleted; only reinstate it with a surface that draws its ladder.
 
-        Not the site's borders: the globe's toggle draws vector geometry from `BORDERS_BASE` and
-        every hero's are composited by `overlay_borders`. Neither ever read this ladder.
+        Not the site's borders: the globe's toggle draws vector geometry from `BORDERS_BASE`, and a
+        hero carries none, so neither reads this ladder.
         """
         root = Path(__file__).resolve().parents[1]
         assert not (root / "pipeline/compose/gen_borders.py").exists(), (

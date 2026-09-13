@@ -1,11 +1,11 @@
 """Fill a render directory for one polar cap, so the rig can photograph it. `prep_block`'s sibling.
 
-WHY THIS REUSES `cap_render`'S OWN FUNCTIONS RATHER THAN WARPING AGAIN. The raytraced cap must
-describe the SAME surface the composited one does, or the two producers of a disc disagree about
-geology as well as about light. Heights come through `cap_heights` (nodata flattened, pole smoothed)
-and the two cryosphere alphas through `_cap_perennial_ice` / `_cap_sea_ice`, which is where the
-south's ice overrides and the forced Antarctic patch live. Nothing about the surface is re-decided
-here, and that is the whole design: this module chooses no look constant at all.
+It reuses `cap_render`'s own functions rather than warping again, so the frames the rig photographs
+and the alpha `cap_render` folds describe one surface: warping a second time makes a disc that
+disagrees with itself about geology as well as light. Heights come through `cap_heights` (nodata
+flattened, pole smoothed) and the two cryosphere alphas through `_cap_perennial_ice` /
+`_cap_sea_ice`, where the south's ice overrides and the forced Antarctic patch live. Nothing about
+the surface is re-decided here: this module chooses no look constant at all.
 
 THE THREE WIDTHS ARE TWO HERE, AND THE PAIR IS STILL THE TRAP. A block has a plane, a traced
 rectangle and a delivered square; a cap has a plane and a photographed QUADRANT. The heightfield is
@@ -34,7 +34,7 @@ from typing import Any
 import numpy as np
 import rasterio
 
-from pipeline import bodies, freshness, layers, planet_seam
+from pipeline import bodies, freshness, layers, planet_seam, render_files
 from pipeline.look import layer_producers, seaice
 from pipeline.raster_io import GTIFF_CREATE
 from pipeline.render import prep_block, render_prep, render_seam
@@ -60,37 +60,36 @@ def build(grid: cap_render.CapGrid, rasters: frozenset[str], outdir: Path) -> li
     ocean, water = cap_render._cap_masks(grid, rasters, heights.shape)
     _, latitude = cap_render._lonlat_grid(grid)
 
-    written = [render_seam.HEIGHTFIELD]
-    with rasterio.open(outdir / render_seam.HEIGHTFIELD, "w", driver="GTiff",  # pyright: ignore[reportCallIssue]
+    written = [render_files.HEIGHTFIELD]
+    with rasterio.open(outdir / render_files.HEIGHTFIELD, "w", driver="GTiff",  # pyright: ignore[reportCallIssue]
                        width=grid.px, height=grid.px, count=1, dtype="float32",
                        **GTIFF_CREATE) as out:
         out.write(heights.astype(np.float32), 1)
 
-    prep_block.write_mask(outdir / render_seam.OCEANMASK, ocean.astype(float))
+    prep_block.write_mask(outdir / render_files.OCEANMASK, ocean.astype(float))
     # The cap tier collapses watercode 2 and 3 into one boolean, so lake and river cannot be told
     # apart on this grid. The river mask is written EMPTY rather than skipped: the rig reads both,
     # and an absent one would be the statement "this body has no rivers" instead of "this tier
     # cannot separate them", which is a different fact about a different subject.
-    prep_block.write_mask(outdir / render_seam.INLANDLAKE, water.astype(float))
-    prep_block.write_mask(outdir / render_seam.RIVER, np.zeros(heights.shape))
-    written += [render_seam.OCEANMASK, render_seam.INLANDLAKE, render_seam.RIVER]
+    prep_block.write_mask(outdir / render_files.INLANDLAKE, water.astype(float))
+    prep_block.write_mask(outdir / render_files.RIVER, np.zeros(heights.shape))
+    written += [render_files.OCEANMASK, render_files.INLANDLAKE, render_files.RIVER]
 
     snow_a, snow_paint = cap_render._cap_perennial_ice(
         grid, ocean, water, latitude, f"the raytraced {grid.name} cap paints no ice")
     if snow_a is not None and snow_a.any() and snow_paint is not None:
-        prep_block.write_mask(outdir / render_seam.SNOWMASK, snow_a)
-        render_seam.declare_paint(outdir, render_seam.SNOWMASK, *snow_paint)
-        written.append(render_seam.SNOWMASK)
+        prep_block.write_mask(outdir / render_files.SNOWMASK, snow_a)
+        render_seam.declare_paint(outdir, render_files.SNOWMASK, *snow_paint)
+        written.append(render_files.SNOWMASK)
 
     # ARRIVES GATED FROM ITS PRODUCER, and this prep has no option to forget. The first version of
     # this file, as an arm, applied the gate itself and an earlier draft omitted it: 99.92% of the
     # north disc's land painted ice-white and flattened to 0.46x relief, with nothing red anywhere.
-    # → HISTORY, *the sea-ice ocean gate moves to its producers*.
     ice_a = cap_render._cap_sea_ice(grid, ocean, f"the raytraced {grid.name} cap paints no pack ice")
     if ice_a is not None and ice_a.any():
-        prep_block.write_mask(outdir / render_seam.SEAICE, ice_a)
-        render_seam.declare_paint(outdir, render_seam.SEAICE, *seaice.ice_paint())
-        written.append(render_seam.SEAICE)
+        prep_block.write_mask(outdir / render_files.SEAICE, ice_a)
+        render_seam.declare_paint(outdir, render_files.SEAICE, *seaice.ice_paint())
+        written.append(render_files.SEAICE)
     return written
 
 
@@ -109,9 +108,9 @@ def write_frame(grid: cap_render.CapGrid, outdir: Path) -> dict[str, Any]:
     overlap or leave a gap, and a stitched disc with a one-pixel gap reads as a render artefact
     rather than as a wrong argument.
 
-    THE DISPLACEMENT IS MEASURED IN GROUND METRES AND THE GRID IS NOT, which is `_shade`'s z-factor
-    correction arriving on the other producer of the same disc. Heights are ground metres on the
-    body; `edge_m` is map metres on `aeqd_radius_m`, the sphere PROJ forces every body onto. So the
+    THE DISPLACEMENT IS MEASURED IN GROUND METRES AND THE GRID IS NOT, which is why `scene_numbers`
+    is handed an extent already scaled. Heights are ground metres on the body; `edge_m` is map
+    metres on `aeqd_radius_m`, the sphere PROJ forces every body onto. So the
     rise and the run come off different rulers, and the quotient is a relief in neither. Earth's
     ratio is 1.0011 and hides it; Mars's is 0.5331, so a raytraced Martian cap would carry 53% of
     the relief its own tiles do. The recorded extents stay AEQD, because those describe the grid the
@@ -120,14 +119,14 @@ def write_frame(grid: cap_render.CapGrid, outdir: Path) -> dict[str, Any]:
     extent_m = 2.0 * grid.edge_m
     numbers = render_prep.scene_numbers(
         grid.px, grid.px, extent_m * bodies.ground_metres_per_aeqd_unit(grid.body),
-        exaggeration=grid.body.exaggeration,
+        exaggeration=grid.body.baked_exaggeration,
         hero_long_edge=grid.px // cap_render.CAP_QUADRANT_SPLIT,
         camera_fraction=1.0 / cap_render.CAP_QUADRANT_SPLIT)
     # The full FRAME_KEYS vocabulary in a cap's own terms: no padded lon/lat frame exists, the CRS
     # is the grid's OWN projection string rather than a second spelling of it, and the extents are
-    # AEQD map units — which `cap_recipe` converts to ground metres separately, since the rig wants
+    # AEQD map units, with `write_recipe` recording `ground_scale` beside them, since the rig wants
     # the grid it was warped on and the recipe wants what a metre is worth on this planet.
-    payload = dict(numbers, body=grid.body.name, exaggeration=grid.body.exaggeration,
+    payload = dict(numbers, body=grid.body.name, exaggeration=grid.body.baked_exaggeration,
                    width_px=grid.px, height_px=grid.px, frame_lonlat=None, dst_crs=grid.aeqd,
                    xres_m=extent_m / grid.px, extent_w_m=extent_m, extent_h_m=extent_m)
     (outdir / "frame.json").write_text(render_prep.frame_json_text(payload))
@@ -139,15 +138,16 @@ def write_recipe(grid: cap_render.CapGrid, rasters: frozenset[str], outdir: Path
     """The constants this cut baked in, machine-readable and beside the output.
 
     NOT WHAT MAKES A DISC RESTAGE, exactly as `prep_block.write_recipe` is not. The cap's freshness
-    lives in `cap_render.cap_recipe`, which is compared against the served rungs; this is for the
-    standalone cut, where the directory is kept and someone has to be able to ask what made it.
+    is `cap_raytrace.params` compared against the served rungs by `cap_render.cap_is_fresh`, which
+    `cap_pass` drives; this is for the standalone cut, where the directory is kept and someone has
+    to be able to ask what made it.
     """
     freshness.write_if_changed(outdir / RECIPE_NAME, json.dumps({
         "body": grid.body.name,
         "pole": grid.name,
         "grid": cap_render.grid_recipe_fields(grid),
         "quadrant_split": cap_render.CAP_QUADRANT_SPLIT,
-        "exaggeration": grid.body.exaggeration,
+        "exaggeration": grid.body.baked_exaggeration,
         "ground_scale": bodies.ground_metres_per_aeqd_unit(grid.body),
         "layers_off": layers.layers_off(grid.body, layers.CAP_LAYERS),
         "rasters_off": planet_seam.rasters_off(rasters),

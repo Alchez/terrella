@@ -1,16 +1,16 @@
 """Render one polar cap through Cycles: a ring of rigidly rotated passes, blended by longitude.
 
-WHY A RING AT ALL. The composite turns its light per pixel — `cap_render.azimuth_delta` added to
-both azimuths — so that the disc stays lit north-west of LOCAL north as the meridians converge on
-the pole. Cycles takes one sun direction per frame and cannot do that, so the disc is rendered at
+WHY A RING AT ALL. The cap's light turns per pixel — `cap_render.azimuth_delta` added to both the
+key and the fill — so the disc stays lit north-west of LOCAL north as the meridians converge on the
+pole. Cycles takes one sun direction per frame and cannot do that, so the disc is rendered at
 `CAP_AZIMUTH_PASSES` fixed bearings and every pixel is cross-faded between the two that bracket the
 one it wants. Same law, read from its owner rather than imitated at one remove.
 
 WHY EACH PASS IS FOUR FRAMES. `CAP_PX` in a single frame is OOM-killed at the heavy-job cap, so the plane
 is photographed `CAP_QUADRANT_SPLIT` squared times. The neighbours are literally the same plane, so
 terrain outside a quadrant still casts into it and there is no context margin to buy.
-→ HISTORY, *the cap edge goes to 82 and not 84*, for the stitch: geometry correlation 0.99327 against
-a full-disc render, and a join at the 89.4th percentile of the image's own column means.
+The stitch was controlled: geometry correlation 0.99327 against a full-disc render, and a join at
+the 89.4th percentile of the image's own column means.
 
 WHY 28 FRAMES A POLE AND NOT 96. A quadrant spans a quarter of the longitude circle, so seventeen of
 the twenty-four contain no pixel it will ever sample. Which seven is DERIVED off the same grid the
@@ -26,9 +26,17 @@ from typing import Any
 import numpy as np
 import rasterio
 
-from pipeline import bodies, freshness, layers, paths, planet_seam, progress
+from pipeline import (
+    bodies,
+    freshness,
+    layers,
+    paths,
+    planet_seam,
+    progress,
+    render_files,
+)
 from pipeline.look import layer_producers
-from pipeline.render import blender_proc, prep_block, prep_cap, render_seam
+from pipeline.render import blender_proc, prep_block, prep_cap
 from pipeline.tile import block_render, cap_render
 
 #: Bearings the ring is rendered at, evenly spaced. RATIFIED AT 24 on both poles against 12 and 1:
@@ -37,7 +45,7 @@ from pipeline.tile import block_render, cap_render
 CAP_AZIMUTH_PASSES = 24
 
 #: Where OIDN runs for a cap, which is the HERO lane's answer and not the block lane's. A quadrant
-#: frame is 4096 squared against a block's 2048, and the 12 GB card faults when render and denoise
+#: frame is 4096 squared against a block's 2048, and the reference card faults when render and denoise
 #: contend at that size — the rule CLAUDE.md states for 8K heroes, reaching the cap for the same
 #: reason. The judged discs were rendered this way.
 CAP_DENOISE_DEVICE = "cpu"
@@ -85,10 +93,9 @@ def bracketing_pass(grid: cap_render.CapGrid,
                     longitude: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Per pixel: the pass below the bearing it wants, and how far it is toward the next one.
 
-    THE WANTED BEARING IS THE PRODUCER'S OWN EXPRESSION. `cap_render.azimuth_delta` is what the
-    composite adds to each of its two azimuths; our frames sit at `AZ + index * step`, so the delta
-    a pixel wants is exactly that same value. No fitting and no lookup — it falls out of the law the
-    other producer already obeys, which is the only thing keeping the two discs the same picture.
+    The wanted bearing is the law's own expression. `cap_render.azimuth_delta` is what the rig adds
+    to both azimuths; our frames sit at `AZ + index * step`, so the delta a pixel wants is exactly
+    that same value. No fitting and no lookup: it falls out of the one law rather than imitating it.
 
     THE MODULO ON `lower` IS AN IEEE GUARD AND NOT THE RING'S. Wrapping the ring is the callers' —
     both spell `(lower + 1) % CAP_AZIMUTH_PASSES` for the upper neighbour. What this one catches is
@@ -269,7 +276,7 @@ def params(grid: cap_render.CapGrid, rasters: frozenset[str]) -> str:
         "grid": cap_render.grid_recipe_fields(grid),
         "azimuth_passes": CAP_AZIMUTH_PASSES,
         "quadrant_split": cap_render.CAP_QUADRANT_SPLIT,
-        "exaggeration": body.exaggeration,
+        "exaggeration": body.baked_exaggeration,
         "ground_scale": bodies.ground_metres_per_aeqd_unit(body),
         "rasters_off": planet_seam.rasters_off(rasters),
         # This caller's choices rather than look constants, recorded for `block_render.params`'
@@ -312,7 +319,7 @@ def render(grid: cap_render.CapGrid, rasters: frozenset[str]) -> Path:
                                         params(grid, rasters))
     fresh_after = freshness.newest_mtime(recipe, *cap_render.cap_sources(grid, rasters))
 
-    heightfield = render_dir / render_seam.HEIGHTFIELD
+    heightfield = render_dir / render_files.HEIGHTFIELD
     if not (heightfield.exists() and heightfield.stat().st_mtime > fresh_after):
         progress.stage(f"cap {grid.name}: cutting the rig's inputs")
         prep_cap.cut(grid, rasters, render_dir)

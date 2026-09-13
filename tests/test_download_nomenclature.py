@@ -16,7 +16,7 @@ import zipfile
 import pytest
 
 from pipeline import datasets
-from pipeline.acquire import download_nomenclature as gazetteer
+from pipeline.acquire.mars import download_nomenclature as gazetteer
 
 
 def rows(count: int = 3, **overrides) -> list[dict[str, str]]:

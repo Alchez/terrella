@@ -19,8 +19,6 @@ Rows are pinned and latitude derived, rather than read back from the marker: mar
 to two decimals, and that is enough to flip a quantum on those two blocks.
 """
 
-from __future__ import annotations
-
 import math
 
 import numpy as np
@@ -72,7 +70,7 @@ def earth_context(relief_m: float, latitude_deg: float) -> int:
     earth = bodies.EARTH
     return block_plan.context_for(
         relief_m, latitude_deg,
-        exaggeration=earth.exaggeration,
+        exaggeration=earth.baked_exaggeration,
         ground_scale=bodies.ground_metres_per_mercator_unit(earth),
         map_units_per_pixel=earth.map_units_per_pixel,
         altitude_deg=SUN_ALTITUDE_DEG)
@@ -150,7 +148,7 @@ def test_context_rounds_up_rather_than_to_nearest():
                 * math.tan(math.radians(SUN_ALTITUDE_DEG))
                 * earth.map_units_per_pixel
                 * math.cos(math.radians(latitude))
-                / (block_plan.CONTEXT_RATIO * earth.exaggeration
+                / (block_plan.CONTEXT_RATIO * earth.baked_exaggeration
                    * math.cos(math.radians(45.0))))
     assert earth_context(relief_m, latitude) == math.ceil(target_quanta) * quantum
     assert earth_context(relief_m, latitude) != round(target_quanta) * quantum
@@ -176,11 +174,11 @@ def test_dropping_ground_scale_undersizes_mars_rather_than_erroring():
     """The failure mode is silence: a truncated shadow simply stops, with no edge to notice."""
     mars = bodies.MARS
     correct = block_plan.context_for(
-        4000.0, 40.0, exaggeration=mars.exaggeration,
+        4000.0, 40.0, exaggeration=mars.baked_exaggeration,
         ground_scale=bodies.ground_metres_per_mercator_unit(mars),
         map_units_per_pixel=mars.map_units_per_pixel, altitude_deg=SUN_ALTITUDE_DEG)
     earthed = block_plan.context_for(
-        4000.0, 40.0, exaggeration=mars.exaggeration, ground_scale=1.0,
+        4000.0, 40.0, exaggeration=mars.baked_exaggeration, ground_scale=1.0,
         map_units_per_pixel=mars.map_units_per_pixel, altitude_deg=SUN_ALTITUDE_DEG)
     assert earthed < correct
 
@@ -194,14 +192,14 @@ def test_mars_differs_from_earth_by_exaggeration_and_pixel_size_too():
     """
     def body_margin(body, relief_m):
         return block_plan.context_for(
-            relief_m, 40.0, exaggeration=body.exaggeration,
+            relief_m, 40.0, exaggeration=body.baked_exaggeration,
             ground_scale=bodies.ground_metres_per_mercator_unit(body),
             map_units_per_pixel=body.map_units_per_pixel, altitude_deg=SUN_ALTITUDE_DEG)
 
     earth, mars = bodies.EARTH, bodies.MARS
-    ratio = ((mars.exaggeration / bodies.ground_metres_per_mercator_unit(mars)
+    ratio = ((mars.baked_exaggeration / bodies.ground_metres_per_mercator_unit(mars)
               / mars.map_units_per_pixel)
-             / (earth.exaggeration / bodies.ground_metres_per_mercator_unit(earth)
+             / (earth.baked_exaggeration / bodies.ground_metres_per_mercator_unit(earth)
                 / earth.map_units_per_pixel))
     assert ratio == pytest.approx(1.2520, abs=1e-4)
     # 12,000 m rather than a gentler figure on purpose: at 1.252x the two bodies only land in
@@ -631,11 +629,6 @@ class TestFoldingCellsUpToBlocks:
         with pytest.raises(ValueError, match="different cell grids"):
             block_plan.relief_from_cells(self._grid(), np.zeros((self.cells * 2,
                                                                 self.cells * 2)))
-
-    def test_ocean_share_folds_by_mean_because_every_cell_covers_the_same_pixels(self):
-        share = self._grid()
-        share[0, :] = 1.0
-        assert block_plan.share_from_cells(share)[0, 0] == pytest.approx(1.0 / self.cells)
 
     def test_the_folded_pair_is_what_plan_accepts(self):
         """The two ends of the contract, joined — a fold whose shape `plan` rejects is no bridge."""

@@ -3,7 +3,7 @@
 `block_plan` sizes every render block's margin from the vertical range standing in and around it,
 and the only place that number lives is the heightfield: 46 GB on Earth. Reading it once per
 planning run would dominate a stage that is otherwise arithmetic, so one streaming pass records
-max, min and ocean share per cell, and every later question is asked of the cache.
+max and min per cell, and every later question is asked of the cache.
 
 THE CACHE IS DELIBERATELY FINER THAN THE BLOCK. `block_plan.CELL_PX` is the tile grid's own
 quantum and a render block is `CELLS_PER_BLOCK` of them across, so re-tuning the block edge, or
@@ -20,10 +20,8 @@ over-margins, which costs render pixels and loses nothing.
 WHAT IS MASKED IS THE RASTER'S OWN DECLARED NODATA, ALONGSIDE NAN. A declared sentinel is not
 missing to anything that does not ask: `height_3857.tif` declares -32768.0, and a consumer
 guarding only NaN once packed that as a real elevation and drew a line from pole to pole on the
-live site. See HISTORY, *the column the warp could not fill*.
+live site.
 """
-
-from __future__ import annotations
 
 import argparse
 import contextlib
@@ -42,7 +40,6 @@ from pipeline import (
     bodies,
     freshness,
     mercator,
-    planet_seam,
     planet_warp,
     raster_io,
 )
@@ -75,19 +72,10 @@ def master_path(work: Path) -> Path:
     return work / planet_warp.HEIGHT_3857
 
 
-def ocean_master_path(work: Path) -> Path:
-    """The ocean mask, for bodies whose seam declares one."""
-    return work / planet_warp.OCEAN_3857
-
 
 def relief_path(work: Path) -> Path:
     """Where the per-cell high/low pair is recorded, beside the master it describes."""
     return work / "relief_cells.tif"
-
-
-def ocean_path(work: Path) -> Path:
-    """Where the per-cell ocean fraction is recorded. Absent for a body that declares no mask."""
-    return work / "ocean_cells.tif"
 
 
 def params_path(work: Path) -> Path:
@@ -95,23 +83,18 @@ def params_path(work: Path) -> Path:
     return work / "relief_params.json"
 
 
-def params(body: bodies.Body, rasters: frozenset[str]) -> str:
+def params(body: bodies.Body) -> str:
     """The recipe: everything that can move a number in this cache, and nothing else.
 
     The body itself is NOT in here. It is in the path, which is `bodies.work_dir`'s rule, so a
-    recipe carrying it would restage every body the moment the spelling changed.
-
-    `rasters_off` follows the conditional-record idiom: Earth omits nothing, so its list is empty
-    and never enters, while a body that stops declaring an ocean mask restages this cache rather
-    than keeping a share grid nothing produces any more.
+    recipe carrying it would restage every body the moment the spelling changed. Which rasters the
+    seam declares is not in here either: the cache folds the heightfield and nothing else, and the
+    heightfield is a freshness input in its own right.
     """
     recipe: dict[str, Any] = {
         "cell_px": block_plan.CELL_PX,
         "grid_px": block_plan.grid_px(body),
     }
-    off = planet_seam.rasters_off(rasters)
-    if off:
-        recipe["rasters_off"] = off
     return json.dumps(recipe, sort_keys=True, indent=2)
 
 
@@ -137,8 +120,7 @@ def _write_cells(out: Path, bands: NDArray[np.float64]) -> None:
     freshness.mark_done(out)
 
 
-def _accumulate(master: Path, ocean: Path | None, high: NDArray[np.float64],
-                low: NDArray[np.float64], share: NDArray[np.float64] | None,
+def _accumulate(master: Path, high: NDArray[np.float64], low: NDArray[np.float64],
                 band_rows: int) -> None:
     """Fill the cell grids from one streaming pass over the master.
 
@@ -155,7 +137,6 @@ def _accumulate(master: Path, ocean: Path | None, high: NDArray[np.float64],
 
     with contextlib.ExitStack() as stack:
         height_ds = stack.enter_context(rasterio.open(master))
-        ocean_ds = stack.enter_context(rasterio.open(ocean)) if ocean is not None else None
         if (height_ds.width, height_ds.height) != (edge, edge):
             raise ValueError(f"{master} is {height_ds.width}x{height_ds.height}, not the "
                              f"{edge}x{edge} grid this body's zoom declares")
@@ -176,61 +157,35 @@ def _accumulate(master: Path, ocean: Path | None, high: NDArray[np.float64],
                 warnings.simplefilter("ignore", RuntimeWarning)
                 high[band] = np.nanmax(tiled, axis=(1, 3))
                 low[band] = np.nanmin(tiled, axis=(1, 3))
-            if ocean_ds is not None and share is not None:
-                sea = ocean_ds.read(1, window=window)  # pyright: ignore[reportCallIssue]
-                share[band] = (sea > 0).reshape(rows, cell_px, cells, cell_px).mean(axis=(1, 3))
 
 
 def scan(body: bodies.Body, *, work: Path | None = None,
-         band_rows: int = BAND_ROWS) -> tuple[Path, Path | None]:
-    """Record this body's per-cell relief, and its ocean share where the seam declares a mask.
+         band_rows: int = BAND_ROWS) -> Path:
+    """Record this body's per-cell relief in one streaming pass over the master.
 
-    Returns the paths written, the second being None for a body with no ocean mask. That is the
-    shape `block_plan.plan` already takes, whose `ocean_share` is optional for the same reason.
-
-    The ocean arm is gated on `planet_seam.declared`, never on the file being present: a missing
-    raster cannot tell "this body has none" from "the producer crashed", and only the declaration
-    separates them.
+    The heightfield is the only input, so it and the recipe are the whole freshness question.
     """
     work = work_dir(body) if work is None else work
-    rasters = planet_seam.declared(body)
     master = master_path(work)
-    recipe = freshness.write_if_changed(params_path(work), params(body, rasters))
+    recipe = freshness.write_if_changed(params_path(work), params(body))
 
     relief_out = relief_path(work)
-    ocean_out = ocean_path(work) if "oceanmask" in rasters else None
-    inputs = [master, recipe]
-    if ocean_out is not None:
-        inputs.append(ocean_master_path(work))
-
-    fresh = not freshness.is_stale(relief_out, *inputs) and (
-        ocean_out is None or not freshness.is_stale(ocean_out, *inputs))
-    if fresh:
-        return relief_out, ocean_out
+    if not freshness.is_stale(relief_out, master, recipe):
+        return relief_out
 
     cells = block_plan.grid_px(body) // block_plan.CELL_PX
     high = np.full((cells, cells), np.nan)
     low = np.full((cells, cells), np.nan)
-    share = np.zeros((cells, cells)) if ocean_out is not None else None
-    _accumulate(master, ocean_master_path(work) if ocean_out is not None else None,
-                high, low, share, band_rows)
+    _accumulate(master, high, low, band_rows)
 
     _write_cells(relief_out, np.stack([high, low]))
-    if ocean_out is not None and share is not None:
-        _write_cells(ocean_out, share[np.newaxis])
-    return relief_out, ocean_out
+    return relief_out
 
 
 def read_relief(work: Path) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
     """The recorded per-cell high and low grids, as `block_plan.relief_from_cells` wants them."""
     with rasterio.open(relief_path(work)) as dataset:
         return dataset.read(1).astype(np.float64), dataset.read(2).astype(np.float64)
-
-
-def read_ocean(work: Path) -> NDArray[np.float64]:
-    """The recorded per-cell ocean fraction, as `block_plan.share_from_cells` wants it."""
-    with rasterio.open(ocean_path(work)) as dataset:
-        return dataset.read(1).astype(np.float64)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -247,10 +202,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
     body = bodies.BODIES[args.body]
-    relief_out, ocean_out = scan(body, work=args.work, band_rows=args.band_rows)
-    print(f"[relief_scan] {relief_out}")
-    print(f"[relief_scan] {ocean_out}" if ocean_out is not None
-          else f"[relief_scan] no ocean mask declared for {body.name}")
+    print(f"[relief_scan] {scan(body, work=args.work, band_rows=args.band_rows)}")
 
 
 if __name__ == "__main__":

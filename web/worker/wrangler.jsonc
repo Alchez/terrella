@@ -77,8 +77,8 @@
     //
     // Narrowed from "*" once the site went live. This stops another origin's JavaScript
     // embedding our globe; it is NOT hotlink protection, since a server-side proxy never
-    // sends Origin and never reads the header. The point is the free tier's ~2,500
-    // cold-visit/day ceiling, not secrecy.
+    // sends Origin and never reads the header. The point is the free plan's daily request
+    // limit, which web/DEPLOY.md prices, not secrecy.
     //
     // Changing this still needs a redeploy but no purge — for a different reason than it
     // used to. Workers Caching stores the response we return, CORS header and all, so the

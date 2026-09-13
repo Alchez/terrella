@@ -32,7 +32,7 @@
 // placeholders left — is asserted in `tileAddress.test.ts`, where it runs on every suite.
 
 import { createHash } from "node:crypto";
-import { createReadStream, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { createReadStream, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { open } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -45,8 +45,7 @@ import type { LayerId } from "../src/lib/tileAddress.ts";
 
 const WEB_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const REPO_ROOT = path.resolve(WEB_ROOT, "..");
-// Beside the module that reads it, not in src/data/ — the repo's root `data/` ignore pattern is
-// unanchored and matches any directory of that name, so a committed file cannot live there.
+// Must match where `tileAddress.ts` imports it from, which is where the placement is explained.
 const TOKENS_FILE = path.join(WEB_ROOT, "src/lib/tileTokens.json");
 
 /** Hex characters kept. Restated from `TOKEN_LENGTH` in tileAddress.ts, which cannot be imported
@@ -60,6 +59,10 @@ interface ArchiveFacts {
   /** Leaf directories in the archive — the third term in its directory-cache cost, after the
    *  header entry and the root entry. See `directoryCacheEntries` in worker/index.ts. */
   indexLeaves: number;
+  /** On-disk size, so the archives page can say what a download costs before it starts. Read
+   *  off the same file as the token, which is why a stale one is impossible: the token moves
+   *  whenever the bytes do. */
+  bytes: number;
 }
 
 type TokenFile = Record<string, Record<string, ArchiveFacts>>;
@@ -145,6 +148,7 @@ for (const [body, layers] of Object.entries(committed)) {
     const facts: ArchiveFacts = {
       token: await tokenFor(archive),
       indexLeaves: await indexLeavesIn(archive),
+      bytes: statSync(archive).size,
     };
     /* oxlint-enable no-await-in-loop */
     (computed[body] ??= {})[layer] = facts;

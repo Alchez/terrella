@@ -3,7 +3,7 @@
 Sits beside snow.py by design. Lake depth is a TINT-ONLY rendering input, never terrain: at
 the locked 15x exaggeration a carved lake bed makes Namtso a 1.5 km crater and kills the flat
 plate that catches the surrounding mountains' shadows. So, exactly like snow, it
-is warped onto the render grid at composite time and never enters the fusion master -- which
+is warped onto the render grid by the planet warp and never enters the fusion master -- which
 is also why a future finer re-fuse would not have to redo any of this.
 
 Epistemics, because they are unusually load-bearing here (measured):
@@ -26,9 +26,8 @@ import math
 import subprocess
 
 import numpy as np
-import rasterio
 
-from pipeline.acquire.extract_globathy import lake_vrt
+from pipeline.acquire.earth.extract_globathy import lake_vrt
 from pipeline.look import palette
 
 GLOBATHY_NODATA = -9999.0
@@ -68,38 +67,14 @@ def lake_position(depth, curve):
     raise ValueError(f"unknown LAKE_CURVE {curve!r} (log1p | sqrt | linear)")
 
 
-def warp_depth(bounds, width, height, out_path, vrt=None):
-    """Warp GLOBathy onto a Web-Mercator grid; return depth in metres, 0 where there is none.
-
-    bounds = (left, bottom, right, top) in EPSG:3857. Bilinear, not nearest: depth is a
-    continuous field, unlike the class codes beside it (a 2 next to a 0 is not a 1, but 40 m
-    next to 0 m really is 20 m). `-srcnodata` keeps the -9999 fill out of the resampling
-    kernel so it cannot bleed a false trench across a shoreline.
-
-    Returns None when the VRT has not been built, so shading still runs flat-water-only --
-    the same contract as snow.rasterize_glaciers when RGI is missing.
-    """
-    vrt = vrt or lake_vrt()
-    if not vrt.exists():
-        return None
-    left, bottom, right, top = bounds
-    _run(["gdalwarp", "-overwrite", "-q", "-s_srs", "EPSG:4326", "-t_srs", "EPSG:3857",
-          "-srcnodata", str(GLOBATHY_NODATA), "-dstnodata", "0",
-          "-te", repr(left), repr(bottom), repr(right), repr(top),
-          "-ts", str(width), str(height), "-r", "bilinear", "-ot", "Float32",
-          str(vrt), str(out_path)])
-    with rasterio.open(out_path) as dataset:
-        depth = dataset.read(1).astype("float32")
-    return np.where(np.isfinite(depth) & (depth > 0.0), depth, 0.0).astype("float32")
-
-
 def warp_depth_raster(bounds, width, height, out_path, vrt=None):
     """Warp GLOBathy onto a whole Web-Mercator grid, leaving the result on disk.
 
-    The planet-tier twin of `warp_depth` above, which hands the array back for the region path.
-    bounds = (left, bottom, right, top) in EPSG:3857. No `-s_srs`, unlike the NetCDF and GeoTIFF
-    warps beside it: the VRT carries its own. Tiled/DEFLATE/BIGTIFF because the target is a global
-    grid, which is the whole difference between the two.
+    bounds = (left, bottom, right, top) in EPSG:3857. Bilinear, not nearest: depth is a continuous
+    field, unlike the class codes beside it (a 2 next to a 0 is not a 1, but 40 m next to 0 m really
+    is 20 m), and `-srcnodata` keeps the -9999 fill out of the resampling kernel so it cannot bleed a
+    false trench across a shoreline. No `-s_srs`, unlike the NetCDF and GeoTIFF warps beside it: the
+    VRT carries its own. Tiled/DEFLATE/BIGTIFF because the target is a global grid.
     """
     vrt = vrt or lake_vrt()
     left, bottom, right, top = bounds
@@ -119,15 +94,20 @@ def lakes_only(depth, watercode):
     Class 3 (river) stays flat by decision, and class 1 (ocean) must never be touched -- the
     Caspian is class 1 since the re-fuse precisely so GEBCO's measured bathymetry
     beats GLOBathy's cone there, and this is what enforces that.
+
+    A missing layer is the producer tier's answer to give, not this one's: `LayerWindow.raw` is
+    optional and `_earth_lake_depth` returns before calling here. Refusing rather than passing the
+    absence on is what stops `np.where` turning it into a full-shape raster of NaN.
     """
     if depth is None:
-        return None
+        raise TypeError("depth is required: a missing lake layer is answered by the producer, "
+                        "which returns before reaching here")
     return np.where(watercode == 2, depth, 0.0).astype("float32")
 
 
 def inland_water(watercode):
     """Boolean mask of inland water -- watermask class 2 (lake) OR 3 (river) -- selecting the
-    flat WATER_RGB / lake-ramp branch of the composite.
+    flat WATER_RGB / lake-ramp branch of the painter.
 
     Class 1 (ocean) is deliberately EXCLUDED: it is sea, coloured by the depth ramp, the mirror
     of lakes_only's rule above. This is THE one implementation of that decision, shared by both

@@ -18,6 +18,12 @@
 
 import { MARS_RAMP, rampGradient, type RampStop } from "./palette.ts";
 import type { BodySlug } from "./bodies.ts";
+// The cards and the disclaimers, generated from `pipeline/attribution.py` by
+// `scripts/gen_attributions.py` and committed. A stage that stamps an archive needs these in
+// Python and a card needs them here, and only one of those directions can generate: this file
+// used to keep its own list, and the two had drifted in both directions at once. SCAR ADD is
+// CC-BY and was on no card; NSIDC, RGI and OSI SAF were worded differently from the notices.
+import CREDITS from "../data/attributions.json";
 
 /** One numbered stage of a body's pipeline, as a visitor reads it. */
 export interface AboutStep {
@@ -134,14 +140,20 @@ export const ABOUT: Record<BodySlug, BodyAbout> = {
         title: "Fusion",
         text: "Copernicus GLO-30 land elevation is fused with GEBCO bathymetry into one seamless heightfield. The sea floor is part of the picture, so shelves and trenches read as terrain.",
       },
-      // THE ONE STEP THAT FORKS, WHICH IS WHY THERE IS STILL ONE LIST. Earth ends in two surfaces,
-      // the gallery's Cycles stills and the globe's tiles, and everything above and below this is
-      // shared between them: one heightfield, one pair of ramps, one sun geometry, borders never
-      // baked either way. A per-step "which surface" field was rejected on that — it would exist
-      // for one body, since Mars has no heroes at all.
+      // NO STEP FORKS ANY MORE, WHICH IS WHY THERE IS STILL ONE LIST. Earth ends in two surfaces,
+      // the gallery's Cycles stills and the globe's tiles, and every step is shared between them:
+      // one heightfield, one pair of ramps, one sun geometry, one renderer, borders never baked
+      // either way. A per-step "which surface" field was rejected and should stay rejected: it
+      // would exist for one body, since Mars has no heroes at all.
+      //
+      // KEEP THIS CARD SHORT. The grid is `align-items: stretch`, so the longest step pads all six
+      // to its height; this one ran 370 characters against neighbours at 144 and cost 338px of row
+      // for four lines. The temptation is that this is the most interesting step and deserves more
+      // words. It is the one that can least afford them, and prose about what was REJECTED belongs
+      // in a note below, which is not in the grid. The sky-view burn is hero-only and is docs/ART.md's.
       {
         title: "Light",
-        text: "A low north-west sun, a fill from the opposite side, and a sky-view term for enclosed valleys, shared by both surfaces. Only the gallery's stills are ray-traced in Blender's Cycles, so only they cast real shadows.",
+        text: "A low north-west sun with a fill from the opposite side. Both surfaces are ray traced in Blender's Cycles off one rig, so the globe's tiles cast the same real shadows the gallery's stills do.",
       },
       {
         title: "Colour",
@@ -151,9 +163,9 @@ export const ABOUT: Record<BodySlug, BodyAbout> = {
         title: "Borders",
         text: "Natural Earth boundaries composite on top as crisp vector lines. They are never baked into the terrain, so they stay sharp and toggle on demand.",
       },
-      // WAS "a permanent snow and ice mask from ESA WorldCover", which the tiles REPLACED: class 70
-      // is permanent ice only and left mid- and high-latitude ranges bare (`tile/shade.py` says so
-      // where it swaps them). WorldCover still dresses the heroes, so it keeps its credit below.
+      // Not "a permanent snow and ice mask from ESA WorldCover": the tiles do not use it, class 70
+      // being permanent ice only, which leaves mid- and high-latitude ranges bare. WorldCover still
+      // dresses the heroes, so it keeps its credit below.
       {
         title: "Snow",
         text: "Permanent snow from a MODIS persistence climatology and the Randolph glacier inventory, faded at its margins so the edges take the hillshade. Antarctica is painted white outright: the climatology saturates over the continent but leaves clustered gaps, and the glacier inventory only reaches its coastal fringe.",
@@ -163,72 +175,7 @@ export const ABOUT: Record<BodySlug, BodyAbout> = {
         text: "At the poles, translucent white sea ice floats over the real ocean-floor relief. It is a 1991–2020 average of how often each stretch of sea freezes, not a live snapshot.",
       },
     ],
-    sources: [
-      {
-        name: "Copernicus DEM GLO-30",
-        href: "https://dataspace.copernicus.eu/explore-data/data-collections/copernicus-contributing-missions/collections-description/COP-DEM",
-        role: "Land elevation",
-        license: "Copernicus",
-        // Verbatim, not paraphrased: Article 6(b) of the WorldDEM-30 licence requires this exact
-        // notice for adapted data. ATTRIBUTIONS.md is the source of truth and a test guards the pair.
-        attribution:
-          "produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved",
-      },
-      {
-        name: "GEBCO 2026 Grid",
-        href: "https://www.gebco.net",
-        role: "Bathymetry",
-        license: "Public domain",
-        attribution: "Reproduced from the GEBCO_2026 Grid, GEBCO Compilation Group (2026).",
-      },
-      {
-        name: "GLOBathy",
-        href: "https://springernature.figshare.com/collections/GLOBathy_the_Global_Lakes_Bathymetry_Dataset/5243309",
-        role: "Lake depth",
-        license: "CC0",
-        attribution:
-          "GLOBathy global lakes bathymetry (Khazaei et al., Sci Data 9:36, 2022). Public-domain dedication (CC0). Depth is modelled; see the Lake depth note below.",
-      },
-      {
-        name: "ESA WorldCover 2021",
-        href: "https://esa-worldcover.org",
-        role: "Snow / ice mask",
-        license: "CC-BY 4.0",
-        attribution:
-          "© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021), processed by the ESA WorldCover consortium.",
-      },
-      {
-        name: "NSIDC-0791 Snow Persistence",
-        href: "https://nsidc.org/data/nsidc-0791",
-        role: "Snow persistence",
-        license: "Public domain",
-        attribution:
-          "MODIS snow-persistence climatology (water years 2001–2023), NASA NSIDC DAAC dataset NSIDC-0791.",
-      },
-      {
-        name: "RGI 7.0 Glaciers",
-        href: "https://nsidc.org/data/nsidc-0770/versions/7",
-        role: "Glaciers",
-        license: "CC-BY 4.0",
-        attribution:
-          "Randolph Glacier Inventory 7.0 (RGI Consortium, 2023), NSIDC-0770 v7.",
-      },
-      {
-        name: "OSI SAF Sea Ice (OSI-450-a)",
-        href: "https://osi-saf.eumetsat.int/products/osi-450-a",
-        role: "Sea ice",
-        license: "CC-BY 4.0",
-        attribution:
-          "EUMETSAT Ocean and Sea Ice SAF, Global Sea Ice Concentration Climate Data Record (OSI-450-a), reduced to a 1991–2020 frequency climatology. Copyright EUMETSAT.",
-      },
-      {
-        name: "Natural Earth",
-        href: "https://www.naturalearthdata.com",
-        role: "Borders & coastlines",
-        license: "Public domain",
-        attribution: "naturalearthdata.com.",
-      },
-    ],
+    sources: CREDITS.bodies.earth.sources,
     notes: [
       {
         heading: "Boundaries",
@@ -247,9 +194,7 @@ export const ABOUT: Record<BodySlug, BodyAbout> = {
     ],
     // Article 6(c) of the WorldDEM-30 licence, quoted rather than summarised, and guarded as an
     // exact string by `tests/test_attributions.py`. It belongs to Earth because WorldDEM-30 does.
-    legal: [
-      "The organisations in charge of the Copernicus programme by law or by delegation do not incur any liability for any use of the Copernicus WorldDEM-30.",
-    ],
+    legal: CREDITS.bodies.earth.legal,
   },
 
   mars: {
@@ -273,8 +218,8 @@ export const ABOUT: Record<BodySlug, BodyAbout> = {
         text: "The grid is declared to be lon/lat rather than reprojected. That is an identity on the angles, so not one pixel is resampled and no copy of 10.6 GB is made.",
       },
       {
-        title: "Shade",
-        text: "One low sun for relief shadows, plus a sky-view term that darkens the insides of craters and canyons the way ambient light really falls off inside them.",
+        title: "Light",
+        text: "One low sun, ray traced in Blender's Cycles on the same rig Earth uses, so craters and canyons carry the real shadows they cast rather than an approximation of them.",
       },
       {
         title: "Colour",
@@ -285,41 +230,7 @@ export const ABOUT: Record<BodySlug, BodyAbout> = {
         text: "Web Mercator dies before it reaches a pole, so each cap is rendered on its own projection and dropped in. The permanent ice is the mapped cap, graded by how bright the Viking orbiters photographed it.",
       },
     ],
-    sources: [
-      {
-        name: "MOLA / HRSC Blended DEM",
-        href: "https://astrogeology.usgs.gov/search/map/mars_mgs_mola_mex_hrsc_blended_dem_global_200m",
-        role: "Surface elevation",
-        // THE PUBLISHER'S OWN WORDS, not our reading of them. USGS states the blend's inputs as
-        // "MOLA (CC0) and HRSC (CC BY-SA 3.0 IGO)" and its use constraint as "Please cite authors".
-        // The share-alike half is why the whole site's output licence is BY-SA.
-        license: "MOLA CC0 · HRSC CC BY-SA 3.0 IGO",
-        attribution:
-          "Fergason, R. L, Hare, T. M., & Laura, J. (2018). HRSC and MOLA Blended Digital Elevation Model at 200m v2. Astrogeology PDS Annex, U.S. Geological Survey. MOLA flew on NASA's Mars Global Surveyor and HRSC on ESA's Mars Express; HRSC covers 44% of the planet, MOLA the rest.",
-      },
-      {
-        name: "Geologic Map of Mars (SIM 3292)",
-        href: "https://pubs.usgs.gov/sim/3292/",
-        role: "Where the permanent polar ice is",
-        // THE ONE MARS SOURCE WITH A STATED OBLIGATION, and it is an exact-string one: the product's
-        // own metadata reads `Use_Constraints: please cite authors.`, so the citation below is
-        // quoted from its FGDC `Data_Set_Credit` field rather than composed here.
-        license: "Public domain · cite authors",
-        attribution:
-          "K.L. Tanaka, J.A. Skinner, Jr., J.M. Dohm, R.P. Irwin, III, E.J. Kolb, C.M. Fortezzo, Thomas Platz, G.G. Michael, and T.M. Hare, 2014, Geologic Map of Mars, Scale 1:20,000,000, U.S. Geological Survey Scientific Investigations Map SIM 3292, http://pubs.usgs.gov/sim/3292",
-      },
-      {
-        name: "Viking colour mosaic",
-        href: "https://astrogeology.usgs.gov/search/map/mars_viking_colorized_global_mosaic_925m",
-        role: "How bright each part of the ice is, and the planet's hue",
-        // CREDITED BY COURTESY, NOT BY OBLIGATION, and the distinction is the publisher's own: its
-        // constraint fields read `Access Constraints: public domain`, `Use Constraints: None`. That
-        // is why this is absent from `REQUIRED_STRINGS` while SIM 3292 above is in it.
-        license: "Public domain",
-        attribution:
-          "U.S. Geological Survey Astrogeology Science Center, Viking Global Color Mosaic 925m. Built for albedo rather than for relief, which is why the ice grades against it.",
-      },
-    ],
+    sources: CREDITS.bodies.mars.sources,
     notes: [
       {
         // GUARDED BY `aboutCredits.test.ts`, which asserts the CLAIMS rather than the sentences —
@@ -347,6 +258,16 @@ export const ABOUT: Record<BodySlug, BodyAbout> = {
     ],
     // Empty, and that is a statement rather than a gap: every Mars source here is USGS or NASA
     // public domain, and the one with a use constraint asks for a citation, not a disclaimer.
-    legal: [],
+    legal: CREDITS.bodies.mars.legal,
   },
+};
+
+/** The site-wide note on which version a visitor gets. Data rather than markup so its claims can be
+ *  held against the probe and the step-down ladder that make them. */
+export const TIER_NOTE: AboutNote = {
+  heading: "Lite, Globe or Full",
+  paragraphs: [
+    "Terrella picks one of three versions when you arrive. Lite, without the globe, is for browsers that can't draw it well or have asked to save data. Globe is for devices short on memory, slow connections, and anyone who has asked for reduced motion. Everyone else gets Full, which adds raised terrain and a slow spin.",
+    "If the globe struggles, it steps down on its own: first the spin stops, then the image softens, then the terrain flattens. The Lite, Globe and Full buttons override that pick, and your choice stays in this browser until you clear this site's data.",
+  ],
 };

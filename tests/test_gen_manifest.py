@@ -1,4 +1,4 @@
-"""Contract for the gallery manifest's search terms.
+"""Contract for the gallery manifest: its search terms, its two halves, and the download files.
 
 THE PURE FUNCTION IS WHAT IS TESTED, not a generated manifest, because `countries.json` is
 gitignored — a suite that read it would pass on this machine and skip on every clean checkout,
@@ -13,14 +13,26 @@ break five countries silently.
 """
 
 import importlib.util
+import os
 import re
+import sys
 from pathlib import Path
 
 import pytest
+from conftest import write_hero_master
+from PIL import Image
+
+from pipeline.compose import downloads, hero_variants
+
+pytestmark = pytest.mark.filterwarnings("ignore::rasterio.errors.NotGeoreferencedWarning")
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = REPO_ROOT / "web/scripts/gen_manifest.py"
 CONTRACT = REPO_ROOT / "web/src/lib/manifest.ts"
+
+SLUG, NAME = "example", "Example"
+WIDTH, HEIGHT = 64, 48
+RESOLVED = {"admin": NAME, "frame": (0.0, 0.0, 1.0, 1.0)}
 
 
 def producer():
@@ -38,6 +50,22 @@ GEN = producer()
 def record(**fields: str) -> dict:
     """One Natural Earth attribute row, with every search column absent unless named."""
     return {"ADMIN": "Example", **fields}
+
+
+def encode(master: Path, out: Path, long_edge: int = WIDTH) -> None:
+    hero_variants.make_variant(master, True, long_edge, hero_variants.quality_for(long_edge), out)
+
+
+@pytest.fixture
+def renders(tmp_path: Path) -> Path:
+    """A render store holding one country's master and full-size WebP, both stamped."""
+    (tmp_path / "heroes").mkdir()
+    (tmp_path / "variants").mkdir()
+    master = tmp_path / "heroes" / f"{SLUG}.png"
+    write_hero_master(master, WIDTH, HEIGHT, seed=0)
+    encode(master, tmp_path / "variants" / f"{SLUG}-{WIDTH}.webp")
+    downloads.stamp_country(master, tmp_path / "variants", NAME)
+    return tmp_path
 
 
 class TestWhatBecomesTypeable:
@@ -142,17 +170,16 @@ class TestTheTwoHalvesOfTheContract:
     since the wrapper was written; this is that sentence made to fail.
     """
 
-    def test_the_payload_and_the_interface_name_the_same_fields(self, tmp_path):
-        emitted = GEN.country_row(
-            "example",
-            {"admin": "Example", "frame": (0.0, 0.0, 1.0, 1.0)},
-            {"CONTINENT": "Europe"},
-            tmp_path,
-        )
+    def test_the_payload_and_the_interface_name_the_same_fields(self, renders):
+        emitted = GEN.country_row(SLUG, RESOLVED, {"CONTINENT": "Europe"}, renders)
         assert sorted(emitted) == sorted(country_fields()), (
             "gen_manifest.py's payload and `Country` in web/src/lib/manifest.ts have drifted — "
             "a field on one side alone is `undefined` at runtime with every gate green"
         )
+
+    def test_the_download_record_and_its_interface_name_the_same_fields(self, renders):
+        emitted = GEN.country_row(SLUG, RESOLVED, {}, renders)["download"]
+        assert sorted(emitted) == sorted(declared_fields(CONTRACT.read_text(), "DownloadFiles"))
 
     def test_prose_inside_a_comment_is_not_read_as_a_field(self):
         source = (
@@ -175,10 +202,176 @@ class TestTheTwoHalvesOfTheContract:
         emitted = GEN.country_row("example", {"admin": "Example", "frame": (0.0, 0.0, 1.0, 1.0)},
                                   {}, tmp_path)
         assert emitted["rendered"] is False and emitted["native"] is None
+        assert emitted["download"] is None
         assert sorted(emitted) == sorted(country_fields()), (
             "the empty variant store is the shape a consumer sees for a country awaiting its "
             "hero, and it must be missing a value rather than a key"
         )
+
+
+class TestTheDownloadFiles:
+    """The full-size WebP and PNG a rendered country's page offers, and the refusal to offer one
+    that lacks the credit for the name this manifest publishes or predates its master."""
+
+    def test_a_rendered_country_states_the_pixels_and_bytes_of_both_files(self, renders):
+        webp = renders / "variants" / f"{SLUG}-{WIDTH}.webp"
+        png = renders / "variants" / f"{SLUG}-{WIDTH}.png"
+        for offered in (webp, png):
+            with Image.open(offered) as image:
+                assert image.size == (WIDTH, HEIGHT)
+        assert GEN.country_row(SLUG, RESOLVED, {}, renders)["download"] == {
+            "width": WIDTH, "height": HEIGHT,
+            "webpBytes": webp.stat().st_size, "pngBytes": png.stat().st_size,
+        }
+
+    @pytest.mark.parametrize("extension", ["webp", "png"])
+    def test_a_file_that_was_never_stamped_is_refused(self, renders, extension):
+        master = renders / "heroes" / f"{SLUG}.png"
+        unstamped = renders / "variants" / f"{SLUG}-{WIDTH}.{extension}"
+        if extension == "webp":
+            encode(master, unstamped)
+        else:
+            unstamped.unlink()
+        with pytest.raises(GEN.StaleFiles, match=rf"{re.escape(unstamped.name)}.*downloads stamp"):
+            GEN.country_row(SLUG, RESOLVED, {}, renders)
+
+    def test_files_stamped_under_another_name_are_refused(self, renders):
+        with pytest.raises(GEN.StaleFiles, match="downloads stamp"):
+            GEN.country_row(SLUG, {**RESOLVED, "admin": "Renamed"}, {}, renders)
+
+    def test_a_copy_made_before_its_master_last_changed_is_refused(self, renders):
+        master = renders / "heroes" / f"{SLUG}.png"
+        later = master.stat().st_mtime_ns + 1_000_000_000
+        os.utime(master, ns=(later, later))
+        # The WebP redone since, and the copy not.
+        os.utime(renders / "variants" / f"{SLUG}-{WIDTH}.webp", ns=(later, later))
+        with pytest.raises(GEN.StaleFiles, match=rf"{SLUG}-{WIDTH}\.png") as refusal:
+            GEN.country_row(SLUG, RESOLVED, {}, renders)
+        assert f"{SLUG}-{WIDTH}.webp" not in str(refusal.value)
+
+    def test_a_full_size_webp_that_is_not_its_masters_image_is_refused(self, renders):
+        """Even when the WebP is the newer file, as a store copied without its times can leave it."""
+        master = renders / "heroes" / f"{SLUG}.png"
+        webp = renders / "variants" / f"{SLUG}-{WIDTH}.webp"
+        write_hero_master(master, WIDTH, HEIGHT - 8, seed=0)
+        downloads.stamp_country(master, renders / "variants", NAME)
+        later = master.stat().st_mtime_ns + 1_000_000_000
+        os.utime(webp, ns=(later, later))
+        assert downloads.unstamped(master, renders / "variants", NAME) == []
+        with pytest.raises(GEN.StaleFiles, match="not its master's image"):
+            GEN.country_row(SLUG, RESOLVED, {}, renders)
+
+
+#: A first render whose own size, 960, is also a rung of a larger render's ladder.
+FIRST = (960, 576)
+#: Each fix as the refusal must spell it, written out here rather than read from the script.
+LADDER = f"python -m pipeline.compose.hero_variants --only {SLUG} --force"
+OVERLAYS = f"python -m pipeline.compose.gen_spotlight --only {SLUG} --force"
+STAMP = f"python -m pipeline.compose.downloads stamp --only {SLUG}"
+
+
+def run_ladder(*flags: str) -> None:
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(sys, "argv", ["hero_variants", "--only", SLUG, *flags])
+        hero_variants.main()
+
+
+def rerender(store: Path, width: int, height: int) -> Path:
+    """A new master, with every file already in the store moved ten seconds into the past."""
+    for path in store.rglob("*"):
+        if path.is_file():
+            earlier = path.stat().st_mtime_ns - 10_000_000_000
+            os.utime(path, ns=(earlier, earlier))
+    master = store / "heroes" / f"{SLUG}.png"
+    write_hero_master(master, width, height, seed=2)
+    return master
+
+
+def refusal(store: Path) -> str:
+    with pytest.raises(GEN.StaleFiles) as refused:
+        GEN.country_row(SLUG, RESOLVED, {}, store)
+    return str(refused.value)
+
+
+def follow(store: Path, message: str) -> None:
+    """Do what the refusal says, in its order, and nothing else."""
+    for step in message.split("; fix: ", 1)[1].split(", then "):
+        if step.startswith("delete "):
+            names, folder = step.removeprefix("delete ").split(" from ")
+            for name in names.split(" "):
+                (Path(folder) / name).unlink()
+        elif step == LADDER:
+            run_ladder("--force")
+        elif step == STAMP:
+            downloads.stamp_country(store / "heroes" / f"{SLUG}.png", store / "variants", NAME)
+        else:
+            pytest.fail(f"the refusal names a step this test cannot follow: {step!r}")
+
+
+@pytest.fixture
+def store(tmp_path: Path, monkeypatch) -> Path:
+    """One country rendered at FIRST, then laddered and stamped by the real writers."""
+    for folder in ("heroes", "variants"):
+        (tmp_path / folder).mkdir()
+    monkeypatch.setattr(hero_variants, "HEROES", tmp_path / "heroes")
+    monkeypatch.setattr(hero_variants, "VARIANTS", tmp_path / "variants")
+    monkeypatch.setattr(hero_variants, "RECIPE", tmp_path / "variants" / "recipe.json")
+    master = tmp_path / "heroes" / f"{SLUG}.png"
+    write_hero_master(master, *FIRST, seed=1)
+    run_ladder()
+    downloads.stamp_country(master, tmp_path / "variants", NAME)
+    return tmp_path
+
+
+class TestAReRender:
+    """The ladder and overlay writers skip a file that exists, so after a re-render the manifest is
+    what refuses, and doing what its refusal says must clear it in one pass."""
+
+    def test_at_the_same_size_every_rung_is_refused_until_the_ladder_is_redone(self, store):
+        master = rerender(store, *FIRST)
+        message = refusal(store)
+        for rung in hero_variants.rungs_for(*FIRST):
+            assert f"{SLUG}-{rung}.webp" in message
+        assert message.endswith(f"fix: {LADDER}, then {STAMP}")
+        follow(store, message)
+        webp, png = downloads.full_size_files(master, store / "variants")
+        assert GEN.country_row(SLUG, RESOLVED, {}, store)["download"] == {
+            "width": FIRST[0], "height": FIRST[1],
+            "webpBytes": webp.stat().st_size, "pngBytes": png.stat().st_size,
+        }
+
+    def test_smaller_the_rungs_it_no_longer_produces_are_refused_until_deleted(self, store):
+        rerender(store, 700, 420)
+        run_ladder("--force")
+        downloads.stamp_country(store / "heroes" / f"{SLUG}.png", store / "variants", NAME)
+        message = refusal(store)
+        for left in (f"{SLUG}-960.webp", f"{SLUG}-960.png"):
+            assert left in message
+        follow(store, message)
+        assert GEN.country_row(SLUG, RESOLVED, {}, store)["sizes"] == [640, 700]
+
+    def test_larger_the_old_print_copy_is_refused_until_deleted(self, store):
+        """Its WebP is rewritten as an ordinary rung of the new ladder, and its PNG is not."""
+        rerender(store, 1300, 780)
+        run_ladder("--force")
+        downloads.stamp_country(store / "heroes" / f"{SLUG}.png", store / "variants", NAME)
+        message = refusal(store)
+        assert f"{SLUG}-960.png" in message and f"{SLUG}-960.webp" not in message
+        follow(store, message)
+        row = GEN.country_row(SLUG, RESOLVED, {}, store)
+        assert row["sizes"] == [640, 960, 1280, 1300] and row["download"]["width"] == 1300
+
+    def test_an_overlay_is_held_to_its_master_as_the_ladder_is(self, store):
+        master = store / "heroes" / f"{SLUG}.png"
+        for rung in hero_variants.rungs_for(*FIRST):
+            encode(master, store / "variants" / f"{SLUG}-spotlight-{rung}.webp", rung)
+        rerender(store, 700, 420)
+        run_ladder("--force")
+        downloads.stamp_country(master, store / "variants", NAME)
+        message = refusal(store)
+        older, left = f"{SLUG}-spotlight-640.webp", f"{SLUG}-spotlight-960.webp"
+        assert older in message and left in message
+        assert message.endswith(f", then {OVERLAYS}") and LADDER not in message
 
 
 class TestAgainstNaturalEarth:

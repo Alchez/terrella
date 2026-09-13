@@ -2,7 +2,7 @@
 
 scene_build runs only under Blender's Python (`import bpy`), so it was historically
 ast-parsed and never imported, and its constants were COPIES — which is how three
-divergences accumulated undetected (sea ramp, water tint, sun altitude; the ART.md audit).
+divergences accumulated undetected (sea ramp, water tint, sun altitude; the docs/ART.md audit).
 Since the sea-sync the constants are imports from
 `pipeline.look.palette`; these tests stub bpy and import the module in the venv, so
 any re-inlined literal fails HERE instead of on a hero render.
@@ -23,9 +23,9 @@ from typing import ClassVar
 import numpy as np
 import pytest
 
-from pipeline import block_plan, bodies
+from pipeline import block_plan, bodies, render_files
 from pipeline.look import palette
-from pipeline.render import prep_block, render_prep, render_seam
+from pipeline.render import prep_block, render_prep
 
 #: What a filled render directory declares on each body, which is what the rig may load.
 #:
@@ -33,9 +33,9 @@ from pipeline.render import prep_block, render_prep, render_seam
 #: declares an oceanmask and a watermask, so the cut writes all four mandatory images; Mars declares
 #: the heightfield alone, so it writes one and the rig must render without the other three. The
 #: rowscale rides along on both and is optional, so it is not part of what is asserted here.
-EARTH_DECLARED = frozenset({render_seam.HEIGHTFIELD, render_seam.OCEANMASK,
-                            render_seam.INLANDLAKE, render_seam.RIVER})
-MARS_DECLARED = frozenset({render_seam.HEIGHTFIELD})
+EARTH_DECLARED = frozenset({render_files.HEIGHTFIELD, render_files.OCEANMASK,
+                            render_files.INLANDLAKE, render_files.RIVER})
+MARS_DECLARED = frozenset({render_files.HEIGHTFIELD})
 
 
 @pytest.fixture(scope="module")
@@ -120,14 +120,14 @@ class TestTheRigsFilenamesHaveOneOwner:
 
     def test_the_rig_loads_only_images_the_seam_declares(self, scene_build):
         loaded = {spec.filename for spec in scene_build.TEXTURES.values()}
-        assert loaded <= render_seam.KNOWN_IMAGES
-        assert render_seam.HEIGHTFIELD in loaded, "the elevation is always loaded"
+        assert loaded <= render_files.KNOWN_IMAGES
+        assert render_files.HEIGHTFIELD in loaded, "the elevation is always loaded"
 
     def test_the_sea_image_is_the_oceanmask_by_name_and_not_by_position(self, scene_build):
         """`SEA_IMAGE` is a node name and the table maps it to a filename; a table reordered so
         that `.001` became a different mask would drop the wrong image for a sea-less body."""
         filename = scene_build.TEXTURES[scene_build.SEA_IMAGE].filename
-        assert filename == render_seam.OCEANMASK
+        assert filename == render_files.OCEANMASK
 
 
 class TestASeaLessLookDropsTheSeaBranch:
@@ -181,13 +181,13 @@ class TestTheMandatoryImagesAreTheDirectorysAnswerAndNotTheLooks:
 
     def test_a_body_with_no_inland_water_loads_neither_mask(self, scene_build):
         names = scene_build.textures_for(palette.MARS_LOOK, MARS_DECLARED)
-        assert {spec.filename for spec in names.values()} == {render_seam.HEIGHTFIELD}
+        assert {spec.filename for spec in names.values()} == {render_files.HEIGHTFIELD}
 
     def test_a_body_that_declares_them_still_loads_both(self, scene_build):
         """The other direction, so the filter is not simply dropping them everywhere."""
         loaded = {spec.filename
                   for spec in scene_build.textures_for(palette.EARTH_LOOK, EARTH_DECLARED).values()}
-        assert {render_seam.INLANDLAKE, render_seam.RIVER} <= loaded
+        assert {render_files.INLANDLAKE, render_files.RIVER} <= loaded
 
     def test_a_look_with_a_sea_over_a_directory_with_no_oceanmask_refuses(self, scene_build):
         """The one pair that must not resolve quietly. Dropping the image because it was not
@@ -203,7 +203,7 @@ class TestTheMandatoryImagesAreTheDirectorysAnswerAndNotTheLooks:
         before = json.dumps(scene_build.rig_recipe(palette.EARTH_LOOK), sort_keys=True)
         after = json.dumps(scene_build.rig_recipe(palette.EARTH_LOOK), sort_keys=True)
         assert before == after
-        assert "declared" not in before and render_seam.INLANDLAKE in before
+        assert "declared" not in before and render_files.INLANDLAKE in before
 
     #: The subscript keys the builder may use with no conditional around them, AS SOURCE TEXT.
     #:
@@ -212,7 +212,7 @@ class TestTheMandatoryImagesAreTheDirectorysAnswerAndNotTheLooks:
     #: belongs here, and the reason is `render_seam.declared`'s own — it is the completion test, so
     #: a directory that declared anything at all declared that.
     ALWAYS_DECLARED: ClassVar[frozenset[str]] = frozenset({
-        "texture_for(render_seam.HEIGHTFIELD).name",
+        "texture_for(render_files.HEIGHTFIELD).name",
     })
 
     def test_the_builder_subscripts_only_always_declared_images_unconditionally(self, scene_build):
@@ -578,7 +578,7 @@ class TestEveryBlockGetsAMicropolygonPerPixel:
         window = block.plane_window
         return render_prep.scene_numbers(
             window.width, window.height, prep_block.ground_width_m(window, body),
-            exaggeration=body.exaggeration, hero_long_edge=block.traced_edge_px,
+            exaggeration=body.baked_exaggeration, hero_long_edge=block.traced_edge_px,
             camera_fraction=block.traced_edge_px / block.plane_edge_px)
 
     def _widest_blocks(self, body):
@@ -651,7 +651,7 @@ class TestEveryBlockGetsAMicropolygonPerPixel:
         a plane spanning the frame, against a single quad's 4,096 — so every hero on disk was diced
         at roughly half its own resolution, and the base grid moves them. That is a look change
         owed a judgement, recorded here so it cannot be discovered from the pixels later."""
-        hero = render_prep.scene_numbers(16384, 12000, 4.0e6, exaggeration=bodies.EARTH.exaggeration)
+        hero = render_prep.scene_numbers(16384, 12000, 4.0e6, exaggeration=bodies.EARTH.baked_exaggeration)
         span = scene_build.plane_span_px(hero)
         assert span == pytest.approx(render_prep.HERO_LONG_EDGE / render_prep.FRAME_MARGIN, rel=1e-3)
         assert span > 2 ** scene_build.RIG.max_subdivisions
@@ -775,7 +775,7 @@ class TestEveryTextureNodeIsDeclaredRatherThanSpelledInline:
         somewhere the recipe cannot reach.
         """
         declared = {spec.filename for spec in scene_build.TEXTURES.values()}
-        assert {render_seam.SNOWMASK, render_seam.LAKEDEPTH, render_seam.SEAICE} <= declared
+        assert {render_files.SNOWMASK, render_files.LAKEDEPTH, render_files.SEAICE} <= declared
 
     def test_the_texture_table_is_in_the_recipe(self, scene_build):
         """KEYED BY THE RASTER, NOT THE NODE, and the node's name is the one field left out. It is
@@ -791,10 +791,10 @@ class TestEveryTextureNodeIsDeclaredRatherThanSpelledInline:
         """A conversion that quietly re-decided a look value would be a regression wearing a
         refactor's clothes. These are the values on disk today."""
         by_file = {spec.filename: spec for spec in scene_build.TEXTURES.values()}
-        assert by_file[render_seam.SNOWMASK].interpolation == "Closest"
-        assert by_file[render_seam.LAKEDEPTH].interpolation == "Linear"
-        assert by_file[render_seam.SEAICE].interpolation == "Linear"
-        assert by_file[render_seam.ROWSCALE].extension == "EXTEND"
+        assert by_file[render_files.SNOWMASK].interpolation == "Closest"
+        assert by_file[render_files.LAKEDEPTH].interpolation == "Linear"
+        assert by_file[render_files.SEAICE].interpolation == "Linear"
+        assert by_file[render_files.ROWSCALE].extension == "EXTEND"
 
 
 class TestTheBuilderSpellsNoLookValueWhereTheRecipeCannotSeeIt:
@@ -1131,7 +1131,7 @@ class TestRenamingANodeDoesNotRestageThePlanet:
         branch reads, and the raster answers that as well as the node did without moving on a
         rename."""
         recipe = scene_build.rig_recipe(palette.EARTH_LOOK)
-        assert recipe["sea_texture"] == render_seam.OCEANMASK
+        assert recipe["sea_texture"] == render_files.OCEANMASK
         assert scene_build.rig_recipe(palette.MARS_LOOK)["sea_texture"] is None
 
 

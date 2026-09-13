@@ -6,10 +6,10 @@ stage-freshness primitives, which live in `pipeline/freshness.py` and belong to 
 Nothing about the LOOK crosses over. MapLibre consumes this as a second `raster-dem` source with
 its own `maxzoom`, so the two pyramids need not be the same depth.
 
-THE ONE TRAP THIS MODULE EXISTS TO AVOID
+The one trap this module exists to avoid
 ----------------------------------------
 Elevation packed into RGB is not an image. The value is `R*256 + G - 32768`, so the green byte
-WRAPS every 256 metres — and interpolating across a wrap invents a 256 m cliff. That makes every
+wraps every 256 metres, and interpolating across a wrap invents a 256 m cliff. That makes every
 smooth resampler wrong on this data: `average`, `cubic`, `bilinear`, `lanczos` all mix bytes.
 `cut_tiles.tile_cut` uses `cubic` for both the cut and its overviews, which is correct for
 colour and catastrophic here.
@@ -17,28 +17,27 @@ colour and catastrophic here.
 So the pyramid is built **per zoom, from elevation downsampled in elevation space**, and each
 zoom is cut on its own with `nearest` (a no-op at 1:1). Nothing ever resamples encoded bytes.
 
-ENCODING
+Encoding
 --------
 Mapzen terrarium with the blue channel zeroed: `elevation = R*256 + G - 32768`, one metre per
-step. Blue carries terrarium's 1/256 m fraction, which at 305 m/px is pure noise — measured 2.5x
-larger for information the grid cannot hold, so it is written as a constant and compresses away.
+step. Blue carries terrarium's 1/256 m fraction, which at 305 m/px is pure noise, so it is written
+as a constant and compresses away.
 
 `step` widens that to `R*256*step + G*step - 32768`, which MapLibre reads as `encoding: "custom"`
 with `redFactor = 256*step, greenFactor = step, blueFactor = 0, baseShift = 32768`. At `step = 1`
 this is bit-for-bit standard terrarium, so the default needs no custom fields at all.
 
-FRESHNESS
+Freshness
 ---------
 Two guards, because this stage has two kinds of output and they fail differently.
 
 The elevation chain is stamped with `.done` markers rather than tested with `exists()`, per
-`freshness.is_stale`. This stage is where that rule was paid for: a BigTIFF crash left a
-full-sized, freshly-stamped, half-written `elev_z8.tif` on disk, and an existence test would have
-built the entire pyramid on top of it, silently, since a truncated float32 raster reads as a very
-flat planet rather than as an error.
+`freshness.is_stale`: a crash mid-write leaves a full-sized, freshly-stamped, half-written raster,
+and an existence test builds the whole pyramid on top of it, silently, a truncated float32 raster
+reading as a very flat planet rather than as an error.
 
 The pyramid itself is cut into a staging dir and swapped, and keyed on the master's marker plus
-`terrain_params.json`. The recipe is the load-bearing half: the variant DIRECTORY name carries
+`terrain_params.json`. The recipe is the load-bearing half: the variant directory name carries
 only sea treatment and step, so without a sidecar a `--format` or `--max-zoom` change is invisible
 to every guard and to anyone reading the store.
 """
@@ -74,33 +73,30 @@ STAGE = "planet_terrain"
 BASE_SHIFT = 32768.0
 
 #: Metres per encoded level, and the sea treatment, for everything this project ships. Module
-#: constants rather than bare argparse defaults because they are no longer read only here: the polar
-#: caps carry their own elevation texture and MUST encode identically, or cap and tiles displace to
-#: different heights across the alpha crossfade and ghost against each other. Two spellings of one
-#: number is the copy-drift that bit the hero/tile colour constants four times.
+#: constants rather than bare argparse defaults because they are not read only here: the polar caps
+#: carry their own elevation texture and must encode identically, or cap and tiles displace to
+#: different heights across the alpha crossfade and ghost against each other.
 #:
-#: AND AGREEING HERE IS NOT ENOUGH ON ITS OWN — an agreement about BYTES is not one about METRES.
-#: These two producers shared every constant on this line and still displaced to heights kilometres
-#: apart, because only one of them multiplied its metres afterwards. `encode_array` is a pure
-#: function of elevation for that reason; its docstring holds the argument.
-#: 8 m is the ratified knee (0.49x the archive; the error lands in mountains, not on plains) and
-#: bathymetry is ratified over sea-clamping, so the sea displaces rather than reading as a wall.
+#: Agreeing here is not enough on its own, an agreement about bytes not being one about metres: two
+#: producers can share every constant on this line and still displace kilometres apart if only one
+#: multiplies its metres afterwards. `encode_array` is a pure function of elevation for that reason,
+#: and its docstring holds the argument.
 #:
-#: SHIPPED_SEA_CLAMP NAMES WHAT IS ON THE WIRE, and `--sea` now derives its default from it rather
-#: than restating one. It restated the opposite for a while, so the bare command rebuilt a pyramid
-#: the live one had not been cut with — the trap this constant existed to warn about, closed by
-#: making the two the same fact. Do not spell the default out again.
+#: 8 m is the ratified knee (0.49x the archive, the error landing in mountains rather than on
+#: plains) and bathymetry is ratified over sea-clamping, so the sea displaces rather than reading as
+#: a wall. On a body with no sea the clamp stops being a look question at all: every point below
+#: zero there is real ground, and flattening it deletes the deepest basin on the planet.
 #:
-#: The clamp stops being a look question entirely on a body with no sea: every point below zero
-#: there is real ground, and flattening it deletes the deepest basin on the planet.
+#: `SHIPPED_SEA_CLAMP` names what is on the wire and `--sea` derives its default from it rather than
+#: restating one. Do not spell that default out again: the two drifted apart once, and the bare
+#: command rebuilt a pyramid the live one had not been cut with.
 QUANTISATION_M = 8.0
 SHIPPED_SEA_CLAMP = False
 
-#: Delivery codecs, as (GDAL driver, creation options). BOTH ARE LOSSLESS AND MUST STAY SO — a
-#: lossy tile decodes to plausible bytes and therefore to wrong metres, with nothing to see. This
-#: is purely an entropy-coder choice over identical pixels: lossless WebP measured 0.66x PNG over
-#: 40 real z6 tiles (3.08 -> 2.04 MB) and round-tripped byte-exact, so it is a free third of the
-#: archive on top of whatever `--step` buys.
+#: Delivery codecs, as (GDAL driver, creation options). Both are lossless and must stay so: a lossy
+#: tile decodes to plausible bytes and therefore to wrong metres, with nothing to see. The choice
+#: between them is purely an entropy coder over identical pixels, measured at 0.66x for WebP, so it
+#: is a free third of the archive on top of whatever `--step` buys.
 TILE_FORMATS = {
     "png": ("PNG", ["ZLEVEL=9"]),
     "webp": ("WEBP", ["LOSSLESS=YES"]),
@@ -119,18 +115,17 @@ def master_zoom_for(body: bodies.Body) -> int:
     """Native grid zoom of this body's `height_3857.tif` — 512 px x 2^n — and so the deepest
     terrain zoom there is to cut.
 
-    DERIVED RATHER THAN STORED, because the chain that makes deriving safe already has two owners
-    and a third copy of the number is exactly the drift they exist to prevent. `planet_warp` warps
-    the master at `body.map_units_per_pixel` and rebuilds it whenever the raster's own pixel size
+    Derived rather than stored, because the chain that makes deriving safe already has two owners
+    and a third copy of the number is the drift they exist to prevent. `planet_warp` warps the
+    master at `body.map_units_per_pixel` and rebuilds it whenever the raster's own pixel size
     disagrees, so the file matches the field; `test_bodies` then pins that field against
     `tile_max_zoom` relationally, at a tolerance that admits Earth's rounded value and cannot admit
     a factor of two.
 
-    IT USED TO BE A MODULE CONSTANT HOLDING EARTH'S CEILING, and the reason that was dangerous
-    rather than merely wrong is that `build` does ARITHMETIC with it: the master is halved by
-    `2 ** (master_zoom - max_zoom)`. Against a body whose master is one level shallower, Earth's
-    number asks for a factor of two where the answer is one — which raises nothing, reads as a
-    normal run, and emits a pyramid at half the resolution its own recipe claims.
+    Do not hold a body's ceiling as a module constant here. `build` does arithmetic with this: the
+    master is halved by `2 ** (master_zoom - max_zoom)`, so one body's number against another whose
+    master is a level shallower asks for a factor of two where the answer is one, which raises
+    nothing, reads as a normal run, and emits a pyramid at half the resolution its recipe claims.
     """
     return body.tile_max_zoom
 
@@ -138,14 +133,14 @@ def master_zoom_for(body: bodies.Body) -> int:
 def out_under_body(body: bodies.Body, out: Path) -> Path:
     """`out` resolved, having checked it lands in THIS body's terrain stage. Raises if it does not.
 
-    The variant directory below the stage is operator-named, so the destination cannot be derived —
-    but it can be bounded, and the bound is the failure worth catching. Pointing a Mars cut at
+    The variant directory below the stage is operator-named, so the destination cannot be derived,
+    but it can be bounded, and the bound is the failure worth catching: pointing a Mars cut at
     Earth's tree writes Martian elevation into the directory the packer reads for Earth, and the
     tiles look exactly like tiles.
 
-    Earth's empty `path_prefix` is why the bound is the STAGE directory rather than the body's
-    root: `data/work` contains every planet's tree, so a containment test one level up would pass
-    for both bodies and guard nothing. `data/work/planet_terrain` and `data/work/mars/planet_terrain`
+    Earth's empty `path_prefix` is why the bound is the stage directory rather than the body's root.
+    `data/work` contains every planet's tree, so a containment test one level up would pass for both
+    bodies and guard nothing, where `data/work/planet_terrain` and `data/work/mars/planet_terrain`
     contain neither the other.
     """
     stage = bodies.work_dir(body, STAGE).resolve()
@@ -165,8 +160,8 @@ def master_grid_mismatch(master: Path, master_zoom: int) -> str | None:
     the downsample runs, every zoom encodes, every tile writes, and the recipe beside them records
     the ceiling that was asked for rather than the one that was cut.
 
-    A STRING RATHER THAN AN ASSERT so the caller decides what to do with it, and so a test can read
-    the sentence instead of matching an exception's text.
+    A string rather than an assert, so the caller decides what to do with it and a test can read the
+    sentence instead of matching an exception's text.
     """
     with rasterio.open(master) as raster:
         width, height = raster.width, raster.height
@@ -178,29 +173,29 @@ def master_grid_mismatch(master: Path, master_zoom: int) -> str | None:
             f"factor and emit a pyramid at the wrong resolution without failing")
 
 
-#: Source rows held in memory at once by `downsample_elevation`. Budgeted on the SOURCE side, not
-#: the output side: a band of N output rows reads `N * factor` source rows, so a fixed output band
-#: silently scales peak RAM with the downsample factor — at the master's width, 256 output rows at
-#: factor 64 would be 8.6 GB, against the heavy-job cap. 2048 master rows is ~1.07 GB.
+#: Source rows held in memory at once by `downsample_elevation`. Budgeted on the source side rather
+#: than the output side: a band of N output rows reads `N * factor` source rows, so a fixed output
+#: band silently scales peak RAM with the downsample factor. At Earth's master width, 256 output
+#: rows at factor 64 is 8.6 GB against the heavy-job cap, where 2048 source rows is ~1.07 GB.
 SOURCE_ROW_BUDGET = 2048
 
 
 def downsample_elevation(src: Path, dst: Path, factor: int, band_rows: int | None = None) -> None:
     """Box-mean `src` down by an integer `factor`, in metres — never in encoded bytes.
 
-    Streams full-width bands so peak RAM is bounded by SOURCE_ROW_BUDGET source rows rather than by
-    the raster: the master is 131072^2 float32 (46 GB), which no cgroup cap here would hold.
+    Streams full-width bands so peak RAM is bounded by `SOURCE_ROW_BUDGET` source rows rather than
+    by the raster, which at Earth's z8 is float32 at 131072 square and fits in no cap here.
     """
     if band_rows is None:
         band_rows = max(1, SOURCE_ROW_BUDGET // factor)
     with rasterio.open(src) as source:
         out_height = source.height // factor
         out_width = source.width // factor
-        # BIGTIFF is required past z6 and cannot be left to the default. A classic TIFF caps at
-        # 4 GB, and this sink is float32: z7 is 65536^2 = 17.2 GB raw and z8 is 131072^2 = 68.7 GB,
-        # so both die mid-write with "Maximum TIFF file size exceeded" after burning the whole
-        # descent. z6 only survives because deflate lands it at 3.4 GB — 4.29 GB raw, i.e. already
-        # inside 20% of a hard failure. IF_SAFER rather than YES so small levels stay classic.
+        # BigTIFF is required past z6 and cannot be left to the default. A classic TIFF caps at
+        # 4 GB and this sink is float32, so z7 at 17.2 GB raw and z8 at 68.7 GB both die mid-write
+        # with "Maximum TIFF file size exceeded" after burning the whole descent, and z6 survives
+        # only because deflate lands its 4.29 GB inside the cap. IF_SAFER rather than YES so small
+        # levels stay classic.
         profile = source.profile | GTIFF_CREATE | {
             "height": out_height, "width": out_width, "dtype": "float32", "count": 1,
             "bigtiff": "IF_SAFER",
@@ -223,18 +218,17 @@ def encode_array(elevation: np.ndarray, step: float, sea_clamp: bool) -> np.ndar
     It is also most of the archive: an abyssal tile measured 162 KiB carrying real bathymetry and
     1.5 KiB flat.
 
-    NOTHING HERE MAY DEPEND ON WHERE A PIXEL IS, and that is the anti-redo guard rather than a
-    style note. `cap_render.write_cap_elevation` calls this same function for the polar caps, whose
-    grid is azimuthal-equidistant and has no rows to speak of, and the two surfaces are drawn
-    across each other through `polarCaps.ts`'s alpha crossfade — so any per-row or per-latitude term
-    added here separates two surfaces the viewer sees at once.
+    Nothing here may depend on where a pixel is, which is the anti-redo guard rather than a style
+    note. `cap_render.write_cap_elevation` calls this same function for the polar caps, whose grid
+    is azimuthal-equidistant and has no rows to speak of, and the two surfaces are drawn across each
+    other through `polarCaps.ts`'s alpha crossfade, so any per-row or per-latitude term added here
+    separates two surfaces the viewer sees at once.
 
-    A latitude ramp did live here, to flatten the tiles toward datum from 78 to 85 degrees. It was
-    written when the cap could not displace at all, and the seam it closed reopened the moment
-    `polarCaps.vertexSrc` started lifting cap vertices: the tiles then flattened away from a cap
-    holding true elevation, and the 84-85 degree plug rim stood proud of it by the full local
-    relief. The fix was deleting the ramp, not tuning its band, so the shape to refuse is any
-    argument of the form "the poles need special treatment in the encode".
+    A latitude ramp flattening the tiles toward datum from 78 to 85 degrees is the specific
+    temptation, and it is refused: once `polarCaps.vertexSrc` lifts cap vertices, tiles flattened
+    that way pull away from a cap holding true elevation and the plug rim stands proud of them by
+    the full local relief. The band was not the problem, so refuse the shape of the argument, which
+    is any claim that the poles need special treatment in the encode.
     """
     metres = np.nan_to_num(elevation.astype(np.float64), nan=0.0)
     if sea_clamp:
@@ -258,7 +252,7 @@ def encode_raster(elev_tif: Path, dst: Path, step: float, sea_clamp: bool,
                   band_rows: int = 512) -> None:
     """Encode a whole elevation raster to a 3-band Byte GTiff, streaming by row band.
 
-    The band split is a MEMORY decision and must stay one: every band goes through `encode_array`
+    The band split is a memory decision and must stay one: every band goes through `encode_array`
     with nothing said about where it sits, so the seams between bands cannot carry a value.
     """
     with rasterio.open(elev_tif) as source:
@@ -328,14 +322,12 @@ def tiles_are_fresh(out: Path, master: Path) -> bool:
 
 
 def elevation_source(work: Path, zoom: int, master: Path, master_zoom: int) -> Path:
-    """The elevation raster for `zoom` — THE MASTER ITSELF at its native zoom.
+    """The elevation raster for `zoom`, which at the native zoom is the master itself.
 
     `height_3857.tif` is already 512 x 2^`master_zoom`, so "downsampling" to that zoom is a box-mean
-    by a factor of 1: the identity. Materialising it wrote a 47 GB byte-for-value copy of a file
-    already on disk, on every build, and the only transform it applied was NaN -> 0, which
-    `encode_array` applies again regardless. Verified over six windows from Everest to the Pacific
-    abyss at max |master - copy| of exactly 0.0000 m, with shifted-window controls differing by
-    240-1660 m so the comparison could actually fail.
+    by a factor of one: the identity. Materialising it writes a byte-for-value copy of a file
+    already on disk, on every build, its only transform being the NaN -> 0 that `encode_array`
+    applies again regardless.
     """
     return master if zoom == master_zoom else work / f"elev_z{zoom}.tif"
 
@@ -346,20 +338,20 @@ def build(out: Path, max_zoom: int, step: float, sea_clamp: bool,
     """Build a complete z0..max_zoom terrain-RGB pyramid under `out`, returning the tile dir.
 
     The elevation chain is built once at `max_zoom` and halved from there, so the expensive read of
-    the 46 GB master happens exactly once no matter how many zooms are cut. `work` is separable
-    from `out` for the same reason: two encodings of the same planet (sea clamped vs bathymetry)
-    differ only after the elevation exists, so the second variant must not pay for it again.
+    the master happens exactly once no matter how many zooms are cut. `work` is separable from `out`
+    for the same reason: two encodings of the same planet (sea clamped against bathymetry) differ
+    only after the elevation exists, so the second variant must not pay for it again.
 
-    `tile_format` deliberately does NOT appear in the intermediate name: the encoded raster is
+    `tile_format` deliberately does not appear in the intermediate name, the encoded raster being
     identical whatever codec the tiles are written in, so re-cutting a built variant into another
-    lossless format costs one encode pass, not another descent from the master.
+    lossless format costs one encode pass rather than another descent from the master.
 
-    Recipe-gated in the usual order — see `freshness.write_if_changed`, and the module header's
-    FRESHNESS section for what each of this stage's two guards catches.
+    Recipe-gated in the usual order, per `freshness.write_if_changed` and the module header's
+    freshness section.
 
-    EVERY CUT IS A CLEAN FULL CUT into `tiles_new`, swapped over `tiles` only on success, with one
+    Every cut is a clean full cut into `tiles_new`, swapped over `tiles` only on success, with one
     generation of rollback at `tiles_old`. GDAL writes each tile in place, so a run killed mid-cut
-    leaves truncated files; re-cutting from empty is the price of never trusting a partial tile.
+    leaves truncated files, and re-cutting from empty is the price of never trusting a partial tile.
     """
     out.mkdir(parents=True, exist_ok=True)
     write_if_changed(terrain_params_path(out),
@@ -418,19 +410,17 @@ def build_parser() -> argparse.ArgumentParser:
     reads a 46 GB raster.
     """
     ap = argparse.ArgumentParser(description=__doc__)
-    # REQUIRED, WITH NO DEFAULT, exactly as the planet pass's is and for the same reason: a pass that
-    # assumes Earth because nobody said otherwise does not fail, it emits a complete and plausible
-    # pyramid for the wrong planet. Here it decides four things at once — the master, where the
-    # output lands, the ceiling cut to, and the descent's factor.
+    # Required with no default, as the planet pass's is and for the same reason: a pass that assumes
+    # Earth because nobody said otherwise does not fail, it emits a complete and plausible pyramid
+    # for the wrong planet. Here it decides the master, where the output lands, the ceiling cut to
+    # and the descent's factor, all at once.
     ap.add_argument("--body", required=True,
                     help=f"which planet this cut is for ({', '.join(sorted(bodies.BODIES))})")
-    # STILL REQUIRED, AND DELIBERATELY NOT DEFAULTED TO THE STAGE DIRECTORY. The live pyramid sits
-    # one level further down, in an operator-named variant directory (`<sea><step><format>`), and
-    # that name is a choice rather than a derivation — the module header records that the name
-    # carries only part of the recipe, which is why the sidecar exists. A default would therefore
-    # not have pointed at the live pyramid: it would have built a second one beside it, found the
-    # first "missing", and left the packer reading whichever the operator remembered.
-    # It is checked against the body instead, below, which is the half that was actually unsafe.
+    # Required, and deliberately not defaulted to the stage directory. The live pyramid sits one
+    # level further down in an operator-named variant directory, which is a choice rather than a
+    # derivation, so a default would point past it: it would build a second pyramid beside the live
+    # one, find the first missing, and leave the packer reading whichever the operator remembered.
+    # Bounded against the body instead, below, which is the half that is actually unsafe.
     ap.add_argument("--out", type=Path, required=True,
                     help="pyramid root, under this body's planet_terrain dir (tiles/ inside)")
     ap.add_argument("--work", type=Path, default=None,
@@ -439,29 +429,25 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--max-zoom", type=int, default=None)
     ap.add_argument("--step", type=float, default=QUANTISATION_M,
                     help="metres per encoded level")
-    # DEFAULTS TO WHAT IS ON THE WIRE, which it did not: the choice defaulted to "clamp" while the
-    # shipped recipe records the opposite, so the bare command rebuilt a pyramid that was not the
-    # live one. Deriving it from SHIPPED_SEA_CLAMP is what makes the two agree by construction —
-    # and the clamp is not merely a look question on a body with no sea, where every point below
-    # zero is real ground and flattening it deletes the deepest basin on the planet.
+    # Derived from `SHIPPED_SEA_CLAMP` rather than restating it, which is what makes the default and
+    # the wire agree by construction. That constant holds why the two must not be spelled apart.
     ap.add_argument("--sea", choices=["clamp", "bathy"],
                     default="clamp" if SHIPPED_SEA_CLAMP else "bathy",
                     help="clamp: sea flattened to 0; bathy: seafloor displaced too")
     ap.add_argument("--format", choices=sorted(TILE_FORMATS), default="webp",
-                    help="delivery codec; both lossless, webp is ~0.67x png")
+                    help="delivery codec; both lossless, webp the smaller")
     ap.add_argument("--keep-intermediates", action="store_true")
     return ap
 
 
 def main() -> None:
     args = build_parser().parse_args()
-    body = bodies.BODIES[args.body]
+    body = bodies.get(args.body)
     master = args.master or relief_scan.master_path(relief_scan.work_dir(body))
     out = out_under_body(body, args.out)
     native = master_zoom_for(body)
-    # THE ONE PLACE THE DECLARATION MEETS THE ARTIFACT. Every failure a wrong `native` causes is
-    # silent downstream — see `master_grid_mismatch` — so it is checked here, before the descent
-    # that would encode it into every tile and into the recipe beside them.
+    # Checked here, before the descent encodes a wrong `native` into every tile and into the recipe
+    # beside them. `master_grid_mismatch` holds why nothing downstream would notice.
     mismatch = master_grid_mismatch(master, native)
     if mismatch:
         raise SystemExit(mismatch)

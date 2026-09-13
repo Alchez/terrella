@@ -108,17 +108,33 @@ CITATION_FILES = [path for path in FILES if path.name not in CITATION_EXEMPT]
 # The trailing slash is load-bearing: it distinguishes a path being CITED from the same bare name
 # being passed as a directory-name argument, which `scripts/measure_viking_levels.py` legitimately
 # does.
+#
+# The scratch ROOT is matched without a trailing slash, unlike the arc directories beside it. Its
+# name is a directory on one machine and appears nowhere else, so there is no legitimate argument-
+# shaped use to tell apart, and a tracked file naming it leaks a local path rather than a pointer.
 SCRATCH_DIRS = (r"_ice_ab/|_ice_levels/|_ice_scout/|_viking_scout/|_crism_scout/"
-                r"|_warp_probe/")
+                r"|_warp_probe/|terrella-scratch")
 
 # Paths this repo deliberately keeps out of version control, each of which becomes exactly the kind
 # of pointer this module exists to refuse: present for its author, absent from every clone.
 # `.claude/rules/` and `.claude/skills/` USED to be here and are now TRACKED, so citing them is
 # legitimate: they are two of the three homes a topic may live in, and a clone receives both.
+# `reclaim-pass` is the one exception, and it is a claim about its SUBJECT rather than about skills:
+# reclaiming disk needs the 1.1 TB store, the render outputs and the superseded worktrees, none of
+# which a clone has, so the skill could only ever describe work its reader cannot do.
 # Gitignoring a path is otherwise a change nothing goes red for, and un-gitignoring one is the same
 # in reverse — this pattern is what makes both red, so it moves in the same commit as the .gitignore
 # entry it mirrors.
-IGNORED_PATHS = r"\.claude/settings\.local\.json"
+#
+# `web/.perf/` MATCHES A FILE INSIDE IT AND NEVER THE DIRECTORY, which is the same distinction
+# SCRATCH_DIRS draws with its trailing slash, arriving at the opposite shape because the traffic
+# here runs the other way: three tracked files name the directory as where the dev endpoint WRITES,
+# and a pattern that caught those would be exempted per file, disarming the guard everywhere in
+# them. Only a named file is a pointer, and `ui-rigs/` holds rigs, captures and notes a clone
+# never receives.
+IGNORED_PATHS = (r"\.claude/settings\.local\.json"
+                 r"|\.claude/skills/reclaim-pass/"
+                 r"|web/\.perf/[\w./-]*\.\w+")
 
 CHECK_GROUPS = {
     "BLOCK_COMMENT_FILES": BLOCK_COMMENT_FILES,

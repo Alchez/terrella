@@ -18,20 +18,28 @@
 // strips the types at run time (24.x, no loader), and web/tsconfig.json already covers
 // scripts/ — this file needs no build step and no config of its own.
 //
-// Presence only. Phase 2 verified integrity by reconstructing multipart ETags; re-checking
-// bytes here would cost minutes to catch a failure mode that has never occurred.
+// Sizes, not contents: the listing reports each object's size at no extra cost, and a download
+// file uploaded before its stamp is the same key at another size, which presence alone passes.
 
-import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 // Type-only: erased at run time, so this does NOT pull in the gitignored countries.json that
-// manifest.ts imports for its value export.
+// manifest.ts imports for its value export, nor the imports archiveIndex.ts makes.
+import type { BundleRecord } from "../src/lib/archiveIndex";
 import type { Manifest } from "../src/lib/manifest";
+import {
+  ARCHIVE_BUCKET,
+  ASSET_BUCKET,
+  HERO_PREFIX,
+  R2Unreachable,
+  listBucket,
+  r2Endpoint,
+  type Listing,
+} from "./r2.ts";
 
 const WEB_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const MANIFEST = `${WEB_ROOT}src/data/countries.json`;
-const BUCKET = "terrella-assets";
-const ARCHIVE_BUCKET = "terrella-tiles";
+const BUNDLES = `${WEB_ROOT}src/data/downloads.json`;
 const GEOJSON = ["borders/countries.geojson", "borders/boundary_lines.geojson"];
 
 /** Exits; typed `never` so callers are not treated as possibly falling through. */
@@ -42,60 +50,66 @@ function fail(...lines: string[]): never {
   process.exit(1);
 }
 
-/** Machine-specific R2 coordinates live in web/.env, never in the repo — the account ID is
- *  part of the endpoint and this repo is going open-source. */
-function r2Endpoint(): string {
-  if (existsSync(`${WEB_ROOT}.env`)) process.loadEnvFile(`${WEB_ROOT}.env`);
-  const endpoint = process.env.R2_ENDPOINT?.trim();
-  if (!endpoint) {
-    fail(
-      "R2_ENDPOINT is not set.",
-      "Add it to web/.env (see .env.example). It is machine-specific and gitignored,",
-      "because the account ID is part of the URL.",
-    );
-  }
-  return endpoint;
-}
-
 /** Every object the built site will reference, derived from the same fields the pages use —
  *  which is what makes the shared `Manifest` type load-bearing rather than decorative. */
-function advertisedObjects(manifest: Manifest): Set<string> {
+export function advertisedObjects(manifest: Manifest): Set<string> {
   const keys = new Set<string>(GEOJSON);
   for (const country of manifest.countries) {
-    const { slug, sizes, borderSizes, spotlightSizes } = country;
-    for (const size of sizes) keys.add(`heroes/${slug}-${size}.webp`);
-    for (const size of borderSizes) keys.add(`heroes/${slug}-border-${size}.png`);
-    for (const size of spotlightSizes) keys.add(`heroes/${slug}-spotlight-${size}.webp`);
+    const { slug, sizes, spotlightSizes } = country;
+    for (const size of sizes) keys.add(`${HERO_PREFIX}${slug}-${size}.webp`);
+    for (const size of spotlightSizes) keys.add(`${HERO_PREFIX}${slug}-spotlight-${size}.webp`);
   }
+  const { webp, png } = downloadFiles(manifest);
+  for (const name of [...webp.keys(), ...png.keys()]) keys.add(`${HERO_PREFIX}${name}`);
   return keys;
 }
 
-function listBucket(endpoint: string, bucket: string = BUCKET): Set<string> {
-  try {
-    const stdout = execFileSync(
-      "aws",
-      [
-        "s3api", "list-objects-v2",
-        "--bucket", bucket,
-        "--endpoint-url", endpoint,
-        "--profile", "r2",
-        "--query", "Contents[].Key",
-        "--output", "json",
-      ],
-      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
-    );
-    return new Set<string>(JSON.parse(stdout) ?? []);
-  } catch (error) {
-    // Deliberately not a silent skip: an unreachable bucket must not read as "all present".
-    const detail = error instanceof Error ? error.message : String(error);
-    const stderr = (error as { stderr?: Buffer | string }).stderr?.toString() ?? "";
-    fail(
-      `could not list s3://${bucket}/.`,
-      (stderr || detail).trim().split("\n").pop() ?? "",
-      "Check the `r2` profile in ~/.aws/credentials and R2_ENDPOINT in web/.env.",
-      "To deploy anyway (code-only change, or R2 unreachable): SKIP_ASSET_SYNC_CHECK=1",
-    );
+/** Each rendered country's two download files, named as the store names them, with the bytes the
+ *  manifest records for each. */
+function downloadFiles(manifest: Manifest): { webp: Map<string, number>; png: Map<string, number> } {
+  const webp = new Map<string, number>();
+  const png = new Map<string, number>();
+  for (const { slug, native, download } of manifest.countries) {
+    if (!download) continue;
+    webp.set(`${slug}-${native}.webp`, download.webpBytes);
+    png.set(`${slug}-${native}.png`, download.pngBytes);
   }
+  return { webp, png };
+}
+
+/** Every download file R2 holds at another size than the manifest records. One R2 lacks is the
+ *  missing list's to report. */
+export function downloadSizeMismatches(manifest: Manifest, present: Listing): string[] {
+  const { webp, png } = downloadFiles(manifest);
+  return [...webp, ...png].flatMap(([name, recorded]) => {
+    const held = present.get(`${HERO_PREFIX}${name}`);
+    return held === undefined || held === recorded
+      ? []
+      : [`${HERO_PREFIX}${name}: ${held} bytes in R2, ${recorded} in the manifest`];
+  });
+}
+
+/** What keeps the bundle the Archives page offers from being what it says: absent from the
+ *  archive bucket, uploaded at another size than its record, or holding other images than the
+ *  pages offer, as a bundle not rebuilt after a render does. */
+export function bundleProblems(bundle: BundleRecord, manifest: Manifest, archives: Listing): string[] {
+  const problems: string[] = [];
+  const held = archives.get(bundle.key);
+  if (held === undefined) problems.push(`${bundle.key} is not in s3://${ARCHIVE_BUCKET}/`);
+  else if (held !== bundle.bytes) {
+    problems.push(`${bundle.key}: ${held} bytes in s3://${ARCHIVE_BUCKET}/, ${bundle.bytes} in its record`);
+  }
+  const offered = downloadFiles(manifest).webp;
+  const bundled = new Map(Object.entries(bundle.images));
+  for (const [name, recorded] of offered) {
+    const size = bundled.get(name);
+    if (size === undefined) problems.push(`the bundle lacks ${name}`);
+    else if (size !== recorded) problems.push(`the bundle's ${name} is ${size} bytes, the page's ${recorded}`);
+  }
+  for (const name of bundled.keys()) {
+    if (!offered.has(name)) problems.push(`the bundle holds ${name}, which no page offers`);
+  }
+  return problems;
 }
 
 /** Every archive object key the registry publishes, across all bodies and all layers.
@@ -126,7 +140,7 @@ function publishedArchiveKeys(registry: string): string[] {
  * re-cut ships under a new key and the old object is deleted only once the new one is verified
  * live, so an "unreferenced archive" warning would fire on purpose during every rollout.
  */
-function checkEveryPublishedArchiveIsUploaded(endpoint: string): void {
+function checkEveryPublishedArchiveIsUploaded(present: Listing): void {
   const registry = readFileSync(`${WEB_ROOT}src/lib/tileAddress.ts`, "utf8");
   const keys = publishedArchiveKeys(registry);
   if (keys.length === 0) {
@@ -138,7 +152,6 @@ function checkEveryPublishedArchiveIsUploaded(endpoint: string): void {
       "  checking nothing at all. It must not be possible to deploy on a vacuous check.",
     );
   }
-  const present = listBucket(endpoint, ARCHIVE_BUCKET);
   const absent = keys.filter((key) => !present.has(key));
   if (absent.length) {
     fail(
@@ -151,14 +164,37 @@ function checkEveryPublishedArchiveIsUploaded(endpoint: string): void {
   }
 }
 
+/** Refuse to deploy while the bundle the Archives page offers is not the one its record describes
+ *  or holds other images than the pages offer. The manifest's countries are Earth's, so the bundle
+ *  held to them is Earth's. */
+function checkTheBundle(manifest: Manifest, archives: Listing): void {
+  const { earth } = JSON.parse(readFileSync(BUNDLES, "utf8")) as Partial<Record<string, BundleRecord>>;
+  if (!earth) {
+    fail(
+      "src/data/downloads.json records no bundle for Earth.",
+      "  Write it with `python -m pipeline.compose.downloads bundle`.",
+    );
+  }
+  const problems = bundleProblems(earth, manifest, archives);
+  if (problems.length) {
+    fail(
+      "the country maps bundle is not the one the Archives page describes.",
+      ...problems.map((problem) => `  ${problem}`),
+      "",
+      "  Rebuild it with `python -m pipeline.compose.downloads bundle` if its images differ from",
+      "  the pages', then upload it.",
+    );
+  }
+}
+
 /**
  * Refuse to deploy a globe that would request terrain nothing serves.
  *
  * Terrain rides on the `full` tier as of Tier 3 step 4, so a promoted visitor's map adds a
  * `raster-dem` source pointing at `/terrain/...`. Every DEM tile 404ing is invisible: the globe
  * still renders, just flat, and nothing reports it. It is also invisible to the object check
- * below, because the archives are not in the manifest — the manifest describes heroes and
- * borders, so "all advertised objects present" would report a clean deploy either way.
+ * below, because the archives are not in the manifest: the manifest describes heroes, so "all
+ * advertised objects present" would report a clean deploy either way.
  *
  * THE OBJECT HALF NOW LIVES ABOVE, in the unconditional archive check — it is not terrain-specific
  * and never was. What is left here is the half that genuinely is: whether the ROUTE exists at all,
@@ -167,8 +203,8 @@ function checkEveryPublishedArchiveIsUploaded(endpoint: string): void {
 function checkTerrainIsRoutable(): void {
   const globe = readFileSync(`${WEB_ROOT}src/components/Globe.astro`, "utf8");
   // THE `return` BELOW IS AN EARLY EXIT ON A GREP, so this check is only as alive as the file it
-  // reads. Point it at the wrong source — as an extraction very nearly did, the globe's script
-  // having left `pages/earth.astro` for this component — and the regex finds nothing, the function
+  // reads. Point it at the wrong source, as an extraction very nearly did when the globe's script
+  // moved out of Earth's page into this component, and the regex finds nothing, the function
   // returns "nothing to check", and a deploy that 404s every DEM tile sails through reporting
   // clean. So the subject is asserted before the question is asked.
   if (!globe.includes("resolveTerrainExaggeration(")) {
@@ -202,10 +238,10 @@ function checkTerrainIsRoutable(): void {
     fail(
       "the globe would request terrain that production cannot serve.",
       "",
-      "  earth.astro enables terrain on the `full` tier, so a promoted visitor adds a raster-dem",
-      "  source pointing at the terrain pyramid — and either worker/index.ts does not route through",
-      "  resolveTileRequest, or src/lib/tileAddress.ts publishes no terrain archive for it to find.",
-      "  Every DEM tile would 404 silently.",
+      "  src/components/Globe.astro enables terrain on the `full` tier, so a promoted visitor adds a",
+      "  raster-dem source pointing at the terrain pyramid — and either worker/index.ts does not",
+      "  route through resolveTileRequest, or src/lib/tileAddress.ts publishes no terrain archive",
+      "  for it to find. Every DEM tile would 404 silently.",
       "",
       "  Fix whichever half is missing, or gate terrain off the tier again before deploying.",
     );
@@ -227,14 +263,18 @@ function main(): void {
 
   const endpoint = r2Endpoint();
   checkTerrainIsRoutable();
-  checkEveryPublishedArchiveIsUploaded(endpoint);
+  const archives = listBucket(endpoint, ARCHIVE_BUCKET);
+  checkEveryPublishedArchiveIsUploaded(archives);
 
   const manifest = JSON.parse(readFileSync(MANIFEST, "utf8")) as Manifest;
+  checkTheBundle(manifest, archives);
   const advertised = advertisedObjects(manifest);
-  const present = listBucket(endpoint);
+  const present = listBucket(endpoint, ASSET_BUCKET);
 
   const missing = [...advertised].filter((key) => !present.has(key)).toSorted();
-  const dead = [...present].filter((key) => !advertised.has(key) && !key.endsWith("/")).toSorted();
+  const dead = [...present.keys()]
+    .filter((key) => !advertised.has(key) && !key.endsWith("/"))
+    .toSorted();
 
   if (dead.length) {
     // Not fatal — stale bytes cost storage, not correctness. Loud anyway, because the usual
@@ -255,7 +295,30 @@ function main(): void {
     process.exit(1);
   }
 
-  console.log(`✓ deploy preflight: ${advertised.size} objects advertised, all present in R2`);
+  const resized = downloadSizeMismatches(manifest, present);
+  if (resized.length) {
+    fail(
+      `${resized.length} download file(s) R2 holds at another size than the manifest records:`,
+      ...resized.slice(0, 20).map((line) => `  ${line}`),
+      ...(resized.length > 20 ? [`  …and ${resized.length - 20} more`] : []),
+      "",
+      "  Upload them from the render store the manifest was written from. A stamp keeps a file's",
+      "  key, so only its size says whether R2 holds the stamped one.",
+    );
+  }
+
+  console.log(
+    `✓ deploy preflight: ${advertised.size} objects advertised, all present in R2, and the ` +
+      "download files and the bundle at the sizes recorded",
+  );
 }
 
-main();
+// Only when run, so a test can import the checks above without listing a bucket.
+if (import.meta.main) {
+  try {
+    main();
+  } catch (error) {
+    if (!(error instanceof R2Unreachable)) throw error;
+    fail(...error.lines, "To deploy anyway (code-only change, or R2 unreachable): SKIP_ASSET_SYNC_CHECK=1");
+  }
+}

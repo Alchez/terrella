@@ -2,9 +2,11 @@
 import Base from "../layouts/Base.astro";
 import Masthead from "../components/Masthead.astro";
 import { manifest as data, type Country } from "../lib/manifest";
+import { humanSize } from "../lib/archiveIndex";
 import { smallestRungAtLeast } from "../lib/rungs";
 import { HERO_BASE } from "../lib/assetBase";
 import { pageTitle } from "../lib/pageTitle";
+import CREDITS from "../data/attributions.json";
 
 // One statically-built page per country.
 export function getStaticPaths() {
@@ -24,6 +26,8 @@ const HERO_DISPLAY_FLOOR_PX = 1920;
 const displayRung = smallestRungAtLeast(country.sizes, HERO_DISPLAY_FLOOR_PX);
 const displayHero = `${HERO_BASE}${country.slug}-${displayRung}.webp`;
 const nativeHero = `${HERO_BASE}${country.slug}-${country.native}.webp`;
+// The master, copied beside the full-size WebP by `pipeline/compose/downloads.py`.
+const nativePng = `${HERO_BASE}${country.slug}-${country.native}.png`;
 // Same floor for the overlay: it is layered over the hero, so a lower rung would soften its
 // boundary hairline against a sharp relief underneath.
 const displaySpotlight = country.hasSpotlight
@@ -32,6 +36,11 @@ const displaySpotlight = country.hasSpotlight
 const nativeSpotlight = country.hasSpotlight
   ? `${HERO_BASE}${country.slug}-spotlight-${country.spotlightSizes[country.spotlightSizes.length - 1]}.webp`
   : "";
+// The image's own sources, then the Focus layer's where the page has one.
+const credited = [
+  ...CREDITS.heroes.earth.sources,
+  ...(country.hasSpotlight ? CREDITS.heroes.earth.focus : []),
+];
 ---
 
 <Base
@@ -41,7 +50,13 @@ const nativeSpotlight = country.hasSpotlight
   spotlight={country.hasSpotlight}
   pageRole="plain"
 >
-  <Masthead heading={country.name} eyebrow={country.continent} back="/" maxWidth="min(1500px, 92vw)" />
+  <Masthead
+    heading={country.name}
+    eyebrow={country.continent}
+    back="/"
+    backLabel="← All countries"
+    maxWidth="min(1500px, 92vw)"
+  />
 
   <main class="stage">
     {
@@ -75,9 +90,23 @@ const nativeSpotlight = country.hasSpotlight
       )
     }
     <p class="meta">
-      Ray-traced relief · Copernicus GLO-30 + GEBCO bathymetry
-      {country.hasBorder && <span> · Natural Earth boundaries</span>}
+      Ray-traced relief · {credited.map((source) => source.name).join(" · ")}
     </p>
+    {
+      country.download && (
+        <p class="meta download">
+          Download:{" "}
+          <a href={nativeHero}>
+            WebP, {country.download.width} × {country.download.height} px,{" "}
+            {humanSize(country.download.webpBytes)}
+          </a>
+          {" · "}
+          <a href={nativePng}>PNG for print, {humanSize(country.download.pngBytes)}</a>
+          {" · "}
+          Use it under <a href="/about/#using-this-work">CC BY-SA 4.0</a>
+        </p>
+      )
+    }
   </main>
 </Base>
 
@@ -85,7 +114,7 @@ const nativeSpotlight = country.hasSpotlight
   .stage {
     max-width: min(1500px, 92vw);
     margin: 0 auto;
-    padding: clamp(1rem, 2vw, 1.4rem) clamp(1.1rem, 4vw, 2.5rem) 3rem;
+    padding: clamp(1rem, 2vw, 1.4rem) var(--page-gutter) 3rem;
   }
   .stage figure {
     position: relative;
@@ -187,6 +216,12 @@ const nativeSpotlight = country.hasSpotlight
     color: var(--muted);
     font-size: 0.85rem;
     margin: 0.9rem 0 0;
+  }
+  .meta.download {
+    margin-top: 0.35rem;
+  }
+  .download a {
+    white-space: nowrap;
   }
 </style>
 

@@ -52,7 +52,7 @@ from pipeline import datasets, naturalearth
 
 PLANE_WIDTH_UNITS = 2.0
 
-# Art levers, argued where the look is decided rather than here (ART.md
+# Art levers, argued where the look is decided rather than here (docs/ART.md
 # § Borders): width in render pixels at 8K, dash = [on, off] px.
 # casing = wider dark stroke drawn beneath the white ink so lines keep contrast
 # over pale high terrain; dashed lines get identically-dashed casing.

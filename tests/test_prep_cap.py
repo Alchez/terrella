@@ -19,7 +19,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from pipeline import bodies, datasets, paths, planet_seam
+from pipeline import bodies, datasets, paths, planet_seam, render_files
 from pipeline.render import prep_cap, render_seam
 from pipeline.tile import cap_render
 
@@ -215,7 +215,7 @@ class TestTheDisplacementIsMeasuredInGroundMetres:
         grid = cap_render.north_grid(EARTH)
         ground_half_extent = grid.edge_m * bodies.ground_metres_per_aeqd_unit(EARTH)
         assert self._scale(EARTH, tmp_path) == pytest.approx(
-            EARTH.exaggeration / ground_half_extent)
+            EARTH.baked_exaggeration / ground_half_extent)
 
     def test_a_body_whose_spheres_coincide_needs_no_correction(self, tmp_path):
         """The discriminator a wrong-way division cannot pass: with the ground and AEQD radii equal
@@ -225,7 +225,7 @@ class TestTheDisplacementIsMeasuredInGroundMetres:
                                        ground_radius_m=EARTH.aeqd_radius_m)
         grid = cap_render.north_grid(identity)
         assert self._scale(identity, tmp_path) == pytest.approx(
-            identity.exaggeration / grid.edge_m)
+            identity.baked_exaggeration / grid.edge_m)
 
     def test_mars_is_displaced_at_nearly_twice_the_uncorrected_scale(self, tmp_path):
         """Direction AND magnitude on the body that actually diverges, because a correction applied
@@ -233,7 +233,7 @@ class TestTheDisplacementIsMeasuredInGroundMetres:
         radius, so the corrected scale is the bigger number."""
         mars = bodies.BODIES["mars"]
         grid = cap_render.north_grid(mars)
-        uncorrected = mars.exaggeration / grid.edge_m
+        uncorrected = mars.baked_exaggeration / grid.edge_m
         assert self._scale(mars, tmp_path) == pytest.approx(uncorrected / 0.5330701616700675)
         assert self._scale(mars, tmp_path) > 1.8 * uncorrected
 
@@ -252,7 +252,7 @@ class TestTheDisplacementIsMeasuredInGroundMetres:
                 continue
             with subtests.test(body=name):
                 grid = cap_render.north_grid(body)
-                zfactor = body.exaggeration / bodies.ground_metres_per_aeqd_unit(body)
+                zfactor = body.baked_exaggeration / bodies.ground_metres_per_aeqd_unit(body)
                 # The composite's z-factor is per map CELL; this scale is per unit of a plane 2.0
                 # units wide. One cell is `2 * edge_m / px` map units, and one Blender unit is
                 # `edge_m` of them, so the conversion between the two is exactly `px / 2`.
@@ -264,8 +264,8 @@ class TestWhatTheCapPrepWrites:
         """Existence is not re-asserted here: `render_seam.declare` refuses to name an image that
         is not on disk, so a declaration that came back at all has already paid for that."""
         declared = _stages(prepped())[render_seam.CAP]
-        assert set(declared) >= {render_seam.HEIGHTFIELD, render_seam.OCEANMASK,
-                                 render_seam.INLANDLAKE, render_seam.RIVER}
+        assert set(declared) >= {render_files.HEIGHTFIELD, render_files.OCEANMASK,
+                                 render_files.INLANDLAKE, render_files.RIVER}
 
     def test_it_writes_no_rowscale_and_that_absence_is_declared(self, prepped):
         """AEQD is equidistant from its centre by construction, so there is nothing to correct.
@@ -275,8 +275,8 @@ class TestWhatTheCapPrepWrites:
         is the one `render_seam` exists to carry.
         """
         outdir = prepped()
-        assert render_seam.ROWSCALE not in _stages(outdir)[render_seam.CAP]
-        assert not (outdir / render_seam.ROWSCALE).exists()
+        assert render_files.ROWSCALE not in _stages(outdir)[render_seam.CAP]
+        assert not (outdir / render_files.ROWSCALE).exists()
 
     def test_the_painted_masks_carry_their_colour(self, prepped):
         """The rig cannot ask a body for a white; the prep resolves it and declares it here.
@@ -298,7 +298,7 @@ class TestWhatTheCapPrepWrites:
         recipe = json.loads((prepped() / prep_cap.RECIPE_NAME).read_text())
         assert recipe["body"] == EARTH.name
         assert recipe["pole"] == "north"
-        assert recipe["exaggeration"] == EARTH.exaggeration
+        assert recipe["exaggeration"] == EARTH.baked_exaggeration
 
     def test_the_south_declares_its_own_pole(self, prepped):
         assert json.loads((prepped("south") / prep_cap.RECIPE_NAME).read_text())["pole"] == "south"

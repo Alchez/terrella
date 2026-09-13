@@ -148,6 +148,20 @@ export interface BodyDescriptor {
    *  sphere: Mars's DEM is published on a true sphere of 3,396,190 m with flattening 0, so its
    *  equatorial, mean and polar radii are one number and both registries carry it. */
   groundRadiusM: number;
+  /** The vertical scale this body's relief is rendered at, mirroring `pipeline/bodies.py`'s
+   *  `Body.baked_exaggeration`, which decides it. Displaced into the heightfield before Cycles
+   *  runs, so it is in the pixels of every tile and hero, and one render feeds every zoom.
+   *
+   *  The temptation is to hand it to the mesh below, which reads as de-duplication. A mesh retune
+   *  then restages 203 heroes, and the only symptom is a globe lit for a relief it no longer has. */
+  bakedExaggeration: number;
+  /** The vertical scale this body's terrain mesh runs at on the Full tier. `null` is terrain off by
+   *  default, reachable only through `?terrain=N`, so approving a body and switching it on are one
+   *  edit; a body that arrives at a number displaces before anyone has looked at it.
+   *
+   *  Equal across bodies where `bakedExaggeration` is not, so a visitor reads one vertical scale for
+   *  the site rather than one per planet. `rampedExaggeration` decays from it. */
+  meshExaggeration: number | null;
   /** The chrome accent, per colour scheme.
    *
    *  DERIVED FROM THE MAP, NOT CHOSEN BESIDE IT. Earth's is the hero ramp's deep-sea teal, which is
@@ -250,6 +264,8 @@ export const BODIES: Record<BodySlug, BodyDescriptor> = {
     // `GLOBE_RADIUS`, in the shader that draws the sphere and in `LngLat.distanceTo` alike. Holding
     // it explicitly changes no reading and moves the constant somewhere a second body can differ.
     groundRadiusM: 6371008.8,
+    bakedExaggeration: 15,
+    meshExaggeration: 15,
     // Light half is `SEA_STOPS[5]`, imported. Dark half is NOT a ramp stop — `#7cb8b8` was picked
     // by eye over `SEA_STOPS[0]` (#85b9b7).
     accent: { light: TRENCH_FLOOR, dark: "#7cb8b8" },
@@ -296,9 +312,14 @@ export const BODIES: Record<BodySlug, BodyDescriptor> = {
     pathPrefix: "mars",
     // The IAU 2015 sphere the blended MOLA/HRSC DEM declares in its own CRS, and the same number
     // `pipeline/bodies.py` carries — unlike Earth's above, because this one really is a sphere.
-    // `pipeline/acquire/download_mars_dem.py` refuses a source that says anything else, so the two
+    // `pipeline/acquire/mars/download_mars_dem.py` refuses a source that says anything else, so the two
     // registries and the data agree or the download stops.
     groundRadiusM: 3396190,
+    bakedExaggeration: 20,
+    // Not this body's own 20, and not aliased to Earth's. Matching the baked scale here gives the
+    // two planets different mesh scales, which is what this equality exists to prevent; aliasing
+    // lets one planet's retune repaint another nobody looked at.
+    meshExaggeration: 15,
     accent: { light: "#8c4a32", dark: "#d08b6a" },
     // Imported, unlike the accents: this answers to a rule, not an eye. The `#6b3a2a` that stood
     // here was darker than any Mars tile, so a gap read as the hole to space this layer prevents.

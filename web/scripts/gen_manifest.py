@@ -1,15 +1,15 @@
 """Generate the Tier-1 gallery manifest (src/data/countries.json).
 
-Bridges the render pipeline to the frontend: it reads the in-scope country list
-(and proper display names) from the pipeline's country_config, then scans the
-hero WebP variant store to see which countries have been rendered and at what
-sizes. Re-run it after a render + hero_variants pass to refresh the gallery.
+Bridges the render pipeline to the frontend. It takes the in-scope countries and their display
+names from the pipeline's country_config, each country's continent and other spellings from its
+Natural Earth row and the config's `also` (see `search_terms`), and from the render store which
+countries are rendered, at what sizes, and what their download files are.
 
-It also carries the other spellings of each country, which is the one payload
-field derived from neither the config nor the store — see `search_terms`.
+Re-run it after the publish steps docs/pipeline.md lists before it. It refuses to write while a
+rendered country has stale files, and names them and what fixes each.
 
-Run from web/ with the *pipeline* venv (it imports country_config → geopandas/rasterio);
---repo defaults to the checkout this script lives in:
+Run from web/ with the pipeline's venv, since country_config needs rasterio and pyshp; --repo
+defaults to the checkout this script lives in:
   ../.venv/bin/python scripts/gen_manifest.py --out src/data/countries.json
 """
 
@@ -22,7 +22,7 @@ from pathlib import Path
 
 
 def variant_sizes(variants_dir: Path, slug: str) -> list[int]:
-    """Long-edge sizes present for a slug, e.g. [1920, 3840, 7680]."""
+    """Long-edge sizes of a slug's hero WebPs on disk, ascending."""
     sizes = []
     for p in variants_dir.glob(f"{slug}-*.webp"):
         m = re.fullmatch(rf"{re.escape(slug)}-(\d+)\.webp", p.name)
@@ -101,19 +101,8 @@ def search_terms(record: dict, name: str, also: Sequence[str] = ()) -> list[str]
     return terms
 
 
-def border_sizes(variants_dir: Path, slug: str) -> list[int]:
-    """Long-edge sizes of the standalone border layer, e.g. [1920, 7680]."""
-    sizes = []
-    for p in variants_dir.glob(f"{slug}-border-*.png"):
-        m = re.fullmatch(rf"{re.escape(slug)}-border-(\d+)\.png", p.name)
-        if m:
-            sizes.append(int(m.group(1)))
-    return sorted(set(sizes))
-
-
 def spotlight_sizes(variants_dir: Path, slug: str) -> list[int]:
-    """Long-edge sizes of the subject-spotlight overlay (dims neighbours + strokes
-    the subject boundary), e.g. [1920, 3840, 7680]."""
+    """Long-edge sizes of a slug's Focus overlays on disk, ascending."""
     sizes = []
     for p in variants_dir.glob(f"{slug}-spotlight-*.webp"):
         m = re.fullmatch(rf"{re.escape(slug)}-spotlight-(\d+)\.webp", p.name)
@@ -125,10 +114,9 @@ def spotlight_sizes(variants_dir: Path, slug: str) -> list[int]:
 def aspect_of(variants_dir: Path, slug: str, sizes: list[int]) -> float:
     """width/height from the LARGEST variant (accurate framing, no layout shift).
 
-    Read off the largest rather than the smallest because aspect feeds both the CSS
-    `aspect-ratio` and the srcset w-descriptors, and a 640-wide variant quantises the ratio ~12x
-    more coarsely than the native one. It used to read sizes[0] because the ladder's floor was
-    1920; adding rungs beneath that would have silently coarsened every country's framing.
+    Read off the largest rather than the smallest because aspect feeds both the CSS `aspect-ratio`
+    and the srcset w-descriptors, and a 640-wide variant quantises the ratio ~12x more coarsely
+    than the native one.
     """
     if not sizes:
         return 1.5
@@ -137,7 +125,86 @@ def aspect_of(variants_dir: Path, slug: str, sizes: list[int]) -> float:
         return round(im.width / im.height, 4)
 
 
-def country_row(slug: str, resolved: dict, record: dict, variants_dir: Path) -> dict:
+class StaleFiles(Exception):
+    """A rendered country with stale files, as `stale_files` defines them."""
+
+
+#: What rewrites each kind of file, as a refusal names it.
+REDO_LADDER = "python -m pipeline.compose.hero_variants --only {slug} --force"
+REDO_OVERLAYS = "python -m pipeline.compose.gen_spotlight --only {slug} --force"
+REDO_STAMP = "python -m pipeline.compose.downloads stamp --only {slug}"
+
+
+def stale_files(renders: Path, slug: str, name: str, native: int) -> str | None:
+    """The refusal for a rendered country with stale files, naming them and the steps that fix them
+    in order, or None when it has none.
+
+    Stale is a rung or overlay older than the master, which holds an earlier render; a file that is
+    none of those the master's ladder and stamp produce, left from a render at another size; a
+    full-size WebP without the master's shape; and a download file without the credit for `name`.
+    """
+    import rasterio
+
+    from pipeline.compose import downloads, hero_variants
+    variants = renders / "variants"
+    master = renders / "heroes" / f"{slug}.png"
+    shape = downloads.png_size(master)
+    produced = set(hero_variants.rungs_for(*shape))
+    rendered = master.stat().st_mtime_ns
+    leftover, older, older_overlays = [], [], []
+    for path in sorted(variants.glob(f"{slug}-*")):
+        named = re.fullmatch(rf"{re.escape(slug)}-(spotlight-)?(\d+)\.(webp|png)", path.name)
+        if named is None:
+            continue
+        overlay, size, extension = named.group(1), int(named.group(2)), named.group(3)
+        if size not in produced or (extension == "png" and size != max(shape)):
+            leftover.append(path.name)
+        elif extension == "webp" and path.stat().st_mtime_ns < rendered:
+            (older_overlays if overlay else older).append(path.name)
+
+    webp = variants / f"{slug}-{native}.webp"
+    with rasterio.open(webp) as image:
+        reshaped = webp.name not in leftover and (image.width, image.height) != shape
+    reladdered = bool(older) or reshaped
+    unstamped = [] if reladdered else downloads.unstamped(master, variants, name)
+
+    problems, fixes = [], []
+    if leftover:
+        problems.append(f"{', '.join(leftover)} match nothing its master produces")
+        fixes.append(f"delete {' '.join(leftover)} from {variants}")
+    if older or older_overlays:
+        problems.append(f"{', '.join(older + older_overlays)} older than its master")
+    if reshaped:
+        problems.append(f"{webp.name} is not its master's image")
+    if unstamped:
+        problems.append(f"{' and '.join(path.name for path in unstamped)} not current")
+    if reladdered:
+        fixes.append(REDO_LADDER.format(slug=slug))
+    if older_overlays:
+        fixes.append(REDO_OVERLAYS.format(slug=slug))
+    if reladdered or unstamped:
+        fixes.append(REDO_STAMP.format(slug=slug))
+    return f"{slug}: {'; '.join(problems)}; fix: {', then '.join(fixes)}" if problems else None
+
+
+def download_files(renders: Path, slug: str, name: str, native: int) -> dict:
+    """The full-size files a rendered country's page offers for download, as that page states them,
+    refused with `stale_files`' reason when it gives one."""
+    import rasterio
+
+    from pipeline.compose import downloads
+    stale = stale_files(renders, slug, name, native)
+    if stale:
+        raise StaleFiles(stale)
+    master = renders / "heroes" / f"{slug}.png"
+    webp, png = downloads.full_size_files(master, renders / "variants")
+    with rasterio.open(webp) as image:
+        width, height = image.width, image.height
+    return dict(width=width, height=height,
+                webpBytes=webp.stat().st_size, pngBytes=png.stat().st_size)
+
+
+def country_row(slug: str, resolved: dict, record: dict, renders: Path) -> dict:
     """One country as the manifest publishes it — the payload's whole per-country contract.
 
     A function rather than a literal inside the loop because these keys are HALF of a contract whose
@@ -146,25 +213,23 @@ def country_row(slug: str, resolved: dict, record: dict, variants_dir: Path) -> 
     compares to a real file. The lockstep the header there asks for is a test, and a test needs a
     callable that yields the keys without a render store behind it.
     """
+    variants_dir = renders / "variants"
     sizes = variant_sizes(variants_dir, slug)
-    border = border_sizes(variants_dir, slug)
     spotlight = spotlight_sizes(variants_dir, slug)
     return dict(
         slug=slug,
         name=resolved["admin"],
         continent=str(record.get("CONTINENT", "")),
         searchTerms=search_terms(record, resolved["admin"], resolved.get("also", ())),
-        # Authored (w,s,e,n) EPSG:4326 hero frame — the globe's fly-to target.
-        # Same framing as the hero renders, so overrides (France→metropolitan,
-        # US/Chile/Russia) already fix the far-flung multipolygon cases that a
-        # raw country bbox would frame badly.
+        # The hero's frame, (w, s, e, n) in EPSG:4326, which the globe flies to and the gallery
+        # centres on. It carries every frame override in `config/countries.toml`, so a far-flung
+        # country flies to the part its hero shows.
         bbox=[round(v, 5) for v in resolved["frame"]],
         aspect=aspect_of(variants_dir, slug, sizes),
         sizes=sizes,
         native=sizes[-1] if sizes else None,
         rendered=bool(sizes),
-        hasBorder=bool(border),
-        borderSizes=border,
+        download=download_files(renders, slug, resolved["admin"], sizes[-1]) if sizes else None,
         hasSpotlight=bool(spotlight),
         spotlightSizes=spotlight,
     )
@@ -186,18 +251,24 @@ def main() -> int:
         resolve,
     )
 
-    variants_dir = args.repo / "blender/renders/variants"
+    renders = args.repo / "blender/renders"
     cfg = load_config()
     _sf, rows = load_ne_rows()
     scope = build_scope(cfg, rows)
     records = records_by_admin(naturalearth.layer("ne_10m_admin_0_countries"))
 
-    countries = []
+    countries, refused = [], []
     for slug in sorted(scope):
         r = resolve(slug, scope[slug], cfg)
         if r is None:              # antimeridian-deferred (Kiribati)
             continue
-        countries.append(country_row(slug, r, records.get(r["admin"], {}), variants_dir))
+        try:
+            countries.append(country_row(slug, r, records.get(r["admin"], {}), renders))
+        except StaleFiles as refusal:
+            refused.append(str(refusal))
+    if refused:
+        sys.exit(f"refusing to write {args.out}: {len(refused)} rendered countries have stale "
+                 "files\n  " + "\n  ".join(refused))
 
     payload = dict(
         count=len(countries),

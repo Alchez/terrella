@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 from pipeline import datasets
-from pipeline.acquire import download_glo30
+from pipeline.acquire.earth import download_glo30
 
 TILE_NAME = "Copernicus_DSM_COG_10_N40_00_E010_00_DEM"
 

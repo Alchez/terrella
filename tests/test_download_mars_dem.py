@@ -11,9 +11,10 @@ between them they catch a mistyped constant:
     lands, and which must reject the near-misses rather than only the absurd ones.
 """
 
+import hashlib
 import math
 import urllib.request
-from typing import Any, ClassVar
+from typing import Any
 
 import numpy as np
 import pytest
@@ -22,7 +23,7 @@ from rasterio.crs import CRS
 from rasterio.transform import from_bounds
 
 from pipeline import bodies, paths
-from pipeline.acquire import download_mars_dem as mars_dem
+from pipeline.acquire.mars import download_mars_dem as mars_dem
 
 MARS_SPHERE_CRS = CRS.from_proj4("+proj=longlat +a=3396190 +b=3396190 +no_defs")
 #: The 3,389,500 m spherical MEAN, which is the plausible wrong answer rather than an invented one:
@@ -96,10 +97,16 @@ class TestThePreflightRefusesADriftedEdition:
     an immutable release — so same-name is not same-bytes and the preflight is the only cheap check
     that runs before ~10.6 GiB is committed to."""
 
-    def _serve(self, monkeypatch, *, size, modified):
+    def _serve(self, monkeypatch, *, size, modified, digest=None):
+        """Fake the host, dispatching on URL so the HEAD and the checksum GET can disagree. `digest`
+        is the pinned one unless a test says otherwise."""
         class FakeResponse:
-            headers: ClassVar[dict[str, str]] = {
-                "Content-Length": str(size), "Last-Modified": modified}
+            def __init__(self, headers=None, body=b""):
+                self.headers = headers or {}
+                self.body = body
+
+            def read(self):
+                return self.body
 
             def __enter__(self):
                 return self
@@ -107,7 +114,13 @@ class TestThePreflightRefusesADriftedEdition:
             def __exit__(self, *exc):
                 return False
 
-        monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: FakeResponse())
+        def fake_urlopen(request, *args, **kwargs):
+            if request.full_url.endswith(".md5"):
+                served = mars_dem.EXPECTED_MD5 if digest is None else digest
+                return FakeResponse(body=f"{served}  {mars_dem.BLEND_NAME}\n".encode("ascii"))
+            return FakeResponse(headers={"Content-Length": str(size), "Last-Modified": modified})
+
+        monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
 
     def test_the_pinned_edition_passes(self, monkeypatch):
         self._serve(monkeypatch, size=mars_dem.EXPECTED_BYTES,
@@ -122,14 +135,22 @@ class TestThePreflightRefusesADriftedEdition:
         assert "republished" in str(caught.value)
 
     def test_a_re_upload_of_the_SAME_bytes_still_aborts(self, monkeypatch):
-        """The case the size pin cannot see, and the realistic one: a re-blend that happens to land
-        on the same byte count is unlikely, but a re-upload of a corrected product is not. Only the
-        date separates them, which is why both are pinned."""
+        """The date is its own check: a re-upload moves it whether or not the bytes moved."""
         self._serve(monkeypatch, size=mars_dem.EXPECTED_BYTES,
                     modified="Thu, 01 Jan 2026 00:00:00 GMT")
         with pytest.raises(SystemExit) as caught:
             mars_dem.preflight()
         assert "Last-Modified" in str(caught.value)
+
+    def test_a_reblend_on_the_same_grid_is_caught_though_its_size_and_date_match(self, monkeypatch):
+        """The case the size pin cannot see. The blend is uncompressed on a fixed grid, so every
+        edition on this grid is the same byte count whatever its pixels hold, and only the
+        publisher's digest reads content."""
+        self._serve(monkeypatch, size=mars_dem.EXPECTED_BYTES,
+                    modified=mars_dem.EXPECTED_LAST_MODIFIED, digest="0" * 32)
+        with pytest.raises(SystemExit) as caught:
+            mars_dem.preflight()
+        assert "md5" in str(caught.value)
 
 
 class TestTheGridContractIsCheckedOnTheRasterItself:
@@ -168,6 +189,40 @@ class TestTheGridContractIsCheckedOnTheRasterItself:
         with pytest.raises(SystemExit) as caught:
             mars_dem.assert_grid(_write_blend(tiny, crs=projected))
         assert "geographic" in str(caught.value)
+
+
+class TestTheBytesOnDiskAreThePublishedEdition:
+    """A file can pass the size, the date and the grid and still hold other pixels, so both routes to
+    a blend on disk digest it."""
+
+    @pytest.fixture
+    def blend(self, tiny, monkeypatch):
+        """The blend's path pinned into `tmp_path` outright, since the real one is 10.6 GiB."""
+        monkeypatch.setattr(paths, "DATA", tiny.parent / "store")
+        monkeypatch.setattr(mars_dem, "blend_path", lambda: tiny)
+        return tiny
+
+    def test_verify_refuses_the_right_grid_holding_other_bytes(self, blend, monkeypatch):
+        _write_blend(blend)
+        monkeypatch.setattr("sys.argv", ["download_mars_dem", "--verify"])
+        with pytest.raises(SystemExit) as caught:
+            mars_dem.main()
+        assert "md5" in str(caught.value)
+
+    def test_verify_passes_the_published_bytes(self, blend, monkeypatch):
+        _write_blend(blend)
+        monkeypatch.setattr(mars_dem, "EXPECTED_MD5", hashlib.md5(blend.read_bytes()).hexdigest())
+        monkeypatch.setattr("sys.argv", ["download_mars_dem", "--verify"])
+        assert mars_dem.main() == 0
+
+    def test_a_download_holding_other_bytes_is_refused(self, blend, monkeypatch):
+        monkeypatch.setattr(mars_dem, "preflight", lambda *a, **k: None)
+        monkeypatch.setattr(mars_dem, "download_one",
+                            lambda url, destination: _write_blend(destination) and "ok")
+        monkeypatch.setattr("sys.argv", ["download_mars_dem"])
+        with pytest.raises(SystemExit) as caught:
+            mars_dem.main()
+        assert "md5" in str(caught.value)
 
 
 class TestTheRecipeDownloadsNothingByAccident:

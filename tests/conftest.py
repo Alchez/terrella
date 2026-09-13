@@ -3,7 +3,9 @@
 import math
 from pathlib import Path
 
+import numpy as np
 import pytest
+import rasterio
 
 from pipeline import bodies, planet_seam
 from pipeline.tile import cap_render
@@ -82,6 +84,24 @@ def write_planet_vrt(path: Path, grid: tuple[int, int] = (3600, 3600),
         f"<GeoTransform>{west}, {(east - west) / width}, 0.0, "
         f"{north}, 0.0, {-(north - south) / height}</GeoTransform>"
         f"</VRTDataset>")
+
+
+def write_hero_master(path: Path, width: int, height: int, seed: int, alpha: int = 255,
+                      zlevel: int = 6) -> None:
+    """An 8-bit RGBA PNG in a hero master's own chunk shape: a header, the pixel data, the end.
+
+    At `zlevel` 0 the length depends on the dimensions alone, so two seeds give two images of one
+    length. Encoded as WebP, the length barely moves with the seed and can repeat exactly, so no
+    test can tell two of these renders apart by their bytes.
+    """
+    generator = np.random.default_rng(seed)
+    rgba = np.empty((4, height, width), np.uint8)
+    rgba[:3] = generator.integers(0, 256, (3, height, width))
+    rgba[3] = alpha
+    with (rasterio.Env(GDAL_PAM_ENABLED="NO"),
+          rasterio.open(path, "w", driver="PNG", width=width, height=height, count=4,
+                        dtype="uint8", ZLEVEL=zlevel) as dataset):
+        dataset.write(rgba)
 
 
 #: What each body's planet producer really declares, keyed by body name.

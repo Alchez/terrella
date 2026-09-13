@@ -16,6 +16,7 @@ come through the same door.
 """
 
 import ast
+import hashlib
 import inspect
 import urllib.error
 import urllib.request
@@ -37,6 +38,21 @@ def pipeline_sources() -> list[Path]:
     )
 
 
+def acquire_files() -> list[Path]:
+    """Every acquirer, whatever language it happens to be written in.
+
+    Listed by walking the tree rather than by globbing a suffix, which is what let an acquisition
+    written in bash sit outside this file's scan while the scan's own anti-vacuity check reported
+    full coverage of it. Recursive because the acquirers are grouped by body, and a scan that
+    stopped at the top level would see one shell script and call the directory covered.
+    """
+    return sorted(
+        entry for entry in (paths.ROOT / "pipeline/acquire").rglob("*")
+        if entry.is_file() and entry.name != "__init__.py"
+        and "__pycache__" not in entry.parts
+    )
+
+
 def imports_urllib_request(source: Path) -> bool:
     """True if this module imports `urllib.request` in any spelling.
 
@@ -50,6 +66,26 @@ def imports_urllib_request(source: Path) -> bool:
                 return True
         elif isinstance(node, ast.ImportFrom) and node.module == "urllib.request":
             return True
+    return False
+
+
+def imports_fetch(source: Path) -> bool:
+    """True if this module imports `pipeline.fetch` in any spelling.
+
+    The MODULE and not `download_one`, on the reasoning this file's header gives for `urllib`: a
+    scan naming the function is blind to the next function, and one caller already reaches it as
+    `fetch.download_one` without importing that name.
+    """
+    tree = ast.parse(source.read_text())
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            if any(alias.name == "pipeline.fetch" for alias in node.names):
+                return True
+        elif isinstance(node, ast.ImportFrom):
+            if node.module == "pipeline.fetch":
+                return True
+            if node.module == "pipeline" and any(alias.name == "fetch" for alias in node.names):
+                return True
     return False
 
 
@@ -69,15 +105,47 @@ def test_the_scan_reaches_the_whole_package_rather_than_a_handful_of_files():
     # over thirty modules and would still report clean forever, because clean code is clean under
     # any subset — a shrunken scope is only visible against a scope stated independently. Derived
     # from the package rather than listed, so a new acquirer is covered the day it is written.
-    acquirers = {
-        module for module in (paths.ROOT / "pipeline/acquire").glob("*.py")
-        if "__pycache__" not in module.parts
-    }
+    acquirers = {entry for entry in acquire_files() if entry.suffix == ".py"}
     assert acquirers, "pipeline/acquire has no modules — the path must have moved"
     assert acquirers <= set(sources), (
         f"the scan does not cover {sorted(str(m.name) for m in acquirers - set(sources))} — "
         f"every module that talks to a server must be in scope"
     )
+
+
+def test_an_acquirer_outside_python_carries_the_identity_itself():
+    """`fetch` reaches a Python caller and nothing else, so an acquirer in another language has to
+    spell the agent, and reading it off `fetch` here is what stops the two drifting.
+
+    THE SCAN ABOVE CANNOT SEE THIS BY CONSTRUCTION. It parses imports, and a shell script has none,
+    so a `*.py` population reported full coverage while a sibling talked to a server anonymously.
+    """
+    offenders = [
+        script.name for script in acquire_files()
+        if script.suffix != ".py" and fetch.USER_AGENT not in script.read_text(encoding="utf-8")
+    ]
+    assert offenders == [], (
+        f"{offenders} reach a server without the pipeline's identity — send {fetch.USER_AGENT!r}, "
+        "which this assertion reads off `fetch` so a bump there goes red here"
+    )
+
+
+def test_the_language_scan_can_see_a_violation(tmp_path, monkeypatch):
+    """The control, because the assertion above is satisfied by an empty non-Python population and
+    by a directory that no longer exists."""
+    acquire = tmp_path / "pipeline/acquire"
+    acquire.mkdir(parents=True)
+    (acquire / "__init__.py").touch()
+    (acquire / "download_thing.py").write_text("from pipeline import fetch\n")
+    anonymous = acquire / "download_thing.sh"
+    anonymous.write_text('curl -fsSL "$url" -o "$dest"\n')
+    monkeypatch.setattr(paths, "ROOT", tmp_path)
+
+    assert [entry.name for entry in acquire_files()] == ["download_thing.py", "download_thing.sh"]
+    assert anonymous.read_text().find(fetch.USER_AGENT) == -1
+
+    anonymous.write_text(f'curl -fsSL -A "{fetch.USER_AGENT}" "$url" -o "$dest"\n')
+    assert fetch.USER_AGENT in anonymous.read_text()
 
 
 def test_no_pipeline_module_reaches_urllib_request_directly():
@@ -115,6 +183,68 @@ def test_the_scan_would_catch_a_module_that_went_around_fetch(tmp_path: Path):
     innocent = tmp_path / "innocent.py"
     innocent.write_text('"""Prose naming urllib.request is not an import."""\nimport json\n')
     assert not imports_urllib_request(innocent)
+
+
+def test_only_an_acquirer_reaches_a_server():
+    """`pipeline/acquire/**` writes `data/raw`, and this is what makes that sentence checkable.
+
+    The scan above funnels every request through `fetch` and is silent on WHO may call it, so a
+    render or fuse stage growing its own download passes every gate. That is not hypothetical: the
+    WorldCover fetch lived in `render/snow_mask.py` with `fuse/build_void_wbm.py` importing across
+    for it, and was then lifted to a top-level module, which is a second placement this would have
+    refused. Both read as ordinary code and neither had anything to go red.
+
+    THE EXCEPTIONS ARE LISTED AND THE TARGETS ARE DERIVED, so a stage written next year is in scope
+    the day it exists. `fetch` itself is exempt as the thing being funnelled through.
+    """
+    acquire_root = (paths.ROOT / "pipeline/acquire").resolve()
+    fetchers = [source for source in pipeline_sources() if imports_fetch(source)]
+    assert fetchers, "nothing in the package imports `pipeline.fetch` — the scan matched nothing"
+
+    offenders = sorted(str(source.relative_to(paths.ROOT)) for source in fetchers
+                       if not source.resolve().is_relative_to(acquire_root))
+    assert offenders == [], (
+        f"{offenders} reach a server from outside `pipeline/acquire/`. A fetch belongs to the "
+        f"acquirer for its dataset, whatever else the module also does for its callers."
+    )
+
+
+def test_the_scan_sees_both_the_import_and_the_location(tmp_path, monkeypatch):
+    """Two arms, so two controls: the parser has to see every spelling, and the location arm has to
+    report a module that is outside the package rather than merely present.
+
+    `pipeline.fetch` and not `download_one`, for the reason the header gives about `urllib`: a scan
+    naming the function is blind to the next function, and `acquire/mars/download_nomenclature.py`
+    already reaches it as `fetch.download_one` without importing that name at all.
+    """
+    spellings = {
+        "spelled_out.py": ("import pipeline.fetch\n", True),
+        "by_name.py": ("from pipeline.fetch import download_one\n", True),
+        "by_module.py": ("from pipeline import datasets, fetch\n", True),
+        "prose.py": ('"""Naming pipeline.fetch is not importing it."""\nimport json\n', False),
+    }
+    for name, (source_text, expected) in spellings.items():
+        module = tmp_path / name
+        module.write_text(source_text)
+        assert imports_fetch(module) is expected, f"{name} read as {not expected}"
+
+    # The location arm, which the parser controls above cannot reach: an identical fetching module
+    # is legal under `acquire/` and an offence one directory up, so the same text has to read both
+    # ways depending only on where it sits.
+    package = tmp_path / "pipeline"
+    (package / "acquire/earth").mkdir(parents=True)
+    (package / "render").mkdir()
+    fetching = "from pipeline.fetch import download_one\n"
+    (package / "fetch.py").write_text("USER_AGENT = 'x'\n")
+    (package / "acquire/earth/download_thing.py").write_text(fetching)
+    monkeypatch.setattr(paths, "ROOT", tmp_path)
+    assert [source.name for source in pipeline_sources() if imports_fetch(source)] \
+        == ["download_thing.py"]
+
+    (package / "render/thing_mask.py").write_text(fetching)
+    caught = [source.name for source in pipeline_sources() if imports_fetch(source)
+              if not source.resolve().is_relative_to((paths.ROOT / "pipeline/acquire").resolve())]
+    assert caught == ["thing_mask.py"]
 
 
 def test_build_request_carries_the_pipeline_user_agent():
@@ -205,14 +335,15 @@ class TestDownloadOne:
     """The atomic-write rule. The default-off 404 branch is the assertion that matters."""
 
     def test_a_404_is_a_FAILURE_by_default(self, tmp_path: Path, monkeypatch):
-        """Eight of ten callers test `startswith("failed")`; 'absent' by default would make a
-        missing file a silent success. Do not flip this default."""
+        """Most callers test `startswith("failed")`; 'absent' by default would make a missing file
+        a silent success. Do not flip this default."""
         _serving(monkeypatch, _http_error(404))
         assert fetch.download_one("https://example.invalid/x",
                                   tmp_path / "out.bin").startswith("failed")
 
     def test_a_404_is_absent_only_when_the_caller_asks(self, tmp_path: Path, monkeypatch):
-        """The opt-in half, for the two WorldCover callers whose ocean cells 404."""
+        """The opt-in half, where a 404 answers about the data: WorldCover's ocean cells, and the
+        components Natural Earth ships for some layers and not others."""
         _serving(monkeypatch, _http_error(404))
         assert fetch.download_one("https://example.invalid/x", tmp_path / "out.bin",
                                   absent_on_404=True) == "absent"
@@ -245,3 +376,43 @@ class TestDownloadOne:
         assert fetch.download_one("https://example.invalid/x", dest) == "ok"
         assert dest.read_bytes() == b"payload"
         assert list(tmp_path.glob("*.part")) == []
+
+
+SIDECAR_URL = "https://example.invalid/product.tif.md5"
+DIGEST = "0123456789abcdef0123456789abcdef"
+
+
+class TestTheDigestIsThePublishers:
+    """A file on disk against the digest its publisher ships beside it."""
+
+    def test_a_file_longer_than_one_read_is_digested_whole(self, tmp_path: Path):
+        payload = bytes(range(256)) * 8193
+        path = tmp_path / "product.tif"
+        path.write_bytes(payload)
+        assert fetch.file_md5(path) == hashlib.md5(payload).hexdigest()
+
+    def test_the_sidecar_hands_back_the_digest_it_names(self, monkeypatch):
+        _serving(monkeypatch, _Response(f"{DIGEST}  product.tif\n".encode("ascii")))
+        assert fetch.published_md5(SIDECAR_URL, "product.tif") == DIGEST
+
+    def test_a_sidecar_naming_another_product_is_refused_saying_so(self, monkeypatch):
+        """A rotted sidecar URL must not read as a republished product."""
+        _serving(monkeypatch, _Response(f"{DIGEST}  other.tif\n".encode("ascii")))
+        with pytest.raises(SystemExit) as caught:
+            fetch.published_md5(SIDECAR_URL, "product.tif")
+        assert "does not describe this product" in str(caught.value)
+
+    def test_the_published_bytes_pass_and_hand_back_their_digest(self, tmp_path: Path):
+        path = tmp_path / "product.tif"
+        path.write_bytes(b"the published bytes")
+        digest = hashlib.md5(b"the published bytes").hexdigest()
+        assert fetch.assert_digest(path, digest) == digest
+
+    def test_a_truncated_file_aborts_and_says_not_to_re_pin(self, tmp_path: Path):
+        """`download_one` cannot give a half-written file its final name, but a copy, a restore or
+        an interrupted `cp` can. Re-pinning is what would make it permanent."""
+        path = tmp_path / "product.tif"
+        path.write_bytes(b"the published byte")
+        with pytest.raises(SystemExit) as caught:
+            fetch.assert_digest(path, hashlib.md5(b"the published bytes").hexdigest())
+        assert "re-run rather than re-pinning" in str(caught.value)

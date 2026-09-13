@@ -389,7 +389,7 @@ def test_module_does_not_reach_for_a_smooth_resampler():
 #: GDAL's single-binary entry point — `gdal raster tile`, what `cut_zoom` shells out to — landed
 #: in **GDAL 3.11**. Ubuntu 24.04, which is what `ubuntu-latest` runs, ships gdal-bin **3.8.4**:
 #: `gdalbuildvrt` and friends are there, `gdal` is not. So this probe cannot run on CI, and there
-#: is nothing to gain by making it — the machines that cut tiles (this box, rohome) are on 3.12.x,
+#: is nothing to gain by making it — every machine that cuts tiles is on 3.12.x,
 #: and a 3.8 answer about our command shape would be about a GDAL that will never see the command.
 #: Contrast `tests/test_build_mosaics.py`, which drives the *old* CLI and therefore does run on CI;
 #: `.github/workflows/ci.yml` records why that one must never be skipif'd.

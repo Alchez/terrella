@@ -2,10 +2,9 @@
 the globe's vector border overlay (solid international + dashed disputed/LoC, split
 downstream by FEATURECLA).
 
-Each hero's borders (compose/overlay_borders.py) are composited into its Albers
-camera and cannot drape on the MapLibre globe, so the globe needs live vector
-geometry MapLibre re-projects client-side. Natural Earth ships both layers as
-EPSG:4326 shapefiles, so this is a pure *format* translation -- not a reprojection.
+The globe needs live vector geometry that MapLibre re-projects client-side. Natural
+Earth ships both layers as EPSG:4326 shapefiles, so this is a pure *format*
+translation -- not a reprojection.
 
 We carry only FEATURECLA (the frontend styles/splits on it), round coordinates to
 ~1 m, and let MapLibre thin further per-zoom via the source `tolerance`. Output is
@@ -23,8 +22,8 @@ from pathlib import Path
 from pipeline import naturalearth
 from pipeline.compose import countries_pmtiles
 
-# Land classes the hero style renders (compose/overlay_borders.py); the rest is
-# cartographic scaffolding we drop.
+# Land classes that are cartographic scaffolding rather than a border, dropped before the globe
+# sees them.
 LAND_DROP = ("Overlay limit", "Lease limit", "Unrecognized")
 
 LAYERS = [

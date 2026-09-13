@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 
 /**
  * The source-level half of the masthead guard. `masthead.browser.test.ts` proves the layout holds
@@ -114,5 +114,54 @@ describe("the layout facts masthead.browser.test.ts models", () => {
     expect(html).toMatch(/\.head-links \{[\s\S]*?gap: 1\.1rem;/);
     expect(html).toMatch(/\.head-source \{[\s\S]*?padding: 0\.25rem;/);
     expect(html).toMatch(/\.head-source svg \{[\s\S]*?width: 1\.05rem;/);
+  });
+});
+
+/** The one page whose back link may describe the gallery by what it lists. */
+const COUNTRY_PAGE = "pages/[slug].astro";
+
+const backLabelDefault = source("components/Masthead.astro").match(/backLabel = "([^"]*)"/)?.[1];
+
+/** What each page's back link actually renders: its own label, or the component's default when it
+ *  passes none. Walked rather than listed, so a page added to the tree is a page this covers. */
+const backLinks = readdirSync(new URL("../", import.meta.url), { recursive: true })
+  .filter((name): name is string => typeof name === "string" && name.endsWith(".astro"))
+  .map((name) => [name, source(name)] as const)
+  .filter(([, text]) => /import Masthead from ["'][^"']*Masthead\.astro["']/.test(text))
+  .map(([name, text]) => {
+    const tag = text.match(/<Masthead\b[\s\S]*?\/?>/)?.[0] ?? "";
+    if (!/\bback=/.test(tag)) return null;
+    return { name, label: tag.match(/\bbackLabel="([^"]*)"/)?.[1] ?? backLabelDefault };
+  })
+  .filter((entry) => entry !== null);
+
+describe("the back link's label", () => {
+  it("is recognisable in every page that draws one", () => {
+    // The control. Every assertion below reads a label out of an attribute or a default, and both
+    // of those are regex matches against source: a parse that finds nothing produces an empty set
+    // and a suite that passes by asking nothing.
+    expect(backLabelDefault, "Masthead.astro no longer declares a default backLabel").toBeDefined();
+    expect(backLinks.map((entry) => entry.name)).toContain(COUNTRY_PAGE);
+    expect(backLinks.length).toBeGreaterThan(1);
+  });
+
+  it("names the destination, not what some other page's parent happened to list", () => {
+    // Every caller sends you to `/`, so the default has to describe `/` itself. When it described
+    // the gallery as a list of countries instead, About and Archives inherited it and both offered
+    // to take you back to all countries from a page that is not under any.
+    for (const { name, label } of backLinks) {
+      if (name === COUNTRY_PAGE) continue;
+      expect(label, `${name} goes back to the gallery and calls it "${label}"`).not.toMatch(/countr/i);
+    }
+  });
+
+  it("lets the country page keep the phrasing the default was written for", () => {
+    // The other half, and not a formality: a default that simply stopped mentioning countries
+    // would satisfy the assertion above by taking the specific label away from the one page it
+    // was right on.
+    const country = backLinks.find((entry) => entry.name === COUNTRY_PAGE);
+    expect(country?.label, "the country page no longer names what it is going back to").toMatch(
+      /countr/i,
+    );
   });
 });

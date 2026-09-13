@@ -13,7 +13,7 @@ yielded a wrong association with no signal, where a blank line at least announce
 
 WHICH IS WHY LINE CITATIONS ARE BANNED RATHER THAN VALIDATED. Nothing can check that line 63 is
 still ABOUT what the citer thinks; a heading can be checked, and a heading survives the edit that
-moves it. ART.md took 42 commits in three months carrying 95 heading changes, so this is the live
+moves it. docs/ART.md took 42 commits in three months carrying 95 heading changes, so this is the live
 case rather than a hypothetical.
 
 MATCHING IS A SHARED PREFIX, and that is what removes the need for a citation delimiter. The
@@ -39,6 +39,7 @@ another doc's old heading is a record, and editing a record to satisfy a scan co
 exists to keep.
 """
 
+import os
 import re
 import subprocess
 from functools import cache
@@ -63,6 +64,16 @@ SECTION_CITATION = re.compile(r"((?:docs/)?[A-Za-z][\w-]*\.md)\s*§\s*(.{4,120})
 #: A heading line in a markdown file.
 HEADING = re.compile(r"^#+\s+(.*?)\s*$", re.MULTILINE)
 
+#: A comment naming the test that guards the code it sits beside. Same trade as a document pointer,
+#: and the same half is checkable: the name either resolves to a test or it does not.
+TEST_CITATION = re.compile(r"\btest_[A-Za-z0-9_]{6,}")
+
+#: A cited name wrapped across two lines leaves a trailing underscore before the break, which
+#: `flattened` turns into `_ `. No identifier ends in an underscore and no prose puts a space after
+#: one, so rejoining here is unambiguous, where joining on any break would fuse a name to the next
+#: sentence. Both wrapped citations in `pipeline/` name tests that exist.
+WRAPPED_NAME = re.compile(r"_\s+(?=[A-Za-z0-9_])")
+
 #: Below this, a shared opening is a stray letter rather than a word. It bounds the SMALLEST legal
 #: citation, `§ Snow`; what rejects a vague one is uniqueness, in `identifies_a_heading`.
 MIN_OPENING_CHARS = 4
@@ -73,6 +84,27 @@ SELF = Path("tests/test_doc_pointers.py")
 #: Not scanned, for the reason `test_repo_integrity.CITATION_EXEMPT` gives and owns: a mutation
 #: table holds its needles verbatim, so it names unfollowable pointers without shipping one.
 EXEMPT = {Path("scripts/sabotage.py")}
+
+#: A path a doc names, in the other direction from every check above. Code extensions only: a doc
+#: naming a `.json` or a `.tif` is a claim about an OUTPUT, which lives under gitignored `data/`
+#: where absence is the normal state and proves nothing. Unbackticked too, because two of the
+#: original defects were heading tails, `Fill sun — TILES (..., tile/shade.py)`.
+CODE_PATH = re.compile(
+    r"(?<![\w/.-])([A-Za-z0-9_][A-Za-z0-9_./-]*\.(?:py|ts|tsx|astro|sh|mjs))(?![\w-])"
+)
+
+#: What a doc says when it names a gone module ON PURPOSE. Taken from the sites already doing it:
+#: CLAUDE.md's producer-seam note and the prose-pass skill.
+DELETION_MARKER = re.compile(r"deleted|superseded|orphan", re.IGNORECASE)
+
+#: `FUTURE.md` names modules nobody has written yet and tooling outside the checkout, both by
+#: design; requiring either to resolve would make the parking lot unwritable.
+NAMES_WHAT_DOES_NOT_EXIST_YET = {Path("FUTURE.md")}
+
+#: The ratified decision-archive pointer is `→ HISTORY, *the heading*`. The archive is gitignored,
+#: so the heading is the whole of what a reader outside this checkout can follow, and a bare
+#: pointer names nothing. The suffixed spelling is the clone check's to reject, not this one's.
+ARCHIVE_POINTER = re.compile(r"\bHISTORY\b(?!\.md)(?!\s*,\s*\*[^*]{4,}\*)(.{0,40})")
 
 
 def scanned_files() -> list[Path]:
@@ -133,7 +165,7 @@ def identifies_a_heading(cited: str, headings: list[str]) -> bool:
     """Whether `cited` names exactly one of `headings`.
 
     UNIQUENESS IS THE BAR, not a length. A word count was tried first and rejected on a real case:
-    it takes two words to tell ART.md's `Fill sun — TILES` from its `Fill sun — shadow floor`, but
+    it takes two words to tell docs/ART.md's `Fill sun — TILES` from its `Fill sun — shadow floor`, but
     that same rule refuses the one-word `Borders`, which names its section perfectly well. What a
     citation owes is that it picks out one section, so that is what gets asserted — the LONGEST
     shared opening must be achieved by a single heading. `Fill sun` alone is then correctly refused
@@ -158,6 +190,177 @@ def resolve(name: str) -> Path | None:
     return None
 
 
+def scanned_docs() -> list[Path]:
+    """Every tracked markdown and diagram file whose paths are claims about the current tree."""
+    named = (Path(name) for name in tracked() if name.endswith((".md", ".mmd")))
+    return sorted(doc for doc in named if doc not in NAMES_WHAT_DOES_NOT_EXIST_YET and doc != SELF)
+
+
+def names_a_tracked_file(token: str) -> bool:
+    """Whether a doc's path token reaches a file, by full path or by basename.
+
+    Basenames count because docs name `palette.py` far more often than they spell its directory,
+    and a bare name that matches nothing is the defect either way.
+    """
+    name = token.lstrip("./")
+    return name in tracked() or any(path.endswith(f"/{name}") for path in tracked())
+
+
+def unfollowable_archive_pointers(text: str) -> list[str]:
+    """Every decision-archive pointer in `text` that names no heading."""
+    return [f"{match.group(0)}".strip() for match in ARCHIVE_POINTER.finditer(text)]
+
+
+def test_every_module_a_doc_names_still_exists() -> None:
+    """A doc naming a gone module points a reader at a file, which outranks merely stale prose.
+
+    `docs/ART.md` said `shade.py` held `LAKE_CURVE` when the constant had moved to `look/lake_depth.py`,
+    which its own lever table already said, and gave three tuning recipes for a `--knob` flag the
+    same file states twice was removed with the compositor. Nothing could go red: every check above
+    follows code pointing at a document, and this is a document pointing at code.
+    """
+    offenders = [
+        f"{doc}:{lineno}: {token}"
+        for doc in scanned_docs()
+        for lineno, line in enumerate((REPO_ROOT / doc).read_text().splitlines(), 1)
+        if not DELETION_MARKER.search(line)
+        for token in CODE_PATH.findall(line)
+        if not names_a_tracked_file(token)
+    ]
+    assert not offenders, (
+        "doc names a module that is not in the tree — point at its new home, or say on the same "
+        "line that it is gone:\n  " + "\n  ".join(offenders)
+    )
+
+
+#: Every tracked file a comment, a failure message or a test title can name another file from.
+CODE_SUFFIXES = (".py", ".ts", ".tsx", ".mts", ".js", ".mjs", ".astro", ".css", ".sh", ".jsonc")
+
+#: `$HARNESS/stamp.py` names `stamp.py`: the variable resolves at run time, so only the part after
+#: the slash can be looked up.
+SHELL_VARIABLE_PREFIX = re.compile(r"\$\{?\w+\}?/")
+
+#: Files that name a path the tree has lost, on purpose. Keyed by the naming file, so the same name
+#: written anywhere else is still a stale pointer.
+NAMES_A_LOST_FILE_ON_PURPOSE = {
+    # The routing test's subject: the flat spelling each globe had, and the page before it.
+    ("web/src/lib/bodies.browser.test.ts", "earth.astro"),
+    ("web/src/lib/bodies.browser.test.ts", "pages/earth.astro"),
+    ("web/src/lib/bodies.browser.test.ts", "globe.astro"),
+    # The guard keeping the border ladder gone until a surface draws it.
+    ("tests/test_hero_variants.py", "gen_borders.py"),
+    ("tests/test_hero_variants.py", "pipeline/compose/gen_borders.py"),
+    # Guards saying which module they were first written against.
+    ("tests/test_bodies.py", "tile/shade.py"),
+    ("tests/test_sea_ice_gate.py", "tile/shade.py"),
+    ("tests/test_module_names.py", "profile/pass_cap.py"),
+}
+
+
+@cache
+def lost_from_the_tree() -> frozenset[str]:
+    """Every path the tree once tracked and no longer does. `--no-renames`, so a move counts."""
+    log = subprocess.run(
+        ["git", "log", "--no-renames", "--diff-filter=D", "--name-only", "--format="],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return frozenset(line for line in log.stdout.splitlines() if line) - tracked()
+
+
+def names_a_lost_file(token: str) -> bool:
+    """Whether a path token reaches a file the tree has lost, by full path or by basename."""
+    name = token.lstrip("./")
+    lost = lost_from_the_tree()
+    return name in lost or any(path.endswith(f"/{name}") for path in lost)
+
+
+def code_files() -> list[str]:
+    """Every tracked file with a suffix above, minus this file and the mutation table."""
+    return sorted(
+        path
+        for path in tracked()
+        if path.endswith(CODE_SUFFIXES) and Path(path) != SELF and Path(path) not in EXEMPT
+    )
+
+
+def lost_file_citations() -> list[tuple[str, int, str]]:
+    """(file, line, name) for every name in code that reaches only a file the tree has lost."""
+    found = []
+    for path in code_files():
+        lines = (REPO_ROOT / path).read_text(encoding="utf-8").splitlines()
+        for lineno, line in enumerate(lines, 1):
+            if DELETION_MARKER.search(line):
+                continue
+            for token in CODE_PATH.findall(SHELL_VARIABLE_PREFIX.sub("", line)):
+                if names_a_lost_file(token) and not names_a_tracked_file(token):
+                    found.append((path, lineno, token))
+    return found
+
+
+def test_the_lost_file_scan_reads_the_history() -> None:
+    """A shallow clone carries no deletions, and a scan against an empty history passes anything."""
+    shallow = subprocess.run(
+        ["git", "rev-parse", "--is-shallow-repository"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    assert shallow == "false", (
+        "this clone is shallow, so the history of what the tree lost is not here and the scan "
+        "below would pass on anything; fetch the full history (CI's checkout sets fetch-depth: 0)"
+    )
+    assert "web/src/pages/earth.astro" in lost_from_the_tree(), "the deletion log read nothing"
+    assert "web/src/components/Globe.astro" in code_files(), "the code scan missed the globe"
+
+
+def test_no_code_names_a_file_the_tree_has_lost() -> None:
+    """No code names a file the tree has lost, unless the same line says it is gone.
+
+    Only names the tree once held are checked. Checking every name that fails to resolve instead
+    flags each fixture and each MapLibre source path a comment cites, which is most of them.
+    """
+    found = lost_file_citations()
+    offenders = [
+        f"{path}:{lineno}: {token}"
+        for path, lineno, token in found
+        if (path, token) not in NAMES_A_LOST_FILE_ON_PURPOSE
+    ]
+    assert not offenders, (
+        "code names a file the tree has lost; point at its new home, or say on the same line that "
+        "it is gone:\n  " + "\n  ".join(offenders)
+    )
+    unused = sorted(NAMES_A_LOST_FILE_ON_PURPOSE - {(path, token) for path, _, token in found})
+    assert not unused, (
+        "an exception names nothing any more, and would excuse the name if it came back as a stale "
+        "pointer; delete it:\n  " + "\n  ".join(f"{path}: {token}" for path, token in unused)
+    )
+
+
+def test_a_decision_archive_pointer_names_its_heading() -> None:
+    """A bare `→ HISTORY` resolves for the author and for nobody else.
+
+    THE SYNTHETIC PAIR IS THE WHOLE PROOF, and it is not decoration. All three pointers in the tree
+    are already in the ratified form, so the repo scan below cannot go red today and a green from it
+    alone would say nothing about whether the pattern separates the two forms at all.
+    """
+    assert unfollowable_archive_pointers("the reasoning is in HISTORY, which you cannot open")
+    assert not unfollowable_archive_pointers("→ HISTORY, *the caps raytrace at edge 84*, measured")
+
+    offenders = [
+        f"{path}: {pointer}"
+        for path in scanned_files()
+        for pointer in unfollowable_archive_pointers(flattened(path))
+    ]
+    assert not offenders, (
+        "decision-archive pointer names no heading, so it is unfollowable from a clone — write "
+        "`→ HISTORY, *the heading*`:\n  " + "\n  ".join(offenders)
+    )
+
+
 def test_no_pointer_cites_a_line_number() -> None:
     """A line citation cannot be validated and had already gone wrong at all three of its sites."""
     offenders = [
@@ -166,7 +369,7 @@ def test_no_pointer_cites_a_line_number() -> None:
         for match in LINE_CITATION.findall((REPO_ROOT / path).read_text())
     ]
     assert not offenders, (
-        "cite a heading, not a line — `ART.md § Fill sun`, never `ART.md:56`:\n  "
+        "cite a heading, not a line — `docs/ART.md § Fill sun`, never `docs/ART.md:56`:\n  "
         + "\n  ".join(offenders)
     )
 
@@ -200,6 +403,139 @@ def test_every_section_citation_lands_on_a_heading() -> None:
     )
 
 
+@cache
+def known_test_names() -> frozenset[str]:
+    """Every name a citation may legally resolve to: a test module, or a test function inside one.
+
+    Both forms are cited in the tree and both are followable by grep, so both count.
+    """
+    names: set[str] = set()
+    for path in sorted((REPO_ROOT / "tests").rglob("test_*.py")):
+        names.add(path.stem)
+        names.update(re.findall(r"^\s*def (test_\w+)", path.read_text(), re.MULTILINE))
+    return frozenset(names)
+
+
+def test_every_test_a_comment_names_still_exists() -> None:
+    """A comment saying which test stops a mistake is worthless when the test was renamed under it.
+
+    `cap_pass.py` named `test_the_shade_pass_hands_its_own_body_down_to_the_cap_pass` after the
+    shade pass became the planet pass and the test went with it, so the one line telling a reader
+    what holds `--body` required pointed at nothing.
+    """
+    offenders = [
+        f"{path}: {name}"
+        for path in scanned_files()
+        for name in sorted(set(TEST_CITATION.findall(WRAPPED_NAME.sub("_", flattened(path)))))
+        if name not in known_test_names()
+    ]
+    assert not offenders, (
+        "comment names a test that does not exist — grep tests/ for the current name:\n  "
+        + "\n  ".join(offenders)
+    )
+
+
+def docs_that_name_tests() -> list[Path]:
+    """Every tracked markdown, `FUTURE.md` included.
+
+    The parking lot is exempt from the path checks above because it names modules nobody has
+    written yet. A test name is the opposite kind of citation: it names the guard that already
+    covers a case, so there is nothing forward-looking for the exemption to protect.
+    """
+    return sorted(Path(name) for name in tracked() if name.endswith(".md") and Path(name) != SELF)
+
+
+def test_every_test_a_doc_names_still_exists() -> None:
+    """The same citation, one population over: a doc naming the guard that covers a case.
+
+    `FUTURE.md`'s audit list named `test_exaggeration_is_shared` for months after the mutation case
+    it belonged to was deleted, and the scan above could not reach it, its population being code.
+    """
+    offenders = [
+        f"{path}: {name}"
+        for path in docs_that_name_tests()
+        for name in sorted(set(TEST_CITATION.findall(WRAPPED_NAME.sub("_", flattened(path)))))
+        if name not in known_test_names()
+    ]
+    assert not offenders, (
+        "a doc names a test that does not exist — grep tests/ for the current name:\n  "
+        + "\n  ".join(offenders)
+    )
+
+
+#: The target of an inline markdown link or image, up to the first space or closing parenthesis.
+LINK_TARGET = re.compile(r"\]\(([^)\s]+)\)")
+
+#: A target that leaves the repo or stays on the page: a URL scheme, `mailto:`, or a bare anchor.
+OUTSIDE_THE_TREE = re.compile(r"[a-z][a-z+.-]*:|#")
+
+
+def relative_links() -> list[tuple[Path, str]]:
+    """Every link in a tracked markdown file that points into the repo, as (doc, target)."""
+    docs = sorted(Path(name) for name in tracked() if name.endswith(".md"))
+    return [
+        (doc, target)
+        for doc in docs
+        for target in LINK_TARGET.findall((REPO_ROOT / doc).read_text())
+        if not OUTSIDE_THE_TREE.match(target)
+    ]
+
+
+def link_reaches_a_tracked_file(doc: Path, target: str) -> bool:
+    """Whether `target`, read the way GitHub reads a link in `doc`, lands on a file or directory."""
+    path = re.split(r"[#?]", target)[0]
+    base = Path() if path.startswith("/") else doc.parent
+    landed = os.path.normpath(base / path.lstrip("/"))
+    return landed in tracked() or any(name.startswith(f"{landed}/") for name in tracked())
+
+
+def test_every_link_in_a_doc_reaches_a_file_a_clone_has() -> None:
+    """A relative link in a tracked doc lands on a tracked file or directory.
+
+    Tracked rather than on disk, for the module note's reason. `resolve` is not reused here, though
+    it looks like the same question: it also tries a bare name under `docs/`, and a link has no
+    fallback, GitHub opening exactly the path written.
+    """
+    assert link_reaches_a_tracked_file(Path("docs/pipeline.md"), "../README.md")
+    assert not link_reaches_a_tracked_file(Path("docs/pipeline.md"), "README.md")
+    assert link_reaches_a_tracked_file(Path("README.md"), "docs/")
+
+    offenders = [
+        f"{doc}: {target}"
+        for doc, target in relative_links()
+        if not link_reaches_a_tracked_file(doc, target)
+    ]
+    assert not offenders, (
+        "a doc links a path no clone has, so the reader lands on a 404:\n  " + "\n  ".join(offenders)
+    )
+
+
+#: A skill and the doc it routes to, where the skill must stay a strict subset. Both fire on one
+#: task, so nothing can cut them apart by trigger and both fill up; the doc is the copy a clone
+#: reads without a skill loader, so it is the one that owns the facts.
+ROUTED_SKILLS = {".claude/skills/add-a-body/SKILL.md": "docs/adding-a-body.md"}
+
+BACKTICKED = re.compile(r"`([A-Za-z_][A-Za-z0-9_./]*)`")
+
+
+def test_a_routing_skill_names_nothing_its_doc_does_not() -> None:
+    """A skill that grows its own facts is a second copy nothing holds to the first.
+
+    These two reached 17 shared identifiers out of the skill's 22 with no guard between them, and
+    the four it held alone were facts rather than procedure.
+    """
+    offenders = []
+    for skill_path, doc_path in ROUTED_SKILLS.items():
+        skill = BACKTICKED.findall((REPO_ROOT / skill_path).read_text())
+        assert skill, f"{skill_path} names no identifiers; the scan matched nothing"
+        doc = set(BACKTICKED.findall((REPO_ROOT / doc_path).read_text()))
+        offenders += [f"{skill_path}: `{name}` is in no {doc_path}" for name in sorted(set(skill) - doc)]
+    assert not offenders, (
+        "a routing skill names what its doc does not, so the fact has no owner:\n  "
+        + "\n  ".join(offenders)
+    )
+
+
 def test_the_scan_reaches_the_pointers_it_claims_to_cover() -> None:
     """A positive control: prove the scan finds real citations rather than an empty set.
 
@@ -215,5 +551,20 @@ def test_the_scan_reaches_the_pointers_it_claims_to_cover() -> None:
         sections += len(SECTION_CITATION.findall(flattened(path)))
 
     assert len(scanned_files()) > 50, "the file scan found almost nothing; check SCANNED_ROOTS"
-    assert {"ART.md", "ATTRIBUTIONS.md"} <= documents, f"expected pointers missing: {documents}"
+    assert {"docs/ART.md", "ATTRIBUTIONS.md"} <= documents, f"expected pointers missing: {documents}"
     assert sections >= 3, f"expected several section citations, found {sections}"
+    assert (Path("README.md"), "CONTRIBUTING.md") in relative_links(), "the link scan missed README"
+
+    cited_tests = {
+        name
+        for path in scanned_files()
+        for name in TEST_CITATION.findall(WRAPPED_NAME.sub("_", flattened(path)))
+    }
+    assert len(cited_tests) >= 20, f"expected many test citations, found {len(cited_tests)}"
+    assert len(known_test_names()) > 100, "the test-name collector found almost nothing"
+
+    named_modules = {
+        token for doc in scanned_docs() for token in CODE_PATH.findall((REPO_ROOT / doc).read_text())
+    }
+    assert len(scanned_docs()) > 20, "the doc scan found almost nothing; check the tracked listing"
+    assert len(named_modules) >= 100, f"expected many modules named in docs, found {len(named_modules)}"

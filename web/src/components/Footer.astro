@@ -1,0 +1,115 @@
+---
+import { GITHUB_MARK, REPO_URL } from "../lib/siteLinks";
+
+interface Props {
+  /** Whether this page floats a view bar over its own bottom edge, which the last row has to clear.
+   *
+   *  PASSED RATHER THAN DERIVED, because the condition belongs to `Base.astro`: the bar is drawn
+   *  there from four props this component has no business reading, and re-deriving it here would be
+   *  that condition written twice, free to disagree the day a fifth control appears. */
+  clearsViewBar: boolean;
+}
+const { clearsViewBar } = Astro.props;
+
+// WHY THE SITE HAS ONE OF THESE. The gallery masthead was the only navigation that reached the
+// front page, and it is full: its row measured 352 px inside 352 px once, and the CLS that bought
+// cost 0.328. So `/archives/` was reachable from a single sentence on `/about/` and from nowhere
+// else, and any new destination had the same problem waiting for it.
+//
+// Marked `aria-current` rather than dropped on the page it points at: a footer that changes shape
+// per page reads as a different footer, and the set IS the site's map.
+const DESTINATIONS = [
+  { href: "/", label: "Gallery" },
+  { href: "/about/", label: "About" },
+  { href: "/archives/", label: "Archives" },
+];
+
+/** Trailing-slash-insensitive, since `/about` and `/about/` are one page. `bodyRoutes.isSamePath`
+ *  answers the same question for a body's two routes and is not reachable from here without
+ *  importing a module about globes into a component that has nothing to do with them. */
+const here = Astro.url.pathname.replace(/\/+$/, "") || "/";
+---
+
+<footer class="site-footer" class:list={[{ "clears-bar": clearsViewBar }]}>
+  <nav aria-label="Site">
+    {
+      DESTINATIONS.map((destination) => (
+        <a
+          href={destination.href}
+          aria-current={(destination.href.replace(/\/+$/, "") || "/") === here ? "page" : undefined}
+        >
+          {destination.label}
+        </a>
+      ))
+    }
+    {/* The mark rather than the word, matching the gallery masthead. `aria-label` and `title` are
+        load-bearing: the only content is an `aria-hidden` SVG, so without them the link announces
+        as its href. */}
+    <a
+      class="source"
+      href={REPO_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label="Source on GitHub"
+      title="Source on GitHub"
+    >
+      <svg viewBox={GITHUB_MARK.viewBox} aria-hidden="true" focusable="false">
+        <path d={GITHUB_MARK.path}></path>
+      </svg>
+    </a>
+  </nav>
+</footer>
+
+<style>
+  .site-footer {
+    max-width: min(1500px, 92vw);
+    margin: 0 auto;
+    padding: 1.4rem var(--page-gutter) 2.2rem;
+    border-top: 1px solid var(--line);
+  }
+
+  /* The view bar is `position: fixed` at the bottom, so on a page that has one the last row of the
+     document sits under it. Measured: the pill is 36.2 px at 320 and 38.5 px at 1280, held one
+     `--page-inset` off the edge, and it never wraps at any width the site serves. The browser guard
+     asserts the links clear it rather than trusting this number. */
+  .site-footer.clears-bar {
+    padding-bottom: var(--view-bar-clear);
+  }
+
+  nav {
+    display: flex;
+    flex-wrap: wrap;
+    /* A 0.85rem word carries a 20.4px line box and a 1.05rem mark carries 16.8, so the two sit on
+       different baselines without this (the same lesson `.head-links` records). */
+    align-items: center;
+    gap: 0.4rem 1.4rem;
+    font-size: 0.85rem;
+  }
+
+  a {
+    color: var(--muted);
+    text-decoration: none;
+  }
+
+  a:hover,
+  a:focus-visible {
+    color: var(--accent);
+  }
+
+  a[aria-current="page"] {
+    color: var(--text);
+  }
+
+  /* Padded to a 24.8px hit target, because 16.8px of ink is not a touch target. */
+  .source {
+    display: flex;
+    padding: 0.25rem;
+  }
+
+  .source svg {
+    display: block;
+    width: 1.05rem;
+    height: 1.05rem;
+    fill: currentColor;
+  }
+</style>

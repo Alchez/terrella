@@ -1,5 +1,5 @@
 # Rendered assets and source rasters live outside git (see CLAUDE.md)
-data/
+/data/
 *.part
 blender/renders/
 blender/*.png
@@ -27,22 +27,32 @@ blender/*.blend
 # working copy, and because the path is ignored here it does so SILENTLY, exit 0. That is how six
 # HISTORY entries were destroyed. Every name below is snapshotted outside the repo and restored by
 # `guard-working-docs.py`, whose per-file policy says which of them may be restored over a shrink.
-HISTORY.md
-MARS.md
-ONBOARDING-QUESTIONS.md
-RAYTRACING.md
+/HISTORY.md
+/MARS.md
+/ONBOARDING-QUESTIONS.md
 # Guards the archive's index and anchors, so it travels with its subject: in a clone without the
 # archive it could only fail, and it keeps running locally where the file does exist.
 tests/test_history_integrity.py
+
+# Reclaiming disk needs the 1.1 TB store, the render outputs and the superseded worktrees, so this
+# skill describes work no clone can do; it stays here because the maintainer's machine has all
+# three. `test_repo_integrity.IGNORED_PATHS` mirrors this line and refuses a pointer at it.
+#
+# NOT SNAPSHOTTED, unlike the four names above, so the clobber warning above applies to it with no
+# net: other branches still track this path, and checking one out rewrites the working copy
+# silently. It is also the only copy that exists anywhere once this line lands.
+/.claude/skills/reclaim-pass/
 
 __pycache__/
 *.pyc
 .venv/
 
-# Phase 2 geotools binaries — vendored, reinstall with pipeline/install_geotools.sh
-tools/
+# The pmtiles binary: fetched and pinned, never vendored, so nothing here is tracked.
+# pipeline/acquire/install_geotools.sh refills it.
+/tools/
 
-# Secrets — never commit (holds OPENTOPOGRAPHY_API_KEY; OT prohibits sharing keys)
+# Machine-local config and secrets — never commit. Matches at any depth, so `web/.env`
+# (the dev server's store paths) and `.env.production` are both covered.
 .env
 .env.*
 

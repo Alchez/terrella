@@ -24,8 +24,10 @@ cannot honour. When the repository is public, the URL belongs here, in this cons
 else.
 """
 
+import hashlib
 import os
 import shutil
+import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -63,9 +65,10 @@ def download_one(url: str, dest: Path, *, timeout: float = 60,
     The one home for "stream to .part, size-check against Content-Length, atomically rename", so a
     file under its final name is always complete and `exists()` is a valid resume.
 
-    `absent_on_404` MUST STAY DEFAULT-OFF. Eight of its ten callers test
-    `status.startswith("failed")`, so returning 'absent' to one of them turns a missing file into a
-    silent success; only the two WorldCover callers, whose ocean cells legitimately 404, pass True.
+    `absent_on_404` MUST STAY DEFAULT-OFF. Most callers test `status.startswith("failed")`, so
+    returning 'absent' to one of them turns a missing file into a silent success. It is passed only
+    where a 404 is a real answer about the data rather than a fault: WorldCover's ocean cells, and
+    the components Natural Earth ships for some layers and not others.
     """
     if dest.exists():
         return "skipped"
@@ -89,3 +92,42 @@ def download_one(url: str, dest: Path, *, timeout: float = 60,
     except Exception as exc:  # noqa: BLE001 — one tile's failure must not kill the pool
         part.unlink(missing_ok=True)
         return f"failed: {exc}"
+
+
+def file_md5(path: Path) -> str:
+    """md5 of a file on disk, streamed a megabyte at a time.
+
+    md5 rather than something modern because it is what publishers ship, and the digest has to
+    compare against theirs: a sha256 here makes every pin uncheckable. It guards against a truncated
+    or substituted file, not an attacker.
+    """
+    digest = hashlib.md5()
+    with open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def published_md5(url: str, name: str) -> str:
+    """The digest a publisher ships in an `md5sum`-format sidecar, `<digest>  <name>`, or exit.
+
+    The sidecar names its subject and the name is checked, so a rotted URL is reported as one rather
+    than as a republished product.
+    """
+    with open_url(url, timeout=60) as response:
+        text = response.read().decode("ascii").strip()
+    fields = text.split()
+    if len(fields) != 2 or fields[1] != name:
+        sys.exit(f"{url}: expected '<md5>  {name}', got {text!r}: the checksum sidecar does not "
+                 f"describe this product, so its digest cannot be compared to ours")
+    return fields[0]
+
+
+def assert_digest(path: Path, expected: str) -> str:
+    """Assert the file on disk carries the pinned digest, returning it, or exit."""
+    digest = file_md5(path)
+    if digest != expected:
+        sys.exit(f"{path.name}: md5 {digest} != pinned {expected}: the bytes on disk are not the "
+                 f"published edition. Delete the file and re-run rather than re-pinning, since a "
+                 f"truncated or substituted file looks exactly like this.")
+    return digest

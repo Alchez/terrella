@@ -61,7 +61,7 @@ from rasterio.vrt import WarpedVRT
 from rasterio.warp import transform_bounds
 from rasterio.windows import Window
 
-from pipeline import bodies
+from pipeline import bodies, render_files
 from pipeline.render import render_seam
 
 FRAME_MARGIN = 1.0006  # the hero path's `camera_fraction`: camera overshoot, so the plane
@@ -117,13 +117,13 @@ def scene_numbers(width_px, height_px, extent_w_m, *, exaggeration,
     makes off-frustum context nearly free; `block_plan` holds the three
     widths this is one half of.
 
-    `exaggeration` IS KEYWORD-ONLY AND REQUIRED, and this used to import
-    Earth's 15x directly. It is `Body.exaggeration`, which is 20x on Mars,
-    and this function is not the hero path's alone: the block prep calls it
-    too and says so ("scene_numbers is the whole seam"), so a Mars block
-    prepared through the old import displaced at two thirds of correct with
-    nothing to notice. No default, for the reason no field on `Body` has
-    one — the type checker names every call site at once."""
+    `exaggeration` is keyword-only and required, and it is
+    `Body.baked_exaggeration`, which is 20x on Mars. The temptation is to
+    import Earth's authored constant from `palette.py` here instead, one
+    argument fewer at every call site; this function is not the hero path's
+    alone, so a Mars block prepared that way displaces at two thirds of
+    correct with nothing to notice. No default, for the reason no field on
+    `Body` has one — the type checker names every call site at once."""
     plane_h = 2.0 * height_px / width_px
     if height_px > width_px:
         res = dict(res_x=round(hero_long_edge * width_px / height_px),
@@ -235,8 +235,8 @@ def main():
     ap.add_argument("--heightfield", type=Path, required=True)
     ap.add_argument("--mask", type=Path, required=True)
     ap.add_argument("--watermask", type=Path,
-                    help=f"4-class water mask; adds {render_seam.WATERMASK} + "
-                         f"{render_seam.INLANDLAKE} + {render_seam.RIVER}")
+                    help=f"4-class water mask; adds {render_files.WATERMASK} + "
+                         f"{render_files.INLANDLAKE} + {render_files.RIVER}")
     ap.add_argument("--outdir", type=Path, required=True)
     ap.add_argument("--width", type=int, default=16384)
     ap.add_argument("--hero-long-edge", type=int, default=HERO_LONG_EDGE,
@@ -249,13 +249,13 @@ def main():
                          "config/countries.toml resolution_floor_m is the home")
     ap.add_argument("--frame", nargs=4, type=float, metavar=("W", "S", "E", "N"),
                     help="padded lon/lat frame from frame_country.py; "
-                         f"required unless {render_seam.HEIGHTFIELD} already exists")
+                         f"required unless {render_files.HEIGHTFIELD} already exists")
     args = ap.parse_args()
     body = bodies.BODIES[args.body]
 
-    out_h = args.outdir / render_seam.HEIGHTFIELD
-    out_m = args.outdir / render_seam.OCEANMASK_TIF
-    out_w = args.outdir / render_seam.WATERMASK
+    out_h = args.outdir / render_files.HEIGHTFIELD
+    out_m = args.outdir / render_files.OCEANMASK_TIF
+    out_w = args.outdir / render_files.WATERMASK
     out_f = args.outdir / "frame.json"
     args.outdir.mkdir(parents=True, exist_ok=True)
 
@@ -289,7 +289,7 @@ def main():
               flush=True)
     else:
         numbers = scene_numbers(width, height, width * xres,
-                                exaggeration=body.exaggeration,
+                                exaggeration=body.baked_exaggeration,
                                 hero_long_edge=args.hero_long_edge)
         # normalize the CRS spelling so a regenerated frame.json is
         # byte-identical whether the projection came from --frame or the file
@@ -301,7 +301,7 @@ def main():
             dst_crs=crs_norm.to_proj4(),
             width_px=width, height_px=height, xres_m=xres,
             extent_w_m=width * xres, extent_h_m=height * xres,
-            exaggeration=body.exaggeration,
+            exaggeration=body.baked_exaggeration,
             **numbers)
         tmp_f = out_f.with_name(out_f.name + ".tmp")
         tmp_f.write_text(frame_json_text(payload))
@@ -321,9 +321,9 @@ def main():
              dtype, pred, floor_m=fm)
         wrote += 1
 
-    png_jobs = [(out_m, 1, render_seam.OCEANMASK)]
+    png_jobs = [(out_m, 1, render_files.OCEANMASK)]
     if args.watermask:
-        png_jobs += [(out_w, 2, render_seam.INLANDLAKE), (out_w, 3, render_seam.RIVER)]
+        png_jobs += [(out_w, 2, render_files.INLANDLAKE), (out_w, 3, render_files.RIVER)]
     for src_tif, cls, name in png_jobs:
         out_png = args.outdir / name
         if out_png.exists():
@@ -336,7 +336,7 @@ def main():
     # statement about this stage having finished rather than about it having written bytes. A resume
     # that skipped every warp has still produced the directory the rig is about to read.
     print(f"declared {render_seam.declare(args.outdir, render_seam.PREP,
-                                          [render_seam.HEIGHTFIELD] + [n for _, _, n in png_jobs])}",
+                                          [render_files.HEIGHTFIELD] + [n for _, _, n in png_jobs])}",
           flush=True)
     print("complete" if wrote else "nothing to do — all outputs exist",
           flush=True)

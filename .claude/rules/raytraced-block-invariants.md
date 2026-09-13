@@ -27,7 +27,7 @@ the params recipe plus the planet rasters. So:
   the look. A constant added to `Rig` is in the recipe with nothing to remember.
   - **And what it costs is the whole planet.** Moving one value into `Rig` changes the recipe's text,
     so `start_generation` clears every marker and the body re-renders end to end, plus a re-cut, an
-    upload and a Worker deploy. PROCESS.md holds the figure.
+    upload and a Worker deploy. docs/PROCESS.md holds the figure.
   - **Never assume a re-render is already owed.** Diff the on-disk sidecar against `params()` first.
     Equal means the next look change buys a whole pass on its own, so batch look changes rather than
     landing them one at a time.

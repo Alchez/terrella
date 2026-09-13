@@ -18,7 +18,7 @@ import { readdirSync, readFileSync } from "node:fs";
  * ---------------------------------------------------
  * A bare `import "maplibre-gl/dist/maplibre-gl.css"` in the client script makes Vite hoist it into
  * a render-blocking `<link>`. That put **70 KB of widget CSS in front of first paint** on a page
- * where the first widget cannot exist until the 265 KB globe chunk has downloaded and executed —
+ * where the first widget cannot exist until the globe chunk has downloaded and executed —
  * measured at 1,209 ms for the stylesheet against 1,894 ms for the chunk, so it was blocking paint
  * for something ~700 ms away from needing it. Reverting the import costs FCP 629 → 1,264 ms.
  */
@@ -32,7 +32,7 @@ const mapStylesheet = readFileSync(`${WEB_ROOT}src/components/MapStylesheet.astr
 const globe = readFileSync(`${WEB_ROOT}src/components/Globe.astro`, "utf8");
 const astroConfig = readFileSync(`${WEB_ROOT}astro.config.ts`, "utf8");
 
-// EVERY PAGE THAT DRAWS THE GLOBE, found rather than named. This guard read `pages/earth.astro`
+// Every page that draws the globe, found rather than named. This guard read Earth's page alone
 // while Earth was the only globe, and the day Mars got one the rule went on being checked in one
 // place and unchecked in the other — a Mars globe missing the forward would link MapLibre's sheet
 // nowhere and render every widget unstyled, with the whole suite green. The subject is not a file,

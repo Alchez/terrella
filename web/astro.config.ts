@@ -497,12 +497,12 @@ export default defineConfig({
     // the document already has to arrive and a stylesheet that arrives with it is free of latency.
     //
     // This is deliberately NOT paired with inlining MapLibre's 70 KB, which is linked non-blocking
-    // from earth.astro instead. Inlining both was measured too and came out SLOWER (689 ms): past
+    // from `MapStylesheet.astro` instead. Inlining both was measured too and came out SLOWER (689 ms): past
     // roughly the document's own size, the bytes you add to every page cost more than the round trip
     // you remove. The rule is "inline what blocks paint, link what does not".
     //
     // The cost is real and accepted: page CSS is no longer separately cacheable across navigations.
-    // It is 12 KB on the globe and 5 KB on the gallery, against a 265 KB script that dwarfs both.
+    // It is 12 KB on the globe and 5 KB on the gallery, against a globe script that dwarfs both.
     inlineStylesheets: 'always',
   },
   vite: {

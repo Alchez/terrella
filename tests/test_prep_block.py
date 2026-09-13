@@ -118,7 +118,7 @@ class TestTheAppliedExaggerationIsUniformDownThePlane:
     cosine and `row_scale` multiplies it back, so checking them separately would pass with the two
     disagreeing about which row the centre is — an error that is uniform across the whole planet
     and therefore invisible to every seam, join and neighbour measurement there is. What has to
-    hold is that one metre of elevation displaces exactly `Body.exaggeration` ground metres on
+    hold is that one metre of elevation displaces exactly `Body.baked_exaggeration` ground metres on
     EVERY row, and that is what these assert.
 
     THE ORACLE IS A DIFFERENT MODULE AND A DIFFERENT FORMULA. `mercator.ground_metres_per_pixel`
@@ -148,7 +148,7 @@ class TestTheAppliedExaggerationIsUniformDownThePlane:
         """
         numbers = prep_block.render_prep.scene_numbers(
             window.width, window.height, prep_block.ground_width_m(window, body),
-            exaggeration=body.exaggeration, hero_long_edge=window.width, camera_fraction=1.0)
+            exaggeration=body.baked_exaggeration, hero_long_edge=window.width, camera_fraction=1.0)
         rows = np.arange(window.row_off, window.row_off + window.height, dtype=np.float64)
         latitudes = np.array([block_plan.row_latitude_deg(float(row), body) for row in rows])
         ground_per_px = mercator.ground_metres_per_pixel(
@@ -161,9 +161,9 @@ class TestTheAppliedExaggerationIsUniformDownThePlane:
         for window in self._windows(body):
             applied = self._displaced_ground_metres(
                 window, body, prep_block.row_scale(window, body))
-            assert applied == pytest.approx(body.exaggeration, rel=1e-12), (
+            assert applied == pytest.approx(body.baked_exaggeration, rel=1e-12), (
                 f"row {window.row_off}, height {window.height}: applied exaggeration spans "
-                f"{applied.min():.6f} to {applied.max():.6f}, not a flat {body.exaggeration}")
+                f"{applied.min():.6f} to {applied.max():.6f}, not a flat {body.baked_exaggeration}")
 
     @pytest.mark.parametrize("body", [bodies.EARTH, bodies.MARS], ids=lambda b: b.name)
     def test_without_the_correction_the_same_assertion_fails(self, body):
@@ -298,7 +298,7 @@ class TestTheContextIsCutAndNeverDelivered:
         window = block.plane_window
         numbers = prep_block.render_prep.scene_numbers(
             window.width, window.height, prep_block.ground_width_m(window, bodies.EARTH),
-            exaggeration=bodies.EARTH.exaggeration, hero_long_edge=block.traced_edge_px,
+            exaggeration=bodies.EARTH.baked_exaggeration, hero_long_edge=block.traced_edge_px,
             camera_fraction=block.traced_edge_px / block.plane_edge_px)
         assert numbers["res_x"] == numbers["res_y"] == block.traced_edge_px
         assert numbers["res_x"] < block.plane_edge_px, "the camera would be photographing context"
@@ -443,14 +443,14 @@ class TestTheRecipeRecordsWhatExistenceCannotSee:
         monkeypatch.setattr(prep_block.planet_seam, "declared",
                             lambda _body: frozenset({"heightfield"}))
         window = plane_window(0, 4096, 2048, 256)
-        prep_block.write_recipe(body, window, tmp_path, [prep_block.render_seam.HEIGHTFIELD])
+        prep_block.write_recipe(body, window, tmp_path, [prep_block.render_files.HEIGHTFIELD])
         return json.loads((tmp_path / prep_block.RECIPE_NAME).read_text())
 
     def test_the_two_terms_that_are_the_identity_on_earth_are_both_recorded(
             self, monkeypatch, tmp_path):
         recipe = self._written(monkeypatch, tmp_path, bodies.MARS)
         assert recipe["ground_scale"] == bodies.ground_metres_per_mercator_unit(bodies.MARS) != 1.0
-        assert recipe["exaggeration"] == bodies.MARS.exaggeration != bodies.EARTH.exaggeration
+        assert recipe["exaggeration"] == bodies.MARS.baked_exaggeration != bodies.EARTH.baked_exaggeration
 
     def test_what_the_body_could_not_supply_is_recorded_as_OFF_and_never_as_absent(
             self, monkeypatch, tmp_path):
@@ -465,7 +465,7 @@ class TestTheRecipeRecordsWhatExistenceCannotSee:
                             lambda _body: frozenset({"heightfield", "oceanmask", "watermask"}))
         window = plane_window(0, 4096, 2048, 256)
         prep_block.write_recipe(bodies.EARTH, window, tmp_path,
-                                [prep_block.render_seam.HEIGHTFIELD])
+                                [prep_block.render_files.HEIGHTFIELD])
         recipe = json.loads((tmp_path / prep_block.RECIPE_NAME).read_text())
         assert recipe["layers_off"] == [] and recipe["rasters_off"] == []
 
@@ -550,13 +550,13 @@ class TestASoftAlphaSurvivesTheWriterWellEnoughNotToTerrace:
     def test_a_quantised_alpha_does_not_terrace_the_sea_floor_past_one_ground_pixel(self, tmp_path):
         body = bodies.EARTH
         quantum = self._round_trip_quantum(tmp_path, body)
-        riser_m = self.DEPTH_M * quantum * body.exaggeration
+        riser_m = self.DEPTH_M * quantum * body.baked_exaggeration
         ground_m = self._ground_metres_per_pixel(body)
         assert riser_m < ground_m, (
             f"the mask writer preserves the alpha only to {quantum:.3g}, so one level boundary "
             f"steps the displaced sea floor by {riser_m:.1f} m across {ground_m:.1f} m of ground "
             f"at {self.LATITUDE_DEG}N. That is a slope past 45 degrees against a "
-            f"{body.exaggeration}x exaggeration, so a 45-degree sun renders every boundary as a "
+            f"{body.baked_exaggeration}x exaggeration, so a 45-degree sun renders every boundary as a "
             f"self-shadowing line, measured at 30.4 DN below the surrounding surface.")
 
     def test_the_same_writer_loses_nothing_on_a_binary_mask(self, tmp_path):
@@ -713,7 +713,7 @@ class TestTheCutReadsTheWorkDirectoryItWasGiven:
         override, _ = self._both_stores(monkeypatch, tmp_path)
         outdir = tmp_path / "render"
         prep_block.cut(bodies.EARTH, self.BLOCK, outdir, work=override)
-        with rasterio.open(outdir / prep_block.render_seam.HEIGHTFIELD) as cut:  # pyright: ignore[reportCallIssue]
+        with rasterio.open(outdir / prep_block.render_files.HEIGHTFIELD) as cut:  # pyright: ignore[reportCallIssue]
             assert np.unique(cut.read(1)).tolist() == [111.0]
 
     def test_the_default_is_a_reachable_directory_with_different_ground(
@@ -750,7 +750,7 @@ class TestTheCutReadsTheWorkDirectoryItWasGiven:
         assert (store / prep_block.planet_warp.OCEAN_3857).exists(), (
             "the fixture stopped writing the ocean raster, so this proves nothing: the whole "
             "question is what happens when the FILE is present and the DECLARATION is not")
-        assert not (outdir / prep_block.render_seam.OCEANMASK).exists(), (
+        assert not (outdir / prep_block.render_files.OCEANMASK).exists(), (
             "an undeclared oceanmask reached the render directory, so the gate is reading the "
             "filesystem instead of the seam")
 
@@ -768,7 +768,7 @@ class TestTheCutReadsTheWorkDirectoryItWasGiven:
 
         prep_block.cut(bodies.EARTH, self.BLOCK, outdir, work=store)
 
-        assert (outdir / prep_block.render_seam.OCEANMASK).exists()
+        assert (outdir / prep_block.render_files.OCEANMASK).exists()
 
     def test_a_declared_layer_whose_raster_is_absent_is_read_as_ABSENT_not_as_an_error(
             self, monkeypatch, tmp_path):
@@ -789,11 +789,11 @@ class TestTheCutReadsTheWorkDirectoryItWasGiven:
 
         prep_block.cut(bodies.EARTH, self.BLOCK, outdir, work=store)
 
-        assert (outdir / prep_block.render_seam.HEIGHTFIELD).exists(), (
+        assert (outdir / prep_block.render_files.HEIGHTFIELD).exists(), (
             "the cut did not complete against a store holding only the three planet rasters, so "
             "an absent built layer is no longer being read as absent")
-        for name in (prep_block.render_seam.SNOWMASK, prep_block.render_seam.LAKEDEPTH,
-                     prep_block.render_seam.SEAICE):
+        for name in (prep_block.render_files.SNOWMASK, prep_block.render_files.LAKEDEPTH,
+                     prep_block.render_files.SEAICE):
             assert not (outdir / name).exists(), (
                 f"{name} was written from a raster that is not in the store, so the layer read is "
                 f"no longer gated on the file existing")

@@ -20,7 +20,7 @@ from typing import Any
 import pytest
 
 from pipeline import datasets
-from pipeline.acquire import download_sim3292 as sim3292
+from pipeline.acquire.mars import download_sim3292 as sim3292
 
 
 def _feature(unit: str = "lApc", area: float = 100.0, **overrides: Any) -> dict[str, Any]:

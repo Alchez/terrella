@@ -7,7 +7,7 @@ structural difference downstream is the mask -- ice alpha is gated on `ocean`, s
 `~(ocean|water)` -- applied by whichever producer builds the alpha, not here.
 
 Source: `data/raw/seaice/seaice_frequency_1991-2020_4326.tif`, the annual frequency-of-occurrence
-climatology built by pipeline/acquire/download_seaice.py (OSI SAF OSI-450-a, 1991-2020), packed
+climatology built by pipeline/acquire/earth/download_seaice.py (OSI SAF OSI-450-a, 1991-2020), packed
 IDENTICALLY to snow persistence (0..10000 = 0..1, fill 65535) so this warp/unpack is a copy of
 snow's. Two deliberate simplifications versus snow:
   - no latitude ramp: sea ice is intrinsically polar, so the field itself says where ice is -- there
@@ -102,12 +102,12 @@ def warp_seaice_raster(bounds, width, height, out_path, src=None, band_rows=None
     """Warp the ice-frequency source onto a Web-Mercator grid in latitude BANDS (RAW PACKED Float32).
 
     Stores the packed value (0..10000, fill 65535), NOT the 0..1 fraction, for the same reason as snow
-    (`warp_persistence_raster`): the composite unpacks per window in float64, so a window slice of this
+    (`warp_persistence_raster`): the reader unpacks per window in float64, so a window slice of this
     raster must be bit-identical to warping that window alone.
 
     WHY BANDS: `snow.warp_persistence_raster` holds the argument and the measurement that settled it.
     This source is coarser still -- 0.1 deg (~11 km) against the ~305 m target -- so a whole-grid warp
-    decimates it the same way and smooths the ice edge. band_rows=None (region/cap grids) is a single
+    decimates it the same way and smooths the ice edge. band_rows=None (small grids) is a single
     direct warp.
     """
     left, bottom, right, top = bounds
@@ -152,7 +152,7 @@ def ice_alpha(frequency, ice_lo=None, ice_band=None, ice_max_alpha=None):
     zero wherever there is no ice, so there is no seasonal-snow flooding to hold back).
 
     ice_lo / ice_band / ice_max_alpha default (None) to the module globals -- the Arctic pack (Mercator
-    tiles + north cap) uses those. South of the equator both the tile composite and the south cap pass
+    tiles + north cap) uses those. South of the equator both the tile tier and the south cap pass
     the toned SH_ICE_* pair instead, for the reason those constants document.
     """
     ice_lo = ICE_LO if ice_lo is None else ice_lo
@@ -185,12 +185,3 @@ def gated_alpha(contribution, ocean):
     return gated if bool(gated.any()) else None
 
 
-def warp_seaice(bounds, width, height, out_path, src=None):
-    """Warp ice frequency and return it as a float64 fraction in 0..1 (raster + unpack) -- thin wrapper.
-
-    For whole-grid callers (the cap render, or a region path): delegates to the two halves so the
-    stored raster stays identical to a windowed warp.
-    """
-    warp_seaice_raster(bounds, width, height, out_path, src=src)
-    with rasterio.open(out_path) as dataset:
-        return unpack_seaice(dataset.read(1))

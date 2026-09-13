@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 
 from pipeline import bodies, paths
-from pipeline.acquire import download_viking_mosaic
+from pipeline.acquire.mars import download_viking_mosaic
 from pipeline.look import mars_ice, viking_luma
 
 
