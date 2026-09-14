@@ -62,6 +62,7 @@ from rasterio.warp import transform_bounds
 from rasterio.windows import Window
 
 from pipeline import bodies, render_files
+from pipeline.look import lake_depth
 from pipeline.render import render_seam
 
 FRAME_MARGIN = 1.0006  # the hero path's `camera_fraction`: camera overshoot, so the plane
@@ -323,7 +324,8 @@ def main():
 
     png_jobs = [(out_m, 1, render_files.OCEANMASK)]
     if args.watermask:
-        png_jobs += [(out_w, 2, render_files.INLANDLAKE), (out_w, 3, render_files.RIVER)]
+        png_jobs += [(out_w, lake_depth.LAKE_CLASS, render_files.INLANDLAKE),
+                     (out_w, lake_depth.RIVER_CLASS, render_files.RIVER)]
     for src_tif, cls, name in png_jobs:
         out_png = args.outdir / name
         if out_png.exists():

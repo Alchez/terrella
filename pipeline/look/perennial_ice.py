@@ -153,12 +153,11 @@ def _earth_north(inputs: CapIceInputs) -> np.ndarray:
     """NSIDC-0791 snow persistence, smoothstepped — Earth's Arctic land ice and perennial snow.
 
     The whole cap is north of `cap_render.CAP_EDGE_LAT` and therefore of `snow.RAMP_LAT_HI`, so
-    `snow_alpha`'s latitude ramp is CONSTANT across every pixel of it. Reproduced here with the
-    fixed high-latitude thresholds rather than by calling `snow_alpha`, whose per-row latitude is
-    Mercator-specific and would be wrong on an AEQD grid.
+    `snow_alpha`'s latitude ramp is constant across every pixel of it, and is written here as those
+    fixed high-latitude thresholds.
 
-    The feather is shared though, and has to be: only the ramp is Mercator-specific, the staircase
-    it softens is the source's own 0.01 degree cell, which this grid resolves exactly as the tiles
+    The feather is shared, and has to be: the staircase it softens is the source's own 0.01 degree
+    cell, which this grid resolves exactly as the tiles
     do — and the cap meets those tiles across the 80..84 crossfade, at the latitudes where the cell
     is 20 to 35 render pixels tall and the staircase is at its worst. Feathering one side of that
     seam and not the other would swap one visible discontinuity for another. The disc has a single

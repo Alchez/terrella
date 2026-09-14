@@ -89,9 +89,9 @@ def country_render_dir(slug: str) -> Path:
     return country_work_dir(slug) / "render"
 
 DEFAULT_KEYS = {"pad_pct", "hero_long_edge", "warp_long_edge", "fusion",
-                "sky_view_strength", "resolution_floor_m"}
+                "resolution_floor_m"}
 COUNTRY_KEYS = {"admin", "frame", "hero_long_edge", "fusion", "status", "notes",
-                "also", "sky_view_strength", "resolution_floor_m"}
+                "also", "resolution_floor_m"}
 FUSION_RES = {"1s": 1, "3s": 3}
 FAR_FLUNG_FRACTION = 0.25  # main part below this share of a bbox axis
 
@@ -99,12 +99,6 @@ FAR_FLUNG_FRACTION = 0.25  # main part below this share of a bbox axis
 def slugify(admin: str) -> str:
     """countries.toml slug rule: lowercase, non-alphanumerics stripped."""
     return re.sub(r"[^a-z0-9]", "", admin.lower())
-
-
-def _valid_strength(value) -> bool:
-    """sky_view_strength must be a plain number in [0, 1] (reject bool)."""
-    return (isinstance(value, (int, float)) and not isinstance(value, bool)
-            and 0.0 <= value <= 1.0)
 
 
 def _valid_floor(value) -> bool:
@@ -134,9 +128,6 @@ def load_config() -> dict:
         bad.append(f"unknown top-level tables: {sorted(extra)}")
     if extra := set(cfg.get("defaults", {})) - DEFAULT_KEYS:
         bad.append(f"[defaults]: unknown keys {sorted(extra)}")
-    if (sv := cfg.get("defaults", {}).get("sky_view_strength")) is not None \
-            and not _valid_strength(sv):
-        bad.append("[defaults]: sky_view_strength must be a number in [0, 1]")
     if (rf := cfg.get("defaults", {}).get("resolution_floor_m")) is not None \
             and not _valid_floor(rf):
         bad.append("[defaults]: resolution_floor_m must be a number in [0, 1000]")
@@ -150,9 +141,6 @@ def load_config() -> dict:
             bad.append(f"{where}: unknown status {status!r}")
         if (fusion := tbl.get("fusion")) not in (None, *FUSION_RES):
             bad.append(f"{where}: fusion must be one of {sorted(FUSION_RES)}, not {fusion!r}")
-        if (sv := tbl.get("sky_view_strength")) is not None \
-                and not _valid_strength(sv):
-            bad.append(f"{where}: sky_view_strength must be a number in [0, 1]")
         if (rf := tbl.get("resolution_floor_m")) is not None \
                 and not _valid_floor(rf):
             bad.append(f"{where}: resolution_floor_m must be a number in [0, 1000]")
@@ -254,8 +242,6 @@ def resolve(slug: str, row: dict, cfg: dict) -> dict | None:
     if fusion == "auto":
         fusion = "1s" if src_px_3s < warp_w else "3s"
     pin = PIN_DIR / f"{slug}.json"
-    sky_view_strength = tbl.get("sky_view_strength",
-                                defaults["sky_view_strength"])
     resolution_floor_m = tbl.get("resolution_floor_m",
                                  defaults["resolution_floor_m"])
     return dict(
@@ -266,8 +252,6 @@ def resolve(slug: str, row: dict, cfg: dict) -> dict | None:
         warp=(warp_w, round(warp_w * aspect)), hero=hero,
         hero_long_overridden="hero_long_edge" in tbl, hero_long=hero_long,
         fusion=fusion, fusion_overridden="fusion" in tbl, src_px_3s=src_px_3s,
-        sky_view_strength=sky_view_strength,
-        sky_view_strength_overridden="sky_view_strength" in tbl,
         resolution_floor_m=resolution_floor_m,
         resolution_floor_m_overridden="resolution_floor_m" in tbl,
         pin=pin if pin.exists() else None,
@@ -364,7 +348,7 @@ def stage_commands(resolved: dict) -> list[str]:
         (f"python -m pipeline.fuse.fuse_heightfield --bounds {fr}"
          f" --res-arcsec {FUSION_RES[resolved['fusion']]} --outdir {work}"),
         prep,
-        f"python -m pipeline.render.snow_mask --render-dir {rd}",
+        f"python -m pipeline.render.snow_mask --body {bodies.EARTH.name} --render-dir {rd}",
         f"python -m pipeline.render.lake_mask --render-dir {rd}",
         (f"{BLENDER} -b --python pipeline/render/scene_build.py --"
          f" --body {bodies.EARTH.name} --render-dir {rd}"

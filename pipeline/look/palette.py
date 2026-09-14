@@ -71,6 +71,11 @@ MARS_ICE_WHITE: dict[str, tuple[RGB8, RGB8]] = {   # pole -> (sunlit, shadowed)
     "north": ((226, 242, 253), (185, 198, 207)),   # E2F2FD / B9C6CF
     "south": ((226, 242, 253), (185, 198, 207)),   # E2F2FD / B9C6CF
 }
+# Salt flats: warm where snow is cool, so bright salt crust never reads as snow. The shadowed half
+# holds snow's sunlit-to-shadow ratio per channel; the rig lights the shaded end itself.
+SALT_RGB: RGB8 = (240, 236, 228)         # F0ECE4 — sunlit salt crust
+SALT_SHADOW_RGB: RGB8 = (182, 195, 203)  # B6C3CB — shaded salt crust
+
 # Sea ice: the snow family a notch cooler and dimmer, so the poles read floating-thin-ice against
 # thick-ice-sheet without a hard colour split. Thin ice over dark ocean really is the darker of the
 # two. Blended over the sea by the painter, from `seaice.ice_alpha` gated on `ocean`.

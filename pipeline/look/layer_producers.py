@@ -1,5 +1,7 @@
 """Which producer builds a body's surface layer on the Mercator grid, and what that one reads.
 
+The contributions also run on a hero's own grid, in `render/snow_mask.py`.
+
 `layers.py` says what a layer is; `Body.surface_layers` says which ones a planet has; this says who
 builds each one, out of what, and how the result becomes a number `prep_block` can fold. The cap
 tier has its own registry in `look/perennial_ice.py`, keyed by `(body, pole)` where this is keyed by
@@ -27,10 +29,10 @@ from typing import Any
 
 import numpy as np
 
-from pipeline import bodies, datasets, layers, progress
+from pipeline import bodies, datasets, layers, naturalearth, progress
 from pipeline.acquire.earth import download_add_rock, download_rgi, extract_globathy
 from pipeline.acquire.mars import download_sim3292
-from pipeline.look import lake_depth, mars_ice, palette, seaice, snow, viking_luma
+from pipeline.look import lake_depth, mars_ice, palette, salt, seaice, snow, viking_luma
 
 
 @dataclass(frozen=True)
@@ -52,6 +54,8 @@ class LayerBuild:
     #: `planet_warp.WINDOW_ROWS`, so a banded mosaic is byte-identical to per-window warps
     #: (`snow.warp_persistence_raster`).
     band_rows: int
+    #: The planet's own grid rasters this producer's `grid_rasters` names, by `planet_seam` name.
+    grid_rasters: dict[str, Path]
 
 
 @dataclass(frozen=True)
@@ -73,17 +77,14 @@ class LayerWindow:
     #: `ocean | water`, so a sea-ice producer gating on that paints a white disc on every lake. Not
     #: derivable from `watercode` either, the ocean mask being its own planet raster.
     ocean: np.ndarray
-    #: True latitude in degrees per row (1-D). A Mercator window has rows of constant latitude,
-    #: where the cap tier's twin is a per-pixel field.
+    #: True latitude in degrees: per row (1-D) on a Mercator window, whose rows each have one, and
+    #: per pixel (2-D) on a hero's conic grid, whose rows do not.
     latitude: np.ndarray
-    #: Ground metres per pixel, per row (1-D), never Mercator map metres. A producer turning a
-    #: ground distance into pixels needs the cos(latitude) stretch and the body's own
-    #: `ground_metres_per_mercator_unit`, and knows neither on its own.
-    ground_metres_per_px: np.ndarray
-    #: The window's latitude span in 3857 metres, for a producer whose ramp needs the extent rather
-    #: than the per-row value.
-    top: float
-    bottom: float
+    #: Ground metres per pixel, never map metres: per row (1-D) on a Mercator window, and one scalar
+    #: on a hero's grid. A producer turning a ground distance into pixels on the Mercator grid needs
+    #: the cos(latitude) stretch and the body's own `ground_metres_per_mercator_unit`, and knows
+    #: neither on its own.
+    ground_metres_per_px: "np.ndarray | float"
 
 
 @dataclass(frozen=True)
@@ -140,10 +141,14 @@ class LayerProducer:
     #: Materialised by `warp_inputs` through `freshness.write_if_changed`, so the file moves if and
     #: only if a value moved.
     #:
-    #: Empty on every Earth producer, which is a property of them rather than an omission: all four
-    #: are pure transport. An empty dict writes no file and adds no source, so those warps do not
-    #: restage.
+    #: Empty on every Earth producer but the salt flats, which is a property of them rather than an
+    #: omission: the rest are pure transport. An empty dict writes no file and adds no source, so
+    #: those warps do not restage.
     build_recipe: Callable[[], dict[str, Any]]
+    #: The planet's grid rasters `build` reads beside its sources, by `planet_seam` name. The warp
+    #: hands their paths over and counts them as sources, so a re-fused heightfield rebuilds the
+    #: layer. Empty on every producer that reads only its own files, so their warps do not restage.
+    grid_rasters: tuple[str, ...]
 
 
 def _build_lake_depth(request: LayerBuild) -> None:
@@ -202,6 +207,23 @@ def _build_antarctic_rock(request: LayerBuild) -> None:
                                   gpkg=datasets.addrock_gpkg(), layer=download_add_rock.LAYER)
 
 
+def _build_salt(request: LayerBuild) -> None:
+    """Every salt flat's packed field baked onto the grid, from the outlines, the persistence and the
+    planet's own heightfield and water mask (`look/salt.py`)."""
+    progress.stage("bake salt flats -> 3857 ...")
+    salt.build_planet(request.bounds, request.width, request.height, request.out,
+                      request.grid_rasters["heightfield"], request.grid_rasters["watermask"])
+
+
+def _earth_salt_paint(_window: "LayerWindow | None" = None) -> tuple[Any, Any]:
+    return palette.SALT_RGB, palette.SALT_SHADOW_RGB
+
+
+def _earth_salt_paint_recipe() -> dict[str, Any]:
+    lit, shadow = _earth_salt_paint()
+    return {"salt_rgb": lit, "salt_shadow_rgb": shadow}
+
+
 def _earth_antarctic_rock(_window: LayerWindow) -> "np.ndarray | None":
     """None on every window: the one producer that builds a raster and contributes nothing.
 
@@ -244,7 +266,7 @@ def _earth_perennial_ice(window: LayerWindow) -> "np.ndarray | None":
         persistence_alpha = np.zeros(window.land.shape, dtype=float)
     else:
         persistence_alpha = snow.soften_source_cells(
-            snow.snow_alpha(snow.unpack_persistence(window.raw), window.top, window.bottom),
+            snow.snow_alpha(snow.unpack_persistence(window.raw), window.latitude),
             window.ground_metres_per_px)
     return np.maximum(persistence_alpha,
                       snow.antarctic_snow_mask(window.land, window.latitude))
@@ -431,9 +453,10 @@ def _mars_ice_build_recipe() -> dict[str, Any]:
 
 #: Every Mercator-tier producer that ships, by (body slug, layer name).
 #:
-#: Six entries and six mechanisms: a banded NetCDF warp, a vector rasterize, a banded GeoTIFF warp,
-#: a nodata-masked bilinear warp, Mars's graded-and-feathered polar bands, and a vector rasterize
-#: whose result no pixel of its own is painted from.
+#: Seven entries and seven mechanisms: a banded NetCDF warp, a vector rasterize, a banded GeoTIFF
+#: warp, a nodata-masked bilinear warp, Mars's graded-and-feathered polar bands, a vector rasterize
+#: whose result no pixel of its own is painted from, and a packed salt field baked from outlines,
+#: persistence and the planet's own rasters.
 PRODUCER_BY_BODY_LAYER: dict[tuple[str, str], LayerProducer] = {
     ("earth", layers.LAKE_DEPTH.name): LayerProducer(
         sources=lambda: (extract_globathy.lake_vrt(),),
@@ -441,19 +464,19 @@ PRODUCER_BY_BODY_LAYER: dict[tuple[str, str], LayerProducer] = {
         # existing and being answered "not applicable" is what keeps that visible.
         build=_build_lake_depth, contribution=_earth_lake_depth, paint=lambda _window: None,
         contribution_recipe=_no_tunables, paint_recipe=_no_tunables,
-        build_recipe=_no_tunables),
+        build_recipe=_no_tunables, grid_rasters=()),
     ("earth", layers.PERENNIAL_ICE.name): LayerProducer(
         sources=lambda: (datasets.snow_persistence(),),
         build=_build_persistence, contribution=_earth_perennial_ice, paint=_earth_paint,
         contribution_recipe=_earth_perennial_ice_recipe, paint_recipe=_earth_paint_recipe,
-        build_recipe=_no_tunables),
+        build_recipe=_no_tunables, grid_rasters=()),
     ("earth", layers.GLACIERS.name): LayerProducer(
         sources=lambda: (datasets.rgi_gpkg(),),
         # Pure transport: the mask is rasterized and handed through, so there is nothing to grade
         # and the white is the whole of what this producer reads.
         build=_build_glaciers, contribution=_earth_glaciers, paint=_earth_paint,
         contribution_recipe=_no_tunables, paint_recipe=_earth_paint_recipe,
-        build_recipe=_no_tunables),
+        build_recipe=_no_tunables, grid_rasters=()),
     ("earth", layers.SEA_ICE.name): LayerProducer(
         sources=lambda: (datasets.seaice_frequency(),),
         # `seaice.ice_paint`, not a literal: the cap tier reads that same function directly, so the
@@ -461,7 +484,7 @@ PRODUCER_BY_BODY_LAYER: dict[tuple[str, str], LayerProducer] = {
         build=_build_sea_ice, contribution=_earth_sea_ice,
         paint=lambda _window: seaice.ice_paint(),
         contribution_recipe=_earth_sea_ice_recipe, paint_recipe=_earth_sea_ice_paint_recipe,
-        build_recipe=_no_tunables),
+        build_recipe=_no_tunables, grid_rasters=()),
     ("earth", layers.ANTARCTIC_ROCK.name): LayerProducer(
         sources=lambda: (datasets.addrock_gpkg(),),
         # None for both, and neither is a gap. The number this layer builds is consumed by the
@@ -471,7 +494,14 @@ PRODUCER_BY_BODY_LAYER: dict[tuple[str, str], LayerProducer] = {
         build=_build_antarctic_rock, contribution=_earth_antarctic_rock,
         paint=lambda _window: None,
         contribution_recipe=_no_tunables, paint_recipe=_no_tunables,
-        build_recipe=_no_tunables),
+        build_recipe=_no_tunables, grid_rasters=()),
+    ("earth", layers.SALT_FLATS.name): LayerProducer(
+        sources=lambda: (naturalearth.layer(salt.LAYER), datasets.snow_persistence()),
+        # No contribution, like the rock: the salt takes its share of the finished white through
+        # `salt_ground` and `salt.take` rather than folding into it. It paints in its own colour.
+        build=_build_salt, contribution=lambda _window: None, paint=_earth_salt_paint,
+        contribution_recipe=_no_tunables, paint_recipe=_earth_salt_paint_recipe,
+        build_recipe=salt.build_recipe, grid_rasters=("heightfield", "watermask")),
     ("mars", layers.PERENNIAL_ICE.name): LayerProducer(
         sources=_mars_ice_sources,
         build=_build_mars_ice, contribution=_mars_perennial_ice, paint=_mars_ice_paint,
@@ -479,7 +509,7 @@ PRODUCER_BY_BODY_LAYER: dict[tuple[str, str], LayerProducer] = {
         # split honest: it grades nothing per window, declares two whites per pole, and bakes a
         # feather and its alpha levels into the raster. One field could not carry that.
         contribution_recipe=_no_tunables, paint_recipe=_mars_ice_paint_recipe,
-        build_recipe=_mars_ice_build_recipe),
+        build_recipe=_mars_ice_build_recipe, grid_rasters=()),
 }
 
 
@@ -555,7 +585,8 @@ WHITE_EXCLUSIONS: tuple[layers.Layer, ...] = (layers.ANTARCTIC_ROCK,)
 
 
 def white_law(body: bodies.Body, vocabulary: frozenset[str]) -> dict[str, list[str]]:
-    """Which of `vocabulary` this body folds into the white and which it takes back out.
+    """Which of `vocabulary` this body folds into the white, which it takes back out, and whether
+    salt takes its share.
 
     A law rather than a constant, which is why it is not `constants_for`'s: a producer's recipe says
     how it grades its own claim, and no producer can see whether that claim is added or subtracted.
@@ -571,8 +602,28 @@ def white_law(body: bodies.Body, vocabulary: frozenset[str]) -> dict[str, list[s
     def folded(law: tuple[layers.Layer, ...]) -> list[str]:
         return [layer.name for layer in law if layer.name in runs]
 
-    return {"white_union": folded(WHITE_UNION),
-            "white_exclusions": folded(WHITE_EXCLUSIONS)}
+    law = {"white_union": folded(WHITE_UNION),
+           "white_exclusions": folded(WHITE_EXCLUSIONS)}
+    # Only where it runs, so no cap and no Martian stage records it.
+    if layers.SALT_FLATS.name in runs:
+        law["white_to_salt"] = [layers.SALT_FLATS.name]
+    return law
+
+
+def salt_ground(body: bodies.Body, layer_raw: dict[str, "np.ndarray | None"], window: LayerWindow,
+                vocabulary: frozenset[str]) -> "tuple[np.ndarray, tuple[Any, Any]] | None":
+    """This window's packed salt and the paint it takes, or None where the stage, the body or the
+    raster has none. The caller hands it to `salt.take` after `fold_white`, the salt's share coming
+    out of the finished white rather than out of one union member."""
+    if layers.SALT_FLATS.name not in vocabulary or layers.SALT_FLATS.name not in body.surface_layers:
+        return None
+    raw = layer_raw.get(layers.SALT_FLATS.name)
+    if raw is None:
+        return None
+    paint = producer_for(body, layers.SALT_FLATS).paint(window)
+    if paint is None:
+        raise ValueError(f"{body.name} has salt on this window and its producer declares no colour for it")
+    return raw, paint
 
 
 def gather(body: bodies.Body, layer_raw: dict[str, "np.ndarray | None"], window: LayerWindow,
@@ -584,7 +635,7 @@ def gather(body: bodies.Body, layer_raw: dict[str, "np.ndarray | None"], window:
     Which producers run is `producers_for`'s answer rather than a condition restated here, so this
     and `constants_for` cannot disagree about the set.
 
-    `vocabulary` is the caller's stage view, on `layers.layers_off`'s rule: `prep_block` reads
+    `vocabulary` is the caller's stage view, on `layers.layers_on`'s rule: `prep_block` reads
     `BLOCK_LAYERS` and `cap_render` `CAP_LAYERS`, and the two genuinely disagree.
 
     A paint is asked only of a layer that contributed, so a producer that paints nothing this window

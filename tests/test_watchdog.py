@@ -102,9 +102,8 @@ class TestTheProducersOwnOutputIsReportedOrDeliberatelyQuiet:
     def _rendering_run(work: Path, monkeypatch, *, blocks: int):
         """A `block_render.run` that plans real blocks and renders them without Blender or a store."""
         from pipeline.block_plan import Block
-        from pipeline.look import palette
 
-        plan = [Block(col0=column * 512, row0=0, size_px=512, context_px=1024)
+        plan =[Block(col0=column * 512, row0=0, size_px=512, context_px=1024)
                 for column in range(blocks)]
         monkeypatch.setattr(block_render.planet_seam, "declared",
                             lambda body: frozenset(block_render.planet_seam.KNOWN_RASTERS))
@@ -112,9 +111,8 @@ class TestTheProducersOwnOutputIsReportedOrDeliberatelyQuiet:
         monkeypatch.setattr(block_render, "ensure_mosaic", lambda mosaic, body: None)
         for name in (planet_warp.HEIGHT_3857, planet_warp.OCEAN_3857, planet_warp.WATER_3857):
             (work / name).write_bytes(b"")
-        (work / block_render.PARAMS_NAME).write_text(block_render.params(
-            bodies.EARTH, frozenset(block_render.planet_seam.KNOWN_RASTERS),
-            palette.look_for("earth"), block_render.rig_recipe(bodies.EARTH), []))
+        (work / block_render.PARAMS_NAME).write_text(block_render.recipe_for(
+            bodies.EARTH, frozenset(block_render.planet_seam.KNOWN_RASTERS), []))
         mosaic = work / cut_tiles.PLANET_RGB
         mosaic.write_bytes(b"")
         markers = block_render.markers_in(mosaic)

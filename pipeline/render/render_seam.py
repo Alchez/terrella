@@ -5,9 +5,9 @@ directory, some of which its producers legitimately skip, and `Path.exists()` is
 has ever decided which. Skipped and crashed look the same on disk. The standing brief owns the rule
 and names both tiers.
 
-The spellings themselves are `pipeline/render_files.py`, which is at the top level because five
-packages read them and only this package reads the declaration. `planet_seam` is not split that way
-because both of its halves have the same five-package readership.
+The spellings themselves are `pipeline/render_files.py`, which is at the top level because code
+beyond this package reads them and only this package reads the declaration. `planet_seam` is not
+split that way because both of its halves have the same wide readership.
 
 Stdlib only, and that is a hard constraint rather than a preference. `scene_build` runs inside
 Blender's interpreter, which cannot import this project's virtual environment, which is also why the
@@ -25,7 +25,7 @@ import json
 from collections.abc import Iterable
 from pathlib import Path
 
-from pipeline.render_files import HEIGHTFIELD, KNOWN_IMAGES, SEAICE, SNOWMASK
+from pipeline.render_files import HEIGHTFIELD, KNOWN_IMAGES, SALTMASK, SEAICE, SNOWMASK
 
 #: The file every stage that fills a render directory records itself in.
 DECLARATION_NAME = "render_inputs.json"
@@ -74,7 +74,7 @@ def _require_known(image: str) -> None:
 #: painted. The paint is the BODY's, and the rig cannot ask for it: `layer_producers` holds each
 #: body's answer and pulls in rasterio and GDAL, where `scene_build` runs in Blender's interpreter.
 #: So the prep, which has both the registry and the window, resolves it and writes it here.
-PAINTED_IMAGES = frozenset({SNOWMASK, SEAICE})
+PAINTED_IMAGES = frozenset({SNOWMASK, SEAICE, SALTMASK})
 
 #: One 8-bit sRGB colour on the wire. Spelled here rather than imported from `palette`, which owns
 #: the identical alias: both are in the Blender-shared set that `scripts/check_blender_drift.sh`
@@ -108,6 +108,13 @@ def _write(render_dir: Path, document: dict) -> Path:
 def _records(render_dir: Path) -> dict[str, list[str]]:
     """Every stage's record for this directory, or an empty mapping if none has written yet."""
     return _document(render_dir).get("stages", {})
+
+
+def stage_images(render_dir: Path, stage: str) -> "list[str] | None":
+    """What one stage declared here, or None if it has never run in this directory."""
+    if stage not in KNOWN_STAGES:
+        raise ValueError(f"unknown stage {stage!r}; known stages are: {', '.join(KNOWN_STAGES)}")
+    return _records(render_dir).get(stage)
 
 
 def declare(render_dir: Path, stage: str, images: Iterable[str]) -> Path:

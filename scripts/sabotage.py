@@ -590,32 +590,6 @@ SABOTAGES: list[Sabotage] = [
         replacement='            "mars_alpha_levels_unread": {pole: list(levels)',
         guard='test_mars_declares_the_two_constants_its_build_bakes_in',
     ),
-    # --- the hero burn, which had no test at all and no way to be caught wrong ---------------------
-    # Both mutations leave a hero that renders, promotes and looks deliberate. The module runs on
-    # every country through a shell string in `batch.py`, so nothing imports it and nothing but this
-    # file's own rungs asks it anything.
-    Sabotage(
-        suite='python',
-        # Reads as switching an effect off. It does the opposite: a zeroed march reports every pixel
-        # equally occluded, the per-country renormalisation spreads that to full range, and all 203
-        # heroes come out with their land burned flat at the maximum and no relief modelling left.
-        label='the sky-view exaggeration is zeroed, burning every hero flat at maximum',
-        path='pipeline/look/sky_view.py',
-        needle='max_px: int = 42, exag: float = 22.0)',
-        replacement='max_px: int = 42, exag: float = 0.0)',
-        guard='test_a_ridge_occludes_the_ground_beside_it',
-    ),
-    Sabotage(
-        suite='python',
-        # The horizon angle stops being an angle. Invisible to a tall-ridge fixture, where the
-        # gradient saturates at every distance inside the march and what falls off is the count of
-        # directions still reaching the wall, so the guard has to be asked on LOW relief.
-        label='the horizon angle drops its distance term and stops falling off with range',
-        path='pipeline/look/sky_view.py',
-        needle='(zi - heights) / (distance_px * m_per_px)',
-        replacement='(zi - heights) / m_per_px',
-        guard='test_the_horizon_angle_falls_off_with_distance',
-    ),
     # --- span attribution: the three ways it could quietly start lying -------------------------------
     # All three mutations leave a report that still RENDERS and still reads plausible, which is the
     # only reason they are worth a case: a broken attribution does not throw, it just blames the
@@ -3531,12 +3505,6 @@ SABOTAGES: list[Sabotage] = [
     # was mutating code no shipped pixel could reach. The z-factor law it protected still binds on
     # the raytraced side, where `cap_raytrace` divides by the AEQD ground scale and
     # `.claude/rules/raytraced-cap-invariants.md` states it.
-    # The sky-view half, and it fails silently in the flattest possible way: a body whose map units
-    # overstate distance searches a horizon 1.878x too long, so its valleys read as open ground and
-    # the global renormalisation spreads the error over the whole planet rather than localising it.
-    # The over-recording direction, which no pixel test can see because no pixel changes. Adding the
-    # key marks the live 46 GB chain stale and buys an 8:28 hillshade, a 53.8 min composite and a
-    # 3:44 cut, all to write the bytes already on disk.
     Sabotage(
         suite='python',
         label='the layer gate asks the filesystem before it asks the body',
@@ -3581,8 +3549,10 @@ SABOTAGES: list[Sabotage] = [
         label='the block prep gates its mask on the file instead of the seam, so a switched-off '
               'producer keeps painting',
         path='pipeline/render/prep_block.py',
-        needle='    if "oceanmask" in rasters:',
-        replacement='    if (work / planet_warp.OCEAN_3857).exists():',
+        needle='    if "oceanmask" in rasters:\n'
+               '        write_mask(outdir / render_files.OCEANMASK, ocean.astype(float))',
+        replacement='    if (work / planet_warp.OCEAN_3857).exists():\n'
+                    '        write_mask(outdir / render_files.OCEANMASK, ocean.astype(float))',
         guard='test_the_mask_is_gated_on_the_SEAMS_DECLARATION_and_not_on_the_file',
     ),
     Sabotage(
@@ -3644,8 +3614,8 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the vector is LABELLED with the target CRS instead of reprojected into it',
         path='pipeline/vector_raster.py',
-        needle='    return ["ogr2ogr", "-t_srs", target_srs, str(out), str(source)]',
-        replacement='    return ["ogr2ogr", "-a_srs", target_srs, str(out), str(source)]',
+        needle='    return ["ogr2ogr", "-t_srs", target_srs, *spatial, str(out), str(source)]',
+        replacement='    return ["ogr2ogr", "-a_srs", target_srs, *spatial, str(out), str(source)]',
         guard='test_the_reprojection_uses_t_srs_and_never_a_srs',
     ),
     # NOT ONE OF THE FOUR ABOVE: this one is loud, and it is registered because it SHIPPED. The
@@ -3929,8 +3899,8 @@ def _earth_lake_depth''',
         suite='python',
         label='a layer stops naming its built raster, so it silently leaves the planet tier entirely',
         path='pipeline/layers.py',
-        needle='                      requires_raster=None, warped_basename="snow_persistence_3857.tif")',
-        replacement='                      requires_raster=None, warped_basename=None)',
+        needle='                      requires_raster=None, warped_basename="snow_persistence_3857.tif",',
+        replacement='                      requires_raster=None, warped_basename=None,',
         guard='test_every_built_layer_names_the_raster_the_planet_tier_reads',
     ),
     # The quietest of the set: dropping the basename takes the layer out of the warp, out of the
@@ -3943,9 +3913,9 @@ def _earth_lake_depth''',
         label='Earth quietly loses a surface layer it has always painted',
         path='pipeline/bodies.py',
         needle='''    surface_layers=frozenset({"lake_depth", "perennial_ice", "glaciers", "sea_ice", "coastline",
-                              "antarctic_rock"}),''',
+                              "antarctic_rock", "salt_flats"}),''',
         replacement='''    surface_layers=frozenset({"lake_depth", "perennial_ice", "glaciers", "coastline",
-                              "antarctic_rock"}),''',
+                              "antarctic_rock", "salt_flats"}),''',
         guard='test_earth_has_every_surface_layer_and_mars_declares_only_what_it_can_produce',
     ),
     # The under-declaring direction: Earth stops painting a product it has, which is a look change
@@ -4044,15 +4014,13 @@ def _earth_lake_depth''',
     ),
     Sabotage(
         suite='python',
-        label='the cap recipe stops recording which layers are off, so switching one restages nothing',
+        label='the cap recipe records its whole vocabulary instead of the layers the body has, so '
+              'switching one off restages nothing',
         path='pipeline/tile/cap_raytrace.py',
-        # `pass`, NOT A DELETION. Removing the line outright left `if absent:` with a comment for a
-        # body, so the module stopped parsing and the whole suite failed at COLLECTION — which
-        # prints nothing the harness's `FAILED` pattern can read, so the run came back with no
-        # failing test named and the case looked like a hole in the suite rather than a broken
-        # mutation. A mutation has to leave the file importable or it measures nothing.
-        needle='        recipe["layers_off"] = absent\n',
-        replacement='        pass  # the absence stops reaching the recipe\n',
+        # The vocabulary rather than a deletion: a missing key fails every reader with a KeyError,
+        # which any test would catch, where a list that never moves is the defect's real shape.
+        needle='        "layers_on": layers.layers_on(body, layers.CAP_LAYERS),',
+        replacement='        "layers_on": sorted(layers.CAP_LAYERS),',
         guard='test_turning_a_layer_off_restages_although_its_source_stops_being_a_dependency',
     ),
     # Load-bearing rather than tidy: turning a layer off also REMOVES its file from cap_sources, so
@@ -4768,8 +4736,8 @@ def _earth_lake_depth''',
         suite='python',
         label='only lake depth is coupled to its mask, so sea ice can be on and paint nothing',
         path='pipeline/layers.py',
-        needle='                requires_raster="oceanmask", warped_basename="seaice_3857.tif")',
-        replacement='                requires_raster=None, warped_basename="seaice_3857.tif")',
+        needle='                requires_raster="oceanmask", warped_basename="seaice_3857.tif",',
+        replacement='                requires_raster=None, warped_basename="seaice_3857.tif",',
         guard='test_sea_ice_without_an_ocean_mask_is_refused',
     ),
     # The two below arrived with the layer table. Deriving the stage views from one table removed the
@@ -5379,23 +5347,72 @@ def _earth_lake_depth''',
         suite='python',
         label='the rig recipe hand-picks instead of deriving, so a new constant reaches no planet',
         path='pipeline/render/scene_build.py',
-        needle='        "rig": dataclasses.asdict(RIG),',
+        needle='        "rig": {field.name: rig[field.name] for field in dataclasses.fields(RIG)\n'
+               '                if _ONLY_WITH not in field.metadata or field.metadata[_ONLY_WITH] & images},',
         replacement='        "rig": {"samples": RIG.samples},',
         guard='test_the_recipe_carries_the_structure_exactly',
     ),
-    # The texture half of the same law. Recording only what THIS look loads reads as thrift and is
-    # the freshness hole in miniature: the optional four are declined by a body's planet seam rather
-    # than by its look, so a planet that GAINED sea ice would restage nothing.
+    # The texture half of the same law. Recording only the mandatory rows reads as thrift, the
+    # optional ones being skipped by most directories, and the optional masks are exactly the ones a
+    # stage's prep can write: the salt mask's wiring would move and restage nothing.
     Sabotage(
         suite='python',
-        label='the recipe records only the textures loaded, so a body gaining one restages nothing',
+        label='the recipe records only the mandatory textures, so an optional mask\'s wiring moving '
+              'restages nothing',
         path='pipeline/render/scene_build.py',
-        # Re-anchored when the row lost its `name` field: the mutation now drops the OPTIONAL rows
-        # rather than calling a `textures_for` whose signature has since gained the declaration,
-        # which would have been caught by a TypeError instead of by a wrong recipe.
-        needle='                     for spec in TEXTURES.values()},',
-        replacement='                     for spec in TEXTURES.values() if not spec.optional},',
-        guard='test_the_texture_table_is_in_the_recipe',
+        needle='                     for spec in TEXTURES.values() if spec.filename in images},',
+        replacement='                     for spec in TEXTURES.values() if spec.filename in images '
+                    'and not spec.optional},',
+        guard='test_a_texture_only_earths_blocks_load_restages_them_alone',
+    ),
+    # The other direction of the same filter, and the state before it: the whole table recorded for
+    # every stage, so a texture only Earth's blocks load restages Mars and all four caps.
+    Sabotage(
+        suite='python',
+        label='the recipe records the whole texture table for every stage again',
+        path='pipeline/render/scene_build.py',
+        needle='                     for spec in TEXTURES.values() if spec.filename in images},',
+        replacement='                     for spec in TEXTURES.values()},',
+        guard='test_a_texture_no_prep_writes_restages_nothing',
+    ),
+    Sabotage(
+        suite='python',
+        label='the recipe records every rig field for every stage again, so a lake colour restages '
+              'Mars and the caps',
+        path='pipeline/render/scene_build.py',
+        needle='                if _ONLY_WITH not in field.metadata or field.metadata[_ONLY_WITH] & images},',
+        replacement='                if True},',
+        guard='test_a_lake_bed_colour_restages_earths_blocks_alone',
+    ),
+    Sabotage(
+        suite='python',
+        label='a branch-only rig field loses its tag, so every stage records a value most never build',
+        path='pipeline/render/scene_build.py',
+        needle='    lake_stops: list[tuple[float, tuple[float, float, float, float]]] = dataclasses.field(\n'
+               '        metadata={_ONLY_WITH: frozenset({render_files.LAKEDEPTH})})',
+        replacement='    lake_stops: list[tuple[float, tuple[float, float, float, float]]]',
+        guard='test_every_fields_tag_is_what_the_builder_shows',
+    ),
+    Sabotage(
+        suite='python',
+        # The dangerous direction: a render loading only the river mask builds the water colour and
+        # its recipe no longer records it.
+        label='a rig field\'s tag names too few images, so a render reading it does not record it',
+        path='pipeline/render/scene_build.py',
+        needle='        metadata={_ONLY_WITH: frozenset({render_files.INLANDLAKE, render_files.RIVER})})',
+        replacement='        metadata={_ONLY_WITH: frozenset({render_files.INLANDLAKE})})',
+        guard='test_every_fields_tag_is_what_the_builder_shows',
+    ),
+    Sabotage(
+        suite='python',
+        label='the water colour is built outside its guard again, so a tagged field reaches renders '
+              'that do not record it',
+        path='pipeline/render/scene_build.py',
+        needle='    if render_files.INLANDLAKE in present or render_files.RIVER in present:\n'
+               '        rgb = nt.nodes.new("ShaderNodeRGB")',
+        replacement='    if True:\n'
+                    '        rgb = nt.nodes.new("ShaderNodeRGB")',
+        guard='test_every_fields_tag_is_what_the_builder_shows',
     ),
     # --- the inline-literal scan, which had a positive control and no mutation case -------------
     Sabotage(
@@ -5514,8 +5531,9 @@ def _earth_lake_depth''',
         needle='        "textures": {spec.filename: {field: value\n'
                '                                     for field, value in dataclasses.asdict(spec).items()\n'
                '                                     if field != "name"}\n'
-               '                     for spec in TEXTURES.values()},',
-        replacement='        "textures": {name: dataclasses.asdict(spec) for name, spec in TEXTURES.items()},',
+               '                     for spec in TEXTURES.values() if spec.filename in images},',
+        replacement='        "textures": {name: dataclasses.asdict(spec) for name, spec in TEXTURES.items()\n'
+                    '                     if spec.filename in images},',
         guard='test_renaming_every_node_leaves_the_recipe_byte_identical',
     ),
     Sabotage(
@@ -5616,17 +5634,96 @@ def _earth_lake_depth''',
         suite='python',
         label='a layer requires a planet raster no producer can emit, and nothing spell-checks it',
         path='pipeline/layers.py',
-        needle='                   requires_raster="watermask", warped_basename="lakedepth_3857.tif")',
-        replacement='                   requires_raster="watermsk", warped_basename="lakedepth_3857.tif")',
+        needle='                   requires_raster="watermask", warped_basename="lakedepth_3857.tif",',
+        replacement='                   requires_raster="watermsk", warped_basename="lakedepth_3857.tif",',
         guard='test_every_required_raster_is_one_the_planet_seam_can_emit',
     ),
     Sabotage(
         suite='python',
-        label='the freshness record names the rasters that are ON, which puts a key in Earth\'s recipe',
+        # The thrifty-looking inversion: a full planet records nothing, and every planet lacking a
+        # raster kind moves the day the vocabulary gains one.
+        label='the freshness record names the rasters that are OFF, so a raster kind a planet lacks '
+              'restages it',
         path='pipeline/planet_seam.py',
-        needle='    return sorted(KNOWN_RASTERS - rasters)',
-        replacement='    return sorted(rasters)',
-        guard='test_a_full_planet_records_nothing',
+        needle='    return sorted(rasters)',
+        replacement='    return sorted(KNOWN_RASTERS - rasters)',
+        guard='test_a_raster_this_planet_lacks_joining_the_vocabulary_moves_nothing',
+    ),
+    Sabotage(
+        suite='python',
+        label='the freshness record names the layers that are OFF, so an Earth-only layer restages Mars',
+        path='pipeline/layers.py',
+        needle='    return sorted(vocabulary & body.surface_layers)',
+        replacement='    return sorted(vocabulary - body.surface_layers)',
+        guard='test_a_layer_only_earth_has_restages_earths_blocks_alone',
+    ),
+    Sabotage(
+        suite='python',
+        label='the images a stage can load stop asking the body, so Mars records Earth\'s textures',
+        path='pipeline/layers.py',
+        needle='                     if layer.image is not None and layer.name in vocabulary & body.surface_layers)',
+        replacement='                     if layer.image is not None and layer.name in vocabulary)',
+        guard='test_mars_can_load_its_heightfield_row_scale_and_white',
+    ),
+    Sabotage(
+        suite='python',
+        label='a layer stops naming the image it paints, so its texture drops out of the recipe',
+        path='pipeline/layers.py',
+        needle='                   image=render_files.SALTMASK)',
+        replacement='                   image=None)',
+        guard='test_every_layer_names_the_rig_image_it_paints',
+    ),
+    Sabotage(
+        suite='python',
+        label='the block prep stops refusing an image its recipe cannot see',
+        path='pipeline/render/prep_block.py',
+        needle='    unrecorded = sorted(set(written) - rig_images(body, rasters))',
+        replacement='    unrecorded = []',
+        guard='test_a_mask_the_recipe_cannot_see_stops_the_cut',
+    ),
+    Sabotage(
+        suite='python',
+        label='the cap prep stops refusing an image its recipe cannot see',
+        path='pipeline/render/prep_cap.py',
+        needle='    unrecorded = sorted(set(written) - rig_images(grid.body, rasters))',
+        replacement='    unrecorded = []',
+        guard='test_a_mask_the_recipe_cannot_see_stops_the_prep',
+    ),
+    Sabotage(
+        suite='python',
+        # Zeros for a body with no water mask: a fabricated dataset the rig loads as measured.
+        label='the cap prep writes water masks for a planet that declared none',
+        path='pipeline/render/prep_cap.py',
+        needle='    if "watermask" in rasters:\n'
+               '        # The cap tier collapses',
+        replacement='    if True:\n'
+                    '        # The cap tier collapses',
+        guard='test_a_planet_with_no_masks_gets_none_written_for_it',
+    ),
+    Sabotage(
+        suite='python',
+        label='the block recipe records Earth\'s loadable images for every body',
+        path='pipeline/tile/block_render.py',
+        needle='                  rig_recipe(body, prep_block.rig_images(body, rasters)), blocks)',
+        replacement='                  rig_recipe(body, prep_block.rig_images(bodies.EARTH, '
+                    'planet_seam.KNOWN_RASTERS)), blocks)',
+        guard='test_the_flat_water_colour_restages_what_draws_inland_water',
+    ),
+    Sabotage(
+        suite='python',
+        label='the cap recipe records what a block can load, row scale and salt included',
+        path='pipeline/tile/cap_raytrace.py',
+        needle='        "rig": block_render.rig_recipe(body, prep_cap.rig_images(body, rasters)),',
+        replacement='        "rig": block_render.rig_recipe(body, prep_block.rig_images(body, rasters)),',
+        guard='test_the_row_scale_restages_both_bodies_blocks_and_no_cap',
+    ),
+    Sabotage(
+        suite='python',
+        label='the render fingerprint gives Mars an ocean, so it reports Mars passes owed for water',
+        path='scripts/render_fingerprint.py',
+        needle='    "mars": frozenset({"heightfield"}),',
+        replacement='    "mars": planet_seam.KNOWN_RASTERS,',
+        guard='test_the_render_fingerprint_stands_in_with_the_same_table',
     ),
     Sabotage(
         suite='python',
@@ -5936,6 +6033,7 @@ def _earth_lake_depth''',
         needle='    if river is not None:\n'
                '        link(surface_color, mix_socket(river, "A"))\n'
                '        link(tex[river_spec.name].outputs["Color"], river.inputs[0])\n'
+               '        assert rgb is not None, "the water colour is built wherever a water mask is"\n'
                '        link(rgb.outputs["Color"], mix_socket(river, "B"))\n'
                '        surface_color = mix_socket(river, "Result")',
         replacement='    link(surface_color, mix_socket(river, "A"))\n'
@@ -8786,17 +8884,17 @@ def _earth_lake_depth''',
         suite='python',
         label='the hero credit drops the lake tint the hero lane paints',
         path='pipeline/attribution.py',
-        needle='        heroes=("worldcover", "globathy"),',
-        replacement='        heroes=("worldcover",),',
+        needle='        heroes=("snow_persistence", "rgi", "naturalearth", "globathy"),',
+        replacement='        heroes=("snow_persistence", "rgi", "naturalearth"),',
         guard='test_the_hero_credit_is_what_the_lane_reads',
     ),
     Sabotage(
         suite='python',
-        label='a hero file credits Natural Earth, which only frames it',
+        label='a hero file stops crediting Natural Earth though its salt flats are painted from it',
         path='pipeline/attribution.py',
-        needle='        heroes=("worldcover", "globathy"),',
-        replacement='        heroes=("worldcover", "globathy", "naturalearth"),',
-        guard='test_natural_earth_frames_the_hero_and_is_not_credited_inside_it',
+        needle='        heroes=("snow_persistence", "rgi", "naturalearth", "globathy"),',
+        replacement='        heroes=("snow_persistence", "rgi", "globathy"),',
+        guard='test_natural_earth_is_credited_inside_the_hero_for_the_salt_it_outlines',
     ),
     Sabotage(
         suite='web',
@@ -10782,11 +10880,10 @@ def _earth_lake_depth''',
         label='the tile producer stops softening, so only the cap side of the crossfade is smooth',
         path='pipeline/look/layer_producers.py',
         needle='        persistence_alpha = snow.soften_source_cells(\n'
-               '            snow.snow_alpha(snow.unpack_persistence(window.raw), window.top, '
-               'window.bottom),\n'
+               '            snow.snow_alpha(snow.unpack_persistence(window.raw), window.latitude),\n'
                '            window.ground_metres_per_px)',
         replacement='        persistence_alpha = snow.snow_alpha(\n'
-                    '            snow.unpack_persistence(window.raw), window.top, window.bottom)',
+                    '            snow.unpack_persistence(window.raw), window.latitude)',
         guard='test_the_tile_producer_feathers',
     ),
     Sabotage(
@@ -10959,6 +11056,94 @@ def _earth_lake_depth''',
         needle='the browser (Globe.astro builds the MapLibre',
         replacement='the browser (earth.astro builds the MapLibre',
         guard='test_no_code_names_a_file_the_tree_has_lost',
+    ),
+    # The hero snow stage. Each renders a plausible snowline: a conic grid read at its rows' mean
+    # latitude thresholds a tilted frame's corners at the wrong height of the ramp, a stage that
+    # trusts any recorded file keeps a mask made under another law, and a stage that folds the
+    # Antarctic rule without its rock exclusion paints the outcrop white.
+    Sabotage(
+        suite='python',
+        label="the hero fold reads each row's mean latitude instead of each pixel's",
+        path='pipeline/render/snow_mask.py',
+        needle='latitude=latitude, ground_metres_per_px=ground_metres_per_px)',
+        replacement='latitude=latitude.mean(axis=1), ground_metres_per_px=ground_metres_per_px)',
+        guard='test_the_white_is_the_tile_law_read_at_each_pixels_own_latitude',
+    ),
+    Sabotage(
+        suite='python',
+        label='the hero snow stage resumes on a recipe it never compares',
+        path='pipeline/render/snow_mask.py',
+        needle='    if freshness.recorded_json(recipe_path) != json.loads(json.dumps(recipe(body))):',
+        replacement='    if freshness.recorded_json(recipe_path) is None:',
+        guard='test_a_recorded_recipe_is_current_until_a_constant_moves',
+    ),
+    Sabotage(
+        suite='python',
+        label='the hero snow stage folds the Antarctic white it burns no rock for',
+        path='pipeline/render/snow_mask.py',
+        needle='    if southmost < snow.ANTARCTIC_WHITE_LAT:',
+        replacement='    if southmost < snow.ANTARCTIC_WHITE_LAT - 90.0:',
+        guard='test_a_grid_reaching_the_antarctic_rule_is_refused',
+    ),
+    # The salt flats. Each renders plausibly: a salt that paints without taking the white leaves
+    # snow under the salt's edge, every lake an outline touches turns the Great Salt Lake to salt,
+    # an outline unclipped to its floor paints the slopes inside it, a salt raster the warp does
+    # not rebuild from a re-fused water mask keeps last year's lakes, and a notice owed once twice.
+    Sabotage(
+        suite='python',
+        label='the tile prep paints the salt and leaves the white under it',
+        path='pipeline/render/prep_block.py',
+        needle='        white, salt_alpha = salt.take(white, packed)',
+        replacement='        salt_alpha = salt.take(white, packed)[1]',
+        guard='test_the_salt_takes_the_white_and_gets_its_own_mask_and_paint',
+    ),
+    Sabotage(
+        suite='python',
+        label='the hero snow stage paints the salt and leaves the white under it',
+        path='pipeline/render/snow_mask.py',
+        needle='    alpha, salt_alpha = salt.take(alpha, packed)',
+        replacement='    salt_alpha = salt.take(alpha, packed)[1]',
+        guard='test_the_salt_takes_the_white_it_claims_and_returns_its_own_alpha',
+    ),
+    Sabotage(
+        suite='python',
+        label='every lake an outline touches becomes salt, the Great Salt Lake with it',
+        path='pipeline/look/salt.py',
+        needle='        mostly_inside = held >= LAKE_INSIDE_FRACTION * size',
+        replacement='        mostly_inside = held >= 0 * size',
+        guard='test_a_lake_lying_mostly_outside_is_a_lake_even_where_the_outline_overlaps_it',
+    ),
+    Sabotage(
+        suite='python',
+        label='an outline is salt on the slopes inside it',
+        path='pipeline/look/salt.py',
+        needle='        full = np.maximum(full, cover * (np.abs(heightfield - floor) <= FLOOR_TOLERANCE_M))',
+        replacement='        full = np.maximum(full, cover)',
+        guard='test_the_outline_is_salt_on_its_level_floor_and_not_on_a_hill_inside_it',
+    ),
+    Sabotage(
+        suite='python',
+        label='the warp keeps a salt raster baked from a water mask that has since moved',
+        path='pipeline/planet_warp.py',
+        needle='        if warp_needs_rebuild(out, grid, *sources, *grid_rasters.values()):',
+        replacement='        if warp_needs_rebuild(out, grid, *sources):',
+        guard='test_a_moved_water_mask_rebuilds_the_salt_and_an_unmoved_one_does_not',
+    ),
+    Sabotage(
+        suite='python',
+        label='a relief archive prints the snow persistence notice twice',
+        path='pipeline/attribution.py',
+        needle='    return tuple(dict.fromkeys((*credits.heightfield, *painted)))',
+        replacement='    return (*credits.heightfield, *painted)',
+        guard='test_every_notice_appears_once_though_two_layers_read_one_source',
+    ),
+    Sabotage(
+        suite='python',
+        label='the caps record salt they never read, and restage for it',
+        path='pipeline/look/layer_producers.py',
+        needle='    if layers.SALT_FLATS.name in runs:\n        law["white_to_salt"] = [layers.SALT_FLATS.name]',
+        replacement='    law["white_to_salt"] = [name for name in (layers.SALT_FLATS.name,) if name in runs]',
+        guard='test_the_white_law_names_salt_where_a_stage_reads_it_and_nowhere_else',
     ),
 ]
 

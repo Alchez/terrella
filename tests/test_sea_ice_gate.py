@@ -36,7 +36,7 @@ def _mercator_window(ocean: np.ndarray) -> layer_producers.LayerWindow:
     return layer_producers.LayerWindow(
         raw=_packed(), watercode=np.zeros((ROWS, COLS), dtype=np.uint8),
         land=~ocean, ocean=ocean, latitude=latitude,
-        ground_metres_per_px=np.full(ROWS, 300.0), top=TOP, bottom=BOTTOM)
+        ground_metres_per_px=np.full(ROWS, 300.0))
 
 
 def _checkerboard() -> np.ndarray:

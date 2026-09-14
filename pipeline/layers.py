@@ -9,8 +9,8 @@ covers the other.
 
 A table rather than three frozensets, because hand-kept sets have to agree and fail silently when
 they do not: a layer added to the whole one and forgotten in a stage's is one a body can declare and
-nothing will ever build, and a name in a stage's set that is not in the whole one appears in that
-stage's `layers_off` for every body alike. One row per layer makes the agreement structural, and the
+nothing will ever build, and a name in a stage's set that is not in the whole one is a layer that
+stage reads and no body can declare. One row per layer makes the agreement structural, and the
 split is still pinned against literals in `tests/test_bodies.py`, because a table can hold a wrong
 column as easily as two sets can disagree.
 
@@ -26,7 +26,7 @@ stage inherits a layer its rig has no input for: recorded, and consumable by no 
 from dataclasses import dataclass
 from pathlib import Path
 
-from pipeline import bodies
+from pipeline import bodies, render_files
 
 
 @dataclass(frozen=True)
@@ -51,6 +51,10 @@ class Layer:
     #: and not a rule: `tests/test_bodies.py` pins it as literals so a new layer still answers here,
     #: equal-today not being the same claim as equal-by-construction.
     in_block: bool
+    #: Read by the hero snow stage (`render/snow_mask.py`), which folds the white on a country's own
+    #: grid. A hero's lake bathymetry comes through its own stage (`render/lake_mask.py`) rather than
+    #: this table, which is why lake depth answers False here and still reaches every hero.
+    in_hero: bool
     #: The planet raster this layer cannot be computed without, or None.
     #:
     #: Held as a name rather than an imported constant so this module never imports `planet_seam`,
@@ -68,6 +72,11 @@ class Layer:
     #: though the two agree on every row today: a planet layer answered by pure arithmetic would
     #: carry None here, so deriving either column from the other loses that case silently.
     warped_basename: str | None
+    #: The rig image this layer paints into (`render_files`), or None for one that paints nothing of
+    #: its own. A stage's recipe records the textures of its layers' images and no others, so a row
+    #: naming the wrong one leaves that texture unrecorded where it is loaded; the preps refuse to
+    #: write an image their recipe cannot see.
+    image: str | None
 
     def warped_in(self, work: Path) -> Path:
         """This layer's built raster inside one body's work directory — the one place they join.
@@ -93,32 +102,44 @@ class Layer:
 #:
 #: The basenames below are shipped and must not be tidied. Each is a dependency by mtime, so
 #: renaming one restages Earth's whole pyramid to reproduce the pixels already on disk.
-LAKE_DEPTH = Layer("lake_depth", in_planet=True, in_cap=False, in_block=True,
-                   requires_raster="watermask", warped_basename="lakedepth_3857.tif")
-PERENNIAL_ICE = Layer("perennial_ice", in_planet=True, in_cap=True, in_block=True,
-                      requires_raster=None, warped_basename="snow_persistence_3857.tif")
-GLACIERS = Layer("glaciers", in_planet=True, in_cap=False, in_block=True,
-                 requires_raster=None, warped_basename="glacier_3857.tif")
-SEA_ICE = Layer("sea_ice", in_planet=True, in_cap=True, in_block=True,
-                requires_raster="oceanmask", warped_basename="seaice_3857.tif")
-COASTLINE = Layer("coastline", in_planet=False, in_cap=True, in_block=False,
-                  requires_raster=None, warped_basename=None)
+LAKE_DEPTH = Layer("lake_depth", in_planet=True, in_cap=False, in_block=True, in_hero=False,
+                   requires_raster="watermask", warped_basename="lakedepth_3857.tif",
+                   image=render_files.LAKEDEPTH)
+PERENNIAL_ICE = Layer("perennial_ice", in_planet=True, in_cap=True, in_block=True, in_hero=True,
+                      requires_raster=None, warped_basename="snow_persistence_3857.tif",
+                      image=render_files.SNOWMASK)
+GLACIERS = Layer("glaciers", in_planet=True, in_cap=False, in_block=True, in_hero=True,
+                 requires_raster=None, warped_basename="glacier_3857.tif",
+                 image=render_files.SNOWMASK)
+SEA_ICE = Layer("sea_ice", in_planet=True, in_cap=True, in_block=True, in_hero=False,
+                requires_raster="oceanmask", warped_basename="seaice_3857.tif",
+                image=render_files.SEAICE)
+#: No image: the cap bakes its coastline into the finished disc rather than through the rig.
+COASTLINE = Layer("coastline", in_planet=False, in_cap=True, in_block=False, in_hero=False,
+                  requires_raster=None, warped_basename=None, image=None)
 #: The one row whose raster is read by another layer's producer, and it paints nothing of its own:
 #: `perennial_ice` forces Antarctic land white by a latitude rule with no dataset behind it, and
 #: this is the dataset that takes exposed rock back out from under that white, subtracted rather
 #: than unioned, which is why it sits outside `layer_producers.WHITE_UNION` and its contribution is
 #: None on every window. A layer all the same rather than a fourth planet raster, on the rule beside
-#: this file: Mars omits the name from `surface_layers` and `layers_off` records it off, where a
+#: this file: Mars omits the name from `surface_layers` and records only what it has, where a
 #: planet raster would make every `planet_seam.declared` reader answer for a mask only Earth has.
 #:
-#: Every stage column is True because all three run the rule: the planet warp, the block prep and
-#: the south cap. A stage that subtracts rock and does not record the layer would keep its old
-#: output looking fresh the day the layer was switched off.
-ANTARCTIC_ROCK = Layer("antarctic_rock", in_planet=True, in_cap=True, in_block=True,
-                       requires_raster=None, warped_basename="addrock_3857.tif")
+#: The three tile-tier columns are True because all three run the rule: the planet warp, the block
+#: prep and the south cap. A stage that subtracts rock and does not record the layer would keep its
+#: old output looking fresh the day the layer was switched off. The hero column is False because
+#: the hero snow stage refuses any grid reaching the rule's latitudes rather than burning the rock.
+ANTARCTIC_ROCK = Layer("antarctic_rock", in_planet=True, in_cap=True, in_block=True, in_hero=False,
+                       requires_raster=None, warped_basename="addrock_3857.tif", image=None)
+#: Ground the white and the lake paint both misread, painted as salt (`look/salt.py`). It takes its
+#: share of the white after the union and the exclusions, and paints over the lake in the rig. No
+#: cap column: no salt flat lies near a pole. It needs the water mask, whose lake bodies it takes.
+SALT_FLATS = Layer("salt_flats", in_planet=True, in_cap=False, in_block=True, in_hero=True,
+                   requires_raster="watermask", warped_basename="salt_3857.tif",
+                   image=render_files.SALTMASK)
 
 LAYERS: tuple[Layer, ...] = (LAKE_DEPTH, PERENNIAL_ICE, GLACIERS, SEA_ICE, COASTLINE,
-                             ANTARCTIC_ROCK)
+                             ANTARCTIC_ROCK, SALT_FLATS)
 
 
 #: The whole vocabulary, as names.
@@ -126,8 +147,8 @@ SURFACE_LAYERS = frozenset(layer.name for layer in LAYERS)
 
 #: The layers each stage reads, derived — never hand-kept, and never equal to each other.
 #:
-#: The split is load-bearing, which is the whole reason two views exist: each stage records the
-#: layers it is missing in its own freshness recipe, so turning one off restages it, which file
+#: The split is load-bearing, which is the whole reason two views exist: each stage records which of
+#: its layers the body has in its own freshness recipe, so turning one off restages it, which file
 #: mtimes cannot do because an unbuilt raster scores 0.0 and is silently not a dependency.
 #: Recording a layer a stage never reads inverts the trap instead of closing it: switching the
 #: coastline would restage a 46 GB tile pass that cannot contain one. The tiles bake no coast (it is
@@ -136,6 +157,7 @@ SURFACE_LAYERS = frozenset(layer.name for layer in LAYERS)
 PLANET_LAYERS = frozenset(layer.name for layer in LAYERS if layer.in_planet)
 CAP_LAYERS = frozenset(layer.name for layer in LAYERS if layer.in_cap)
 BLOCK_LAYERS = frozenset(layer.name for layer in LAYERS if layer.in_block)
+HERO_LAYERS = frozenset(layer.name for layer in LAYERS if layer.in_hero)
 
 def warped_for(vocabulary: frozenset[str]) -> tuple[Layer, ...]:
     """One stage's layers that have a file to read, as rows and in `LAYERS` order.
@@ -172,20 +194,23 @@ LAYER_REQUIRES_RASTER: dict[str, str] = {
     layer.name: layer.requires_raster for layer in LAYERS if layer.requires_raster is not None}
 
 
-def layers_off(body: bodies.Body, vocabulary: frozenset[str]) -> list[str]:
-    """Which of `vocabulary` this body does NOT have, sorted — one stage's freshness record.
+def layers_on(body: bodies.Body, vocabulary: frozenset[str]) -> list[str]:
+    """Which of `vocabulary` this body has, sorted: one stage's freshness record.
 
-    The layers that are off, never the ones that are on, and the asymmetry is load-bearing. Earth
-    declares every layer, so its list is empty and the caller's conditional record writes nothing at
-    all, leaving a 46 GB tile pass and a 14 GB cap render byte-identical. Recording the layers that
-    are on would put a list into Earth's recipe for the first time and restage the planet to produce
-    the pixels already sitting there.
+    The ones that are on, never the ones that are off. Recording what is off reads as the thrifty
+    choice, since a body with every layer records nothing, and it moves every body lacking a layer
+    the day that layer joins a stage, re-rendering Mars whole for an Earth-only layer.
 
-    `vocabulary` is the CALLER'S stage view — `PLANET_LAYERS` or `CAP_LAYERS`, never
-    `SURFACE_LAYERS` — so that a stage records only what it actually reads. See those two for why a
-    shared vocabulary here would trade one silent freshness bug for another.
+    `vocabulary` is the caller's stage view, never `SURFACE_LAYERS`, so a stage records only what it
+    reads; see the stage views for why a shared vocabulary would trade one silent bug for another.
     """
-    return sorted(vocabulary - body.surface_layers)
+    return sorted(vocabulary & body.surface_layers)
+
+
+def images_for(body: bodies.Body, vocabulary: frozenset[str]) -> frozenset[str]:
+    """The rig images this body's layers paint at a stage with this vocabulary."""
+    return frozenset(layer.image for layer in LAYERS
+                     if layer.image is not None and layer.name in vocabulary & body.surface_layers)
 
 
 def body_declares_layer(body: bodies.Body, layer: Layer, consequence: str) -> bool:

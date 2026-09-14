@@ -18,8 +18,8 @@ from pipeline import layers
 
 def _layer(name: str, **overrides) -> layers.Layer:
     """A row with a warped raster behind it, since a row without one is never in a warped set."""
-    base = layers.Layer(name, in_planet=False, in_cap=False, in_block=False,
-                        requires_raster=None, warped_basename=f"{name}_3857.tif")
+    base = layers.Layer(name, in_planet=False, in_cap=False, in_block=False, in_hero=False,
+                        requires_raster=None, warped_basename=f"{name}_3857.tif", image=None)
     return dataclasses.replace(base, **overrides) if overrides else base
 
 
@@ -27,11 +27,12 @@ class TestEachStageIsShownTheWarpedLayersItsOwnVocabularyNames:
     def test_the_caps_warped_set_is_genuinely_smaller_than_the_composites(self):
         """THE LIVE PROOF THAT THE DISTINCTION IS NOT HYPOTHETICAL, and the reason a single shared
         tuple was wrong even while every consumer agreed with it. The cap composites no lake
-        bathymetry and no glaciers, so two of the composite's five rows are not its to warp."""
+        bathymetry, no glaciers and no salt flats, so three of the composite's six rows are not its
+        to warp."""
         composite = [layer.name for layer in layers.warped_for(layers.PLANET_LAYERS)]
         cap = [layer.name for layer in layers.warped_for(layers.CAP_LAYERS)]
         assert set(cap) < set(composite)
-        assert set(composite) - set(cap) == {"lake_depth", "glaciers"}
+        assert set(composite) - set(cap) == {"lake_depth", "glaciers", "salt_flats"}
 
     def test_a_warped_layer_outside_the_composite_still_reaches_its_own_stage(self, monkeypatch):
         """THE DEFECT, and no live row exhibits it: the set was filtered on `in_planet`, so a
@@ -71,7 +72,7 @@ class TestEachStageIsShownTheWarpedLayersItsOwnVocabularyNames:
 
     def test_an_unknown_name_in_a_vocabulary_is_simply_absent(self):
         """A vocabulary is a set of names and nothing checks it against the table, so the filter has
-        to answer rather than raise: `layers_off` already leans on a name meaning nothing here."""
+        to answer rather than raise: `layers_on` already leans on a name meaning nothing here."""
         assert layers.warped_for(frozenset({"no_such_layer"})) == ()
 
 

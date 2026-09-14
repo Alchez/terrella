@@ -6,9 +6,10 @@ EPSG:3857 block, which writes its cuts under the same filenames purely to satisf
 Nothing here is country-shaped.
 
 Builds the whole scene from the constants below: plane plus adaptive-subdivision displacement, a
-land ramp with lake/river switches over an optional sea ramp (plus a snow switch iff snowmask.png
-exists in the render dir, and a depth-keyed lake ramp iff lakedepth.tif does), sun plus a shadowless
-fill sun, ortho camera, locked render settings.
+land ramp with lake/river switches over an optional sea ramp (plus a snow mix iff snowmask.png
+is declared in the render dir, a depth-keyed lake ramp iff lakedepth.tif is, and a salt mix over
+everything iff saltmask.png is), sun plus a shadowless fill sun, ortho camera, locked render
+settings.
 
 The look arrives as `--body`, a slug and not a `Body`: Blender's interpreter cannot import this
 project's virtual environment, and `palette.look_for` keys on slugs for that reason.
@@ -147,13 +148,20 @@ def tile_camera_location(ortho_scale, plane_height_units, tile):
     return ((col + 0.5) * ortho_scale - half, half - (row + 0.5) * ortho_scale)
 
 
+#: The metadata key naming the images whose branches are a `Rig` field's only readers.
+_ONLY_WITH = "only_with"
+
+
 @dataclasses.dataclass(frozen=True)
 class Rig:
     """Every constant that reaches a rendered pixel and is this module's rather than a look's.
 
-    One structure, so `rig_recipe` can be `dataclasses.asdict` of the instance below and a forgotten
-    constant is unrepresentable rather than merely caught. The rule beside this file owns what that
+    One structure, so `rig_recipe` derives from `dataclasses.asdict` of the instance below and a
+    forgotten constant is unrepresentable rather than merely caught. The rule beside this file owns what that
     derivation costs, field names being recipe keys.
+
+    A field read only inside the branch an optional image builds carries those images under
+    `_ONLY_WITH`, and a render that can load none of them does not record it.
 
     No snow or ice albedo is a field here: those arrive per render directory through
     `render_seam.paint_for`, and a default restores the fallback that rendered Earth's whites on
@@ -175,9 +183,11 @@ class Rig:
     #: which made that move hue-only rather than the twice-rejected ambient raise.
     world_rgba: tuple[float, float, float, float]
     world_strength: float
-    water_rgba: tuple[float, float, float, float]
+    water_rgba: tuple[float, float, float, float] = dataclasses.field(
+        metadata={_ONLY_WITH: frozenset({render_files.INLANDLAKE, render_files.RIVER})})
     #: Depth-position ramp; stop 0 is the flat water tint.
-    lake_stops: list[tuple[float, tuple[float, float, float, float]]]
+    lake_stops: list[tuple[float, tuple[float, float, float, float]]] = dataclasses.field(
+        metadata={_ONLY_WITH: frozenset({render_files.LAKEDEPTH})})
     ramp_interpolation: str
     #: A Cycles sample count, and the one number here measured in the same units as a block edge
     #: without being one. Never search-and-replace it.
@@ -219,9 +229,12 @@ class Rig:
     displacement_method: str
     displacement_space: str
     #: The B input of the ice-flatten mix: the height ice is pulled toward, in displacement units.
-    ice_flatten_floor: float
-    rowscale_operation: str
-    rowscale_use_clamp: bool
+    ice_flatten_floor: float = dataclasses.field(
+        metadata={_ONLY_WITH: frozenset({render_files.SEAICE})})
+    rowscale_operation: str = dataclasses.field(
+        metadata={_ONLY_WITH: frozenset({render_files.ROWSCALE})})
+    rowscale_use_clamp: bool = dataclasses.field(
+        metadata={_ONLY_WITH: frozenset({render_files.ROWSCALE})})
     bsdf_roughness: float
     engine: str
     image_file_format: str
@@ -318,7 +331,7 @@ class TextureSpec:
 
 
 #: Every image node the rig can build, in creation order: the mandatory four are built by one loop
-#: in this sequence and the optional four at their own sites, where their mixes and ramps are wired.
+#: in this sequence and the optional five at their own sites, where their mixes and ramps are wired.
 TEXTURES = {
     spec.name: spec for spec in (
         TextureSpec("Heightfield", render_files.HEIGHTFIELD, "Linear", "REPEAT", optional=False),
@@ -328,6 +341,8 @@ TEXTURES = {
         # Closest because snow is a hard-edged mask; the softening it ships with is baked into the
         # raster by `snow.soften_source_cells`, never asked of the sampler.
         TextureSpec("Snow Mask", render_files.SNOWMASK, "Closest", "REPEAT", optional=True),
+        # Closest for snow's reason: the salt mask's antialiased and softened edges are in the file.
+        TextureSpec("Salt Mask", render_files.SALTMASK, "Closest", "REPEAT", optional=True),
         # Linear on both of these: a continuous field, like the heightfield.
         TextureSpec("Lake Depth", render_files.LAKEDEPTH, "Linear", "REPEAT", optional=True),
         TextureSpec("Sea Ice", render_files.SEAICE, "Linear", "REPEAT", optional=True),
@@ -379,8 +394,8 @@ def look_constants(look: palette.Look) -> LookConstants:
     )
 
 
-def rig_recipe(look: palette.Look) -> dict[str, Any]:
-    """Every constant here that can move a rendered pixel, keyed by its own name.
+def rig_recipe(look: palette.Look, images: frozenset[str]) -> dict[str, Any]:
+    """Every constant here that can move a pixel of a render loading `images`, keyed by its own name.
 
     Derived from the structure rather than enumerated, so `Rig` and `TEXTURES` are the enumeration
     and what is still spelled inline is invisible here;
@@ -388,17 +403,21 @@ def rig_recipe(look: palette.Look) -> dict[str, Any]:
     them in. A hash of this file would also be honest and is deliberately not what this is: it would
     restage a planet render on a docstring edit, where a recipe moves when a value moves. The look
     arrives as an argument because it is not this module's to own.
+
+    `images` is every image the stage's prep can write for its body, not what one directory declared,
+    so a block with no snow in view records the snow mask's wiring like its neighbours.
     """
     constants = look_constants(look)
+    rig = dataclasses.asdict(RIG)
     return {
-        "rig": dataclasses.asdict(RIG),
-        # The whole table rather than the four this look loads, and keyed by the raster minus the
-        # node's name: the rule beside this file owns both, and
+        "rig": {field.name: rig[field.name] for field in dataclasses.fields(RIG)
+                if _ONLY_WITH not in field.metadata or field.metadata[_ONLY_WITH] & images},
+        # Keyed by the raster minus the node's name: the rule beside this file owns why, and
         # `TestRenamingANodeDoesNotRestageThePlanet` is the guard.
         "textures": {spec.filename: {field: value
                                      for field, value in dataclasses.asdict(spec).items()
                                      if field != "name"}
-                     for spec in TEXTURES.values()},
+                     for spec in TEXTURES.values() if spec.filename in images},
         "sea_texture": None if look.sea is None else TEXTURES[SEA_IMAGE].filename,
         "look": {
             "land_range": list(constants.land_range),
@@ -695,9 +714,10 @@ def build_material(ob, render_dir, displacement_scale, look, present):
         nt.nodes.remove(node)
 
     constants = look_constants(look)
-    # The optional four, looked up unconditionally: a DECLARATION exists whether or not the raster
+    # The optional five, looked up unconditionally: a DECLARATION exists whether or not the raster
     # does, and only the node below is conditional on `present`.
     snow_spec = texture_for(render_files.SNOWMASK)
+    salt_spec = texture_for(render_files.SALTMASK)
     lake_depth_spec = texture_for(render_files.LAKEDEPTH)
     ice_spec = texture_for(render_files.SEAICE)
     rowscale_spec = texture_for(render_files.ROWSCALE)
@@ -730,9 +750,13 @@ def build_material(ob, render_dir, displacement_scale, look, present):
     sea_ramp = (None if constants.sea_stops is None else
                 make_ramp(nt, "Sea Ramp", "Sea", constants.sea_stops))
 
-    rgb = nt.nodes.new("ShaderNodeRGB")
-    rgb.name = "Water Color"
-    rgb.outputs[0].default_value = RIG.water_rgba
+    # One flat colour for both inland-water masks, built only where one of them is, so a render with
+    # neither never reads `RIG.water_rgba` and its recipe does not record it.
+    rgb = None
+    if render_files.INLANDLAKE in present or render_files.RIVER in present:
+        rgb = nt.nodes.new("ShaderNodeRGB")
+        rgb.name = "Water Color"
+        rgb.outputs[0].default_value = RIG.water_rgba
 
     # Each mix exists only where its mask does, the same rule the optional nodes below follow.
     lake = make_mix(nt, "Lake Mix", "Lake") if lake_spec.filename in present else None
@@ -746,6 +770,15 @@ def build_material(ob, render_dir, displacement_scale, look, present):
         snow = make_mix(nt, "Snow Mix", "Snow")
         mix_socket(snow, "B").default_value = declared_albedo(render_dir, render_files.SNOWMASK)
         print(f"{render_files.SNOWMASK} declared — wiring Snow mix", flush=True)
+
+    # optional salt flats (look/salt.py): mixed last, over the lake paint the water mask puts on a
+    # flat, where a mix beside the snow's would be painted over
+    salt = None
+    if render_files.SALTMASK in present:
+        tex[salt_spec.name] = make_texture(nt, render_dir, salt_spec)
+        salt = make_mix(nt, "Salt Mix", "Salt")
+        mix_socket(salt, "B").default_value = declared_albedo(render_dir, render_files.SALTMASK)
+        print(f"{render_files.SALTMASK} declared — wiring Salt mix", flush=True)
 
     # optional depth-keyed lake tint (render/lake_mask.py); raster absent -> the Lake mix keeps the
     # flat RGB node, which is stop 0 of this ramp, so a lake without depth data degrades to that
@@ -825,11 +858,13 @@ def build_material(ob, render_dir, displacement_scale, look, present):
             link(tex[lake_depth_spec.name].outputs["Color"], lake_ramp.inputs["Factor"])
             link(lake_ramp.outputs["Color"], mix_socket(lake, "B"))
         else:
+            assert rgb is not None, "the water colour is built wherever a water mask is"
             link(rgb.outputs["Color"], mix_socket(lake, "B"))
         surface_color = mix_socket(lake, "Result")
     if river is not None:
         link(surface_color, mix_socket(river, "A"))
         link(tex[river_spec.name].outputs["Color"], river.inputs[0])
+        assert rgb is not None, "the water colour is built wherever a water mask is"
         link(rgb.outputs["Color"], mix_socket(river, "B"))
         surface_color = mix_socket(river, "Result")
     if ocean is not None and sea_ramp is not None:
@@ -841,6 +876,10 @@ def build_material(ob, render_dir, displacement_scale, look, present):
         link(surface_color, mix_socket(ice, "A"))
         link(tex[ice_spec.name].outputs["Color"], ice.inputs[0])
         surface_color = mix_socket(ice, "Result")
+    if salt is not None:
+        link(surface_color, mix_socket(salt, "A"))
+        link(tex[salt_spec.name].outputs["Color"], salt.inputs[0])
+        surface_color = mix_socket(salt, "Result")
     link(surface_color, bsdf.inputs["Base Color"])
     link(bsdf.outputs["BSDF"], out.inputs["Surface"])
 

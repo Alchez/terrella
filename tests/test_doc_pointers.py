@@ -196,14 +196,24 @@ def scanned_docs() -> list[Path]:
     return sorted(doc for doc in named if doc not in NAMES_WHAT_DOES_NOT_EXIST_YET and doc != SELF)
 
 
+def in_the_tree() -> frozenset[str]:
+    """Every path a commit of this working tree would hold: tracked files still on disk, and new
+    ones git would not ignore. The index alone misses a module created and not yet staged."""
+    listing = subprocess.run(
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard"], cwd=REPO_ROOT,
+        capture_output=True, text=True, check=True)
+    return frozenset(path for path in listing.stdout.splitlines() if (REPO_ROOT / path).exists())
+
+
 def names_a_tracked_file(token: str) -> bool:
-    """Whether a doc's path token reaches a file, by full path or by basename.
+    """Whether a doc's path token reaches a file in the tree, by full path or by basename.
 
     Basenames count because docs name `palette.py` far more often than they spell its directory,
     and a bare name that matches nothing is the defect either way.
     """
     name = token.lstrip("./")
-    return name in tracked() or any(path.endswith(f"/{name}") for path in tracked())
+    present = in_the_tree()
+    return name in present or any(path.endswith(f"/{name}") for path in present)
 
 
 def unfollowable_archive_pointers(text: str) -> list[str]:
@@ -278,11 +288,14 @@ def names_a_lost_file(token: str) -> bool:
 
 
 def code_files() -> list[str]:
-    """Every tracked file with a suffix above, minus this file and the mutation table."""
+    """Every tracked file with a suffix above that is still on disk, minus this file and the
+    mutation table. A deletion stays in the index until it is staged, and a deleted file names
+    nothing."""
     return sorted(
         path
         for path in tracked()
         if path.endswith(CODE_SUFFIXES) and Path(path) != SELF and Path(path) not in EXEMPT
+        and (REPO_ROOT / path).exists()
     )
 
 

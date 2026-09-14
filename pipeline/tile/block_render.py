@@ -173,10 +173,9 @@ def params(body: bodies.Body, rasters: frozenset[str], look: palette.Look,
     where a constant moves nothing at all and only a recipe can see it. A look constant that reaches
     neither leaves a stale planet reading fresh forever.
 
-    `layers_off` and `rasters_off` follow the conditional-record idiom: they are what tracks a layer
-    going off, which the dependency mtimes structurally cannot, a path that is not there scoring 0.0
-    and being invisible, so switching sea ice off would otherwise leave a planet painted with it
-    looking current.
+    `layers_on` and `rasters_on` are what tracks a layer or a raster going off, which the dependency
+    mtimes structurally cannot, a path that is not there scoring 0.0 and being invisible, so
+    switching sea ice off would otherwise leave a planet painted with it looking current.
 
     Three tiers reach a block, each declared by the code that reads it: this module's own, the rig's
     through `rig_recipe`, and the producers' through `layer_producers.constants_for`. The rig
@@ -195,8 +194,8 @@ def params(body: bodies.Body, rasters: frozenset[str], look: palette.Look,
         "exaggeration": body.baked_exaggeration,
         "ground_scale": bodies.ground_metres_per_mercator_unit(body),
         "map_units_per_pixel": body.map_units_per_pixel,
-        "layers_off": layers.layers_off(body, layers.BLOCK_LAYERS),
-        "rasters_off": planet_seam.rasters_off(rasters),
+        "layers_on": layers.layers_on(body, layers.BLOCK_LAYERS),
+        "rasters_on": planet_seam.rasters_on(rasters),
         # Not a look constant, so not `rig`'s: it is this caller's choice, and the two denoisers do
         # not agree to the last DN. Recorded because a pass resumed across a change of it would
         # otherwise write both into one mosaic with nothing saying which made which block.
@@ -234,8 +233,15 @@ def params(body: bodies.Body, rasters: frozenset[str], look: palette.Look,
     return json.dumps(recipe, indent=2, sort_keys=True) + "\n"
 
 
-def rig_recipe(body: bodies.Body) -> dict[str, Any]:
-    """`scene_build`'s own account of the constants it will apply to this body's look.
+def recipe_for(body: bodies.Body, rasters: frozenset[str], blocks: list[Block]) -> str:
+    """`params` as `run` records it: this body's look, and the rig as its blocks can load it."""
+    return params(body, rasters, palette.look_for(body.name),
+                  rig_recipe(body, prep_block.rig_images(body, rasters)), blocks)
+
+
+def rig_recipe(body: bodies.Body, images: frozenset[str]) -> dict[str, Any]:
+    """`scene_build`'s own account of the constants it will apply to this body's look, in a render
+    that can load `images`.
 
     Imported with `bpy` stubbed, `scene_build` touching bpy only at render time, so its constants
     can be read without Blender rather than restated here. The stub is removed only if this module
@@ -246,7 +252,7 @@ def rig_recipe(body: bodies.Body) -> dict[str, Any]:
         sys.modules["bpy"] = types.ModuleType("bpy")
     try:
         from pipeline.render import scene_build
-        return scene_build.rig_recipe(palette.look_for(body.name))
+        return scene_build.rig_recipe(palette.look_for(body.name), images)
     finally:
         if stubbed:
             del sys.modules["bpy"]
@@ -603,7 +609,6 @@ def run(body: bodies.Body, work: Path, mosaic: Path, *, limit: int | None = None
     # content. Inputs are checked first of all, so a missing warp fails in a second rather than
     # after a whole-grid plan.
     rasters = planet_seam.declared(body)
-    look = palette.look_for(body.name)
     check_inputs(work, body, rasters)
     sidecars = sidecars_for(work, mosaic)
     # One spelling from here down: everything beside the raster is derived from the resolved path,
@@ -611,8 +616,7 @@ def run(body: bodies.Body, work: Path, mosaic: Path, *, limit: int | None = None
     # file, which is what the progress document then reports and a reader compares against.
     mosaic = sidecars.mosaic
     blocks = plan_blocks(body, work)
-    recipe = freshness.write_if_changed(sidecars.recipe,
-                                        params(body, rasters, look, rig_recipe(body), blocks))
+    recipe = freshness.write_if_changed(sidecars.recipe, recipe_for(body, rasters, blocks))
     deps = raytrace_deps(work, recipe)
     markers = sidecars.markers
 

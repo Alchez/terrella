@@ -27,7 +27,7 @@ flowchart LR
   LK -. "a whole pass, then a re-cut, an upload and a Worker deploy" .-> T2
 ```
 
-One program runs on both bodies. A body is seven differing values on `bodies.Body`, and only two of them change what runs at all: `surface_layers`, which is why five of Earth's layer warps have no Mars figure, and `tile_max_zoom`, which sets the grid. **The two columns are measured at different grids, so do not scale one from the other.**
+One program runs on both bodies. A body is seven differing values on `bodies.Body`, and only two of them change what runs at all: `surface_layers`, which is why six of Earth's layer warps have no Mars figure, and `tile_max_zoom`, which sets the grid. **The two columns are measured at different grids, so do not scale one from the other.**
 
 | # | Stage | Earth, 131072² z8 | Mars, 65536² z7 | Re-run (fresh) | Output | Guard |
 |---|---|---|---|---|---|---|
@@ -38,7 +38,7 @@ One program runs on both bodies. A body is seven differing values on `bodies.Bod
 | 1b | `wrap_seam.close_wrap_seam` | **~0 s** | **0:42** | ~0 s | one column written | inside the warp, ungated |
 | 2 | warp ocean + water masks → 3857 | **5:03** (ocean 2:30 + water 2:32) | not declared | ~0 s | 94 MB | `warp_needs_rebuild` |
 | 3 | warp GLOBathy lake depth → 3857 | **1:01:44** (nodata-masker-bound) | not declared | ~0 s | `lakedepth_3857.tif` 310 MB | `warp_needs_rebuild` |
-| 3b | warp snow + rasterize glaciers + rasterize Antarctic rock + warp sea ice → 3857 | **snow 15:16, glaciers 0:19, rock 0:27, sea-ice 14:42** | **0:00**, declared and skipped rather than absent | ~0 s | four `*_3857.tif` | `warp_needs_rebuild` |
+| 3b | warp snow + rasterize glaciers + rasterize Antarctic rock + warp sea ice + bake salt flats → 3857 | **snow 15:16, glaciers 0:19, rock 0:27, sea-ice 14:42, salt 0:08** (salt run alone, 1.5 GB peak) | **0:00**, declared and skipped rather than absent | ~0 s | five `*_3857.tif` | `warp_needs_rebuild` |
 | 3c | ice alpha, polar bands (`mars_ice.build_alpha_raster`) | not declared | **2:23**, and 5:12 on a colder page cache | ~0 s | `ice_alpha_3857.tif` | `warp_needs_rebuild` |
 | 4 | `tile/block_render.py`, the raytraced producer: every block through Cycles, one at a time | **11:41:33**, 1024 blocks at 1.46 blk/min, 0 failures. Per block 23.8 s min, 34.5 s median, 76.8 s p95, 194.3 s max | **2:49:57**, 256 blocks, 0 failures | ~0 s, but all or nothing: a moved input or recipe clears every marker and every block re-renders | `planet_rgb.tif` 30 GB | `raytrace_deps` + `raytrace_params.json` |
 | 5 | `build_tiles`, `gdal raster tile`, WebP q95 | **4:19**, 87,381 tiles, 3.1 GB | **1:21**, 21,845 tiles, 1.4 GB | skip | `tiles/` | `tiles.done` + `tile_params.json` |
@@ -135,10 +135,10 @@ The hero lane is per-country and `config/countries.toml` is Earth's, so Mars has
 | Stage | First run | Re-run | Output |
 |---|---|---|---|
 | `render/render_prep.py --frame` → `frame.json` | ~seconds | `is_stale` | per-country frame + warps |
+| `render/snow_mask.py`, snow and salt | **0:16** bolivia (salt-heaviest, 4.6 GB peak) / **0:19** switzerland | recipe compare | `snowmask.png`, `saltmask.png` |
 | `render/lake_mask.py` (stage 6 of 7) | **0:11** finland (lake-densest) / **0:03** estonia | skip-if-exists | `lakedepth.tif` |
 | `render/scene_build.py --render`, headless Cycles, OptiX | **3:36 @ 8K** (finland 1:29 at 4142×7680) | n/a | one hero PNG |
 | Full batch, 203 heroes | **~10.5 h** (0 fail; 9.36 h GPU-bound = 89.5% duty) | per-country resume | `blender/renders/` |
-| `look/sky_view.py` re-shade | **no GPU, minutes**, re-running the AO over kept `heroes/raw/*.png` | n/a | shaded `heroes/*.png` |
 | Targeted re-render (7 microstates) | **~28 min** (~4 min each) | per-country resume | the named heroes |
 | `batch --through prep`, warm walk | **1.25 s/country** (six guarded stages) | same | prep-complete markers |
 
@@ -153,8 +153,9 @@ Run once; all are resumable and verify against a pinned size/md5, so a re-run is
 | Source | Size | Notes |
 |---|---|---|
 | Copernicus GLO-30 | **551 GB** | per-country, on demand: never bootstrapped globally (Russia alone ≈ 4,900 tiles) |
-| ESA WorldCover | 114 GB | hero snow only, not the tile pipeline |
+| ESA WorldCover | 669 MB held | the 12 tiles over the GLO-30 void extent, for its water mask (class 80); the global land set is ~114 GB and is never fetched whole |
 | GLOBathy | 16.7 GB zip | → 83,357 per-lake rasters; reclaimable once extracted |
+| GWL_FCS30 | 2.4 GB | twelve zips kept as published; `extract_gwl` writes the saline class of the 134 tiles of 962 that hold any in **57 s** at 8 threads, 8.2 GiB peak |
 | GEBCO 2026 | 7.3 GB | bathymetry + ice surface |
 | RGI 7.0 glaciers | 2.7 GB | all 19 regions, merged to a 1.1 GB gpkg. Never pass `-skipfailures`: it sets the transaction size to 1, which is quadratic into a populated table (51.8 s against 1.3 s for one region) |
 | NSIDC-0791 snow persistence | 1.6 GB | tile snow |

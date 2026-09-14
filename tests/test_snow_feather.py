@@ -184,12 +184,11 @@ class TestBothProducersFeatherOrTheCrossfadeShowsTheSeam:
             raw=packed, watercode=None, land=np.ones((rows, cols), dtype=bool),
             ocean=np.zeros((rows, cols), dtype=bool), latitude=latitude,
             ground_metres_per_px=mercator.ground_metres_per_pixel(
-                latitude, EARTH.map_units_per_pixel, GROUND_SCALE),
-            top=top, bottom=bottom)
+                latitude, EARTH.map_units_per_pixel, GROUND_SCALE))
 
     def test_the_tile_producer_feathers(self):
         packed, window = self._polar_tile_window()
-        unfeathered = snow.snow_alpha(snow.unpack_persistence(packed), window.top, window.bottom)
+        unfeathered = snow.snow_alpha(snow.unpack_persistence(packed), window.latitude)
         got = layer_producers.producer_for(EARTH, layers.PERENNIAL_ICE).contribution(window)
         assert got is not None
         assert np.abs(got - unfeathered).max() > 0.1, (
@@ -248,8 +247,7 @@ class TestTheAntarcticPatchIsNotFeathered:
         window = layer_producers.LayerWindow(
             raw=None, watercode=None, land=land, ocean=~land, latitude=latitude,
             ground_metres_per_px=mercator.ground_metres_per_pixel(
-                latitude, EARTH.map_units_per_pixel, GROUND_SCALE),
-            top=top, bottom=bottom)
+                latitude, EARTH.map_units_per_pixel, GROUND_SCALE))
         got = layer_producers.producer_for(EARTH, layers.PERENNIAL_ICE).contribution(window)
         assert got is not None
         assert set(np.unique(got).tolist()) == {0.0, 1.0}, (

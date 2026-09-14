@@ -15,7 +15,15 @@ from rasterio.transform import from_bounds
 
 from pipeline import bodies, datasets, freshness, layers, mercator, planet_warp
 from pipeline.acquire.earth import download_rgi
-from pipeline.look import lake_depth, layer_producers, mars_ice, palette, seaice, snow
+from pipeline.look import (
+    lake_depth,
+    layer_producers,
+    mars_ice,
+    palette,
+    salt,
+    seaice,
+    snow,
+)
 
 #: A window well south of the Antarctic patch's -60, so the rule that has no dataset behind it is
 #: live in every oracle below rather than sitting at zero.
@@ -60,8 +68,7 @@ def _window(raw, *, land=None, ocean=None, watercode=None, top=SOUTHERN_TOP,
         watercode=np.zeros((ROWS, COLS), dtype=np.uint8) if watercode is None else watercode,
         land=np.ones((ROWS, COLS), dtype=bool) if land is None else land,
         ocean=np.ones((ROWS, COLS), dtype=bool) if ocean is None else ocean,
-        latitude=latitude, ground_metres_per_px=_ground_metres_per_px(top, bottom),
-        top=top, bottom=bottom)
+        latitude=latitude, ground_metres_per_px=_ground_metres_per_px(top, bottom))
 
 
 def _fold(raw, *, top=SOUTHERN_TOP, bottom=SOUTHERN_BOTTOM, body=bodies.EARTH) -> np.ndarray:
@@ -160,7 +167,7 @@ class TestEarthsProducersComputeWhatTheyComputedInline:
         latitude = snow.latitude_per_row(SOUTHERN_TOP, SOUTHERN_BOTTOM, ROWS)
         inline = np.maximum(
             snow.soften_source_cells(
-                snow.snow_alpha(snow.unpack_persistence(packed), SOUTHERN_TOP, SOUTHERN_BOTTOM),
+                snow.snow_alpha(snow.unpack_persistence(packed), latitude),
                 _ground_metres_per_px(SOUTHERN_TOP, SOUTHERN_BOTTOM)),
             snow.antarctic_snow_mask(land, latitude))
         got = layer_producers.producer_for(bodies.EARTH, layers.PERENNIAL_ICE).contribution(
@@ -231,8 +238,7 @@ class TestTheSnowUnionIsUnchangedByTheMove:
         # The feather rides inside the perennial-ice producer and so inside the first term; the
         # ORDER is what this reproduces, and it is unchanged by softening one of the operands.
         inline = snow.soften_source_cells(
-            snow.snow_alpha(snow.unpack_persistence(persistence),
-                            SOUTHERN_TOP, SOUTHERN_BOTTOM),
+            snow.snow_alpha(snow.unpack_persistence(persistence), latitude),
             _ground_metres_per_px(SOUTHERN_TOP, SOUTHERN_BOTTOM))
         inline = np.maximum(inline, glacier.astype(float))
         inline = np.maximum(inline, snow.antarctic_snow_mask(land, latitude))
@@ -297,7 +303,8 @@ class TestTheWarpGateAsksTheBodyFirst:
                     sources=lambda source=source: (source,),
                     build=lambda request, name=layer.name: built.append(name),
                     contribution=lambda window: None, paint=lambda window: None,
-                    contribution_recipe=dict, paint_recipe=dict, build_recipe=dict))
+                    contribution_recipe=dict, paint_recipe=dict, build_recipe=dict,
+                    grid_rasters=()))
         planet_warp.warp_inputs(work, planet, body, frozenset())
         return built
 
@@ -353,7 +360,8 @@ class TestTheWarpGateAsksTheBodyFirst:
                     sources=lambda source=source: (source,),
                     build=lambda request, name=layer.name: built.append(name),
                     contribution=lambda window: None, paint=lambda window: None,
-                    contribution_recipe=dict, paint_recipe=dict, build_recipe=dict))
+                    contribution_recipe=dict, paint_recipe=dict, build_recipe=dict,
+                    grid_rasters=()))
         planet_warp.warp_inputs(work, planet, bodies.EARTH, frozenset())
         assert layers.PERENNIAL_ICE.name not in built
         assert layers.SEA_ICE.name in built, "the other layers must be unaffected"
@@ -391,7 +399,8 @@ class TestABuildTimeConstantReachesTheFreshnessGate:
                 layer_producers.LayerProducer(
                     sources=lambda: (), build=lambda request: None,
                     contribution=lambda window: None, paint=lambda window: None,
-                    contribution_recipe=dict, paint_recipe=dict, build_recipe=dict))
+                    contribution_recipe=dict, paint_recipe=dict, build_recipe=dict,
+                    grid_rasters=()))
             monkeypatch.setitem(layer_producers.PRODUCER_BY_BODY_LAYER,
                                 (body.name, layer.name), registered)
         planet_warp.warp_inputs(work, planet, body, frozenset())
@@ -404,7 +413,8 @@ class TestABuildTimeConstantReachesTheFreshnessGate:
         return layer_producers.LayerProducer(
             sources=lambda: (source,), build=lambda request: None,
             contribution=lambda window: None, paint=lambda window: None,
-            contribution_recipe=dict, paint_recipe=dict, build_recipe=lambda: dict(tunables))
+            contribution_recipe=dict, paint_recipe=dict, build_recipe=lambda: dict(tunables),
+            grid_rasters=())
 
     def test_a_changed_build_constant_rebuilds_the_raster(self, monkeypatch, tmp_path):
         """THE POINT. Nothing on disk moved — only a number the build bakes in."""
@@ -438,17 +448,18 @@ class TestABuildTimeConstantReachesTheFreshnessGate:
         assert not list(work.glob("*_build.json")), (
             f"an empty build recipe still materialised {[p.name for p in work.glob('*_build.json')]}")
 
-    def test_every_earth_producer_declares_no_build_time_constant(self):
+    def test_every_earth_producer_but_the_salt_declares_no_build_time_constant(self):
         """The claim the paragraph above rests on, asserted rather than assumed — and it is what
         turns a future Earth producer that grades at build time into a red test rather than a
-        silent stale raster."""
+        silent stale raster. The salt flats bake their field at build time, by decision."""
         for (body_name, layer_name), producer in \
                 layer_producers.PRODUCER_BY_BODY_LAYER.items():
             if body_name != "earth":
                 continue
-            assert producer.build_recipe() == {}, (
-                f"earth/{layer_name} grew a build-time constant; adopting it restages that layer "
-                f"once, which is correct but must be a decision rather than a surprise")
+            expected = salt.build_recipe() if layer_name == layers.SALT_FLATS.name else {}
+            assert producer.build_recipe() == expected, (
+                f"earth/{layer_name} changed its build-time constants; adopting one restages that "
+                f"layer once, which is correct but must be a decision rather than a surprise")
 
     def test_mars_declares_the_two_constants_its_build_bakes_in(self):
         """Named exactly, because the failure of an under-full list is silent: a constant that
@@ -782,7 +793,7 @@ class TestARockLayerBuildsARasterAndContributesNothing:
                             lambda *args, **kwargs: seen.update(kwargs))
         layer_producers.producer_for(bodies.EARTH, layers.GLACIERS).build(
             layer_producers.LayerBuild(bounds=(0.0, 0.0, 1.0, 1.0), width=4, height=4,
-                                       out=tmp_path / "g.tif", band_rows=4))
+                                       out=tmp_path / "g.tif", band_rows=4, grid_rasters={}))
         assert seen == {"gpkg": moved, "layer": "renamed_layer"}
 
 

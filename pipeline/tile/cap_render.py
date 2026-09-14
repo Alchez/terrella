@@ -14,8 +14,8 @@ prepares through them.
 
 Both poles share that machinery and source their inputs differently:
   - NORTH: the fused planet VRTs (height/ocean/water) + NSIDC-0791 snow persistence + OSI SAF sea
-    ice. The whole cap is >80N, so snow_alpha's Mercator latitude ramp is CONSTANT here (reproduced
-    with fixed high-latitude thresholds). Inland water via lake_depth.inland_water (NEVER
+    ice. The whole cap is >80N, so snow_alpha's latitude ramp is constant here (reproduced with
+    fixed high-latitude thresholds). Inland water via lake_depth.inland_water (NEVER
     watercode.astype(bool) -- that catches class-1 ocean and flat-fills the Arctic sea, the
     disc-glow bug).
   - SOUTH (Antarctica): the same fused planet VRTs, which reach -90 since the fill. Ocean ->
@@ -30,8 +30,7 @@ Two cap-specific twists vs the Mercator tiles:
     pole "NW" turns with the meridian, so the main sun is `AZ + grid.az_sign * lon` per pixel
     (meridian convergence in a polar azimuthal projection = longitude). The sign is -1 north and
     +1 south, the south's coming from its aspect y-flip;
-  - SVF is left off (its residual is <1% at the pole). A scalar z-factor is fine: AEQD tangential
-    distortion inside the edge latitude is small.
+  - a scalar z-factor is fine: AEQD tangential distortion inside the edge latitude is small.
 
 Freshness: each cap is guarded by a recipe sidecar (data/work/cap/cap_<name>_params.json, written by
 `cap_raytrace.params`) plus source mtimes; a fresh cap skips. The pass tail invokes the cap pass,
@@ -201,7 +200,7 @@ def south_grid(body: bodies.Body) -> CapGrid:
     constants applied to whatever body is passed. Opacity says how strongly a line is drawn if one
     is drawn at all; whether this body has a coastline dataset lives in `Body.surface_layers`, where
     `bakes_coastline` reads it. Deriving one from the other records the same fact twice, as a 0.0
-    here and as an entry in the recipe's `layers_off`.
+    here and as an absence from the recipe's `layers_on`.
     """
     return CapGrid(lat_0=-90.0, edge_lat=-CAP_EDGE_LAT, px=CAP_PX, name="south", az_sign=1.0,
                    body=body, coast_opacity=0.0, coast_dilate=0,
@@ -373,8 +372,8 @@ def grid_recipe_fields(grid: CapGrid) -> dict:
     fields = {key: value for key, value in asdict(grid).items() if key != "body"}
     fields["aeqd_radius_m"] = grid.body.aeqd_radius_m
     smooth = POLE_SMOOTH_BY_BODY.get(grid.body.name)
-    # Conditional, on the `layers_off` idiom: a body whose altimetry reached its poles records
-    # nothing and keeps the recipe it has. It belongs here rather than in the light block
+    # Conditional: a body whose altimetry reached its poles records nothing and keeps the recipe
+    # it has. It belongs here rather than in the light block
     # — unlike `ground_scale`, this changes the heightfield itself, so the elevation texture reads it
     # too and must restage with it. `cap_heights` is the one place that applies it, for that reason.
     if smooth is not None:

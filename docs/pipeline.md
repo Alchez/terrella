@@ -51,7 +51,7 @@ python -m pipeline.acquire.earth.download_gebco         # global bathymetry
 | `pipeline.acquire.mars.download_nomenclature` | the IAU gazetteer, the source of Mars's named features |
 | `pipeline.acquire.earth.download_rgi` | RGI 7.0 glacier shapefiles merged to `data/raw/rgi/rgi7_g_3857.gpkg` |
 | `pipeline.acquire.earth.download_seaice` | OSI SAF monthly sea-ice concentration → the annual ice-frequency climatology |
-| `pipeline.acquire.earth.download_worldcover` | ESA WorldCover tiles for one `--extent`, the hero lane's snow source |
+| `pipeline.acquire.earth.download_worldcover` | ESA WorldCover tiles for one `--extent`, the water mask for GLO-30's void tiles |
 | NSIDC-0791 snow persistence | the snow-persistence NetCDF, obtained from NSIDC via Earthdata (earthaccess/CMR) and placed at `data/raw/snow/`. **No committed acquire script** (unlike RGI / sea ice), because the fetch needs a NASA Earthdata login and no acquirer carries a credential |
 
 ## The look
@@ -61,7 +61,7 @@ python -m pipeline.acquire.earth.download_gebco         # global bathymetry
 - **A body declares which surfaces it has** in `Body.surface_layers` against the `layers.Layer` vocabulary, and `look/layer_producers.py` with `look/perennial_ice.py` says who builds each one for it. A body that has not answered gets a named raise, not a default.
 - **The ramp and the ice white are ratified by eye and nothing derives them.** They reach the globe, so they are the maintainer's call rather than a value to pick.
 - **`look/palette.py` is numpy-only on purpose.** Blender's bundled interpreter cannot import this project's venv, so it reads the same look constants the tile cut does instead of transcribing them.
-- **The two lanes take snow from different datasets deliberately.** Tiles take observed persistence as a latitude-ramped soft alpha with RGI glaciers crisp on top; heroes take ESA WorldCover class 70. `CLAUDE.md` § *Data sources* owns why.
+- **Both lanes paint snow by one law**: observed persistence as a latitude-ramped soft alpha with RGI glaciers crisp on top, the hero stage folding the tiles' own producers on its grid. `CLAUDE.md` § *Data sources* owns why.
 
 | Module | Produces |
 |---|---|
@@ -137,7 +137,7 @@ The chain `country_config` prints per country, in order. Each stage finalizes it
 | 2 | Build mosaics | `fuse/build_mosaics.sh` | VRT mosaics of DEM + water-body mask |
 | 3 | Fuse heightfield | `pipeline.fuse.fuse_heightfield` | Seamless land+sea heightfield + ocean/lake/river masks |
 | 4 | Render prep | `pipeline.render.render_prep` | Projected rasters + `frame.json` (every derived number) |
-| 5 | Snow mask | `pipeline.render.snow_mask` | Snow/ice mask (ESA WorldCover class 70) |
+| 5 | Snow mask | `pipeline.render.snow_mask` | The tiles' snow and glaciers (NSIDC-0791, RGI 7.0) folded on the country's grid |
 | 6 | Lake depth mask | `pipeline.render.lake_mask` | `lakedepth.tif` (GLOBathy depth → ramp position; lakes shade by depth, rivers stay flat) |
 | 7 | Render | `render/scene_build.py` via `blender -b` | The hero PNG |
 

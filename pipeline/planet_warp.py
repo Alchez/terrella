@@ -83,7 +83,12 @@ WARP_CONSEQUENCE: dict[str, str] = {
     layers.GLACIERS.name: "persistence-only snow",
     layers.SEA_ICE.name: "bathymetry bare at the poles",
     layers.ANTARCTIC_ROCK.name: "Antarctic outcrop stays under the forced white",
+    layers.SALT_FLATS.name: "salt flats stay white or lake; run pipeline.acquire.earth.download_naturalearth",
 }
+
+#: Where each planet raster a layer's build may read sits in the work directory, by `planet_seam`
+#: name. The heightfield is always warped; the water mask only where the planet emitted one.
+GRID_RASTER_FILES: dict[str, str] = {"heightfield": HEIGHT_3857, "watermask": WATER_3857}
 
 
 def warp_inputs(work: Path, planet: Path, body: bodies.Body, rasters: frozenset[str]):
@@ -182,11 +187,13 @@ def warp_inputs(work: Path, planet: Path, body: bodies.Body, rasters: frozenset[
             sources = (*sources, write_if_changed(
                 out.with_name(f"{out.stem}_build.json"),
                 json.dumps(tunables, indent=2, sort_keys=True) + "\n"))
+        grid_rasters = {name: work / GRID_RASTER_FILES[name] for name in producer.grid_rasters}
         # `warp_needs_rebuild` re-warps when a source moved OR when the grid grew under the target;
-        # the sources are the producer's because they are what it will actually read.
-        if warp_needs_rebuild(out, grid, *sources):
+        # the sources are the producer's because they are what it will actually read, the planet's
+        # own rasters included where its build reads them.
+        if warp_needs_rebuild(out, grid, *sources, *grid_rasters.values()):
             producer.build(layer_producers.LayerBuild(
                 bounds=grid_bounds, width=grid_width, height=grid_height, out=out,
-                band_rows=WINDOW_ROWS))
+                band_rows=WINDOW_ROWS, grid_rasters=grid_rasters))
             mark_done(out)
     return height

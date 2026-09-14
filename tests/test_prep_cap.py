@@ -86,11 +86,12 @@ def prepped(monkeypatch, tmp_path):
     monkeypatch.setattr(cap_render, "_burn", fake_burn)
     monkeypatch.setattr(datasets, "addrock_gpkg", lambda: present)
 
-    def run(pole: str = "north", body: bodies.Body = EARTH) -> Path:
+    def run(pole: str = "north", body: bodies.Body = EARTH,
+            rasters: frozenset[str] = WHOLE_PLANET) -> Path:
         grid = _small(cap_render.north_grid(body) if pole == "north"
                       else cap_render.south_grid(body))
         outdir = tmp_path / f"render_{pole}"
-        prep_cap.cut(grid, WHOLE_PLANET, outdir)
+        prep_cap.cut(grid, rasters, outdir)
         return outdir
 
     return run
@@ -266,6 +267,30 @@ class TestWhatTheCapPrepWrites:
         declared = _stages(prepped())[render_seam.CAP]
         assert set(declared) >= {render_files.HEIGHTFIELD, render_files.OCEANMASK,
                                  render_files.INLANDLAKE, render_files.RIVER}
+
+    def test_the_images_a_cap_can_load_are_pinned_per_body(self):
+        """What `cap_raytrace`'s recipe records the wiring of: no row scale, no salt, no lake bed."""
+        assert prep_cap.rig_images(EARTH, WHOLE_PLANET) == {
+            "heightfield.tif", "oceanmask.png", "inlandlake.png", "river.png", "snowmask.png",
+            "seaice.png"}
+        assert prep_cap.rig_images(bodies.MARS, frozenset({"heightfield"})) == {
+            "heightfield.tif", "snowmask.png"}
+
+    def test_a_planet_with_no_masks_gets_none_written_for_it(self, prepped):
+        """The block prep's rule: a mask is written only from a raster the planet declared, since a
+        file of zeros cannot be told from one measured and found empty, and the rig would load it."""
+        declared = _stages(prepped(rasters=frozenset({"heightfield"})))[render_seam.CAP]
+        assert not {render_files.OCEANMASK, render_files.INLANDLAKE, render_files.RIVER} & set(declared)
+        assert render_files.HEIGHTFIELD in declared
+
+    def test_a_mask_the_recipe_cannot_see_stops_the_prep(self, prepped, monkeypatch):
+        """A texture the cap recipe does not record restages nothing when its wiring moves, so the
+        prep refuses to write one rather than render a disc its recipe is blind to."""
+        shipped = prep_cap.rig_images
+        monkeypatch.setattr(prep_cap, "rig_images",
+                            lambda body, rasters: shipped(body, rasters) - {render_files.SEAICE})
+        with pytest.raises(ValueError, match=render_files.SEAICE):
+            prepped()
 
     def test_it_writes_no_rowscale_and_that_absence_is_declared(self, prepped):
         """AEQD is equidistant from its centre by construction, so there is nothing to correct.

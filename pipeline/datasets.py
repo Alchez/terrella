@@ -85,6 +85,14 @@ def globathy_zip() -> Path:
     return _raw("globathy", "Bathymetry_Rasters.zip")
 
 
+def gwl() -> Path:
+    """GWL_FCS30 wetland archives, written by `acquire/earth/download_gwl.py`.
+
+    Read by `acquire/earth/extract_gwl.py`, which writes their saline class into `work/`.
+    """
+    return _raw("gwl_fcs30")
+
+
 def mars() -> Path:
     """Mars rasters, written by both `acquire/mars/download_mars_dem.py` and
     `acquire/mars/download_viking_mosaic.py`."""
@@ -142,5 +150,5 @@ def snow_persistence() -> Path:
 
 def worldcover() -> Path:
     """ESA WorldCover 2021 v200, written by `acquire/earth/download_worldcover.py`, which takes an
-    extent because the global land set is ~114 GB and both stages want one window of it."""
+    extent because the global land set is ~114 GB and its one reader wants one window of it."""
     return _raw("worldcover")

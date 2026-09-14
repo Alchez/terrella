@@ -88,6 +88,12 @@ def warp_depth_raster(bounds, width, height, out_path, vrt=None):
     return out_path
 
 
+#: The water mask's inland classes, carried through the fuse from Copernicus's water body mask:
+#: 1 is ocean, 2 lake and 3 river.
+LAKE_CLASS = 2
+RIVER_CLASS = 3
+
+
 def lakes_only(depth, watercode):
     """Zero the depth field off watermask class 2 (inland lake).
 
@@ -102,7 +108,7 @@ def lakes_only(depth, watercode):
     if depth is None:
         raise TypeError("depth is required: a missing lake layer is answered by the producer, "
                         "which returns before reaching here")
-    return np.where(watercode == 2, depth, 0.0).astype("float32")
+    return np.where(watercode == LAKE_CLASS, depth, 0.0).astype("float32")
 
 
 def inland_water(watercode):
@@ -115,4 +121,4 @@ def inland_water(watercode):
     is the tempting shortcut and is wrong -- it catches class 1 and paints the whole ocean flat
     WATER_RGB over the bathymetry (the cap's 'disc glow').
     """
-    return (watercode == 2) | (watercode == 3)
+    return (watercode == LAKE_CLASS) | (watercode == RIVER_CLASS)

@@ -19,10 +19,14 @@ picking the wrong one is expensive in a direction that reads as thoroughness. As
 | Neither, a pure rule | Arithmetic with no dataset behind it, like the forced Antarctic white | Nothing; it rides a layer's DECLARATION |
 
 **Freshness is not the discriminator, because both vocabularies already give it.**
-`planet_seam.rasters_off` and `layers.layers_off` are the same guarantee at two tiers: each records
-what is switched OFF, which mtimes structurally cannot see. Reaching for `PLANET_RASTERS` *because*
-you want an input tracked is the mistake: `layers_off` tracks it too, for one row instead of eight
-readers and both bodies.
+`planet_seam.rasters_on` and `layers.layers_on` are the same guarantee at two tiers: each records what
+a body has, so switching one off moves the recipe, which mtimes structurally cannot see, and a new
+entry moves only the bodies that have it. Reaching for `PLANET_RASTERS` *because* you want an input
+tracked is the mistake: `layers_on` tracks it too, for one row instead of eight readers and both
+bodies.
+
+**A new layer that paints names its rig image on its row (`Layer.image`)**, which is what brings that
+texture's wiring into the recipe of each stage that can load it and no other's.
 
 ## A Layer does not have to paint
 
@@ -54,22 +58,35 @@ Nothing else in a recipe carries which tuple a layer sits in: `producers_for` wa
 grade nothing per window. A `fold_white` caller whose recipe omits it keeps its output looking fresh
 across a change that repaints the Antarctic outcrop.
 
+## An input that TAKES white for a paint of its own lands after both halves
+
+The salt flats are the one case: `layer_producers.salt_ground` hands the packed salt over and
+`salt.take` splits the FINISHED white between snow and salt, after the union and the exclusions, so
+no white source added later can re-claim salt ground. It is its own image (`saltmask.png`), mixed
+last in the rig so it also covers the lake paint, and `white_law` records it only where a stage
+reads it, so the caps' recipes do not move. Its raster is baked whole by the warp stage, a lake body
+and a white component crossing block edges, from the planet's own heightfield and water mask, which
+`LayerProducer.grid_rasters` names so the warp counts them as sources.
+
 ## The rule and the raster are counted differently
 
 Do not conflate implementations with stages when scoping one of these.
 
-- `layer_producers._earth_perennial_ice` (Mercator) serves **both** the planet warp and the block
-  render: `gather` runs it with a different `vocabulary` per stage. One implementation, two stages.
+- `layer_producers._earth_perennial_ice` serves **both** the block prep and the hero snow stage:
+  `gather` runs it on a Mercator window in one and on a country's conic grid in the other, with a
+  vocabulary per stage. One implementation, two stages.
 - `perennial_ice._earth_south` (AEQD cap) is the second implementation.
 
-So a shared rule in `look/snow.py` lands in both with one edit, while a **raster feeding a producer**
-must be plumbed per window, because each stage builds its own: the planet warp, `prep_block`, and
-the cap. An **exclusion** raster is the cheaper shape and that is a reason to prefer it: `gather`
-reads it once and serves both Mercator stages from there, leaving only the cap to supply its own.
+So a shared rule in `look/snow.py` lands in all of them with one edit, while a **raster feeding a
+producer** has to reach each grid: the planet warp lands it for `prep_block` to window, and the cap
+and the hero snow stage land it from source themselves. An **exclusion** raster is the cheaper shape
+and that is a reason to prefer it: it rides the same landing as every other layer, and no producer
+has to be taught it.
 
-## The cap goes to source; the tiles read a warp
+## The cap and the heroes go to source; the tiles read a warp
 
 `CapIceInputs.warp` and `.burn` open the ORIGINAL file: `_earth_north` warps the NetCDF, Mars burns
-its unit shapefiles. The Mercator tiers read a pre-warped `*_3857.tif` built by the layer registry.
-Two mechanisms for one dataset is correct here and is not a second reader: the grids differ, and
-`layers.Layer` is the single owner of the filename either way.
+its unit shapefiles. `snow_mask.LANDERS` does the same on a hero's grid, a hero pixel being finer
+than the 3857 rasters. The Mercator tiers read a pre-warped `*_3857.tif` built by the layer
+registry. Two mechanisms for one dataset is correct here and is not a second reader: the grids
+differ, and `layers.Layer` is the single owner of the filename either way.

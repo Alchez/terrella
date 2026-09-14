@@ -101,7 +101,7 @@ SOURCES: dict[str, Source] = {
     "worldcover": Source(
         name="ESA WorldCover 2021",
         href="https://esa-worldcover.org",
-        role="Snow / ice mask",
+        role="Water mask for DEM gaps",
         licence="CC-BY 4.0",
         notice="© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data "
                "(2021) processed by ESA WorldCover consortium.",
@@ -151,7 +151,7 @@ SOURCES: dict[str, Source] = {
     "naturalearth": Source(
         name="Natural Earth",
         href="https://www.naturalearthdata.com",
-        role="Borders & coastlines",
+        role="Borders, coastlines & salt flats",
         licence="Public domain",
         notice="Made with Natural Earth (naturalearthdata.com).",
         obligation=False,
@@ -253,10 +253,12 @@ CREDITS: dict[str, BodyCredits] = {
             "glaciers": ("rgi",),
             "sea_ice": ("seaice",),
             "antarctic_rock": ("addrock",),
+            "salt_flats": ("naturalearth", "snow_persistence"),
         },
         vector=("naturalearth",),
-        # WorldCover again, as the snow mask, and GLOBathy as the lake tint.
-        heroes=("worldcover", "globathy"),
+        # The tiles' snow, glaciers and salt flats, which the hero snow stage folds on its own
+        # grid, and GLOBathy as the lake tint.
+        heroes=("snow_persistence", "rgi", "naturalearth", "globathy"),
         focus=("naturalearth",),
         legal=(f"{COPERNICUS_LIABILITY}.",),
     ),
@@ -315,7 +317,8 @@ def keys_for(body: bodies.Body, layer: str) -> tuple[str, ...]:
     if layer == "terrain":
         return credits.heightfield
     painted = (key for name in sorted(painted_layers(body)) for key in credits.painted[name])
-    return (*credits.heightfield, *painted)
+    # Once each, first mention first: two layers can read one source, and a notice is owed once.
+    return tuple(dict.fromkeys((*credits.heightfield, *painted)))
 
 
 def compose(keys: tuple[str, ...]) -> str:

@@ -48,7 +48,7 @@ from pipeline import (
     render_files,
 )
 from pipeline.block_plan import Block
-from pipeline.look import lake_depth, layer_producers, snow
+from pipeline.look import lake_depth, layer_producers, salt, snow
 from pipeline.raster_io import GTIFF_CREATE
 from pipeline.render import render_prep, render_seam
 from pipeline.tile import relief_scan
@@ -275,6 +275,24 @@ def merged_paint(paints: dict[str, tuple[Any, Any]], members: "tuple[layers.Laye
     return resolved[0]
 
 
+def planet_images(rasters: frozenset[str]) -> frozenset[str]:
+    """The masks a render gets from the planet's own rasters: the ocean from its ocean mask, lakes
+    and rivers from its water mask."""
+    images = set()
+    if "oceanmask" in rasters:
+        images.add(render_files.OCEANMASK)
+    if "watermask" in rasters:
+        images |= {render_files.INLANDLAKE, render_files.RIVER}
+    return frozenset(images)
+
+
+def rig_images(body: bodies.Body, rasters: frozenset[str]) -> frozenset[str]:
+    """Every image `build` can write for this body, which is every texture a block's rig can load
+    and all that `block_render`'s recipe records."""
+    return (frozenset({render_files.HEIGHTFIELD, render_files.ROWSCALE}) | planet_images(rasters)
+            | layers.images_for(body, layers.BLOCK_LAYERS))
+
+
 def build(body: bodies.Body, window: Window, outdir: Path, *, work: Path) -> list[str]:
     """Cut every image this body can produce for `window`, and return what was written.
 
@@ -314,8 +332,8 @@ def build(body: bodies.Body, window: Window, outdir: Path, *, work: Path) -> lis
         write_mask(outdir / render_files.OCEANMASK, ocean.astype(float))
         written.append(render_files.OCEANMASK)
     if watercode is not None:
-        write_mask(outdir / render_files.INLANDLAKE, (watercode == 2).astype(float))
-        write_mask(outdir / render_files.RIVER, (watercode == 3).astype(float))
+        write_mask(outdir / render_files.INLANDLAKE, (watercode == lake_depth.LAKE_CLASS).astype(float))
+        write_mask(outdir / render_files.RIVER, (watercode == lake_depth.RIVER_CLASS).astype(float))
         written += [render_files.INLANDLAKE, render_files.RIVER]
 
     top = block_plan.mercator.MERCATOR_HALF_M - window.row_off * body.map_units_per_pixel
@@ -326,8 +344,7 @@ def build(body: bodies.Body, window: Window, outdir: Path, *, work: Path) -> lis
         raw=None, watercode=watercode, land=~(ocean | inland), ocean=ocean, latitude=latitude,
         ground_metres_per_px=block_plan.mercator.ground_metres_per_pixel(
             latitude, body.map_units_per_pixel,
-            bodies.ground_metres_per_mercator_unit(body)),
-        top=top, bottom=bottom)
+            bodies.ground_metres_per_mercator_unit(body)))
     layer_raw = {layer.name: (_read(layer.warped_in(work), window)
                              if layer.name in body.surface_layers
                              and layer.warped_in(work).exists() else None)
@@ -339,6 +356,16 @@ def build(body: bodies.Body, window: Window, outdir: Path, *, work: Path) -> lis
     # real saving across thousands of blocks, and leaving that skip undeclared turns it into an
     # inference, the rig having to read meaning into an absent file.
     white, _ = layer_producers.fold_white(contributions, shape, exclusions=exclusions)
+    ground = layer_producers.salt_ground(body, layer_raw, seen, layers.BLOCK_LAYERS)
+    if ground is not None:
+        packed, (salt_sunlit, salt_shadowed) = ground
+        white, salt_alpha = salt.take(white, packed)
+        if salt_alpha.any():
+            write_mask(outdir / render_files.SALTMASK, salt_alpha)
+            written.append(render_files.SALTMASK)
+            render_seam.declare_paint(outdir, render_files.SALTMASK,
+                                      one_colour(salt_sunlit, "salt sunlit"),
+                                      one_colour(salt_shadowed, "salt shadowed"))
     if white.any():
         write_mask(outdir / render_files.SNOWMASK, white)
         written.append(render_files.SNOWMASK)
@@ -370,6 +397,12 @@ def build(body: bodies.Body, window: Window, outdir: Path, *, work: Path) -> lis
                 f"{body.name} wrote a sea-ice mask for this window but its producer declared no "
                 f"colour for it.")
         render_seam.declare_paint(outdir, render_files.SEAICE, *ice_paint)
+    unrecorded = sorted(set(written) - rig_images(body, rasters))
+    if unrecorded:
+        raise ValueError(
+            f"{body.name}'s block prep wrote {unrecorded}, which `rig_images` does not list, so the "
+            f"block recipe records no texture for it and a change to its wiring would restage "
+            f"nothing. Name the image on its layer's row in `layers`, or in `rig_images`.")
     return written
 
 
@@ -419,8 +452,8 @@ def write_recipe(body: bodies.Body, window: Window, outdir: Path, written: list[
         "exaggeration": body.baked_exaggeration,
         "ground_scale": bodies.ground_metres_per_mercator_unit(body),
         "map_units_per_pixel": body.map_units_per_pixel,
-        "layers_off": layers.layers_off(body, layers.BLOCK_LAYERS),
-        "rasters_off": planet_seam.rasters_off(planet_seam.declared(body)),
+        "layers_on": layers.layers_on(body, layers.BLOCK_LAYERS),
+        "rasters_on": planet_seam.rasters_on(planet_seam.declared(body)),
         "mask_full_scale": MASK_FULL_SCALE,
         # `painted=False` because `build` above folds the alpha and drops `gather`'s paints, so no
         # white reaches an image this recipe describes.

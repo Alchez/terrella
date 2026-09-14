@@ -105,9 +105,9 @@ class Body:
     path_prefix: str
     #: Which of `layers.SURFACE_LAYERS` this body actually has, by name. Empty is a real answer.
     #:
-    #: Names and not `Layer` objects, because this set is serialised: `layers.layers_off` turns it
-    #: into the `layers_off` list inside the planet tier's recipe sidecar, and anything whose JSON
-    #: differs restages a whole Earth planet raster for identical pixels.
+    #: Names and not `Layer` objects, because this set is serialised: `layers.layers_on` turns it
+    #: into the `layers_on` list inside each raytraced stage's recipe, and anything whose JSON
+    #: differs restages that stage for identical pixels.
     #:
     #: Spelled out per body rather than defaulting to all of them, so adding a sixth layer is a
     #: decision for every planet including Earth. `tests/test_bodies.py` refuses a name outside the
@@ -160,7 +160,7 @@ EARTH = Body(
     # All of them, written out rather than spelled `SURFACE_LAYERS`: Earth is the reference body, and
     # "whatever the vocabulary happens to contain" is how it would inherit the next layer unexamined.
     surface_layers=frozenset({"lake_depth", "perennial_ice", "glaciers", "sea_ice", "coastline",
-                              "antarctic_rock"}),
+                              "antarctic_rock", "salt_flats"}),
     # The reference body, and the caps are a signature feature rather than a detail: both poles
     # ship a full rung ladder, feathered into the tiles at the seam.
     renders_polar_caps=True,

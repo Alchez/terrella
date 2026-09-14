@@ -70,8 +70,9 @@ ROUNDING = 9
 #:
 #: `antarctic_rock` builds a raster and contributes nothing: `fold_white` takes it back out of the
 #: finished union as a `WHITE_EXCLUSIONS` member, and returning an array here paints the outcrop the
-#: very white the layer exists to remove.
-DECLARED_SILENT = frozenset({"earth/antarctic_rock"})
+#: very white the layer exists to remove. `salt_flats` likewise: `salt.take` gives it its share of
+#: the finished white, and folding it into the union would paint the salt as snow.
+DECLARED_SILENT = frozenset({"earth/antarctic_rock", "earth/salt_flats"})
 
 
 def fixture(latitude_top: float, latitude_bottom: float) -> layer_producers.LayerWindow:
@@ -95,8 +96,6 @@ def fixture(latitude_top: float, latitude_bottom: float) -> layer_producers.Laye
         ocean=~land & (watercode == 0),
         latitude=latitude,
         ground_metres_per_px=np.full(size, 600.0),
-        top=float(latitude[0]),
-        bottom=float(latitude[-1]),
     )
 
 

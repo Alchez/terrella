@@ -37,6 +37,10 @@ EARTH_DECLARED = frozenset({render_files.HEIGHTFIELD, render_files.OCEANMASK,
                             render_files.INLANDLAKE, render_files.RIVER})
 MARS_DECLARED = frozenset({render_files.HEIGHTFIELD})
 
+#: Every image a render directory can hold, so a recipe for a render loading all of them records the
+#: whole rig and the whole texture table.
+EVERY_IMAGE = render_files.KNOWN_IMAGES
+
 
 @pytest.fixture(scope="module")
 def scene_build():
@@ -198,12 +202,12 @@ class TestTheMandatoryImagesAreTheDirectorysAnswerAndNotTheLooks:
 
     def test_the_recipe_does_not_move_when_the_declaration_does(self, scene_build):
         """The cost guard, and it is the reason this could land at all. `rig_recipe` records the
-        whole TEXTURES table rather than the subset a directory loads, so making the load
-        declaration-driven moves no recipe key and restages none of Earth's 1,024 blocks."""
-        before = json.dumps(scene_build.rig_recipe(palette.EARTH_LOOK), sort_keys=True)
-        after = json.dumps(scene_build.rig_recipe(palette.EARTH_LOOK), sort_keys=True)
-        assert before == after
-        assert "declared" not in before and render_files.INLANDLAKE in before
+        textures a stage's prep CAN write, never the subset one directory declared, so a block with
+        no lake in view records the lake mask's wiring like its neighbours and one planet stays one
+        recipe."""
+        recipe = scene_build.rig_recipe(palette.EARTH_LOOK, EVERY_IMAGE)
+        assert set(recipe["textures"]) == set(EVERY_IMAGE)
+        assert "declared" not in json.dumps(recipe, sort_keys=True)
 
     #: The subscript keys the builder may use with no conditional around them, AS SOURCE TEXT.
     #:
@@ -347,7 +351,7 @@ class TestTheRigRecipeCarriesTheLook:
     def test_the_look_rides_along_rather_than_being_restated(self, scene_build):
         """A ramp is as much a render input as a sun is, and it is the body's rather than this
         module's — so it is recorded under its own key from `look_constants`, not copied."""
-        recipe = scene_build.rig_recipe(palette.EARTH_LOOK)
+        recipe = scene_build.rig_recipe(palette.EARTH_LOOK, EVERY_IMAGE)
         constants = scene_build.look_constants(palette.EARTH_LOOK)
         assert recipe["look"]["land_range"] == list(constants.land_range)
         assert len(recipe["look"]["land_stops"]) == len(constants.land_stops)
@@ -356,7 +360,7 @@ class TestTheRigRecipeCarriesTheLook:
         """`None` is the statement that this planet draws no sea, and the recipe has to carry it:
         a body that GAINED a sea would otherwise restage nothing."""
         sealess = palette.Look(land=palette.EARTH_LOOK.land, sea=None)
-        recipe = scene_build.rig_recipe(sealess)
+        recipe = scene_build.rig_recipe(sealess, EVERY_IMAGE)
         assert recipe["look"]["sea_stops"] is None
         assert recipe["sea_texture"] is None
 
@@ -682,8 +686,19 @@ class TestTheRecipeIsDerivedRatherThanEnumerated:
         Equality rather than a subset: a subset would let the recipe carry a stale key for a field
         that no longer exists, which reads as a value being tracked when nothing produces it.
         """
-        recipe = scene_build.rig_recipe(palette.EARTH_LOOK)
+        recipe = scene_build.rig_recipe(palette.EARTH_LOOK, EVERY_IMAGE)
         assert recipe["rig"] == dataclasses.asdict(scene_build.RIG)
+
+    def test_a_render_records_only_the_textures_and_branch_values_it_can_load(self, scene_build):
+        """A heightfield-only render loads one texture and builds none of the optional branches, so
+        its recipe carries that one texture's wiring and none of the fields only a branch reads."""
+        recipe = scene_build.rig_recipe(palette.MARS_LOOK, frozenset({render_files.HEIGHTFIELD}))
+        assert set(recipe["textures"]) == {render_files.HEIGHTFIELD}
+        branch_only = {field.name for field in dataclasses.fields(scene_build.RIG)
+                       if scene_build._ONLY_WITH in field.metadata}
+        assert branch_only, "no field is branch-only, so the assertion below reaches nothing"
+        assert not branch_only & set(recipe["rig"])
+        assert set(recipe["rig"]) == {field.name for field in dataclasses.fields(scene_build.RIG)} - branch_only
 
     def test_the_structure_holds_what_the_module_used_to_spell_as_capitals(self, scene_build):
         """The anti-vacuity arm, in the shape the capitals scan already uses.
@@ -703,7 +718,7 @@ class TestTheRecipeIsDerivedRatherThanEnumerated:
         those, not the last of them.
         """
         assert scene_build.RIG.view_transform, "the rig states no view transform"
-        recipe = scene_build.rig_recipe(palette.EARTH_LOOK)
+        recipe = scene_build.rig_recipe(palette.EARTH_LOOK, EVERY_IMAGE)
         assert recipe["rig"]["view_transform"] == scene_build.RIG.view_transform
 
     def test_every_rig_field_is_actually_read_by_the_builder(self, scene_build, subtests):
@@ -751,6 +766,93 @@ class TestTheRecipeIsDerivedRatherThanEnumerated:
         assert not stragglers, f"still module-level capitals: {sorted(stragglers)}"
 
 
+class TestABranchOnlyFieldIsTaggedWithTheImagesItsBranchNeeds:
+    """`_ONLY_WITH` says which images' branches are a `Rig` field's only readers, and a recipe for a
+    render that loads none of them leaves the field out.
+
+    Held equal to the source in both directions. A tag naming too few images, or a read moved
+    outside its branch, leaves a value reaching pixels its recipe does not record: a stale render
+    reading fresh. A branch-only field left untagged re-renders every stage for a value most of them
+    never build.
+
+    Source text, like the scans above: a guard is `if render_files.X in present`, or an `or` of
+    those, and any other test (a `not in`, a mix variable) guards on nothing this scan can name, so a
+    read under it counts as unguarded, which fails toward recording.
+    """
+
+    @staticmethod
+    def _images_guarding(test: ast.expr) -> frozenset[str] | None:
+        operands = (test.values if isinstance(test, ast.BoolOp) and isinstance(test.op, ast.Or)
+                    else [test])
+        images = set()
+        for operand in operands:
+            if not (isinstance(operand, ast.Compare) and len(operand.ops) == 1
+                    and isinstance(operand.ops[0], ast.In)
+                    and isinstance(operand.left, ast.Attribute)
+                    and isinstance(operand.left.value, ast.Name)
+                    and operand.left.value.id == "render_files"):
+                return None
+            images.add(getattr(render_files, operand.left.attr))
+        return frozenset(images)
+
+    @classmethod
+    def _reads(cls, source: str) -> dict[str, frozenset[str] | None]:
+        """Every `RIG.<field>` read, with the union of the images guarding its reads, or None where
+        any read of it sits under no image guard."""
+        reads: dict[str, frozenset[str] | None] = {}
+
+        def visit(node: ast.AST, guard: frozenset[str] | None) -> None:
+            if isinstance(node, ast.If):
+                visit(node.test, guard)
+                inner = cls._images_guarding(node.test)
+                for statement in node.body:
+                    visit(statement, guard if inner is None else inner)
+                for statement in node.orelse:
+                    visit(statement, guard)
+                return
+            if (isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)
+                    and node.value.id == "RIG" and isinstance(node.ctx, ast.Load)):
+                seen = reads.get(node.attr, frozenset())
+                reads[node.attr] = None if seen is None or guard is None else seen | guard
+            for child in ast.iter_child_nodes(node):
+                visit(child, guard)
+
+        visit(ast.parse(source), None)
+        return reads
+
+    def test_every_fields_tag_is_what_the_builder_shows(self, scene_build, subtests):
+        reads = self._reads(Path(scene_build.__file__).read_text(encoding="utf-8"))
+        tagged = 0
+        for field in dataclasses.fields(scene_build.RIG):
+            with subtests.test(field=field.name):
+                assert field.name in reads, f"no `RIG.{field.name}` read to rule on"
+                tag = field.metadata.get(scene_build._ONLY_WITH)
+                guard = reads[field.name]
+                tagged += tag is not None
+                assert tag == guard, (
+                    f"`Rig.{field.name}` is tagged {sorted(tag) if tag else None} and the builder "
+                    f"reads it under {sorted(guard) if guard else 'no image guard'}")
+        assert tagged, "no field is tagged, so the rule above held nothing"
+
+    def test_the_scan_reads_guards_the_way_the_builder_writes_them(self):
+        """The control. Every assertion above is satisfied by a scan that saw no guard at all."""
+        reads = self._reads(
+            "def build(present):\n"
+            "    a = RIG.everywhere\n"
+            "    if render_files.LAKEDEPTH in present:\n"
+            "        b = RIG.lake_only\n"
+            "    if render_files.INLANDLAKE in present or render_files.RIVER in present:\n"
+            "        c = RIG.water_only\n"
+            "    if render_files.SEAICE not in present:\n"
+            "        d = RIG.inverted\n"
+            "    if render_files.SEAICE in present:\n"
+            "        e = RIG.split\n"
+            "    f = RIG.split\n")
+        assert reads == {"everywhere": None, "lake_only": frozenset({render_files.LAKEDEPTH}),
+                         "water_only": frozenset({render_files.INLANDLAKE, render_files.RIVER}),
+                         "inverted": None, "split": None}
+
+
 class TestEveryTextureNodeIsDeclaredRatherThanSpelledInline:
     """The seven image nodes are one table, and the three conditional ones are not special.
 
@@ -781,7 +883,7 @@ class TestEveryTextureNodeIsDeclaredRatherThanSpelledInline:
         """KEYED BY THE RASTER, NOT THE NODE, and the node's name is the one field left out. It is
         an identity rather than a look value, so recording it put a whole planet re-render behind a
         rename that moves no pixel. Everything else in the row rides in untouched."""
-        recipe = scene_build.rig_recipe(palette.EARTH_LOOK)
+        recipe = scene_build.rig_recipe(palette.EARTH_LOOK, EVERY_IMAGE)
         for spec in scene_build.TEXTURES.values():
             recorded = dataclasses.asdict(spec)
             del recorded["name"]
@@ -807,8 +909,9 @@ class TestTheBuilderSpellsNoLookValueWhereTheRecipeCannotSeeIt:
     look under a heading about image nodes.
     """
 
-    #: The one attribute a bare literal may name, because its value cannot reach a pixel: a node's
-    #: identity. A consistent rename renders byte-identically, and recording one would put a whole
+    #: The one attribute a bare literal may name, because its value moves nothing visible: a node's
+    #: identity. A rename is not byte-identical (HISTORY, *the south cap's two pixels are the
+    #: builder's node names or order*), only invisible, and recording one would put a whole
     #: planet re-render behind a change that moves nothing.
     #:
     #: `colorspace_settings.name` is a different attribute that happens to share the word, and it is
@@ -1081,11 +1184,11 @@ class TestNoNodeCarriesBlendersAutoName:
 
 
 class TestRenamingANodeDoesNotRestageThePlanet:
-    """`rig_recipe` records what can move a rendered pixel, and a node's name provably cannot.
+    """`rig_recipe` records what can move a rendered pixel visibly, and a node's name cannot.
 
     THE RECIPE USED TO OVER-TRACK BY ITS OWN SIBLING'S REASONING.
     `TestTheBuilderSpellsNoLookValueWhereTheRecipeCannotSeeIt` names `name` its ONE inert
-    attribute, on the grounds that a consistent rename renders byte-identically; the table was
+    attribute, on the grounds that a rename moves nothing visible; the table was
     nonetheless recorded whole, so the identity rode in beside the look values and any rename
     cleared all 1,024 markers plus both cap discs for pixels that did not move.
 
@@ -1098,12 +1201,12 @@ class TestRenamingANodeDoesNotRestageThePlanet:
     def test_renaming_every_node_leaves_the_recipe_byte_identical(self, scene_build, monkeypatch):
         """A rename touches the table's keys, its specs and `SEA_IMAGE` together, because the key
         IS the node name. None of that may reach the recipe."""
-        before = json.dumps(scene_build.rig_recipe(palette.EARTH_LOOK), sort_keys=True)
+        before = json.dumps(scene_build.rig_recipe(palette.EARTH_LOOK, EVERY_IMAGE), sort_keys=True)
         monkeypatch.setattr(scene_build, "SEA_IMAGE", f"Renamed {scene_build.SEA_IMAGE}")
         monkeypatch.setattr(scene_build, "TEXTURES", {
             f"Renamed {spec.name}": dataclasses.replace(spec, name=f"Renamed {spec.name}")
             for spec in scene_build.TEXTURES.values()})
-        after = json.dumps(scene_build.rig_recipe(palette.EARTH_LOOK), sort_keys=True)
+        after = json.dumps(scene_build.rig_recipe(palette.EARTH_LOOK, EVERY_IMAGE), sort_keys=True)
         assert before == after, "a node rename still moves the recipe, so it restages the planet"
 
     def test_a_look_bearing_field_in_the_same_row_still_moves_it(self, scene_build, monkeypatch):
@@ -1111,11 +1214,11 @@ class TestRenamingANodeDoesNotRestageThePlanet:
         `interpolation` sits in the same dataclass and reaches every coastline: an oceanmask read
         Linear instead of Closest feathers the lot. If this passes green the recipe has stopped
         watching the table at all, which is indistinguishable from the fix above."""
-        before = json.dumps(scene_build.rig_recipe(palette.EARTH_LOOK), sort_keys=True)
+        before = json.dumps(scene_build.rig_recipe(palette.EARTH_LOOK, EVERY_IMAGE), sort_keys=True)
         monkeypatch.setattr(scene_build, "TEXTURES", {
             name: dataclasses.replace(spec, interpolation="Cubic")
             for name, spec in scene_build.TEXTURES.items()})
-        after = json.dumps(scene_build.rig_recipe(palette.EARTH_LOOK), sort_keys=True)
+        after = json.dumps(scene_build.rig_recipe(palette.EARTH_LOOK, EVERY_IMAGE), sort_keys=True)
         assert before != after, "an interpolation change no longer reaches the recipe"
 
     def test_no_two_textures_read_the_same_raster(self, scene_build):
@@ -1130,9 +1233,9 @@ class TestRenamingANodeDoesNotRestageThePlanet:
         """The second place a node name used to reach the recipe. It records WHICH texture the sea
         branch reads, and the raster answers that as well as the node did without moving on a
         rename."""
-        recipe = scene_build.rig_recipe(palette.EARTH_LOOK)
+        recipe = scene_build.rig_recipe(palette.EARTH_LOOK, EVERY_IMAGE)
         assert recipe["sea_texture"] == render_files.OCEANMASK
-        assert scene_build.rig_recipe(palette.MARS_LOOK)["sea_texture"] is None
+        assert scene_build.rig_recipe(palette.MARS_LOOK, EVERY_IMAGE)["sea_texture"] is None
 
 
 class TestTheComputeBackendIsChosenRatherThanInherited:
@@ -1184,5 +1287,5 @@ class TestTheComputeBackendIsChosenRatherThanInherited:
         same-version floor, and about 9% more render time. Pinned, the same comparison is 0.0365 DN.
         The VALUE is continuity with every pixel already on disk, not a quality finding."""
         assert scene_build.RIG.sampling_pattern == "TABULATED_SOBOL"
-        assert "sampling_pattern" in scene_build.rig_recipe(palette.EARTH_LOOK)["rig"], (
+        assert "sampling_pattern" in scene_build.rig_recipe(palette.EARTH_LOOK, EVERY_IMAGE)["rig"], (
             "an unrecorded pattern is what let a Blender default move the planet unseen")

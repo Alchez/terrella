@@ -6,9 +6,9 @@ The **current** map of on-disk data stores: what each is, who reads it, whether 
 
 | | size | |
 |---|---|---|
-| `data/raw/` | **689 GB** | sources, re-downloadable, never re-derivable |
+| `data/raw/` | **576 GB** | sources, re-downloadable, never re-derivable |
 | `data/work/` | **365 GB** | intermediates, every byte rebuildable |
-| `blender/renders/` | **40.9 GB** | the hero products |
+| `blender/renders/` | **28.1 GB** | the hero products |
 | `web/public/caps/` | **12.3 MB** | the only rendered assets inside the site build |
 
 - **This file is maintained, not a snapshot: re-measure when the chain moves, and if a row and the
@@ -31,7 +31,7 @@ The **current** map of on-disk data stores: what each is, who reads it, whether 
 
 ```mermaid
 flowchart LR
-  subgraph SRC["data/raw/ · 689 GB · re-downloadable, never re-derivable"]
+  subgraph SRC["data/raw/ · 576 GB · re-downloadable, never re-derivable"]
     GLO["glo30 · 550 GB"]
     GEB["gebco · 7.2 GB"]
     LAY["rgi · snow · seaice · addrock<br/>globathy · naturalearth · mars"]
@@ -87,20 +87,21 @@ flowchart LR
   constants, so a look change restages both, and nothing else would keep them from drifting apart at
   the seam.
 
-## Raw sources: `data/raw/` (689 GB)
+## Raw sources: `data/raw/` (579 GB)
 
 | Store | Size | What it is | Used by | Reclaim? |
 |---|---|---|---|---|
 | `glo30/` | 550 GB | Copernicus GLO-30 land DEM tiles (downloaded per-country, on demand) | fusion (heroes + planet) | Keep: any re-fuse, new country, or z9/z10 extension reads it; largest store on the box |
-| `worldcover/` | 114 GB | ESA WorldCover 2021 (class-70 permanent snow/ice) | **hero snow only** (`render/snow_mask.py`), NOT the tile pipeline | **The largest single reclaim available, and it is gated on a decision rather than on a measurement**: it retires only if the heroes also migrate to the tile snow source |
+| `worldcover/` | 669 MB | ESA WorldCover 2021, the 12 tiles over the GLO-30 void extent | the void tiles' water mask (`fuse/build_void_wbm.py`, class 80) and nothing else | Keep: exactly what that stage re-derives on every run, so a rebuild needs no network |
 | `mars/` | 11.4 GB | Two whole-planet downloads, no per-tile machinery. `Mars_HRSC_MOLA_BlendDEM_Global_200mp_v2.tif` (11,384,463,908 B, 106694 x 53347 int16) is the heightfield. `Mars_Viking_ClrMosaic_global_925m.tif` (797,888,177 B, 23059 x 11530 RGB) is the field Mars's polar ice alpha is graded from, and `mars_ice.ALPHA_LEVELS` was measured over these exact bytes | the DEM feeds `fuse/relabel_mars.py`; the mosaic feeds `mars/ice/` | Keep the DEM: re-downloadable against the publisher's md5, but a ~23 min single-stream fetch. The mosaic re-fetches byte-identically in ~90 s against its md5, so deleting it costs a re-fetch rather than nothing |
 | `gebco/` | 7.2 GB | GEBCO 2026 bathymetry / ice-surface | fusion (heroes + planet); Caspian bathymetry | Keep |
-| `rgi/` | 2.6 GB | RGI 7.0 glaciers, **all 19 regions** (merged `rgi7_g_3857.gpkg` 1.1 GB + source shp) | tile snow (`look/snow.py`) | Keep |
-| `snow/` | 1.6 GB | NSIDC-0791 snow-persistence climatology | tile snow (`look/snow.py`) | Keep |
+| `rgi/` | 2.6 GB | RGI 7.0 glaciers, **all 19 regions** (merged `rgi7_g_3857.gpkg` 1.1 GB + source shp) | tile and hero snow (`look/snow.py`, `render/snow_mask.py`) | Keep |
+| `gwl_fcs30/` | 2.4 GB | GWL_FCS30 2020 wetland map: the record's twelve zips of 5° GeoTIFFs, as published | `acquire/earth/extract_gwl.py`, into `work/gwl/` | Keep: re-downloads against the pinned md5s (`acquire/earth/download_gwl.py`) |
+| `snow/` | 1.6 GB | NSIDC-0791 snow-persistence climatology | tile and hero snow (`look/snow.py`, `render/snow_mask.py`) | Keep |
 | `cop30_void/` | 1.1 GB | Cop30 void-fill DEM | fusion void-fill | Keep |
 | `seaice/` | 640 MB | OSI SAF OSI-450-a monthly EASE2 files + the derived 1991-2020 ice-frequency climatology + native `freq_{nh,sh}_ease2.tif` | tile sea ice (`look/seaice.py`) + both caps | Keep (climatology is tiny); `monthly/` regenerable from anonymous THREDDS |
 | `addrock/` | 410 MB | SCAR ADD rock outcrop: zip + unzipped shp + the reprojected `add_rock_3857.gpkg` | Antarctic ice subtraction, tiles + block + south cap | Keep the gpkg; the unzipped shp regenerates from the zip, and the zip from `acquire/earth/download_add_rock.py` |
-| `naturalearth/` | 38 MB | NE vectors (borders, framing polygons, coastline oracle) | framing, borders, countries/boundary GeoJSON | Keep (tiny) |
+| `naturalearth/` | 39 MB | NE vectors (borders, framing polygons, coastline oracle, salt-flat outlines) | framing, borders, countries/boundary GeoJSON | Keep (tiny) |
 
 ## Work / intermediates: `data/work/` (365 GB)
 
@@ -113,6 +114,7 @@ flowchart LR
 | `planet/` | 14.4 GB | Fused planet heightfield + masks, **648 cells** of 10 degrees (36 lon x 18 lat, pole to pole), five files per cell | Keep: input to the tiler |
 | `planet_terrain/` | **5.07 GB** | Terrain-RGB (Tier 3 displacement), built by `tile/terrain_rgb.py` from `height_3857.tif`. Now exactly two things: the shipping pyramid `bathy_s8_webp/tiles/` (2.53 GB, 87,381 tiles, z0-8, stamped `tiles.done` + `terrain_params.json`) and its archive `terrain.pmtiles` (2.53 GB) | Keep both. The `elev_z0..z7` downsample chain that used to live in `bathy_s8_webp/work/` is reclaimed; it re-derives from `height_3857.tif` on the next cut and costs ~17 GB transiently while it does |
 | `cap/` | **3.25 GB** | Earth's cap intermediates: the AEQD warps, the full-size `cap_{north,south}.tif`, the freshness sidecars, the prepped `render_{north,south}/` (0.39 GB) and the 28 Cycles frames per pole in `frames_{north,south}/` (0.93 GB), plus ~0.5 GB of superseded A/B discs (`cap_*_raytraced82.tif`, `ab_ice_damp`, `ab_pole_taper`, `ab_prod`) | Mixed. The render dirs and frames are kept on purpose: they make a stopped render cost one frame instead of the ring. The A/B discs are decision records whose decisions have landed. Budget **>=16 G** for any re-render: the stage peaks ~14.4 GiB |
+| `gwl/` | 74 MB | GWL_FCS30's saline class: `saline/` = 0/1 tiles, one per 5° tile that holds any, + `saline.vrt` + `saline_recipe.json` | Keep (small): re-derives from `raw/gwl_fcs30/` in about a minute (`acquire/earth/extract_gwl.py`). Nothing reads it yet; FUTURE § *Salt flats Natural Earth does not outline stay snow-white* is what it is for |
 | `borders/` | 21 MB | `countries.geojson` + `boundary_lines.geojson` (NE to GeoJSON emitters), served at `/borders/` | Keep (tiny); regenerable from `naturalearth/` |
 | `planet_vector/` | **10.2 MB** | Earth's VECTOR tiles (MVT), cut by `compose/countries_pmtiles.py` from `borders/countries.geojson` plus the two layers it derives. One archive, three source-layers (`country_fill`, `country_outline`, `country_hit`), z0-8, stamped `countries_tiles_params.json`. **Three orders of magnitude smaller than the raster pyramids**: it is geometry, not pixels | Keep. Re-cuts from `countries.geojson` in **17 s**; the recipe sidecar is what makes a settings change visible, since the filename cannot carry one |
 | `_profile_tiles/` · `_profile_pass/` · `_profile_mars_tiles/` · `_profile_tiles_earth_z8/` | 41 MB | `pass.log` (stage timings) + `samples.jsonl` per run label. `samples.jsonl` is rewritten every run; `pass.log` is ROTATED to `pass-<timestamp>.log`, because a producer that resumes across nights would otherwise keep only the last night's record of which blocks failed | **Keep: the source of every number in docs/PROCESS.md.** These are the four directories a reclaim must never sweep along with their leading-underscore siblings |
@@ -147,6 +149,7 @@ flowchart LR
 | `water_3857.tif` / `ocean_3857.tif` + `.done` | 81 MB | 3857 masks; `water_3857` reads class 1 at the Caspian | Keep |
 | `glacier_3857.tif` + `.done` | 30 MB | RGI 7.0 glacier mask (Byte 0/1) rasterized ONCE to the 3857 grid; exact vector burn, so no banding needed | Keep: regenerable, dep is `rgi7_g_3857.gpkg` |
 | `addrock_3857.tif` + `.done` | 30 MB | SCAR rock outcrop on the 3857 grid, the Antarctic ice subtraction | Keep: regenerable, dep is `add_rock_3857.gpkg` |
+| `salt_3857.tif` + `.done` | ~1 MB | the salt flats baked on the 3857 grid (packed Byte, sparse), built by the next pass | Keep: regenerable in seconds from `ne_10m_playas`, the persistence and the height and water rasters |
 | `raytrace_params.json`, `tile_params.json`, `relief_params.json` | ~7 KB | materialised palette/knob params: **the freshness guards' dependency records** | Keep (regenerated; **mtime is load-bearing**) |
 | `index.html` | 2.6 KB | **tile SMOKE TEST, not the product globe**: proves the raw pyramid renders with only `python -m http.server`, so broken tiles and a broken frontend can be told apart (labelled in-page after being mistaken for the product once) | Keep: a *different tool*, and gitignored means deleting is permanent |
 | `tmp/` | ~0 | `pmtiles convert --tmpdir` home (ext4, not tmpfs): self-cleans on normal exit | Keep the dir |
@@ -171,14 +174,14 @@ CRS-relabelled VRT over the raw blend plus its seam declaration, no copy of the 
 | `ice/` | 205 MB | `viking_luma_4326.tif`: the Viking mosaic collapsed to one Float32 brightness band on a 4326 grid covering the whole sphere, which is the field BOTH ice tiers grade against, beside the two VRTs that reach it. Whole-planet on purpose though only the poles are read: a polar crop would save ~160 MB and cost a crop latitude whose failure is ice quietly missing at the band edge | Keep: a 45 s rebuild from the raw mosaic, and the sidecar makes a re-run a skip. `mars_ice.ALPHA_LEVELS` is four percentiles OF THIS FILE, so rebuilding it on a different grid means re-measuring them |
 | `features/` · `planet_vector/` | 33 MB | nomenclature labels and the vector cut | Keep (tiny) |
 
-## Hero products: `blender/renders/` (40.9 GB)
+## Hero products: `blender/renders/` (28.1 GB)
 
 The only heavy store outside `data/`, gitignored the same way. Listed here because an unlisted store
 is an unaudited one: a 26 GB dead rollback archive lived here unnoticed.
 
 | Store | Size | What it is | Reclaim? |
 |---|---|---|---|
-| `heroes/` incl. `heroes/raw/` | 24.2 GB | `raw/` is the un-post-processed Cycles frames, one 8K PNG per country; beside it the shaded finals (raw + `sky_view`) | Keep: `sky_view` re-shades finals from `raw/` with **no GPU re-render** (the AO retune took 203 countries off them in minutes), and the finals are what `hero_variants` encodes from |
+| `heroes/` | 11.4 GB | one 8K PNG per country | Keep: `hero_variants` encodes from these, and replacing one means a GPU re-render |
 | `variants/` | **14.45 GB** | **the served store**: 1,243 hero WebP (6 rungs, q85 to 1920 / q95 above, + a per-country portrait fill rung on 25 of them), 1,243 spotlight overlays, and each country's PNG master copied beside its full-size WebP as the print download (203 files, 11.38 GB) | Keep: this is what the browser fetches. The PNG copies are the reclaimable part, since `downloads.py stamp` rebuilds them from `heroes/`. R2's `heroes/` still holds the deleted border ladder's 1,010 `*-border-*.png` rungs, which nothing references; deleting them is the maintainer's call |
 | `archives/` | 1.67 GB | the country maps bundle at its archive-host key, `earth/country-maps-webp-v1.zip`: the credit file and every stamped full-size WebP in one stored zip | Reclaimable: `downloads.py bundle` rebuilds it byte for byte from `variants/` |
 | `archive/` | 595 MB | one-off look experiments (india/nepal/swiss look v1-v3): the visual record behind ART's decisions | Keep (small); **not** a place for rollback trees |
@@ -282,8 +285,7 @@ wrong at the last audit was wrong in one of these three ways.
   `hs_3857.tif` pair, the three `.mbtiles` bridges, `planet.pmtiles.old`, an orphaned
   `planet_raytrace.tif` arm master, all four rotated `tiles_old/` pyramids, both terrain elev
   chains, the landed `_*` scout dirs and the border PNG store.
-- **What remains reclaimable is a decision, not a measurement**, and there are four:
-  - `raw/worldcover/` (114 GB), which retires only if the heroes migrate to the tile snow source.
+- **What remains reclaimable is a decision, not a measurement**, and there are three:
   - the per-country hero intermediates (~182 GB), which are the input to any re-render.
   - `mars/planet_tiles/planet_composite_ARCHIVE.pmtiles` (1.30 GB), which is one-way: its producer
     is deleted, so it can never be regenerated.

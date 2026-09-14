@@ -956,11 +956,11 @@ class TestTheCoastlineIsABodyFact:
 
     def test_the_opacity_stays_a_look_constant_rather_than_a_second_copy_of_the_body_fact(self):
         """Deriving `coast_opacity` from the body would record the same fact twice — as a 0.0 in the
-        grid block and as an entry in `layers_off` — which is the copy-drift the registry removes."""
+        grid block and as an absence from `layers_on` — which is the copy-drift the registry removes."""
         assert cap_render.north_grid(LAYERLESS_BODY).coast_opacity == 0.55
         recipe = json.loads(cap_raytrace.params(cap_render.north_grid(LAYERLESS_BODY), WHOLE_PLANET))
         assert recipe["grid"]["coast_opacity"] == 0.55
-        assert "coastline" in recipe["layers_off"]
+        assert "coastline" not in recipe["layers_on"]
 
 
 class TestCapSourcesFollowTheLayers:
@@ -1120,26 +1120,27 @@ class TestTheCapDiscCanSayWhichGridItIsOn:
                         f"the band keeps only {cap_render.CAP_MEASURE_BAND_DEGREES}")
 
 
-class TestTheCapRecipeRecordsWhatIsOff:
-    def test_earth_records_no_layers_off_so_its_caps_keep_their_recipe_shape(self):
-        assert "layers_off" not in json.loads(cap_raytrace.params(EARTH_NORTH, WHOLE_PLANET))
-        assert "layers_off" not in json.loads(cap_raytrace.params(EARTH_SOUTH, WHOLE_PLANET))
+class TestTheCapRecipeRecordsWhatIsOn:
+    def test_earth_records_the_cap_layers_it_has_and_no_others(self):
+        """The cap vocabulary, not the whole one: `lake_depth`, `glaciers` and `salt_flats` never
+        reach a cap, so recording them would restage a 14 GB render on a decision it cannot
+        contain."""
+        for grid in (EARTH_NORTH, EARTH_SOUTH):
+            assert json.loads(cap_raytrace.params(grid, WHOLE_PLANET))["layers_on"] == [
+                "antarctic_rock", "coastline", "perennial_ice", "sea_ice"]
 
-    def test_a_bare_body_records_exactly_the_cap_layers_it_lacks(self):
-        """The cap vocabulary, not the whole one: `lake_depth` and `glaciers` never reach a cap, so
-        recording them would restage a 14 GB render on a decision it cannot contain."""
+    def test_a_bare_body_records_none(self):
         recipe = json.loads(cap_raytrace.params(cap_render.north_grid(LAYERLESS_BODY), WHOLE_PLANET))
-        assert recipe["layers_off"] == ["antarctic_rock", "coastline", "perennial_ice", "sea_ice"]
+        assert recipe["layers_on"] == []
 
     def test_turning_a_layer_off_restages_although_its_source_stops_being_a_dependency(self):
         """The two halves have to move together. Switching a layer off REMOVES its file from
         `cap_sources`, so the mtime that would have noticed disappears along with the layer, and
         the recipe is the only thing left that can tell the cap it is stale.
 
-        ASSERTED ON THIS TIER'S OWN `layers_off` AND NEVER ON WHOLE-RECIPE INEQUALITY. The nested
-        `composite` sub-recipe records the same layer independently, so comparing the two documents
-        passes whether or not the cap records anything at all: `sabotage.py` deleted the cap's own
-        key and this test stayed green while two unrelated ones went red.
+        Asserted on this tier's own `layers_on` and never on whole-recipe inequality: the producers'
+        constants and the rig's sea-ice texture record the same layer independently, so comparing
+        the two documents passes whether or not the cap records the layer itself.
         """
         with_ice = cap_render.north_grid(bodies.EARTH)
         without = cap_render.north_grid(
@@ -1147,9 +1148,8 @@ class TestTheCapRecipeRecordsWhatIsOff:
                                 surface_layers=bodies.EARTH.surface_layers - {"sea_ice"}))
         assert datasets.seaice_frequency() in cap_render.cap_sources(with_ice, WHOLE_PLANET)
         assert datasets.seaice_frequency() not in cap_render.cap_sources(without, WHOLE_PLANET)
-        assert "layers_off" not in json.loads(cap_raytrace.params(with_ice, WHOLE_PLANET))
-        assert json.loads(
-            cap_raytrace.params(without, WHOLE_PLANET))["layers_off"] == ["sea_ice"]
+        assert "sea_ice" in json.loads(cap_raytrace.params(with_ice, WHOLE_PLANET))["layers_on"]
+        assert "sea_ice" not in json.loads(cap_raytrace.params(without, WHOLE_PLANET))["layers_on"]
 
 
 class TestTheRockNeverGatesTheForcedWhite:
@@ -1319,17 +1319,15 @@ class TestTheCapPassAsksTheSeamBeforeTheDisk:
                         == [cap_render.planet_seam.vrt_path(LAYERLESS_BODY, raster)
                             for raster in cap_render.planet_seam.PLANET_RASTERS])
 
-    def test_the_cap_recipe_records_the_rasters_that_are_off(self, subtests):
-        """UNCONDITIONALLY, and at the top level. The composite recipe nested this under its own
-        block and omitted it on a whole planet; the raytraced one always states the answer, so an
-        empty list is a claim rather than a silence."""
-        with subtests.test("earth records an empty list"):
-            assert json.loads(
-                cap_raytrace.params(EARTH_NORTH, WHOLE_PLANET))["rasters_off"] == []
-        with subtests.test("a maskless planet records both"):
+    def test_the_cap_recipe_records_the_rasters_that_are_on(self, subtests):
+        """Unconditionally, and at the top level, so a list is a claim rather than a silence."""
+        with subtests.test("earth records all three"):
+            assert json.loads(cap_raytrace.params(EARTH_NORTH, WHOLE_PLANET))["rasters_on"] == [
+                "heightfield", "oceanmask", "watermask"]
+        with subtests.test("a maskless planet records its heightfield"):
             recipe = json.loads(cap_raytrace.params(
                 cap_render.north_grid(LAYERLESS_BODY), self.HEIGHTFIELD_ONLY))
-            assert recipe["rasters_off"] == ["oceanmask", "watermask"]
+            assert recipe["rasters_on"] == ["heightfield"]
         with subtests.test("so switching one off restages the cap"):
             grid = cap_render.north_grid(LAYERLESS_BODY)
             assert (cap_raytrace.params(grid, WHOLE_PLANET)

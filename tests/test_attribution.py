@@ -200,12 +200,10 @@ class TestThePageListIsDerived:
             assert attribution.SOURCES["mars_nomenclature"].name in mars
 
     def test_worldcover_is_credited_in_the_raster_archives_and_not_only_on_the_page(self, subtests):
-        """It reaches them through the WATERMASK, not the snow mask.
-
-        The standing brief says the tiles replaced WorldCover with NSIDC-0791 plus RGI, and that is
-        about snow. OpenTopography serves the withheld GLO-30 tiles without a WBM, so
-        `fuse/build_void_wbm.py` builds one from WorldCover class 80 and `build_mosaics.sh` globs it
-        into the mosaic `fuse_heightfield` reads. CC-BY, so both raster cuts owe it a notice.
+        """It reaches them through the WATERMASK. OpenTopography serves the withheld GLO-30 tiles
+        without a WBM, so `fuse/build_void_wbm.py` builds one from WorldCover class 80 and
+        `build_mosaics.sh` globs it into the mosaic `fuse_heightfield` reads. CC-BY, so both raster
+        cuts owe it a notice.
         """
         worldcover = attribution.SOURCES["worldcover"]
         with subtests.test("on the page"):
@@ -277,13 +275,13 @@ HERO_STEP_SOURCES: dict[str, set[str]] = {
     "pipeline/fuse/build_mosaics.sh": {"glo30", "worldcover"},
     "pipeline.fuse.fuse_heightfield": {"glo30", "gebco"},
     "pipeline.render.render_prep": set(),
-    "pipeline.render.snow_mask": {"worldcover"},
+    # Its salt flats are Natural Earth's outlines.
+    "pipeline.render.snow_mask": {"snow_persistence", "rgi", "naturalearth"},
     "pipeline.render.lake_mask": {"globathy"},
     "pipeline/render/scene_build.py": set(),
-    # The batch's own steps. Natural Earth frames the image and draws nothing into it.
+    # The batch's own steps. The acquirer fetches what the snow stage paints from.
     "pipeline.acquire.earth.download_naturalearth": set(),
     "pipeline.acquire.earth.download_gebco": {"gebco"},
-    "pipeline.look.sky_view": set(),
 }
 
 
@@ -292,8 +290,7 @@ def hero_lane_steps() -> set[str]:
     from pipeline.frame import country_config
 
     config = {"defaults": {"pad_pct": 5.0, "hero_long_edge": 7680, "warp_long_edge": 8192,
-                           "fusion": "auto", "sky_view_strength": 0.2,
-                           "resolution_floor_m": 60.0},
+                           "fusion": "auto", "resolution_floor_m": 60.0},
               "scope": {"exclude": [], "include": []}, "countries": {}}
     row = {"admin": "Nepal", "sov": "Nepal", "bbox": (80.0, 26.0, 88.0, 30.0), "idx": 0}
     resolved = country_config.resolve("nepal", row, config)
@@ -351,9 +348,15 @@ class TestWhatAHeroIsBuiltFrom:
         with subtests.test("the output licence"):
             assert attribution.OUTPUT_LICENCE in credit
 
-    def test_natural_earth_frames_the_hero_and_is_not_credited_inside_it(self):
-        assert attribution.SOURCES["naturalearth"].notice not in \
-               attribution.for_hero(bodies.EARTH)
+    def test_natural_earth_is_credited_inside_the_hero_for_the_salt_it_outlines(self):
+        assert attribution.SOURCES["naturalearth"].notice in attribution.for_hero(bodies.EARTH)
+
+    def test_every_notice_appears_once_though_two_layers_read_one_source(self):
+        """Salt flats and perennial ice both read NSIDC-0791, and the archive owes its notice once."""
+        keys = attribution.keys_for(bodies.EARTH, "relief")
+        assert keys.count("snow_persistence") == 1
+        credit = attribution.compose(keys)
+        assert credit.count(attribution.SOURCES["snow_persistence"].notice) == 1
 
     def test_the_focus_layer_draws_natural_earth(self):
         assert attribution.CREDITS["earth"].focus == ("naturalearth",)

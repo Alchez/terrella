@@ -11,8 +11,9 @@ replaces is preserved, so this is not the twice-rejected ambient raise wearing a
 consequence on the surface that was damaged. The luminance anchor is derived from `F2E7D5` here so
 the warm world survives as this file's reference point and nowhere else in the tree.
 
-Freshness needs no test of its own: `rig_recipe` is `dataclasses.asdict(RIG)` and
-`test_scene_build_sync` pins that identity, so this constant cannot move without restaging.
+Freshness needs no test of its own: `rig_recipe` derives from `dataclasses.asdict(RIG)`, the world
+colour reaches every render, and `test_scene_build_sync` pins that derivation, so this constant
+cannot move without restaging.
 """
 
 import dataclasses
@@ -94,7 +95,7 @@ class TestTheDecision:
 class TestItMovesHueNotBrightness:
     def test_it_holds_the_luminance_of_the_colour_it_replaces(self, scene_build):
         """1.0x, not a value that looked right. Raising the world to brighten was tried and
-        rejected (ART, Light balance): it brightens without modeling."""
+        rejected (docs/ART.md § Rejected, so it is not re-proposed): it brightens without modeling."""
         warm = np.array(palette.srgb8_to_linear(WARM_WORLD_HEX))
         assert float(np.dot(LUMINANCE, scene_build.RIG.world_rgba[:3])) == pytest.approx(
             float(np.dot(LUMINANCE, warm)), abs=1e-6)

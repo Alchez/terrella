@@ -64,7 +64,7 @@ class TestTheVocabulary:
             planet_seam.vrt_path(bodies.EARTH, "oceanmsak")
 
     def test_the_raster_vocabulary_and_the_surface_layer_vocabulary_do_not_overlap(self) -> None:
-        """Two vocabularies, two words. `layers_off` and `rasters_off` are different switches, and a
+        """Two vocabularies, two words. `layers_on` and `rasters_on` are different switches, and a
         name in both would let a reader believe one guard covers the other."""
         assert not planet_seam.KNOWN_RASTERS & layers.SURFACE_LAYERS
 
@@ -269,20 +269,19 @@ class TestTheRastersMustSitOnNESTEDGrids:
         assert planet_seam.declared(body) == planet_seam.KNOWN_RASTERS
 
 
-class TestRastersOff:
-    def test_a_full_planet_records_nothing(self) -> None:
-        """Earth's list must stay empty, or the conditional record writes a key into a recipe that
-        has never had one and restages a 46 GB composite to reproduce identical pixels."""
-        assert planet_seam.rasters_off(planet_seam.KNOWN_RASTERS) == []
+class TestRastersOn:
+    def test_the_emitted_ones_are_named_and_sorted(self) -> None:
+        assert planet_seam.rasters_on(planet_seam.KNOWN_RASTERS) == [
+            "heightfield", "oceanmask", "watermask"]
+        assert planet_seam.rasters_on(frozenset({"watermask", "heightfield"})) == [
+            "heightfield", "watermask"]
 
-    def test_the_missing_ones_are_named_and_sorted(self) -> None:
-        assert planet_seam.rasters_off(frozenset({"heightfield"})) == ["oceanmask", "watermask"]
-
-    def test_it_names_what_is_OFF_never_what_is_ON(self) -> None:
-        """The asymmetry is the whole idiom: the ON direction is already carried by mtimes, because
-        a raster that appears gets warped and the composite's dependency list sees it. The OFF
-        direction is the silent one — the stale warp stays on disk and nothing moves."""
-        assert "heightfield" not in planet_seam.rasters_off(frozenset({"heightfield"}))
+    def test_a_raster_this_planet_lacks_joining_the_vocabulary_moves_nothing(self, monkeypatch) -> None:
+        """Why the record is what is on: a list of what is off moves every body lacking a new
+        raster kind, re-rendering a planet that cannot draw it."""
+        before = planet_seam.rasters_on(frozenset({"heightfield"}))
+        monkeypatch.setattr(planet_seam, "KNOWN_RASTERS", planet_seam.KNOWN_RASTERS | {"landcover"})
+        assert planet_seam.rasters_on(frozenset({"heightfield"})) == before
 
 
 def _cell(chunks_dir, name):
@@ -403,3 +402,10 @@ class TestTheSuitesStandInMatchesTheRealDeclaration:
         """Derived from the registry, not listed: a third planet must fail here rather than at
         whichever test happens to name it first. This one runs everywhere, store or no store."""
         assert set(DECLARED_RASTERS) == set(bodies.BODIES)
+
+    def test_the_render_fingerprint_stands_in_with_the_same_table(self):
+        """The fingerprint cannot import the suite's table, so it keeps a copy, and a recipe records
+        only what its stage can load: a copy that gave Mars an ocean would report a Mars pass owed
+        for every water colour, which production Mars never reads."""
+        from scripts import render_fingerprint
+        assert render_fingerprint.DECLARED_RASTERS == DECLARED_RASTERS

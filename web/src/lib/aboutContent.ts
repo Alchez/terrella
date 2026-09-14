@@ -150,7 +150,7 @@ export const ABOUT: Record<BodySlug, BodyAbout> = {
       // to its height; this one ran 370 characters against neighbours at 144 and cost 338px of row
       // for four lines. The temptation is that this is the most interesting step and deserves more
       // words. It is the one that can least afford them, and prose about what was REJECTED belongs
-      // in a note below, which is not in the grid. The sky-view burn is hero-only and is docs/ART.md's.
+      // in a note below, which is not in the grid.
       {
         title: "Light",
         text: "A low north-west sun with a fill from the opposite side. Both surfaces are ray traced in Blender's Cycles off one rig, so the globe's tiles cast the same real shadows the gallery's stills do.",
@@ -163,9 +163,9 @@ export const ABOUT: Record<BodySlug, BodyAbout> = {
         title: "Borders",
         text: "Natural Earth boundaries composite on top as crisp vector lines. They are never baked into the terrain, so they stay sharp and toggle on demand.",
       },
-      // Not "a permanent snow and ice mask from ESA WorldCover": the tiles do not use it, class 70
-      // being permanent ice only, which leaves mid- and high-latitude ranges bare. WorldCover still
-      // dresses the heroes, so it keeps its credit below.
+      // Not "a permanent snow and ice mask from ESA WorldCover": neither surface uses it, class 70
+      // being permanent ice only, which leaves mid- and high-latitude ranges bare. WorldCover keeps
+      // its credit below for the water mask it gives the DEM's gap tiles.
       {
         title: "Snow",
         text: "Permanent snow from a MODIS persistence climatology and the Randolph glacier inventory, faded at its margins so the edges take the hillshade. Antarctica is painted white outright: the climatology saturates over the continent but leaves clustered gaps, and the glacier inventory only reaches its coastal fringe.",

@@ -270,7 +270,6 @@ def params(grid: cap_render.CapGrid, rasters: frozenset[str]) -> str:
     only a disc that was going to re-render anyway.
     """
     body = grid.body
-    absent = layers.layers_off(body, layers.CAP_LAYERS)
     recipe: dict[str, Any] = {
         "producer": "raytrace",
         "grid": cap_render.grid_recipe_fields(grid),
@@ -278,7 +277,10 @@ def params(grid: cap_render.CapGrid, rasters: frozenset[str]) -> str:
         "quadrant_split": cap_render.CAP_QUADRANT_SPLIT,
         "exaggeration": body.baked_exaggeration,
         "ground_scale": bodies.ground_metres_per_aeqd_unit(body),
-        "rasters_off": planet_seam.rasters_off(rasters),
+        # Unconditional: switching a layer off also REMOVES its file from `cap_sources`, so the
+        # dependency disappears along with the layer and the absence has nowhere else to show.
+        "layers_on": layers.layers_on(body, layers.CAP_LAYERS),
+        "rasters_on": planet_seam.rasters_on(rasters),
         # This caller's choices rather than look constants, recorded for `block_render.params`'
         # reason: a disc resumed across a change of either would blend both regimes into one image
         # with nothing saying which frame came from which.
@@ -292,12 +294,8 @@ def params(grid: cap_render.CapGrid, rasters: frozenset[str]) -> str:
         "coast_rgb": list(cap_render.COAST_RGB),
         "asset": {"format": "webp", "quality": cap_render.CAP_WEBP_QUALITY,
                   "rungs": list(cap_render.CAP_RUNGS)},
-        "rig": block_render.rig_recipe(body),
+        "rig": block_render.rig_recipe(body, prep_cap.rig_images(body, rasters)),
     }
-    if absent:
-        # The conditional-record idiom: turning a layer off REMOVES its file from `cap_sources`, so
-        # the dependency disappears along with the layer and the absence has nowhere else to show.
-        recipe["layers_off"] = absent
     return json.dumps(recipe, indent=2, sort_keys=True) + "\n"
 
 

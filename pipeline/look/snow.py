@@ -1,4 +1,4 @@
-"""Tile snow layer: NSIDC-0791 snow persistence -> latitude-ramped soft alpha.
+"""Snow layer for tiles and heroes: NSIDC-0791 snow persistence -> latitude-ramped soft alpha.
 
 Persistence (observed MODIS climatology, water years 2001-2023, 0.01 deg) drives a smoothstep alpha
 so snow margins fade and take the relief instead of a hard cartoon edge. The cutoff ramps with
@@ -6,8 +6,7 @@ so snow margins fade and take the relief instead of a hard cartoon edge. The cut
 over huge areas and a fixed cutoff floods them.
 
 Do not go back to the WorldCover class-70 permanent-ice mask this replaced: permanent ice only
-leaves every mid- and high-latitude range bare, which is the comparison the heroes still show,
-their own snow coming from that class.
+leaves every mid- and high-latitude range bare.
 """
 
 import subprocess
@@ -46,15 +45,16 @@ def _run(cmd):
     subprocess.run([str(part) for part in cmd], check=True, capture_output=True)
 
 
-def _warp_persistence_direct(bounds, width, height, out_path, sp_nc=None):
-    """One gdalwarp of SP onto a Web-Mercator grid, storing the raw packed Float32.
+def _warp_persistence_direct(bounds, width, height, out_path, sp_nc=None, target_srs="EPSG:3857"):
+    """One gdalwarp of SP onto a grid, storing the raw packed Float32.
 
-    bounds = (left, bottom, right, top) in EPSG:3857. -srcnodata excludes the 65535 fill from the
-    bilinear kernel so it cannot bleed a white fringe onto coastlines where fill borders land.
+    bounds = (left, bottom, right, top) in `target_srs`, Web Mercator for the planet and a
+    country's own conic for a hero. -srcnodata excludes the 65535 fill from the bilinear kernel so
+    it cannot bleed a white fringe onto coastlines where fill borders land.
     """
     left, bottom, right, top = bounds
     sub = f'NETCDF:"{persistence_nc(sp_nc)}":{SP_VAR}'
-    _run(["gdalwarp", "-overwrite", "-q", "-s_srs", "EPSG:4326", "-t_srs", "EPSG:3857",
+    _run(["gdalwarp", "-overwrite", "-q", "-s_srs", "EPSG:4326", "-t_srs", target_srs,
           "-srcnodata", str(SP_FILL), "-dstnodata", str(SP_FILL),
           "-te", repr(left), repr(bottom), repr(right), repr(top),
           "-ts", str(width), str(height), "-r", "bilinear", "-ot", "Float32",
@@ -63,8 +63,9 @@ def _warp_persistence_direct(bounds, width, height, out_path, sp_nc=None):
     return out_path
 
 
-def warp_persistence_raster(bounds, width, height, out_path, sp_nc=None, band_rows=None):
-    """Warp SP onto a Web-Mercator grid in latitude bands, storing the raw packed Float32.
+def warp_persistence_raster(bounds, width, height, out_path, sp_nc=None, band_rows=None,
+                            target_srs="EPSG:3857"):
+    """Warp SP onto a grid in latitude bands, storing the raw packed Float32.
 
     Stores the packed value (0..10000, fill 65535) rather than the 0..1 fraction, so that a window
     slice of this raster is bit-identical to warping that window alone: the reader unpacks per
@@ -78,16 +79,18 @@ def warp_persistence_raster(bounds, width, height, out_path, sp_nc=None, band_ro
     snow to bare land; 4096-row bands still decimate, and neither `-et 0` nor `-ovr NONE` fixes it. A
     band whose latitude span is small keeps the local scale honest, so it reads the source at full
     resolution. With band_rows == `planet_warp.WINDOW_ROWS` and bands aligned to it, each band is
-    the per-window warp it replaces. band_rows=None (small grids) is a single direct warp.
+    the per-window warp it replaces. band_rows=None (small grids, and a hero's country-sized conic)
+    is a single direct warp.
     """
     left, bottom, right, top = bounds
     if band_rows is None or height <= band_rows:
-        return _warp_persistence_direct(bounds, width, height, out_path, sp_nc=sp_nc)
+        return _warp_persistence_direct(bounds, width, height, out_path, sp_nc=sp_nc,
+                                        target_srs=target_srs)
 
     pixel = (top - bottom) / height  # metres/row; the band bounds walk down from `top` by this
     profile: dict[str, Any] = dict(
         driver="GTiff", width=width, height=height, count=1, dtype="float32",
-        crs="EPSG:3857", transform=from_bounds(left, bottom, right, top, width, height),
+        crs=target_srs, transform=from_bounds(left, bottom, right, top, width, height),
         nodata=SP_FILL, tiled=True, blockxsize=256, blockysize=256, compress="deflate",
         BIGTIFF="YES")
     band_temp = Path(f"{out_path}.band.tmp.tif")
@@ -96,7 +99,7 @@ def warp_persistence_raster(bounds, width, height, out_path, sp_nc=None, band_ro
             band_top = top - row0 * pixel
             band_bottom = top - row1 * pixel
             _warp_persistence_direct((left, band_bottom, right, band_top), width, row1 - row0,
-                                     band_temp, sp_nc=sp_nc)
+                                     band_temp, sp_nc=sp_nc, target_srs=target_srs)
             with rasterio.open(band_temp) as src:
                 dst.write(src.read(1), 1, window=band_window(width, row0, row1))
     band_temp.unlink(missing_ok=True)
@@ -184,26 +187,27 @@ def latitude_per_row(top, bottom, height):
 
 
 def ramp_thresholds(latitude):
-    """Per-row (low, high) persistence thresholds ramped by |latitude|."""
+    """(low, high) persistence thresholds ramped by |latitude|, in whatever shape it arrives."""
     frac = np.clip((np.abs(latitude) - RAMP_LAT_LO) / (RAMP_LAT_HI - RAMP_LAT_LO), 0.0, 1.0)
     low = RAMP_LOW_MIN + frac * (RAMP_LOW_MAX - RAMP_LOW_MIN)
     return low, low + RAMP_BAND
 
 
-def snow_alpha(persistence, top, bottom):
-    """Soft snow alpha (0..1) from persistence, with the latitude-ramped threshold per row.
+def snow_alpha(persistence, latitude):
+    """Soft snow alpha (0..1) from persistence, the threshold ramped by latitude.
 
-    Soft in persistence, which is not the axis the staircase is on. `feather` is the companion that
-    softens it in pixels, and every caller of this wants both: a value ramp can only spread an edge
-    as far as the field's own gradient carries it, and between two 0.01 degree cells that is one
-    cell, hard-cornered at the cell boundary. Two functions because they need different inputs, this
-    one the window's latitude span and that one the grid's ground resolution, and because the cap
-    tier reproduces this ramp on an AEQD grid where the per-row latitude here would be wrong.
+    `latitude` is per row (1-D) on a Mercator window, whose rows each have one, and per pixel
+    (2-D) on a hero's conic grid, whose rows do not.
+
+    Soft in persistence, which is not the axis the staircase is on. `soften_source_cells` is the
+    companion that softens it in pixels, and every caller of this wants both: a value ramp can only
+    spread an edge as far as the field's own gradient carries it, and between two 0.01 degree cells
+    that is one cell, hard-cornered at the cell boundary.
     """
-    height = persistence.shape[0]
-    low, high = ramp_thresholds(latitude_per_row(top, bottom, height))
-    low = low.reshape(-1, 1)
-    high = high.reshape(-1, 1)
+    latitude = np.asarray(latitude, dtype=float)
+    if latitude.ndim == 1:
+        latitude = latitude.reshape(-1, 1)
+    low, high = ramp_thresholds(latitude)
     fraction = np.clip((persistence - low) / np.maximum(1e-6, high - low), 0.0, 1.0)
     return fraction * fraction * (3.0 - 2.0 * fraction)
 
@@ -237,10 +241,10 @@ SOFTEN_HALO_SIGMAS = 3
 def source_cell_sigma_px(ground_metres_per_px):
     """Blur radius in pixels that spreads an edge over `SOFTEN_FRACTION` of one source cell.
 
-    Takes ground metres per pixel, never map metres, and takes it rather than deriving it: the two
-    grids that call this are a Web-Mercator window (per row, varying) and an AEQD cap (one scalar
-    for the disc), and only the caller knows which it is holding. `CapIceInputs.ground_metres_per_px`
-    carries the same quantity for the same reason.
+    Takes ground metres per pixel, never map metres, and takes it rather than deriving it: a
+    Web-Mercator window's varies per row, and an AEQD cap and a hero's conic each have one scalar,
+    and only the caller knows which it is holding. `CapIceInputs.ground_metres_per_px` carries the
+    same quantity for the same reason.
 
     Scalar in, scalar out; array in, array out.
     """
@@ -283,8 +287,8 @@ def soften_source_cells(alpha, ground_metres_per_px):
     alpha moves nothing and only softens. It is also what the ratified arm did, and the ratified
     thing is an image.
 
-    `ground_metres_per_px` is a scalar for a grid of uniform resolution (an AEQD cap) or one value
-    per row for a Mercator window, where the ground metre shrinks with cos(latitude) and sigma
+    `ground_metres_per_px` is a scalar for a grid of uniform resolution (an AEQD cap, a hero's
+    conic) or one value per row for a Mercator window, where the ground metre shrinks with cos(latitude) and sigma
     therefore grows northward. A per-row sigma has no single-call form in `ndimage`, so the array is
     filtered in latitude bands narrow enough that one sigma serves the whole band, each with a halo
     of real rows above and below so the band edges leave no seam of their own.
@@ -313,7 +317,11 @@ def soften_source_cells(alpha, ground_metres_per_px):
     return out
 
 
-def antarctic_snow_mask(land, latitude, lat_max=-60.0):
+#: The latitude south of which Antarctic land is forced white.
+ANTARCTIC_WHITE_LAT = -60.0
+
+
+def antarctic_snow_mask(land, latitude, lat_max=ANTARCTIC_WHITE_LAT):
     """1.0 where Antarctic land must be forced permanent-ice white, else 0.0 (float32).
 
     Antarctica's snow dataset has holes rather than being absent, and the difference is measured.

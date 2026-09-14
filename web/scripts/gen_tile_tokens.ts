@@ -13,7 +13,7 @@
 //
 // WHY THE ARCHIVE AND NOT ITS RECIPE. Every cut writes a recipe sidecar beside its output, and
 // hashing that was the first design. It fails on the case that matters most: `tile_params.json`
-// records format, quality and zoom range, so a look change re-shades the composite and re-cuts every
+// records format, quality and zoom range, so a look change re-renders the blocks and re-cuts every
 // tile while leaving that file byte-identical. The token would hold still through exactly the re-cut
 // it exists to announce. Bytes cannot misdescribe themselves.
 //

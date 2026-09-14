@@ -24,10 +24,16 @@ the params recipe plus the planet rasters. So:
 - **`params()` is the lever.** Inside it, two entries move for block-geometry work: `contexts`
   (`context_census`, the context law's *output*) and `rig` (`scene_build.rig_recipe`).
 - **`rig_recipe` is DERIVED, not enumerated**: `dataclasses.asdict(RIG)` plus the texture table plus
-  the look. A constant added to `Rig` is in the recipe with nothing to remember.
+  the look, narrowed to the images the stage's prep can write (`rig_images`). A constant added to
+  `Rig` is in the recipe with nothing to remember.
   - **And what it costs is the whole planet.** Moving one value into `Rig` changes the recipe's text,
     so `start_generation` clears every marker and the body re-renders end to end, plus a re-cut, an
     upload and a Worker deploy. docs/PROCESS.md holds the figure.
+  - A field only an optional branch reads carries that branch's images under `_ONLY_WITH`, and a
+    stage that can load none of them does not record it, so a lake colour restages Earth's blocks
+    alone. `TestABranchOnlyFieldIsTaggedWithTheImagesItsBranchNeeds` holds each tag equal to the
+    builder's source both ways, and `test_a_change_restages_only_what_it_reaches` names the exact
+    stages each kind of change moves.
   - **Never assume a re-render is already owed.** Diff the on-disk sidecar against `params()` first.
     Equal means the next look change buys a whole pass on its own, so batch look changes rather than
     landing them one at a time.
@@ -54,16 +60,20 @@ the params recipe plus the planet rasters. So:
 - **Every image node is built by `make_texture` from a `TextureSpec`**, and that is the only place
   one is configured. An interpolation or extension spelled at a call site is a look decision no
   recipe can see; `test_every_inline_literal_in_the_builder_is_one_somebody_ruled_on` fails on it.
-  - The table is recorded WHOLE rather than per look: the optional textures are declined by a body's
-    planet seam, not by its look, so a planet that gained one would otherwise restage nothing.
-  - **So WHICH textures a directory loads is free to change and WHAT THE TABLE CONTAINS is not**, and
-    that asymmetry is what let the rig learn to render a body with no inland water for nothing.
-    `textures_for` is a filter over the recorded table, so its rule is invisible to the recipe.
+  - The table is recorded per stage and body: the rows for what `prep_block.rig_images` or
+    `prep_cap.rig_images` says the prep can write, never what one directory declared. A body gaining
+    a layer moves `layers_on` and brings its image's row in, so it restages; a row only another
+    stage or body loads moves nothing here. Each prep raises on writing an image outside its set,
+    whose wiring would otherwise reach pixels with no recipe watching.
+  - So which textures a directory loads is free to change within what its stage can load, and
+    `textures_for` is a filter over that, so its rule is invisible to the recipe.
   - **NO NODE NAME REACHES THE RECIPE, so renaming one is free on every tier.** The table is keyed
-    into the recipe by `filename` and the `name` field is excluded, because a consistent rename
-    renders byte-identically; it used to ride in whole and put a planet re-render behind a change
-    that moved nothing. The exclusion is one NAMED field, so a field added to `TextureSpec` later
-    is still recorded. `TestNoNodeCarriesBlendersAutoName` keeps names off Blender's `.00N`, and
+    into the recipe by `filename` and the `name` field is excluded, because a rename moves nothing
+    visible; it used to ride in whole and put a planet re-render behind a change that moved nothing
+    anyone could see. A rename is not byte-identical, though: node names or creation order moved
+    two pixels of a cap frame by up to 3 DN, so a render compared across one differs by that much.
+    → HISTORY, *the south cap's two pixels are the builder's node names or order*. The exclusion is
+    one NAMED field, so a field added to `TextureSpec` later is still recorded. `TestNoNodeCarriesBlendersAutoName` keeps names off Blender's `.00N`, and
     `TestRenamingANodeDoesNotRestageThePlanet` holds both directions of the exclusion.
   - **NOTHING COMPARES THE BUILT GRAPH AGAINST A HAND-BUILT BASELINE ANY MORE**, so creation order
     and node names answer only to the reader and to the arm probes that reach into the built graph.
@@ -73,12 +83,14 @@ the params recipe plus the planet rasters. So:
     shape depends on what the prep declared. What survives is `scene_dump`'s other use, diffing
     two dumps across a change, which needs no baseline at all.
 - **The fold's law is a third entry, through `layer_producers.white_law`.** Which of `WHITE_UNION`
-  and `WHITE_EXCLUSIONS` a layer sits in decides whether its raster adds white or removes it, and no
-  producer's recipe can carry that: `producers_for` walks `layers.warped_for(vocabulary)`, so a
-  producer is recorded whichever half its layer joins, and `glaciers` and `antarctic_rock` grade
-  nothing per window.
-- **Heroes do not restage.** `rig_recipe`'s only reader is `block_render.params`; the hero path
-  shells into `scene_build` without one.
+  and `WHITE_EXCLUSIONS` a layer sits in decides whether its raster adds white or removes it, and
+  whether salt takes a share of the finished white, and no producer's recipe can carry that:
+  `producers_for` walks `layers.warped_for(vocabulary)`, so a producer is recorded whichever half its
+  layer joins, and `glaciers`, `antarctic_rock` and `salt_flats` grade nothing per window.
+- **Heroes do not restage.** `rig_recipe`'s readers are the block and cap recipes
+  (`block_render.recipe_for`, `cap_raytrace.params`), each narrowed to what its prep can write, so a
+  new texture restages only the stages that can load it; the hero path shells into `scene_build`
+  without one.
 
 So a change that moves pixels but reaches none of `Rig`, the texture table, the fold's law or a
 context is **silently invisible to freshness**. Put it in the structure.
