@@ -21,7 +21,7 @@ The globe's tiles render through the same rig as the heroes, so a `RIG` field re
 | `WATER_RGB` | `8EC6C4`, pinned relationally: sea surface +7% | § Inland water |
 | `SNOW_RGB` / `SNOW_SHADOW_RGB` | `E8F1F6` / `B0C7DB` | § Snow |
 | `SALT_RGB` / `SALT_SHADOW_RGB` | `F0ECE4` / `B6C3CB` | § Salt flats |
-| `salt.FLOOR_TOLERANCE_M` / `LAKE_INSIDE_FRACTION` | 10 m / 0.5 | § Salt flats |
+| `salt.FLOOR_TOLERANCE_M` / `LAKE_INSIDE_FRACTION` / `PATCH_SHARE` | 10 m / 0.5 / 0.5 | § Salt flats |
 | `ICE_RGB` / `ICE_SHADOW_RGB` | `D4E4F0` / `9CB8D2` | § Sea ice |
 | `SUN_ALT_DEG` | 45.0: hero X-tilt and tile light both derive from it | § Sun altitude |
 | `EXAGGERATION` | 15.0, the authored value, read by no path; every surface reads `Body.baked_exaggeration`, pinned equal to it for Earth | § Vertical exaggeration |
@@ -96,13 +96,14 @@ Border style dicts (`overlay_borders.py`) and the hero variant rungs (`hero_vari
 - **The mask itself is not a lever**, dataset and class being pinned provenance.
 - The contrast budget on full snow is the luminance gap `SNOW_SHADOW_RGB → SNOW_RGB`, **43.9 DN, and that is all there is.** The ice has whatever relief the DEM gives it, so REMA and ArcticDEM are the real lever there rather than any colour term.
 
-### Salt flats: outlines + color (`look/salt.py`; colour: `palette.SALT_RGB`)
+### Salt flats: outlines, saline patches + color (`look/salt.py`; colour: `palette.SALT_RGB`)
 
-- Bright salt crust is misread twice: NSIDC-0791 calls it snow and the water mask calls it lake. Both surfaces paint Natural Earth's playas in their own tone instead, last in the colour chain, so it covers the white and the lake paint alike.
-- The salt is each outline on its level floor, the lake bodies lying mostly inside an outline, and the white connected to an outline. A lake the outline only brushes stays water: the Great Salt Lake Desert's outline overlaps the Great Salt Lake.
+- Bright salt crust is misread twice: NSIDC-0791 calls it snow and the water mask calls it lake. Both surfaces paint salt ground in its own tone instead, last in the colour chain, so it covers the white and the lake paint alike.
+- Two sources say where: Natural Earth's playas, and GWL_FCS30's saline class, whose patches are the ground where it holds at least half a cell.
+- The salt is each outline and each patch on its level floor, the lake bodies lying mostly inside them, and the white connected to them. A lake they only brush stays water: the Great Salt Lake Desert's outline overlaps the Great Salt Lake.
 - Colour `F0ECE4`, picked on the globe's own tiles over Uyuni: **warm where snow is cool**, so the two never read as one. It renders about 5 DN dimmer than its hex.
-- Natural Earth calls every one a dry lake bed and says nothing of salt, so the tone marks all 73, and a flat it does not outline keeps its snow white.
-- The tone marks salt ground, not only white misread as snow: an outline's whole level floor takes it, so Etosha and the Saharan chotts, which carry no white, are salt-coloured too.
+- Natural Earth calls every one a dry lake bed and says nothing of salt, so the tone marks all 73. GWL_FCS30 adds the flats it classes saline, and a flat neither source holds keeps its snow white.
+- The tone marks salt ground, not only white misread as snow: a whole level floor takes it, so Etosha and the Saharan chotts, which carry no white, are salt-coloured too.
 
 ### Sea color ramp (depth-keyed): `palette.SEA_STOPS` + `SEA_MIN_M`
 

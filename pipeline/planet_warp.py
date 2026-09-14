@@ -83,7 +83,8 @@ WARP_CONSEQUENCE: dict[str, str] = {
     layers.GLACIERS.name: "persistence-only snow",
     layers.SEA_ICE.name: "bathymetry bare at the poles",
     layers.ANTARCTIC_ROCK.name: "Antarctic outcrop stays under the forced white",
-    layers.SALT_FLATS.name: "salt flats stay white or lake; run pipeline.acquire.earth.download_naturalearth",
+    layers.SALT_FLATS.name: ("salt flats stay white or lake; run pipeline.acquire.earth.download_naturalearth "
+                             "and pipeline.acquire.earth.extract_gwl"),
 }
 
 #: Where each planet raster a layer's build may read sits in the work directory, by `planet_seam`

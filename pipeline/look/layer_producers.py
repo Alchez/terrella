@@ -30,7 +30,12 @@ from typing import Any
 import numpy as np
 
 from pipeline import bodies, datasets, layers, naturalearth, progress
-from pipeline.acquire.earth import download_add_rock, download_rgi, extract_globathy
+from pipeline.acquire.earth import (
+    download_add_rock,
+    download_rgi,
+    extract_globathy,
+    extract_gwl,
+)
 from pipeline.acquire.mars import download_sim3292
 from pipeline.look import lake_depth, mars_ice, palette, salt, seaice, snow, viking_luma
 
@@ -208,8 +213,8 @@ def _build_antarctic_rock(request: LayerBuild) -> None:
 
 
 def _build_salt(request: LayerBuild) -> None:
-    """Every salt flat's packed field baked onto the grid, from the outlines, the persistence and the
-    planet's own heightfield and water mask (`look/salt.py`)."""
+    """Every salt flat's packed field baked onto the grid, from the outlines, the saline share, the
+    persistence and the planet's own heightfield and water mask (`look/salt.py`)."""
     progress.stage("bake salt flats -> 3857 ...")
     salt.build_planet(request.bounds, request.width, request.height, request.out,
                       request.grid_rasters["heightfield"], request.grid_rasters["watermask"])
@@ -496,7 +501,8 @@ PRODUCER_BY_BODY_LAYER: dict[tuple[str, str], LayerProducer] = {
         contribution_recipe=_no_tunables, paint_recipe=_no_tunables,
         build_recipe=_no_tunables, grid_rasters=()),
     ("earth", layers.SALT_FLATS.name): LayerProducer(
-        sources=lambda: (naturalearth.layer(salt.LAYER), datasets.snow_persistence()),
+        sources=lambda: (naturalearth.layer(salt.LAYER), datasets.snow_persistence(),
+                         extract_gwl.saline_vrt()),
         # No contribution, like the rock: the salt takes its share of the finished white through
         # `salt_ground` and `salt.take` rather than folding into it. It paints in its own colour.
         build=_build_salt, contribution=lambda _window: None, paint=_earth_salt_paint,

@@ -26,6 +26,7 @@ from pipeline import (
     planet_warp,
     render_files,
 )
+from pipeline.acquire.earth import extract_gwl
 from pipeline.block_plan import Block
 from pipeline.look import layer_producers, palette, salt
 from pipeline.render import prep_block, render_seam
@@ -52,9 +53,10 @@ class TestTheProducer:
                                            "salt_shadow_rgb": palette.SALT_SHADOW_RGB}
         assert producer.grid_rasters == ("heightfield", "watermask")
 
-    def test_it_reads_the_outlines_and_the_snow_persistence(self):
+    def test_it_reads_the_outlines_the_snow_persistence_and_the_saline_share(self):
         sources = layer_producers.producer_for(bodies.EARTH, layers.SALT_FLATS).sources()
-        assert set(sources) == {naturalearth.layer(salt.LAYER), datasets.snow_persistence()}
+        assert set(sources) == {naturalearth.layer(salt.LAYER), datasets.snow_persistence(),
+                                extract_gwl.saline_vrt()}
 
     def test_the_white_law_names_salt_where_a_stage_reads_it_and_nowhere_else(self):
         """Caps read no salt, so their recipes must not change for it."""

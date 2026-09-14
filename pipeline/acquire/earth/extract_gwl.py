@@ -1,7 +1,8 @@
 """Extract GWL_FCS30's saline class into 0/1 tiles and build their mosaic VRT.
 
-Only the tiles holding saline are written, and a GDAL average of the VRT onto any grid is the saline
-share of each cell.
+Only the tiles holding saline are written, and a VRT indexes them. The published tiles fall a quarter
+cell short of 5 degrees, so no one grid holds them all, and the VRT places each to its nearest cell,
+up to half a cell off.
 
 Two tile edges carry a band of rows the wetland classes stop short of, across saline ground the
 tile to the north carries up to the edge. `STRIPS` names them, and an unclassified cell in such a

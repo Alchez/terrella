@@ -185,7 +185,7 @@ def land_glaciers(sources: tuple[Path, ...], grid: HeroGrid, render_dir: Path) -
 
 def land_salt(_sources: tuple[Path, ...], grid: HeroGrid, render_dir: Path) -> np.ndarray:
     """The packed salt baked on this grid, from its own heightfield and water mask; `look/salt.py`
-    reads the outlines and the persistence the producer lists."""
+    reads the outlines, the saline share and the persistence the producer lists."""
     with rasterio.open(render_dir / render_files.HEIGHTFIELD) as dataset:
         heightfield = dataset.read(1).astype(float)
     with rasterio.open(render_dir / render_files.WATERMASK) as dataset:

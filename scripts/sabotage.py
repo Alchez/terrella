@@ -11087,8 +11087,11 @@ def _earth_lake_depth''',
     ),
     # The salt flats. Each renders plausibly: a salt that paints without taking the white leaves
     # snow under the salt's edge, every lake an outline touches turns the Great Salt Lake to salt,
-    # an outline unclipped to its floor paints the slopes inside it, a salt raster the warp does
-    # not rebuild from a re-fused water mask keeps last year's lakes, and a notice owed once twice.
+    # an outline or a saline patch unclipped to its floor paints the slopes inside it, a patch that
+    # holds no share of a lake leaves Lake Eyre water, a window that paints what it cut stands a
+    # flat on the floor of the part it saw, a cell centred between two saline tiles drops a column of
+    # salt across a flat, a salt raster the warp does not rebuild from a re-fused
+    # water mask keeps last year's lakes, and a notice owed once twice.
     Sabotage(
         suite='python',
         label='the tile prep paints the salt and leaves the white under it',
@@ -11120,6 +11123,46 @@ def _earth_lake_depth''',
         needle='        full = np.maximum(full, cover * (np.abs(heightfield - floor) <= FLOOR_TOLERANCE_M))',
         replacement='        full = np.maximum(full, cover)',
         guard='test_the_outline_is_salt_on_its_level_floor_and_not_on_a_hill_inside_it',
+    ),
+    Sabotage(
+        suite='python',
+        label='a saline patch is salt on the slopes inside it',
+        path='pipeline/look/salt.py',
+        needle='        paint[grown] = np.maximum(paint[grown], np.where(rim & level, share[grown], 0.0))',
+        replacement='        paint[grown] = np.maximum(paint[grown], np.where(rim, share[grown], 0.0))',
+        guard='test_a_patch_is_not_salt_on_a_hill_inside_it_and_the_white_joins_it_off_its_floor_only',
+    ),
+    Sabotage(
+        suite='python',
+        label='a cell centred between two saline tiles loses its salt',
+        path='pipeline/look/salt.py',
+        needle='    return np.where(taken, share, elsewhere)',
+        replacement='    return share',
+        guard='test_a_cell_across_the_sliver_between_two_tiles_is_not_lost',
+    ),
+    Sabotage(
+        suite='python',
+        label='a saline patch holds no share of the lakes it lies in',
+        path='pipeline/look/salt.py',
+        needle='    inside = np.array(cells, dtype=bool)',
+        replacement='    inside = np.zeros(np.shape(cells), bool)',
+        guard='test_a_lake_a_patch_mostly_holds_is_salt_whole',
+    ),
+    Sabotage(
+        suite='python',
+        label='a planet window paints a patch it cut, on the floor of the part it saw',
+        path='pipeline/look/salt.py',
+        needle='    return np.where(dropped[labels], 0.0, share), bool(owned.any())',
+        replacement='    return share, bool(owned.any())',
+        guard='test_a_patch_split_between_two_tiles_stands_on_the_floor_of_all_of_it',
+    ),
+    Sabotage(
+        suite='python',
+        label="a saline tile's window paints an outline it cut",
+        path='pipeline/look/salt.py',
+        needle='                or not all(_holds(window, boxes[index]) for index in members))',
+        replacement='                or False)',
+        guard='test_an_outline_a_tile_window_cuts_stands_on_the_floor_of_all_of_it',
     ),
     Sabotage(
         suite='python',
