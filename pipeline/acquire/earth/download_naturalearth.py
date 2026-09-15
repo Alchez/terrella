@@ -1,6 +1,6 @@
 """Download Natural Earth 1:10m vectors at a pinned release: border overlays, camera-framing
-polygons, disputed-area segments (worldview dashing), and the coastline used as the
-overlay-alignment oracle.
+polygons, disputed-area segments (worldview dashing), the coastline used as the
+overlay-alignment oracle, and the salt-flat outlines.
 
 Pinned to a release tag of the canonical repo (nvkelso/natural-earth-vector) because
 naturalearthdata.com / naciscdn serve only an unversioned "latest" — a fresh machine must reproduce
@@ -37,6 +37,7 @@ LAYERS = {
     "ne_10m_admin_0_disputed_areas": "10m_cultural",
     "ne_10m_coastline": "10m_physical",
     "ne_10m_lakes": "10m_physical",
+    "ne_10m_playas": "10m_physical",
     "ne_10m_rivers_lake_centerlines": "10m_physical",
 }
 

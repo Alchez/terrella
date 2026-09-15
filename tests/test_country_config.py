@@ -29,8 +29,7 @@ def test_fmt_frame_uses_g_format():
 # ---- fixtures ---------------------------------------------------------------
 
 DEFAULTS = {"pad_pct": 5.0, "hero_long_edge": 7680,
-            "warp_long_edge": 8192, "fusion": "auto", "sky_view_strength": 0.2,
-            "resolution_floor_m": 60.0}
+            "warp_long_edge": 8192, "fusion": "auto", "resolution_floor_m": 60.0}
 
 
 def _cfg(countries=None, exclude=None, include=None):
@@ -55,7 +54,6 @@ pad_pct = 5.0
 hero_long_edge = 7680
 warp_long_edge = 8192
 fusion = "auto"
-sky_view_strength = 0.2
 resolution_floor_m = 60.0
 
 [scope]
@@ -84,8 +82,6 @@ def test_load_config_accepts_valid(tmp_path, monkeypatch):
     ('[countries.x]\nstatus = "weird"\n', "unknown status"),
     ('[countries.x]\nframe = [10, 20, 5, 30]\n', "malformed frame"),  # W > E
     ('[countries.x]\nframe = [1, 2, 3, 4]\nstatus = "antimeridian"\n', "contradict"),
-    ('[countries.x]\nsky_view_strength = 1.5\n', "sky_view_strength"),   # > 1
-    ('[countries.x]\nsky_view_strength = -0.1\n', "sky_view_strength"),  # < 0
     ('[countries.x]\nresolution_floor_m = -1\n', "resolution_floor_m"),   # < 0
     ('[countries.x]\nresolution_floor_m = 5000\n', "resolution_floor_m"), # > 1000
     ('[countries.x]\nalso = "Burma"\n', "also"),          # a bare string is not a list
@@ -102,6 +98,29 @@ def test_load_config_rejects_bad(tmp_path, monkeypatch, bad_block, needle):
     with pytest.raises(SystemExit) as exc:
         cc.load_config()
     assert needle in str(exc.value)
+
+
+NO_BURN_DEFAULTS = """
+[defaults]
+pad_pct = 5.0
+hero_long_edge = 7680
+warp_long_edge = 8192
+fusion = "auto"
+resolution_floor_m = 60.0
+"""
+
+
+@pytest.mark.parametrize("toml_text, where", [
+    (NO_BURN_DEFAULTS + "sky_view_strength = 0.2\n\n[scope]\nexclude = []\ninclude = []\n", "[defaults]"),
+    (NO_BURN_DEFAULTS + "\n[scope]\nexclude = []\ninclude = []\n\n[countries.x]\nsky_view_strength = 0.0\n",
+     "[countries.x]"),
+])
+def test_the_burns_strength_is_refused_as_an_unknown_key(tmp_path, monkeypatch, toml_text, where):
+    """Heroes carry no post-render burn, so a strength left in the config is a value nothing reads."""
+    _point_config_at(tmp_path, monkeypatch, toml_text)
+    with pytest.raises(SystemExit) as exc:
+        cc.load_config()
+    assert f"{where}: unknown keys ['sky_view_strength']" in str(exc.value)
 
 
 # ---- build_scope ------------------------------------------------------------
@@ -153,27 +172,6 @@ def test_resolve_override_wins_over_computed_frame():
     assert resolved is not None
     assert resolved["frame_overridden"] is True
     assert resolved["frame"] == (-5.9, 40.6, 10.3, 51.9)
-
-
-def test_load_config_rejects_bad_default_strength(tmp_path, monkeypatch):
-    toml = VALID_TOML.replace('sky_view_strength = 0.2',
-                              'sky_view_strength = 2.0')
-    _point_config_at(tmp_path, monkeypatch, toml)
-    with pytest.raises(SystemExit) as exc:
-        cc.load_config()
-    assert "sky_view_strength" in str(exc.value)
-
-
-def test_resolve_sky_view_strength_default_and_override():
-    default = cc.resolve("nepal", _rows()[0], _cfg())
-    assert default is not None
-    assert default["sky_view_strength"] == 0.2               # from [defaults]
-    assert default["sky_view_strength_overridden"] is False
-    cfg = _cfg(countries={"nepal": {"sky_view_strength": 0.0}})
-    overridden = cc.resolve("nepal", _rows()[0], cfg)
-    assert overridden is not None
-    assert overridden["sky_view_strength"] == 0.0            # per-country wins
-    assert overridden["sky_view_strength_overridden"] is True
 
 
 def test_resolve_carries_also_and_defaults_to_a_list():

@@ -18,9 +18,8 @@ lands at the 1-arcsec grid, matching the standard WBM everywhere else (not World
 One WBM tile per void DEM tile, on that tile's exact grid, into data/raw/cop30_void/wbm/.
 build_mosaics.sh globs that dir into the WBM mosaic; fuse_heightfield then runs unchanged.
 
-Fetches through acquire/earth/download_worldcover.py, which snow_mask.py reads for a
-different class of the same rasters. Idempotent: skips WBM tiles already built and
-WorldCover tiles already held; delete data/raw/cop30_void/wbm to redo.
+Fetches through acquire/earth/download_worldcover.py. Idempotent: skips WBM tiles already
+built and WorldCover tiles already held; delete data/raw/cop30_void/wbm to redo.
 
 Usage: python3 build_void_wbm.py
 """

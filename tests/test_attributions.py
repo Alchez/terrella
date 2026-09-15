@@ -109,7 +109,7 @@ def test_the_obligations_are_the_ones_the_registry_marks() -> None:
     failure that let SCAR ADD sit uncredited while every licence test passed.
     """
     marked = {name for name, source in attribution.SOURCES.items() if source.obligation}
-    assert marked == {"glo30", "worldcover", "rgi", "addrock", "seaice", "mars_dem",
+    assert marked == {"glo30", "worldcover", "rgi", "addrock", "seaice", "gwl", "mars_dem",
                       "mars_sim3292"}, (
         "the set of licence-required sources changed. That is a legal claim, not a refactor: "
         "confirm it against ATTRIBUTIONS.md § Required / requested attribution strings, then "
@@ -186,14 +186,10 @@ def test_attributions_file_still_records_the_required_string(label: str, require
     )
 
 
-#: The one required notice no ARCHIVE owes. WorldCover is the heroes' snow mask and the tiles
-#: replaced it with NSIDC-0791 plus RGI, so a pyramid crediting it would name a source not in it.
-#: It stays in `REQUIRED_STRINGS` because the heroes are published and still owe it.
+#: The required notices no archive owes.
 # EMPTY, and the entry it used to hold is why the list is exceptions rather than targets. WorldCover
-# was exempted here as "the heroes' snow mask, replaced in the tiles by NSIDC-0791 plus RGI", which
-# is true of the SNOW mask and not of the dataset: it also synthesises the watermask for the void
-# GLO-30 tiles, which reaches every Earth raster archive through the fused heightfield. An exemption
-# stated in a standing brief's own words survived until the acquisition chain was read.
+# was exempted here as a snow mask, and it also synthesises the watermask for the void GLO-30 tiles,
+# which reaches every Earth raster archive through the fused heightfield.
 NOT_IN_ANY_ARCHIVE: set[str] = set()
 
 

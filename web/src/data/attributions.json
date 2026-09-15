@@ -1,7 +1,7 @@
 {
   "archives": {
     "earth/relief": {
-      "credit": "Terrella (https://terrella.alchez.dev), CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/). produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved. The organisations in charge of the Copernicus programme by law or by delegation do not incur any liability for any use of the Copernicus WorldDEM-30. Reproduced from the GEBCO_2026 Grid, GEBCO Compilation Group (2026). © ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium. Gerrish, L. (2020). Automatically extracted rock outcrop dataset for Antarctica (7.3) [Data set]. UK Polar Data Centre, Natural Environment Research Council, UK Research & Innovation. https://doi.org/10.5285/178ec50d-1ffb-42a4-a4a3-1145419da2bb. RGI 7.0 Consortium (2023), Randolph Glacier Inventory 7.0 (doi:10.5067/F6JMOVY5NAVZ), CC-BY 4.0. Lake depth from GLOBathy: Khazaei, B., Read, L.K., Casali, M., Sampson, K.M., Yates, D.N. (2022), GLOBathy, the Global Lakes Bathymetry Dataset, Scientific Data 9, 36 (doi:10.1038/s41597-022-01132-9). Snow persistence from the MODIS/Terra Global Annual Snow-Cover Climatology (NSIDC-0791), NASA NSIDC DAAC (doi:10.5067/9R1AM6NNZLTV). Sea-ice climatology derived from the OSI SAF Global sea ice concentration climate data record 1978–2020 (v3.0, 2022), OSI-450-a, EUMETSAT Ocean and Sea Ice Satellite Application Facility (doi:10.15770/EUM_SAF_OSI_0013).",
+      "credit": "Terrella (https://terrella.alchez.dev), CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/). produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved. The organisations in charge of the Copernicus programme by law or by delegation do not incur any liability for any use of the Copernicus WorldDEM-30. Reproduced from the GEBCO_2026 Grid, GEBCO Compilation Group (2026). © ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium. Gerrish, L. (2020). Automatically extracted rock outcrop dataset for Antarctica (7.3) [Data set]. UK Polar Data Centre, Natural Environment Research Council, UK Research & Innovation. https://doi.org/10.5285/178ec50d-1ffb-42a4-a4a3-1145419da2bb. RGI 7.0 Consortium (2023), Randolph Glacier Inventory 7.0 (doi:10.5067/F6JMOVY5NAVZ), CC-BY 4.0. Lake depth from GLOBathy: Khazaei, B., Read, L.K., Casali, M., Sampson, K.M., Yates, D.N. (2022), GLOBathy, the Global Lakes Bathymetry Dataset, Scientific Data 9, 36 (doi:10.1038/s41597-022-01132-9). Snow persistence from the MODIS/Terra Global Annual Snow-Cover Climatology (NSIDC-0791), NASA NSIDC DAAC (doi:10.5067/9R1AM6NNZLTV). Made with Natural Earth (naturalearthdata.com). Salt flats derived from GWL_FCS30: Zhang, X., Liu, L., Zhao, T., Chen, X., Lin, S., Wang, J., Mi, J., and Liu, W.: GWL_FCS30: a global 30 m wetland map with a fine classification system using multi-sourced and time-series remote sensing imagery in 2020, Earth Syst. Sci. Data, 15, 265–293, https://doi.org/10.5194/essd-15-265-2023, 2023. Sea-ice climatology derived from the OSI SAF Global sea ice concentration climate data record 1978–2020 (v3.0, 2022), OSI-450-a, EUMETSAT Ocean and Sea Ice Satellite Application Facility (doi:10.15770/EUM_SAF_OSI_0013).",
       "sources": [
         {
           "name": "Copernicus DEM GLO-30",
@@ -18,7 +18,7 @@
         {
           "name": "ESA WorldCover 2021",
           "href": "https://esa-worldcover.org",
-          "role": "Snow / ice mask",
+          "role": "Water mask for DEM gaps & salt flats",
           "license": "CC-BY 4.0"
         },
         {
@@ -46,6 +46,18 @@
           "license": "Public domain"
         },
         {
+          "name": "Natural Earth",
+          "href": "https://www.naturalearthdata.com",
+          "role": "Borders, coastlines & salt flats",
+          "license": "Public domain"
+        },
+        {
+          "name": "GWL_FCS30 Global Wetlands",
+          "href": "https://doi.org/10.5281/zenodo.7340516",
+          "role": "Salt flats",
+          "license": "CC-BY 4.0"
+        },
+        {
           "name": "OSI SAF Sea Ice (OSI-450-a)",
           "href": "https://osi-saf.eumetsat.int/products/osi-450-a",
           "role": "Sea ice",
@@ -71,7 +83,7 @@
         {
           "name": "ESA WorldCover 2021",
           "href": "https://esa-worldcover.org",
-          "role": "Snow / ice mask",
+          "role": "Water mask for DEM gaps & salt flats",
           "license": "CC-BY 4.0"
         }
       ]
@@ -82,7 +94,7 @@
         {
           "name": "Natural Earth",
           "href": "https://www.naturalearthdata.com",
-          "role": "Borders & coastlines",
+          "role": "Borders, coastlines & salt flats",
           "license": "Public domain"
         }
       ]
@@ -153,7 +165,7 @@
         {
           "name": "ESA WorldCover 2021",
           "href": "https://esa-worldcover.org",
-          "role": "Snow / ice mask",
+          "role": "Water mask for DEM gaps & salt flats",
           "license": "CC-BY 4.0",
           "attribution": "© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium."
         },
@@ -186,18 +198,25 @@
           "attribution": "Snow persistence from the MODIS/Terra Global Annual Snow-Cover Climatology (NSIDC-0791), NASA NSIDC DAAC (doi:10.5067/9R1AM6NNZLTV). Water years 2001-2023."
         },
         {
+          "name": "Natural Earth",
+          "href": "https://www.naturalearthdata.com",
+          "role": "Borders, coastlines & salt flats",
+          "license": "Public domain",
+          "attribution": "Made with Natural Earth (naturalearthdata.com)."
+        },
+        {
+          "name": "GWL_FCS30 Global Wetlands",
+          "href": "https://doi.org/10.5281/zenodo.7340516",
+          "role": "Salt flats",
+          "license": "CC-BY 4.0",
+          "attribution": "Salt flats derived from GWL_FCS30: Zhang, X., Liu, L., Zhao, T., Chen, X., Lin, S., Wang, J., Mi, J., and Liu, W.: GWL_FCS30: a global 30 m wetland map with a fine classification system using multi-sourced and time-series remote sensing imagery in 2020, Earth Syst. Sci. Data, 15, 265–293, https://doi.org/10.5194/essd-15-265-2023, 2023."
+        },
+        {
           "name": "OSI SAF Sea Ice (OSI-450-a)",
           "href": "https://osi-saf.eumetsat.int/products/osi-450-a",
           "role": "Sea ice",
           "license": "CC-BY 4.0",
           "attribution": "Sea-ice climatology derived from the OSI SAF Global sea ice concentration climate data record 1978–2020 (v3.0, 2022), OSI-450-a, EUMETSAT Ocean and Sea Ice Satellite Application Facility (doi:10.15770/EUM_SAF_OSI_0013). Reduced to a 1991-2020 annual ice-frequency climatology."
-        },
-        {
-          "name": "Natural Earth",
-          "href": "https://www.naturalearthdata.com",
-          "role": "Borders & coastlines",
-          "license": "Public domain",
-          "attribution": "Made with Natural Earth (naturalearthdata.com)."
         }
       ],
       "legal": [
@@ -240,7 +259,7 @@
   },
   "heroes": {
     "earth": {
-      "credit": "Terrella (https://terrella.alchez.dev), CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/). produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved. The organisations in charge of the Copernicus programme by law or by delegation do not incur any liability for any use of the Copernicus WorldDEM-30. Reproduced from the GEBCO_2026 Grid, GEBCO Compilation Group (2026). © ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium. Lake depth from GLOBathy: Khazaei, B., Read, L.K., Casali, M., Sampson, K.M., Yates, D.N. (2022), GLOBathy, the Global Lakes Bathymetry Dataset, Scientific Data 9, 36 (doi:10.1038/s41597-022-01132-9).",
+      "credit": "Terrella (https://terrella.alchez.dev), CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/). produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved. The organisations in charge of the Copernicus programme by law or by delegation do not incur any liability for any use of the Copernicus WorldDEM-30. Reproduced from the GEBCO_2026 Grid, GEBCO Compilation Group (2026). © ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium. Snow persistence from the MODIS/Terra Global Annual Snow-Cover Climatology (NSIDC-0791), NASA NSIDC DAAC (doi:10.5067/9R1AM6NNZLTV). RGI 7.0 Consortium (2023), Randolph Glacier Inventory 7.0 (doi:10.5067/F6JMOVY5NAVZ), CC-BY 4.0. Made with Natural Earth (naturalearthdata.com). Salt flats derived from GWL_FCS30: Zhang, X., Liu, L., Zhao, T., Chen, X., Lin, S., Wang, J., Mi, J., and Liu, W.: GWL_FCS30: a global 30 m wetland map with a fine classification system using multi-sourced and time-series remote sensing imagery in 2020, Earth Syst. Sci. Data, 15, 265–293, https://doi.org/10.5194/essd-15-265-2023, 2023. Lake depth from GLOBathy: Khazaei, B., Read, L.K., Casali, M., Sampson, K.M., Yates, D.N. (2022), GLOBathy, the Global Lakes Bathymetry Dataset, Scientific Data 9, 36 (doi:10.1038/s41597-022-01132-9).",
       "sources": [
         {
           "name": "Copernicus DEM GLO-30",
@@ -257,7 +276,31 @@
         {
           "name": "ESA WorldCover 2021",
           "href": "https://esa-worldcover.org",
-          "role": "Snow / ice mask",
+          "role": "Water mask for DEM gaps & salt flats",
+          "license": "CC-BY 4.0"
+        },
+        {
+          "name": "NSIDC-0791 Snow Persistence",
+          "href": "https://nsidc.org/data/nsidc-0791",
+          "role": "Snow persistence",
+          "license": "Public domain"
+        },
+        {
+          "name": "RGI 7.0 Glaciers",
+          "href": "https://nsidc.org/data/nsidc-0770/versions/7",
+          "role": "Glaciers",
+          "license": "CC-BY 4.0"
+        },
+        {
+          "name": "Natural Earth",
+          "href": "https://www.naturalearthdata.com",
+          "role": "Borders, coastlines & salt flats",
+          "license": "Public domain"
+        },
+        {
+          "name": "GWL_FCS30 Global Wetlands",
+          "href": "https://doi.org/10.5281/zenodo.7340516",
+          "role": "Salt flats",
           "license": "CC-BY 4.0"
         },
         {
@@ -271,7 +314,7 @@
         {
           "name": "Natural Earth",
           "href": "https://www.naturalearthdata.com",
-          "role": "Borders & coastlines",
+          "role": "Borders, coastlines & salt flats",
           "license": "Public domain"
         }
       ]

@@ -14,6 +14,6 @@ missing `bodies.Body` field does. Do not read this split as licence to repeat it
 
 `install_geotools.sh` sits at this level and not under a body: it fetches a TOOL rather than a
 dataset, so it answers for neither. Having several readers does not move a module out of here, and
-`download_worldcover.py` and `download_glo30.py` are both read by two stages for their naming rules;
-what sits above is the read side of a source nobody fetches there, which is `naturalearth.py`.
+`download_glo30.py` is read by two stages for its naming rules; what sits above is the read side of
+a source nobody fetches there, which is `naturalearth.py`.
 """

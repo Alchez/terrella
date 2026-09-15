@@ -153,11 +153,18 @@
       184,
       210
     ],
-    "layers_off": [],
+    "layers_on": [
+      "antarctic_rock",
+      "glaciers",
+      "lake_depth",
+      "perennial_ice",
+      "salt_flats",
+      "sea_ice"
+    ],
     "map_units_per_pixel": 305.7483,
     "mask_full_scale": 65535.0,
     "producer": "raytrace",
-    "rasters_off": [
+    "rasters_on": [
       "heightfield",
       "oceanmask",
       "watermask"
@@ -425,6 +432,12 @@
           "interpolation": "Closest",
           "optional": true
         },
+        "saltmask.png": {
+          "extension": "REPEAT",
+          "filename": "saltmask.png",
+          "interpolation": "Closest",
+          "optional": true
+        },
         "seaice.png": {
           "extension": "REPEAT",
           "filename": "seaice.png",
@@ -440,6 +453,16 @@
       }
     },
     "row_edge_mode": "edge",
+    "salt_rgb": [
+      240,
+      236,
+      228
+    ],
+    "salt_shadow_rgb": [
+      182,
+      195,
+      203
+    ],
     "sh_ice_lo": 0.62,
     "sh_ice_max_alpha": 0.55,
     "snow_ramp_band": 0.32,
@@ -463,6 +486,9 @@
     "white_exclusions": [
       "antarctic_rock"
     ],
+    "white_to_salt": [
+      "salt_flats"
+    ],
     "white_union": [
       "perennial_ice",
       "glaciers"
@@ -477,19 +503,14 @@
     "exaggeration": 20.0,
     "grid_px": 65536,
     "ground_scale": 0.5324736674674753,
-    "layers_off": [
-      "antarctic_rock",
-      "glaciers",
-      "lake_depth",
-      "sea_ice"
+    "layers_on": [
+      "perennial_ice"
     ],
     "map_units_per_pixel": 611.49622628141,
     "mask_full_scale": 65535.0,
     "producer": "raytrace",
-    "rasters_off": [
-      "heightfield",
-      "oceanmask",
-      "watermask"
+    "rasters_on": [
+      "heightfield"
     ],
     "rig": {
       "look": {
@@ -596,39 +617,9 @@
           0.7853981633974483
         ],
         "fill_strength": 0.45,
-        "ice_flatten_floor": 0.0,
         "image_color_mode": "RGBA",
         "image_colorspace": "Non-Color",
         "image_file_format": "PNG",
-        "lake_stops": [
-          [
-            0.0,
-            [
-              0.2704977910130658,
-              0.5647115057049292,
-              0.5520114015120001,
-              1.0
-            ]
-          ],
-          [
-            0.5,
-            [
-              0.12743768043564743,
-              0.3277780980565422,
-              0.3712376804741491,
-              1.0
-            ]
-          ],
-          [
-            1.0,
-            [
-              0.06301001765316767,
-              0.21586050011389926,
-              0.27467731206038465,
-              1.0
-            ]
-          ]
-        ],
         "map_range_clamp": true,
         "max_subdivisions": 12,
         "mix_blend_type": "MIX",
@@ -653,12 +644,6 @@
         "use_adaptive_subdivision": true,
         "use_denoising": true,
         "view_transform": "Khronos PBR Neutral",
-        "water_rgba": [
-          0.2704977910130658,
-          0.5647115057049292,
-          0.5520114015120001,
-          1.0
-        ],
         "world_rgba": [
           0.808332,
           0.808332,
@@ -675,40 +660,10 @@
           "interpolation": "Linear",
           "optional": false
         },
-        "inlandlake.png": {
-          "extension": "REPEAT",
-          "filename": "inlandlake.png",
-          "interpolation": "Closest",
-          "optional": false
-        },
-        "lakedepth.tif": {
-          "extension": "REPEAT",
-          "filename": "lakedepth.tif",
-          "interpolation": "Linear",
-          "optional": true
-        },
-        "oceanmask.png": {
-          "extension": "REPEAT",
-          "filename": "oceanmask.png",
-          "interpolation": "Closest",
-          "optional": false
-        },
-        "river.png": {
-          "extension": "REPEAT",
-          "filename": "river.png",
-          "interpolation": "Closest",
-          "optional": false
-        },
         "rowscale.tif": {
           "extension": "EXTEND",
           "filename": "rowscale.tif",
           "interpolation": "Closest",
-          "optional": true
-        },
-        "seaice.png": {
-          "extension": "REPEAT",
-          "filename": "seaice.png",
-          "interpolation": "Linear",
           "optional": true
         },
         "snowmask.png": {
@@ -793,10 +748,16 @@
       184,
       210
     ],
+    "layers_on": [
+      "antarctic_rock",
+      "coastline",
+      "perennial_ice",
+      "sea_ice"
+    ],
     "mask_full_scale": 65535.0,
     "producer": "raytrace",
     "quadrant_split": 2,
-    "rasters_off": [
+    "rasters_on": [
       "heightfield",
       "oceanmask",
       "watermask"
@@ -959,43 +920,12 @@
         "image_color_mode": "RGBA",
         "image_colorspace": "Non-Color",
         "image_file_format": "PNG",
-        "lake_stops": [
-          [
-            0.0,
-            [
-              0.2704977910130658,
-              0.5647115057049292,
-              0.5520114015120001,
-              1.0
-            ]
-          ],
-          [
-            0.5,
-            [
-              0.12743768043564743,
-              0.3277780980565422,
-              0.3712376804741491,
-              1.0
-            ]
-          ],
-          [
-            1.0,
-            [
-              0.06301001765316767,
-              0.21586050011389926,
-              0.27467731206038465,
-              1.0
-            ]
-          ]
-        ],
         "map_range_clamp": true,
         "max_subdivisions": 12,
         "mix_blend_type": "MIX",
         "mix_clamp_factor": true,
         "offscreen_dicing_scale": 16.0,
         "ramp_interpolation": "EASE",
-        "rowscale_operation": "MULTIPLY",
-        "rowscale_use_clamp": false,
         "samples": 4096,
         "sampling_pattern": "TABULATED_SOBOL",
         "subdivision_levels": 1,
@@ -1040,12 +970,6 @@
           "interpolation": "Closest",
           "optional": false
         },
-        "lakedepth.tif": {
-          "extension": "REPEAT",
-          "filename": "lakedepth.tif",
-          "interpolation": "Linear",
-          "optional": true
-        },
         "oceanmask.png": {
           "extension": "REPEAT",
           "filename": "oceanmask.png",
@@ -1057,12 +981,6 @@
           "filename": "river.png",
           "interpolation": "Closest",
           "optional": false
-        },
-        "rowscale.tif": {
-          "extension": "EXTEND",
-          "filename": "rowscale.tif",
-          "interpolation": "Closest",
-          "optional": true
         },
         "seaice.png": {
           "extension": "REPEAT",
@@ -1150,10 +1068,16 @@
       184,
       210
     ],
+    "layers_on": [
+      "antarctic_rock",
+      "coastline",
+      "perennial_ice",
+      "sea_ice"
+    ],
     "mask_full_scale": 65535.0,
     "producer": "raytrace",
     "quadrant_split": 2,
-    "rasters_off": [
+    "rasters_on": [
       "heightfield",
       "oceanmask",
       "watermask"
@@ -1316,43 +1240,12 @@
         "image_color_mode": "RGBA",
         "image_colorspace": "Non-Color",
         "image_file_format": "PNG",
-        "lake_stops": [
-          [
-            0.0,
-            [
-              0.2704977910130658,
-              0.5647115057049292,
-              0.5520114015120001,
-              1.0
-            ]
-          ],
-          [
-            0.5,
-            [
-              0.12743768043564743,
-              0.3277780980565422,
-              0.3712376804741491,
-              1.0
-            ]
-          ],
-          [
-            1.0,
-            [
-              0.06301001765316767,
-              0.21586050011389926,
-              0.27467731206038465,
-              1.0
-            ]
-          ]
-        ],
         "map_range_clamp": true,
         "max_subdivisions": 12,
         "mix_blend_type": "MIX",
         "mix_clamp_factor": true,
         "offscreen_dicing_scale": 16.0,
         "ramp_interpolation": "EASE",
-        "rowscale_operation": "MULTIPLY",
-        "rowscale_use_clamp": false,
         "samples": 4096,
         "sampling_pattern": "TABULATED_SOBOL",
         "subdivision_levels": 1,
@@ -1397,12 +1290,6 @@
           "interpolation": "Closest",
           "optional": false
         },
-        "lakedepth.tif": {
-          "extension": "REPEAT",
-          "filename": "lakedepth.tif",
-          "interpolation": "Linear",
-          "optional": true
-        },
         "oceanmask.png": {
           "extension": "REPEAT",
           "filename": "oceanmask.png",
@@ -1414,12 +1301,6 @@
           "filename": "river.png",
           "interpolation": "Closest",
           "optional": false
-        },
-        "rowscale.tif": {
-          "extension": "EXTEND",
-          "filename": "rowscale.tif",
-          "interpolation": "Closest",
-          "optional": true
         },
         "seaice.png": {
           "extension": "REPEAT",
@@ -1500,18 +1381,14 @@
       "px": 8192
     },
     "ground_scale": 0.5330701616700675,
-    "layers_off": [
-      "antarctic_rock",
-      "coastline",
-      "sea_ice"
+    "layers_on": [
+      "perennial_ice"
     ],
     "mask_full_scale": 65535.0,
     "producer": "raytrace",
     "quadrant_split": 2,
-    "rasters_off": [
-      "heightfield",
-      "oceanmask",
-      "watermask"
+    "rasters_on": [
+      "heightfield"
     ],
     "rig": {
       "look": {
@@ -1618,47 +1495,15 @@
           0.7853981633974483
         ],
         "fill_strength": 0.45,
-        "ice_flatten_floor": 0.0,
         "image_color_mode": "RGBA",
         "image_colorspace": "Non-Color",
         "image_file_format": "PNG",
-        "lake_stops": [
-          [
-            0.0,
-            [
-              0.2704977910130658,
-              0.5647115057049292,
-              0.5520114015120001,
-              1.0
-            ]
-          ],
-          [
-            0.5,
-            [
-              0.12743768043564743,
-              0.3277780980565422,
-              0.3712376804741491,
-              1.0
-            ]
-          ],
-          [
-            1.0,
-            [
-              0.06301001765316767,
-              0.21586050011389926,
-              0.27467731206038465,
-              1.0
-            ]
-          ]
-        ],
         "map_range_clamp": true,
         "max_subdivisions": 12,
         "mix_blend_type": "MIX",
         "mix_clamp_factor": true,
         "offscreen_dicing_scale": 16.0,
         "ramp_interpolation": "EASE",
-        "rowscale_operation": "MULTIPLY",
-        "rowscale_use_clamp": false,
         "samples": 4096,
         "sampling_pattern": "TABULATED_SOBOL",
         "subdivision_levels": 1,
@@ -1675,12 +1520,6 @@
         "use_adaptive_subdivision": true,
         "use_denoising": true,
         "view_transform": "Khronos PBR Neutral",
-        "water_rgba": [
-          0.2704977910130658,
-          0.5647115057049292,
-          0.5520114015120001,
-          1.0
-        ],
         "world_rgba": [
           0.808332,
           0.808332,
@@ -1696,42 +1535,6 @@
           "filename": "heightfield.tif",
           "interpolation": "Linear",
           "optional": false
-        },
-        "inlandlake.png": {
-          "extension": "REPEAT",
-          "filename": "inlandlake.png",
-          "interpolation": "Closest",
-          "optional": false
-        },
-        "lakedepth.tif": {
-          "extension": "REPEAT",
-          "filename": "lakedepth.tif",
-          "interpolation": "Linear",
-          "optional": true
-        },
-        "oceanmask.png": {
-          "extension": "REPEAT",
-          "filename": "oceanmask.png",
-          "interpolation": "Closest",
-          "optional": false
-        },
-        "river.png": {
-          "extension": "REPEAT",
-          "filename": "river.png",
-          "interpolation": "Closest",
-          "optional": false
-        },
-        "rowscale.tif": {
-          "extension": "EXTEND",
-          "filename": "rowscale.tif",
-          "interpolation": "Closest",
-          "optional": true
-        },
-        "seaice.png": {
-          "extension": "REPEAT",
-          "filename": "seaice.png",
-          "interpolation": "Linear",
-          "optional": true
         },
         "snowmask.png": {
           "extension": "REPEAT",
@@ -1805,18 +1608,14 @@
       "px": 8192
     },
     "ground_scale": 0.5330701616700675,
-    "layers_off": [
-      "antarctic_rock",
-      "coastline",
-      "sea_ice"
+    "layers_on": [
+      "perennial_ice"
     ],
     "mask_full_scale": 65535.0,
     "producer": "raytrace",
     "quadrant_split": 2,
-    "rasters_off": [
-      "heightfield",
-      "oceanmask",
-      "watermask"
+    "rasters_on": [
+      "heightfield"
     ],
     "rig": {
       "look": {
@@ -1923,47 +1722,15 @@
           0.7853981633974483
         ],
         "fill_strength": 0.45,
-        "ice_flatten_floor": 0.0,
         "image_color_mode": "RGBA",
         "image_colorspace": "Non-Color",
         "image_file_format": "PNG",
-        "lake_stops": [
-          [
-            0.0,
-            [
-              0.2704977910130658,
-              0.5647115057049292,
-              0.5520114015120001,
-              1.0
-            ]
-          ],
-          [
-            0.5,
-            [
-              0.12743768043564743,
-              0.3277780980565422,
-              0.3712376804741491,
-              1.0
-            ]
-          ],
-          [
-            1.0,
-            [
-              0.06301001765316767,
-              0.21586050011389926,
-              0.27467731206038465,
-              1.0
-            ]
-          ]
-        ],
         "map_range_clamp": true,
         "max_subdivisions": 12,
         "mix_blend_type": "MIX",
         "mix_clamp_factor": true,
         "offscreen_dicing_scale": 16.0,
         "ramp_interpolation": "EASE",
-        "rowscale_operation": "MULTIPLY",
-        "rowscale_use_clamp": false,
         "samples": 4096,
         "sampling_pattern": "TABULATED_SOBOL",
         "subdivision_levels": 1,
@@ -1980,12 +1747,6 @@
         "use_adaptive_subdivision": true,
         "use_denoising": true,
         "view_transform": "Khronos PBR Neutral",
-        "water_rgba": [
-          0.2704977910130658,
-          0.5647115057049292,
-          0.5520114015120001,
-          1.0
-        ],
         "world_rgba": [
           0.808332,
           0.808332,
@@ -2001,42 +1762,6 @@
           "filename": "heightfield.tif",
           "interpolation": "Linear",
           "optional": false
-        },
-        "inlandlake.png": {
-          "extension": "REPEAT",
-          "filename": "inlandlake.png",
-          "interpolation": "Closest",
-          "optional": false
-        },
-        "lakedepth.tif": {
-          "extension": "REPEAT",
-          "filename": "lakedepth.tif",
-          "interpolation": "Linear",
-          "optional": true
-        },
-        "oceanmask.png": {
-          "extension": "REPEAT",
-          "filename": "oceanmask.png",
-          "interpolation": "Closest",
-          "optional": false
-        },
-        "river.png": {
-          "extension": "REPEAT",
-          "filename": "river.png",
-          "interpolation": "Closest",
-          "optional": false
-        },
-        "rowscale.tif": {
-          "extension": "EXTEND",
-          "filename": "rowscale.tif",
-          "interpolation": "Closest",
-          "optional": true
-        },
-        "seaice.png": {
-          "extension": "REPEAT",
-          "filename": "seaice.png",
-          "interpolation": "Linear",
-          "optional": true
         },
         "snowmask.png": {
           "extension": "REPEAT",

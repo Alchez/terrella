@@ -6,6 +6,7 @@ leaves a stale planet reading fresh forever; a mosaic stamped complete while it 
 sends the tile cut at a planet that is half one producer and half the other. None of those raise.
 """
 
+import dataclasses
 import json
 import os
 import time
@@ -322,14 +323,14 @@ class TestTheRecipeSeesWhatNoMtimeCan:
         declare_planet_rasters(monkeypatch)
 
     def _params(self, body=bodies.EARTH, blocks=None):
-        return block_render.params(body, planet_seam.declared(body),
-                                   palette.look_for(body.name), block_render.rig_recipe(body),
-                                   self.BLOCKS if blocks is None else blocks)
+        return block_render.recipe_for(body, planet_seam.declared(body),
+                                       self.BLOCKS if blocks is None else blocks)
 
     def test_a_rig_constant_moving_moves_the_recipe(self):
         """The whole reason the rig's constants are serialised rather than left to source mtimes:
         a look change has to restage the render, and a checkout must not."""
-        rig = block_render.rig_recipe(bodies.EARTH)
+        rig = block_render.rig_recipe(
+            bodies.EARTH, prep_block.rig_images(bodies.EARTH, planet_seam.declared(bodies.EARTH)))
         moved = {**rig, "rig": {**rig["rig"], "samples": rig["rig"]["samples"] // 2}}
         arguments = (bodies.EARTH, planet_seam.declared(bodies.EARTH), palette.look_for("earth"))
         assert (block_render.params(*arguments, moved, self.BLOCKS)
@@ -378,13 +379,15 @@ class TestTheRecipeSeesWhatNoMtimeCan:
         assert json.loads(self._params(bodies.MARS))["exaggeration"] == bodies.MARS.baked_exaggeration
 
     def test_a_layer_switched_off_is_recorded_rather_than_merely_absent(self):
-        """The conditional-record idiom, and the direction that is silent without it: a path that
-        is not there scores 0.0 in an mtime comparison, so turning sea ice off would otherwise
-        leave a planet painted with it looking perfectly current."""
-        mars = json.loads(self._params(bodies.MARS))
-        assert mars["layers_off"] == layers.layers_off(bodies.MARS, layers.BLOCK_LAYERS)
-        assert mars["layers_off"], "Mars declares fewer block layers than Earth; if this is empty "\
-                                   "the assertion above can no longer tell a read from a constant"
+        """The direction that is silent without a record: a path that is not there scores 0.0 in
+        an mtime comparison, so turning sea ice off would otherwise leave a planet painted with it
+        looking perfectly current."""
+        earth = json.loads(self._params())
+        assert earth["layers_on"] == layers.layers_on(bodies.EARTH, layers.BLOCK_LAYERS)
+        without_ice = dataclasses.replace(
+            bodies.EARTH, surface_layers=bodies.EARTH.surface_layers - {layers.SEA_ICE.name})
+        assert json.loads(self._params(without_ice))["layers_on"] == sorted(
+            set(earth["layers_on"]) - {layers.SEA_ICE.name})
 
 
 class TestTheShippingPlannerSizesFromTheSharedSunAltitude:
@@ -432,9 +435,7 @@ class TestTheWhiteLawReachesTheRecipeAndNotOnlyTheCode:
         declare_planet_rasters(monkeypatch)
 
     def _params(self, body=bodies.EARTH):
-        return block_render.params(body, planet_seam.declared(body),
-                                   palette.look_for(body.name), block_render.rig_recipe(body),
-                                   self.BLOCKS)
+        return block_render.recipe_for(body, planet_seam.declared(body), self.BLOCKS)
 
     def test_a_layer_moving_from_the_exclusions_into_the_union_moves_the_recipe(self, monkeypatch):
         """The shipped defect's own shape, run forwards: the outcrop stops being subtracted and is
@@ -702,9 +703,8 @@ class TestTheRunnerStopsWhenTheMosaicIsAlreadyCurrent:
         planned = [_block(0, column) for column in range(3)]
         monkeypatch.setattr(block_render, "plan_blocks", lambda body, work: planned)
         _stage_warped_inputs(tmp_path)
-        (tmp_path / block_render.PARAMS_NAME).write_text(block_render.params(
-            bodies.EARTH, planet_seam.declared(bodies.EARTH), palette.look_for("earth"),
-            block_render.rig_recipe(bodies.EARTH), planned))
+        (tmp_path / block_render.PARAMS_NAME).write_text(block_render.recipe_for(
+            bodies.EARTH, planet_seam.declared(bodies.EARTH), planned))
         mosaic = tmp_path / "planet_rgb.tif"
         mosaic.write_bytes(b"")
         freshness.mark_done(mosaic)

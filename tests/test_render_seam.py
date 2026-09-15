@@ -46,8 +46,8 @@ def test_no_look_module_imports_the_rig():
     """`look/__init__.py` states this as a law, and a filename constant is not an exception to it.
 
     Both rigs read `look/`, so an import in this direction puts a module on the wrong side of the
-    seam. The names a render directory holds are `render_files`, which is at the top level for the
-    five packages that read it.
+    seam. The names a render directory holds are `render_files`, which is at the top level because
+    code beyond the rig reads it.
     """
     look = sorted((PIPELINE_ROOT / "look").glob("*.py"))
     assert look, "the look package scan matched nothing"
@@ -141,7 +141,7 @@ class TestTheVocabularyIsTheRigsOwn:
         assert render_files.KNOWN_IMAGES == {
             render_files.HEIGHTFIELD, render_files.OCEANMASK, render_files.INLANDLAKE,
             render_files.RIVER, render_files.SNOWMASK, render_files.LAKEDEPTH, render_files.SEAICE,
-            render_files.ROWSCALE}
+            render_files.SALTMASK, render_files.ROWSCALE}
 
 
 def _docstring_nodes(tree: ast.Module) -> set[int]:

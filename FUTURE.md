@@ -69,7 +69,7 @@ Not a lower tier. Nobody has written down what would make them worth doing, and 
 - [Shadow saturation on the land is a shading term](#shadow-saturation-on-the-land-is-a-shading-term-and-the-sea-that-was-ratified-rides-mostly-on-lit-pixels-analysed-2026-08-27) · look-call · needs-gpu
 - [The display face swaps in at a different width](#the-display-face-swaps-in-at-a-different-width-and-the-metric-matched-fallback-is-inert-analysed-2026-08-02) · no-data-needed · look-call
 - [Flat ice saturates the snow ramp](#flat-ice-saturates-the-snow-ramp-and-the-curve-was-fitted-before-antarctica-existed-analysed-2026-07-29) · look-call · needs-render-store
-- [The snow persistence source paints salt playas white](#the-snow-persistence-source-paints-salt-playas-white-and-nobody-has-counted-them-analysed-2026-08-25) · look-call · needs-render-store
+- [Salt flats Natural Earth does not outline stay snow-white](#salt-flats-natural-earth-does-not-outline-stay-snow-white-analysed-2026-09-14) · needs-data · look-call
 - [Look presets: user-selectable globe styles](#look-presets-user-selectable-globe-styles-analysed-2026-07-23) · look-call · product
 - [Hero presentation: geography-conditional](#hero-presentation-geography-conditional-and-no-universal-design-exists-analysed-2026-07-09) · product
 - [Kiribati presentation](#kiribati-presentation-the-one-antimeridian-deferred-country-analysed-2026-07-24) · product
@@ -96,6 +96,7 @@ Not a lower tier. Nobody has written down what would make them worth doing, and 
 
 - [A cold page load at high zoom paints a flat fill and never recovers](#a-cold-page-load-at-high-zoom-paints-a-flat-fill-and-never-recovers-observed-2026-08-11-not-analysed)
 - [Tiles "jump" a little when panning around a pole](#tiles-jump-a-little-when-panning-around-a-pole-observed-2026-08-11-not-analysed)
+- [The heightfield wraps at a block's plane edge, and the context law does not bound the wall it stands](#the-heightfield-wraps-at-a-blocks-plane-edge-and-the-context-law-does-not-bound-the-wall-it-stands-observed-2026-09-13-not-analysed)
 
 ## The detail card cannot state an elevation the DEM does not know (analysed 2026-08-27)
 
@@ -168,6 +169,17 @@ The globe's detail card carries a country's name, its continent and a link, and 
 - Likely candidates, in the order worth checking: the render-tile covering set churning as the globe reassigns zoom near the limb (`terrainZoomsFor` records that a pitched view drops a DEM level); the cap-to-tile alpha crossfade re-evaluating per frame; and `TERRAIN_SKIRT_DEFAULT = "none"`, which we ratified knowing it trades skirt artifacts for hairline gaps at zoom boundaries.
 - **The cheapest first move is to tell those apart, not to fix any of them**: `?skirt=auto` isolates the third in one page load, and it is a control that can fail.
 - **Not Mars-specific until shown to be.** Everything named above is body-independent, so check Earth's poles before scoping this as a Mars defect.
+
+## The heightfield wraps at a block's plane edge, and the context law does not bound the wall it stands (observed 2026-09-13, not analysed)
+
+> **OBSERVED, NOT ANALYSED**. Seen on tilted heroes and derived for the tile blocks from the code, with no block measured, so the next action is the census below.
+
+- **Seen on the heroes**: `scene_build.TEXTURES` gives the heightfield `REPEAT`, so a linear sample at the plane's border blends halfway into the opposite edge's row and stands a wall there. Saint Lucia's tilted frames showed it, every step within 2 px of where its edge rows switch. HISTORY, *the tilted frames' curtains*.
+- **The tile blocks read the same texture.** Their plane edges sit outside the camera, so no wall is ever drawn, but one rises at the north or west edge wherever the opposite edge is higher, and its shadow falls south-east toward the delivered pixels.
+- **The context law does not bound it.** `block_plan.haloed` sizes a block from the largest peak-to-trench range among its 3×3 neighbours, each block measured alone. The wall is half the height difference between the plane's two opposite edges, which lie in different neighbours, so sea along one edge and land along the other can stand a wall taller than either block's own range.
+- **The census that settles it**: per block, the tallest wall at the north and west plane edges, exaggerated and turned into a per-axis shadow length, against the block's context. It reads a strip along each plane edge from the planet raster, so it runs under the cgroup cap.
+- **A candidate link, nothing more**: *the context's zero fill stood a 71 km wall* left a residual join of −2.90 DN that its fix did not close.
+- **If it is real, the fix is EXTEND on the heightfield's `TextureSpec`**, which `rig_recipe` records, so it re-renders both planets and belongs with the next batched look change.
 
 ## Heroes record no recipe, so nothing on disk says which rig made any of the 203 (analysed 2026-08-21, PARKED)
 
@@ -334,7 +346,7 @@ Presets decompose into **three kinds by where the variation lives**: costs diffe
 > **OPEN** · product · needs-render-store · **reopens when** the finer-re-fuse question is settled either way, since a firm no-go is what would let 551 GB drop to on-demand.
 
 - **Trigger:** could stores move to S3/R2 to free local disk? **Answer: ~0 GB usefully**; the taxonomy is the finding:
-  - ~680 GB of raw sources are *caches of free public clouds* (GLO-30 = AWS Open Data, WorldCover = ESA's bucket, etc.): the offload is deletion + on-demand re-fetch, already gated by the INVENTORY reclaim picture, never an upload.
+  - ~592 GB of raw sources are *caches of free public clouds* (GLO-30 = AWS Open Data, WorldCover = ESA's bucket, etc.): the offload is deletion + on-demand re-fetch, already gated by the INVENTORY reclaim picture, never an upload.
   - ~360 GB of intermediates are compute-regenerable, and a remote read is a rejected shape for reading them: COG buys selective reads, while a pass is a full sequential scan two or three times over. HISTORY, *remote COG is the wrong shape for a full sequential scan*.
   - The **~56 GB worth putting in a cloud is the backup set, not an offload**: heroes+raws+variants (27 GB real bytes, hardlink archives ~free; Cycles isn't bit-deterministic so ratified pixels are irreplaceable), `planet.pmtiles` (**3 GB**: doubles as deploy transport), `planet/` fused cells (14 GB: the one expensive-to-rebuild intermediate), caps/geojson/frame pins. Price it at pickup against [R2's](https://developers.cloudflare.com/r2/pricing/) and B2's own pages; R2's zero egress is the differentiator.
 - **The big lever:** if Phase 5 goes no-go on a finer re-fuse, `glo30/` (551 GB) drops to per-country-on-demand like WorldCover: the upstream *is* the cloud store. Deferred the whole topic to after Phase 5.
@@ -362,7 +374,7 @@ Presets decompose into **three kinds by where the variation lives**: costs diffe
   | z0–9 | 152.9 | 443 GB | 10.8 h | 349,525 | 12 GB | 3.0× |
   | z0–10 | 76.4 | **1,773 GB** | **43.2 h** | 1,398,101 | 48 GB | 6.1× |
 
-- **z10 does not fit, and that is the decision.** 1.73 TB of intermediates does not fit beside the ~1.3 TB already on the render box's disk. Reclaiming every hero intermediate *and* WorldCover (~304 GB) still falls short, and `glo30/`'s 551 GB cannot go: it is what the re-fuse reads. This is a hardware precondition, not a scheduling one.
+- **z10 does not fit, and that is the decision.** 1.73 TB of intermediates does not fit beside the ~1.3 TB already on the render box's disk. Reclaiming every hero intermediate (~182 GB) still falls short, and `glo30/`'s 551 GB cannot go: it is what the re-fuse reads. This is a hardware precondition, not a scheduling one.
 - **The single worst stage is the lake warp: 1:01:44 → ~16.5 h**, more than a third of the 43 h.
 - **WebP changed the delivery side only.** A z10 archive is ~48 GB in WebP vs ~260 GB in PNG (5.2×, measured on the real pyramid: 16 GB → 3.0 GB). That is what would make a deep pyramid *shippable* at all. The intermediates are uncompressed working rasters and are unmoved, so "we use WebP now" does not reopen z10.
 - **The aesthetic argument, which stands independently of cost.** GEBCO is 15 arc-sec: **measured on the file: 464 m/px**. Land has real headroom at z10 (30 m source into 76 m/px); the sea does not. Upsampling goes **1.5× → 6.1×**, so z10 makes land crisper while leaving the sea exactly as soft as it is now, **quadrupling the land/sea detail mismatch**. Bathymetry is signature, not optional (CLAUDE.md § Data sources), so this is a look regression bought with 43 hours.
@@ -553,8 +565,12 @@ Raised while reviewing the gallery after the sea-sync sweep (the sea look was ap
 
 ### Large countries warp: the Russia equal-area-conic "fan"
 
-- **What:** each hero is one Albers equal-area conic centred on its frame; for a ~160° longitude span (Russia) the conic splays into a wedge with big empty margins. **China (~60°) looks fine**: a mild trapezoid, so this is ~4-5 extreme countries (Russia worst; Canada, USA, Kazakhstan, Greenland), not "large countries" broadly.
-- **Why it's low-ROI:** the fan is *inherent* to equal-area for a transcontinental span: any single projection either fans (conic) or grossly distorts area (Mercator). Levers are weak: trim the frame margin; bespoke-frame the few worst to a representative region (breaks the "whole country" promise); or accept it as honest cartography. **Rec: accept, or just trim margin. Do not overhaul the projection.**
+- **What:** each hero is one Albers equal-area conic centred on its frame, and the fuse covers only the frame's lon/lat box, so the rest of the render rectangle is flat 0 m filler: 33% of Russia's heightfield, 42% of Canada's and Greenland's, 24% of Norway's.
+- **How many:** over all 203 frames the filler's median share is 3.6%; it passes 10% in 30 frames and 20% in 11, led by Greenland, Canada, Russia, China, Norway, Australia and the USA. Latitude alone does it: Norway's frame bends shapes under 1° and is still a quarter filler.
+- **The filler is the framing, not the projection.** A Lambert azimuthal equal-area (LAEA) centred the same way leaves nearly as much under the same fuse (Russia 31%, Canada 41%). Fusing the whole rectangle leaves none in either, bar a sliver beyond Albers' pole arc (0.4% of Russia's).
+- **The projection itself matters on a few frames.** Albers bends shapes over 5° in 7 (Canada 70° at its northern edge, Russia 19°, Greenland 16°); LAEA bends less in 10 of the 11 frames past 2°, the USA the exception.
+- **A pitched camera makes the rim matter in every frame, not only these.** The land stands on a cliff above the 0 m filler and along the south edge the cliff faces the camera, so a tilted hero needs its whole rectangle filled even where the filler is a hairline.
+- **Levers:** fuse the whole rectangle, which reaches the pole for Russia and Canada and crosses the antimeridian for Russia; move the far-north frames to LAEA; or trim the margin. A look call that rides the hero re-render.
 
 ### Small steep islands look like "pinecones" (Saint Lucia, Dominica)
 
@@ -568,7 +584,6 @@ Raised while reviewing the gallery after the sea-sync sweep (the sea look was ap
 
 `scene_build` is one rig with two callers, and the split between them was meant to be geometric: `render_prep` warps a country into its own Albers equal-area conic, the block prep windows a global EPSG:3857 master. That much is inherent, and the per-row displacement correction exists only because Mercator's scale varies with latitude inside one block. What drifted alongside it is the LOOK, which was never meant to differ.
 
-- **Snow comes from a different dataset on each path.** Tiles take NSIDC-0791 persistence plus all nineteen RGI 7.0 regions; heroes take ESA WorldCover class 70. HISTORY's *Snow source reworked* entry replaced WorldCover for the tiles on the finding that class 70 is permanent ice rather than seasonal snow, and the hero path kept it. `snow_mask.py` states a coherent reason of its own (the hero's editorial stance is eternal snow), so this is half a decision and half a question nobody re-asked after the tile side moved.
 - **Sea ice reaches the block rig and never the hero rig.** HISTORY's *sea ice reaches the rig* entry wires one ocean-gated alpha in the block prep. Nothing records a decision to leave heroes out, so an Arctic country's hero draws open water where its own tiles draw pack.
 - **The rig's conditional branches exist only because of that divergence**, and they are where the inline literals that bypassed the freshness recipe were living. Converging the two paths removes the branches rather than guarding them.
 
@@ -576,19 +591,40 @@ Raised while reviewing the gallery after the sea-sync sweep (the sea look was ap
 
 Deferred past the 22h Earth pass deliberately: every part of it is a HERO deficiency, and none of it changes a raytraced tile.
 
-## The snow persistence source paints salt playas white, and nobody has counted them (analysed 2026-08-25)
+## Salt flats Natural Earth does not outline stay snow-white (analysed 2026-09-14)
 
-> **OPEN** · look-call · needs-render-store. Nothing named would reopen it, because **the sizing has not been done and that is the open question**, not the fix.
+> **OPEN** · needs-data · look-call. Nothing named would reopen it short of a salt-flat source better than the one below.
 
-- **What it looks like:** small hard-edged white blobs on terrain that has never held snow. Two on the Iranian plateau, at **52.87E 32.15N** (the Gavkhouni salt marsh) and **55.39E 29.33N** (the Sirjan playa), sitting beside the correctly drawn Bakhtegan and Tashk lakes.
-- **The cause is one layer and the others are eliminated.** Sampling every input at both sites against a desert control 40 km east: `snow_persistence_3857` reads **5,434 to 7,418** where the control reads **0.12 mean, 2.63 max**, while `glacier`, `addrock`, `seaice`, `water` and `ocean` are all exactly **0**. NSIDC-0791 classifies bright evaporite crust as persistent snow, and the pipeline paints what it is told.
-- **It is NOT a raytracing defect and it is live in production.** The same pixels in the previous composite pyramid are already 100% near-white at Sirjan and 66% at Gavkhouni. The raytraced pass moved them 239 to 244 and 227 to 234 luminance, so it brightened them slightly and did not create them.
-- **The next action is a measurement, not a fix.** 4,931 near-white pixels is 0.049% of a 3641 x 2742 Iran window, and nobody has swept the planet. Every low-latitude playa is a candidate: Etosha, Uyuni, the Lut, the Australian salt lakes. **The answer at five sites and the answer at five hundred are different decisions**, and the sweep is a real job on the 30 GB master.
-- **Why a fix is not obvious even once sized.** The layer is a persistence percentage with no class information, so nothing in it distinguishes salt from snow. Masking by latitude would take real snow off mid-latitude ranges, which is the failure that made the tiles drop WorldCover class 70 in the first place. A separate playa mask is a new dataset and a new licence.
+- **What it looks like:** the salt tone covers Natural Earth's 73 playa outlines on both surfaces, and in the tree also GWL_FCS30's saline patches (`look/salt.py`); a flat outside both keeps whatever the snow data and the water mask paint there. Iran's Sirjan playa (**55.39E 29.33N**) stays a white blob, Natural Earth's outline named for it sitting 130 km north-west, and Bolivia holds more white on a flat at 3,686 m that no outline touches.
+- **The cause is the snow data, and masking by latitude is not a fix**: NSIDC-0791 classifies bright salt crust as persistent snow and has no class to tell the two apart, and a latitude cut takes real snow off mid-latitude ranges, the failure that made the tiles drop WorldCover class 70.
+- **No source we have sorts salt crust from other dry lake beds.** Natural Earth classes all 73 as "Playa"; only 27 carry a Wikidata item, loosely labelled (Uyuni a "salt pan", Etosha a "salt lake", seven plain "lake"). The one global salt class, GLWD v2's "Salt pan, saline/brackish wetland" (CC-BY 4.0), was copied from the database's 2004 first version at about 1 km and lumps salt pans with saline marshes.
+- **GWL_FCS30 is the one finer candidate, checked on one 5° tile (70–65°W, 25–20°S)**: a 2020 global wetland map at 30 m (CC-BY 4.0, Zenodo 7340516) whose inland "saline" class is seeded from GLWD's 2004 extent.
+  - It sees Uyuni's crust: saline on 94% of Natural Earth's Uyuni outline, and on 80% of the salt the build paints past that outline, which confirms the lake-body join from a second source.
+  - It does not see every salar: it calls 98% of the Atacama and Arizaro outlines "not wetland", both of which the build paints as salt. Being a wetland map, it may leave dry crust out; that reason is unmeasured.
+  - As a second source it would add flats rather than replace one: 2,900 km² of the tile's saline lies outside the build's salt, 29 patches of 20 km² or more. Three carry today's snow white (Salinas Grandes 22% of 399 km², Olaroz 58% of 146 km², an unnamed flat at 20.31°S 68.48°W 63% of 141 km²); the rest render as bare ground.
+  - The whole dataset is in the store (`acquire/earth/download_gwl.py`): 962 tiles, 134 of them with saline, all between 55°S and 55°N. `acquire/earth/extract_gwl.py` keeps the saline class as tiles and a VRT in `work/gwl/`, and `look/salt.py` averages each tile onto a grid on its own, the published tiles falling a quarter cell short of 5°.
+  - Neither source is better across the board. GWL is per pixel at 30 m and finds flats Natural Earth never drew; Natural Earth delimits dry flats GWL does not class as wetland at all. The build already takes its per-pixel edge from the 30 m water mask and heightfield inside and around each outline, which is the edge GWL confirms. Measured on one Andean tile only.
+  - **The union takes both**: the build's salt as it is, plus GWL's saline share wherever it sits on its own patch's level floor, the rule each Natural Earth outline already answers to. On the Uyuni tile that adds 2,902 km² (28% more salt), 98% of it on a level floor and 263 km² of it white today.
+  - **Eight more tiles say GWL's saline class is regional.** Share of each Natural Earth outline it classes saline at 30 m: Uyuni 91 to 94%, Coipasa 53%, the Rann of Kutch 41%, Etosha 5%, the Saharan chotts 0 to 19%, the Great Salt Lake Desert 0%, the northern Aralkum 0%. It has no saline at Sirjan, so the union leaves that white patch as it is.
+  - **The union adds 13,837 km² across the nine tiles, 98 to 100% of it level**: 9,594 km² on the Lake Eyre tile, 8,074 km² of it Lake Eyre itself, which Natural Earth's playas do not outline and the globe draws mostly as lake (73% of the union's salt there lands on lake paint); 3,399 km² the Andes; 562 km² the western Rann; 215 km² Etosha; 67 km² the chotts. Only 314 km² of it, all Andean, is white today.
+  - **Across the whole planet the union adds 60,045 km² to the outlines' salt**: 56,431 km² of GWL's patch cells on their floors, and 3,615 km² of lake the lake step turns salt whole. No cell's share goes down, and the gate goes only from three ponds the patches brush at Uyuni's southern edge, 39 cells; the one at 67.27°W 20.66°S, which the outlines paint salt-pale, renders as lake. GWL's saline class makes 15,639 patches, 85,291 km², 99.3% of it on a level floor.
+  - **Lake Eyre rendered under the union, on the globe's own tile block**: GWL classes 18% of the lake paint there as something other than saline (1,307 km², nearly all of it "not wetland"), so the union as measured leaves teal bays and streaks inside the salt. The build's own lake step, with GWL's patches as the outlines, closes it: Lake Eyre North's lake body is 83.5% inside saline and turns wholly salt, while across the tile 32 bodies the saline only brushes lose it (40 km²).
+  - **The union takes the lake step, because the ground it would otherwise paint as water almost never is.** In MODIS bands 7-2-1 on six days from 2018 to 2025, that ground reads at most 1.4% open water, against up to 40% on the salt floor beside it on the three flood days. In a dry year its shortwave infrared sits between the crust's and the shore's, so it is a crustless margin of the playa, which takes the tone as Etosha's floor does. The 40 km² the step takes back floods as the globe's other lakes do.
+  - Controls: GWL classes 1% of the Banni grassland, saline ground under grass beside the Rann, as saline, so the class did not take vegetated salty ground there.
+  - **Elsewhere it takes a forest and misses a salt crust.** At the look list's speck field (144 to 145°E, 35 to 36°S) its 585 km² of saline is the Murray's floodplain, the Koondrook-Perricoota red gum forest among it: in Sentinel-2's annual composites, 90% of it is darker than the darkest tenth of Lake Tyrrell's salt-crusted bed 1.2° west, which GWL classes marsh and flooded flat. HISTORY, *the union's salt is not true at the speck field or at Telmen Nuur*.
+  - **Across the planet, at least 1,675 km² of what the union adds (2.8%) is plainly not salt**: dark, green or open water in both 2019's and 2024's composites, in 72 of 103 tiles, Lake Neusiedl's reed belt and Salar de Surire's green margin among them. The census catches under half of a forest it is shown and none of the pale ground that is not salt, so the true share is higher by an amount it cannot size. HISTORY, *a census of the union's added salt in Sentinel-2*.
+  - **A WorldCover filter takes two thirds of it out, and the extraction carries it** (`acquire/earth/extract_gwl.py`). With a saline pixel counted only where ESA WorldCover 2021 calls its ground bare, snow or water, and the law otherwise unchanged, the plainly-not-salt falls to 563 km² (1.05% of 53,734 km² added) and the speck field's forest goes, while Uyuni, Lake Eyre and Chott el Djerid keep over 99.9% of their salt. MODIS reads 89% of the pale ground it removes as vegetated, Makgadikgadi's grass margins and Western Australia's salt-lake margins among it; about 400 km² it does not, the bound on real salt the filter may take. GLO-30 roughness filters less, leaving 834 km². HISTORY, *a WorldCover filter on GWL's saline class*.
+  - **Sentinel-2's yearly NDVI at about 37 m narrows it**, ESA's composite beside WorldCover, which reads the crusts 0.06 to 3.1% vegetated where MODIS read Tyrrell 30%. It calls 12.3% of what the union adds vegetated, WorldCover 10.3%, the two agreeing on 8.4%. Of what the filter keeps it calls 4.1 to 5.1% vegetated; of what it removes, about 1,390 km² never greens, the bound on real salt taken. HISTORY, *the tally redone with Sentinel-2's yearly NDVI*.
+  - Two tile edges carry an unclassified strip, both north edges in the 70 to 65°W column, reaching 66 and 63 rows (about 1.9 km) over saline. The first crosses Uyuni under its outline; the second cuts 2.7 km of an unoutlined salar at 68.6°W 25°S. The extractor bridges both where saline lies on both sides. The Rann's seam at 70°E is a classification break between its two tiles instead, which no bridge repairs.
+  - The white connected to a GWL patch stays on its flat: 924 km² in 47 components, the 30 largest within 32 m of their floor, bar 31 km² of faint white beside Telmen Nuur in Mongolia. That white is winter snow on steppe: MODIS 7-2-1 reads it as snow in winter and vegetated ground in summer, as it reads the land around. Clearing the gate where WorldCover calls a cell mostly vegetated takes it (102.5 km² to 3) but also 104 km² of Uyuni's gated white, 98 of which never green up in Sentinel-2's NDVI. Clearing it where NDVI calls a cell mostly vegetated takes 97.8 km² at Telmen Nuur, 48.0 at Uyuni and 7.3 at Chaka, measured at the look sites only.
+  - Natural Earth's lakes layer classes 69 lakes "Alkaline Lake", Australia's salt lakes among them, but also open water (Great Salt Lake, the Dead Sea, Issyk-Kul), so it is not a salt source on its own.
+  - The salt colour marks salt ground whether or not it was white (ART § Salt flats), so the union's non-white flats take it if they are salt. Most of its patches are specks: the 87% under 1 km² hold 3% of its area, and may want a minimum size, a value nobody has set.
+- **An NDVI veto on the gate is parked, the maintainer's call.** After the filter the gate's white covers 1,642 km², and clearing it where the composite's NDVI p90 passes 0.2 on half a cell's pixels would take 314 km², 83 at Telmen Nuur and 50 of Uyuni's 674, from 29 of its 1° tiles (5.0 GB). It changes which of two near-whites that ground takes, at the cost of a new source read on both surfaces and a tile list only the bake can name. HISTORY, *the NDVI veto on the snow-joined salt is parked*.
+- **The next action** is a measurement: how much white sits on level ground that neither source touches, Sirjan's kind, which sizes what the union leaves as it is. The look the salt still wants rides the Earth pass, § *Passes the tree has already earned*.
 
 ## Doc and guard debts, carried out of the working plan (parked 2026-09-08)
 
-> **MIXED**, and the subsections below carry the states. Most is a maintainer call or needs this project's own account; the doc-pointer widening and the invisible-character test below are the exceptions and need a clone and nothing else. See also *One concept with two homes* in the entry below.
+> **MIXED**, and the subsections below carry the states. Most is a maintainer call or needs this project's own account; the doc-pointer widening, the invisible-character test and the diagrams below are the exceptions and need a clone and nothing else. See also *One concept with two homes* in the entry below.
 
 The same reason as the entry below it: the working plan is live state and one question in hand, not a backlog, and these had no deadline and no relation to the arc that carried them. None is urgent. Each is here so it is greppable rather than compressed away.
 
@@ -619,7 +655,7 @@ The same reason as the entry below it: the working plan is live state and one qu
 
 ### The per-country render knobs live only in the config file that reads them (found 2026-09-10)
 
-- **`fusion = "1s" | "3s"` overrides the automatic source-DEM choice per country and appears in zero tracked `.md`.** Its one home is `config/countries.toml`'s own header comment, so it is discoverable only by opening the file you were going to edit anyway. `resolution_floor_m` and `sky_view_strength` are in the same position; `docs/ART.md` § *Resolution floor* covers the third of these and titles it for heroes.
+- **`fusion = "1s" | "3s"` overrides the automatic source-DEM choice per country and appears in zero tracked `.md`.** Its one home is `config/countries.toml`'s own header comment, so it is discoverable only by opening the file you were going to edit anyway.
 - **It surfaced from `REUSE-5`, where it did not belong**: that row asks about the tile zoom ceiling, and this is a hero-lane knob on the source raster. Filing it here rather than against a row, since no question covers per-country render config.
 - **`config/countries.toml` says it is read by `pipeline/country_config.py` and the module is `pipeline/frame/country_config.py`.** Nothing can catch it: `test_doc_pointers` scans `.py` and `.md`, and a `.toml` is neither, which is the same boundary the entry below is about.
 
@@ -642,7 +678,7 @@ The same reason as the entry below it: the working plan is live state and one qu
 
 ### Sweeps that are priced and unstarted
 
-- **The dataset sweep is priced and would not have caught the one real error it was proposed for.** Three maintainer calls if it goes ahead: whether `cop30_void` takes its own credit or sits under GLO-30, `datasets.mars()` returning one directory for two datasets, and six raw-form functions whose derived sibling is what production actually reads.
+- **The dataset sweep is priced, and it would have caught GWL_FCS30's missing credit but not WorldCover's misplaced one**, since it asks only whether each acquired dataset is credited somewhere. HISTORY, *GWL_FCS30 is credited where the salt reads it*. Three maintainer calls if it goes ahead: whether `cop30_void` takes its own credit or sits under GLO-30, `datasets.mars()` returning one directory for two datasets, and the raw-form functions whose derived sibling is what production actually reads.
 - **Shouted runs across the tree, against the standing no-all-caps rule**, the lead now in `tests/` and `web/` rather than `pipeline/`. **Re-derive before quoting any total**: the last two readings disagreed and grew, a detector counts runs rather than sites, and any total is a floor, since two consecutive capitals is the trigger and the usual roots miss `web/scripts` and every tracked `.md`.
   - **"Do it with each file's prose pass" has stopped reaching it**, four fifths of the runs being in files no remaining prose target opens. Maintainer call, and unruled: its own item, or accepted as slow.
 
@@ -655,6 +691,14 @@ The same reason as the entry below it: the working plan is live state and one qu
 - **Nothing is left to pick up here**, and the note is so a re-run is a decision rather than a reflex. No module-level public `def` under `pipeline/` is unmentioned outside its own definition, and the few reached only by `tests/` are each a recorded decision: the palette LUT family in `palette.py`'s own text, `cap_render.feather_is_wide_enough` in the rung that calls it, and `palette.EXAGGERATION` under both its own note and a guard.
 - **Re-derive before believing that, and use the classifier that counts an in-module mention**: one that does not buckets every helper a module's own `main` calls, and reads 76 dead names where there are none.
 - **A name-reachability sweep finds names and says nothing about what one means.** Every item filed from this one was wrong when it was opened, each in the same direction, so read the guards around a name before filing it as anything.
+
+### A fuse missing the void tiles draws sea and raises nothing
+
+- **The fuse's coverage abort cannot see the southern Caucasus go missing.** It counts cells the water mask calls land where no DEM tile exists, and a gap with neither a tile nor a mask reads the mask's nodata, which the ocean rule takes as sea. `docs/pipeline.md` names the two hand-run stages that fill it; a guard would have the fuse refuse a mosaic lacking a tile OpenTopography's index lists, and whether to build one is the maintainer's call.
+
+### The pipeline diagrams stop short of the layers
+
+- **`docs/pipeline-detail.mmd` and `docs/pipeline-overview.mmd` draw neither the salt flats, SCAR ADD's rock nor WorldCover's void mask**, so their sources and look nodes stop short of `layers.LAYERS`. Redrawing them is a pass of its own, and § *Findings from the recipe-seam arc* notes they have only ever been checked as text.
 
 ## Small debts and open calls, carried out of the working plan (parked 2026-08-24)
 
@@ -678,7 +722,10 @@ The working plan had become the project's only backlog as well as its live state
   - Measured on `e010_n70` and `e080_n20` against a fuse through each cell's own tiles at their native spacing: the shipped land heights are off by 6 to 9 cm at the median, about 2 m at the 99th percentile and 24 m at the worst pixel. Re-fusing through today's grid is no closer.
   - `enforce_land_guard` covers a different case, a mosaic too stale to serve a cell's tiles at all.
   - Restaging on a moved grid treats the symptom and re-fuses all 648 cells on any download. The fix is a grid that does not depend on the tile set, which moves every land height slightly and so costs a re-fuse and a whole Earth pass.
-  - Judged by eye and parked on that: the worst Himalayan block rendered from shipped and from corrected heights showed no difference. It rides the next Earth pass that is owed for another reason.
+  - The planet half was judged by eye and parked on that: the worst Himalayan block rendered from shipped and from corrected heights showed no difference. It rides the next Earth pass that is owed for another reason.
+  - **The heroes read their land through the same mosaic, and there it shows.** A hero is fused at 1″ or 3″, at or finer than the mosaic's east-west pixel, so its land is thinned sideways and warped back into a north-south stripe at that pixel's spacing. Saint Lucia's shipped hero shows it at full size, and its raw tiles through the same warp do not.
+  - 150 of 203 fused hero heightfields carry the stripe by a spectral test against each file's own rows, a floor since Saint Lucia's passes under it, and about 60 heroes have a pixel fine enough to show it. A hero re-render fused through today's mosaic ships it again, so this fix comes before one.
+  - `resolution_floor_m` was built to hide this stripe as GLO-30's own. San Marino's raw tile carries none, so the floor is smoothing the mosaic's defect out of seven microstates at a cost in detail; its comments in `render_prep.py` and `config/countries.toml` name the wrong source, and whether it stays after the fix is a look call.
 
 ### One concept with two homes
 
@@ -720,6 +767,7 @@ The working plan had become the project's only backlog as well as its live state
 ### What the site does not tell a visitor
 
 - **The vertical exaggeration reaches a downloader and not a visitor.** The archives page states each body's baked scale and says the relief pyramid is a picture rather than a measurement; the About page, where the lake beds and the borders both get notes, still says nothing, and the globe a visitor is actually looking at says nothing either. Mars is the sharper half: its elevation key reads -6,000 m to +6,100 m and its lede states 200 metres to the pixel, so the one place the site gives real numbers sits beside a surface drawn at 20x, and a reader who pairs them computes a slope twenty times the real one. The wording is a look call, and the About grid pads every card to the tallest, so this wants a note rather than a seventh step.
+- **Three CC-BY credits do not say the site changed the data, which CC-BY 4.0 asks of anyone sharing an adaptation (§ 3(a)(1)(B)).** WorldCover's notice is ESA's wording about ESA's own processing, and RGI's and SCAR ADD's are plain citations; OSI SAF's and GWL_FCS30's say "derived from", and the About page has no sentence covering the rest. The wording on each card is the maintainer's call, and OSI SAF's is the form already shipped.
 
 ### A colour call and a product question
 
@@ -742,18 +790,19 @@ The working plan went back to holding one onboarding question at a time, which i
 ### Passes the tree has already earned
 
 - **The Mars pass is owed rather than parked, being the price of decisions already taken.** `palette.py` carries two ratified look calls, one authored white for both poles and a land ramp ratified on a rendered block, so every block and both caps restage while nothing on the live site has moved.
-  - Whether a pass is owed is answered by diffing `raytrace_params.json` against `params()`, and **that is not a one-liner**: `params()` takes `rasters`, `look`, `rig` and `blocks`, so building those four by hand is the defect that deleted the curve fingerprint. Drive whatever production path assembles them, or the diff answers about a call nobody makes.
+  - Whether a pass is owed is answered by diffing `raytrace_params.json` against `block_render.recipe_for`, fed the store's declared rasters and planned blocks, which is the text `run` writes. Building `params()`'s four arguments by hand is the defect that deleted the curve fingerprint.
+- **The salt flats are built and not yet on the globe.** The maintainer has judged them at eight look sites (HISTORY, *the eight look sites are rendered under the filtered salt*), so the rest, Etosha, the Great Salt Lake Desert, the Aralkum, Chott el Djerid and GWL's specks among it, wants his look on the rendered pass before it ships.
+  - The recipe move re-renders every Earth block, wherever the salt lies. Mars and the caps record only what they can draw, so it moves neither.
+- **Re-render only the blocks whose inputs moved**, which a marker set cleared whole cannot do: a layer that reaches some of Earth's 1,024 blocks re-renders all of them. The largest saving against identical-pixel re-renders, and a design of its own.
 - **The block-row seam wants an Earth pass, for a gain 95% hidden by the polar cap.** `block_render` plus the cut plus both caps plus pack, which is a night.
   - **The code half is settled and is not on offer again**: `prep_block.ROW_EDGE_MODE` is `"edge"` in the tree and `block_render.params` records it, so what is left is render hours.
   - **A recipe move re-renders every block rather than the ice ones**: `start_generation` clears the whole marker set, so all 256 on Mars and all 1,024 on Earth.
 - **Does 1 to 4 DN show where the cap feathers into the tiles at 82 degrees?** A look call that rides the Mars pass, with nothing to measure first.
   - **The cap's own constant at +1.6 DN is moot and must not be re-proposed**, and the 18 DN mismatch behind it is retracted as an estimator artifact. → HISTORY, *the two lanes turn out to obey ONE transfer*.
   - What is left is that those are fitted transfers on one block (`r00c04`, 97.3% ice) rather than rendered frames at the seam.
-- **The base-grid threshold is unmeasured**: Nepal at 36.8 Mpx renders and Australia at 58.8 fails, and the edge between them needs GPU renders across the range. Inert while the hero re-render is deferred.
+- **The base-grid threshold is unmeasured**: Nepal at 36.8 Mpx renders and Australia at 58.8 fails, and the edge between them needs GPU renders across the range. It matters only if the fine mesh wins a blind pair at the final hero look.
 
 ### Deferred on a trigger rather than on effort
-
-- **The sky-view march wraps around the frame, so a hero's west-edge ridge occludes its east edge as though the two were adjacent.** Measured on a 256 px grid: the far edge reads 0.5625, matching the pixel one px from the ridge, while mid-grid reads a fully open 1.0000. `test_the_march_wraps_around_the_grid_edge` pins that value, so padding the march instead goes red here rather than silently restaging every hero. The fix costs a re-shade and not a re-render, no GPU and minutes off the kept `heroes/raw/*.png`, but it moves the edge band on all 203, which makes it a look call.
 
 - **Three items defer with the 203-hero re-render**, each needing a frame rendered under the new sky: `SHADOW_TINT`'s re-derivation, the `locked_hero_hex` re-freeze, and the hero hairline backdrop. The mismatch behind them is real, every hero carrying a warm ambient and the old tone map that the tiles do not, so a country click opens a hero that does not match its globe.
 - **The re-render's publish pass also regenerates 609 live Focus overlays**, the 1920, 3840 and 7680 of every country, which predate the 24 July re-shade and so dim the old shading outside each border. They wait for it, by the maintainer's call. `gen_manifest` refuses the store until they are redone, and the pass is untimed at those sizes, so time one country first. → HISTORY, *`SITE-4`'s manifest refuses a stale image*.

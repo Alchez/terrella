@@ -25,8 +25,8 @@
 // WHAT THE TOKEN IS DERIVED FROM, AND WHY NOT THE RECIPE. It is a prefix of the SHA-256 of the
 // archive's own bytes, computed by scripts/gen_tile_tokens.ts and committed in
 // ../data/tileTokens.json. Hashing the cut's recipe sidecar was the obvious alternative and is
-// wrong: `tile_params.json` records format, quality and zoom range, so a look change re-shades the
-// composite, re-cuts every tile, and leaves that file byte-identical — the token would hold still
+// wrong: `tile_params.json` records format, quality and zoom range, so a look change re-renders the
+// blocks, re-cuts every tile, and leaves that file byte-identical — the token would hold still
 // through exactly the re-cut it exists to announce. The bytes cannot lie about themselves.
 //
 // PARSING IS GRAMMAR, NOT POLICY. `parseTileAddress` checks that a token is well-FORMED, never that

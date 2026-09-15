@@ -16,7 +16,7 @@ import rasterio
 from conftest import declare_planet_rasters
 from rasterio.windows import Window
 
-from pipeline import block_plan, bodies, layers, mercator, paths
+from pipeline import block_plan, bodies, layers, mercator, paths, planet_seam
 from pipeline.block_plan import Block
 from pipeline.look import layer_producers, seaice, snow
 from pipeline.render import prep_block
@@ -54,8 +54,7 @@ def _window(body, raw, *, ocean=False):
         # window's geometry is self-consistent at whatever size the fixture is written at.
         ground_metres_per_px=mercator.ground_metres_per_pixel(
             latitude, (top - bottom) / ROWS,
-            bodies.ground_metres_per_mercator_unit(body)),
-        top=top, bottom=bottom)
+            bodies.ground_metres_per_mercator_unit(body)))
 
 
 class TestTheGroundWidthIsTheBodysAndNotTheProjectionsphere:
@@ -452,22 +451,24 @@ class TestTheRecipeRecordsWhatExistenceCannotSee:
         assert recipe["ground_scale"] == bodies.ground_metres_per_mercator_unit(bodies.MARS) != 1.0
         assert recipe["exaggeration"] == bodies.MARS.baked_exaggeration != bodies.EARTH.baked_exaggeration
 
-    def test_what_the_body_could_not_supply_is_recorded_as_OFF_and_never_as_absent(
+    def test_what_the_body_supplied_is_recorded_rather_than_what_it_lacks(
             self, monkeypatch, tmp_path):
-        """`layers_off` and `rasters_off` on their own rule: the ones that are OFF, never the ones
-        that are on, so Earth's recipe stays empty and a full planet does not restage."""
+        """`layers_on` and `rasters_on` on their own rule: a layer Mars lacks joining the block
+        stage leaves this list, and so Mars's recipe, where it was."""
         mars = self._written(monkeypatch, tmp_path, bodies.MARS)
-        assert mars["layers_off"] == ["antarctic_rock", "glaciers", "lake_depth", "sea_ice"]
-        assert mars["rasters_off"] == ["oceanmask", "watermask"]
+        assert mars["layers_on"] == ["perennial_ice"]
+        assert mars["rasters_on"] == ["heightfield"]
 
-    def test_earth_records_nothing_off_at_all(self, monkeypatch, tmp_path):
+    def test_earth_records_everything_it_has(self, monkeypatch, tmp_path):
         monkeypatch.setattr(prep_block.planet_seam, "declared",
                             lambda _body: frozenset({"heightfield", "oceanmask", "watermask"}))
         window = plane_window(0, 4096, 2048, 256)
         prep_block.write_recipe(bodies.EARTH, window, tmp_path,
                                 [prep_block.render_files.HEIGHTFIELD])
         recipe = json.loads((tmp_path / prep_block.RECIPE_NAME).read_text())
-        assert recipe["layers_off"] == [] and recipe["rasters_off"] == []
+        assert recipe["layers_on"] == sorted(layers.BLOCK_LAYERS)
+        assert recipe["rasters_on"] == ["heightfield", "oceanmask", "watermask"]
+
 
     def test_an_unchanged_recipe_does_not_move_its_own_mtime(self, monkeypatch, tmp_path):
         """Written through `freshness.write_if_changed`, which is what lets a constant stand in as
@@ -476,6 +477,19 @@ class TestTheRecipeRecordsWhatExistenceCannotSee:
         stamp = (tmp_path / prep_block.RECIPE_NAME).stat().st_mtime_ns
         assert self._written(monkeypatch, tmp_path, bodies.MARS) == first
         assert (tmp_path / prep_block.RECIPE_NAME).stat().st_mtime_ns == stamp
+
+
+class TestTheImagesABlockCanLoad:
+    """What `block_render`'s recipe records the wiring of, pinned per body against literals."""
+
+    def test_earth_can_load_every_image(self):
+        assert prep_block.rig_images(bodies.EARTH, planet_seam.KNOWN_RASTERS) == {
+            "heightfield.tif", "rowscale.tif", "oceanmask.png", "inlandlake.png", "river.png",
+            "snowmask.png", "saltmask.png", "lakedepth.tif", "seaice.png"}
+
+    def test_mars_can_load_its_heightfield_row_scale_and_white(self):
+        assert prep_block.rig_images(bodies.MARS, frozenset({"heightfield"})) == {
+            "heightfield.tif", "rowscale.tif", "snowmask.png"}
 
 
 class TestTheMidLatitudeIsTheWindowsAndNotTheBlocks:

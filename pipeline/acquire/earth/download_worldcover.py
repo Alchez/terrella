@@ -1,13 +1,12 @@
 """ESA WorldCover 2021 v200: the bucket, its tile naming, and the fetch.
 
-Two stages read different classes of the same rasters, `render/snow_mask.py` class 70 for a hero's
-snow mask and `fuse/build_void_wbm.py` class 80 for the watermask OpenTopography's void DEM tiles
-ship without. Each one's class and its mosaic stay beside the code choosing them: they VRT over
-different sets, every held tile against only the ones overlapping the void extent.
+Two stages read it, and each fetches exactly its own tiles through `fetch_tiles`:
+`fuse/build_void_wbm.py`, class 80, for the watermask OpenTopography's void DEM tiles ship without,
+and `acquire/earth/extract_gwl.py`, the tiles under GWL_FCS30's saline class, for which of its cells
+stand on bare ground, snow or water. Each keeps its classes beside the code choosing them.
 
-Ocean cells legitimately 404, so the fetch asks for 'absent' rather than failing. What counts as
-"every tile absent" differs between a country frame and a void extent, so `fetch_tiles` returns the
-counts and each caller decides what an empty result means.
+Ocean cells legitimately 404, so the fetch asks for 'absent' rather than failing, and `fetch_tiles`
+returns the counts so the caller decides what an empty result means.
 
 `--extent` is required, as it is on `download_glo30`: the global land set is ~114 GB and no caller
 wants it, so there is no shape of this command that fetches a planet by default.

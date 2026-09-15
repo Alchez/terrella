@@ -1,6 +1,6 @@
 ---
 name: block-ab
-description: Rendering one tile block twice, from the shipped inputs and from altered ones, to see whether a change to heights, masks or a layer shows. Load when asked whether a data or pipeline change is visible, to A/B a block, or to render a before and after for a look call. Carries how to alter one input on the planet grid without touching the store, and the controls without which a difference means nothing.
+description: Rendering one tile block twice, from the shipped inputs and from altered ones, to see whether a change to heights, masks or a layer shows. Load when asked whether a data or pipeline change is visible, to A/B a block or a cap frame, to check whether a frame on disk matches today's code before re-stamping a recipe, or to render a before and after for a look call. Carries how to alter one input on the planet grid without touching the store, how to render an old commit's code, and the controls without which a difference means nothing.
 ---
 
 # A/B one tile block
@@ -16,11 +16,22 @@ description: Rendering one tile block twice, from the shipped inputs and from al
 
 ## Controls, or the difference means nothing
 
-- **Render the unaltered arm twice.** Cycles is not bit-deterministic, and the spread between those two is the floor any real difference has to clear.
-- **Diff where the input did not change.** Outside the altered footprint the two arms must differ only by that floor; a larger difference there means the arms differ in something besides the input.
+- **Render the unaltered arm twice.** Cycles is not bit-deterministic, and the spread between those two is the floor for one scene rendered twice.
+- **Diff where the input did not change, against a pair that changed as much.** Changing a mask's content lifts the difference across the whole frame above that floor, with a signed mean of zero and no fall-off with distance (measured once, a salt mask on one Earth block: 0.15 DN mean for one scene twice, 0.32 to 0.35 with the mask changed, at most 4 DN 50 km away), so two altered arms against each other are the far-field control. A leak shows as a signed mean or as a difference that decays with distance; the change's own edge reaches about 24 px.
+- **Diff each arm's prep directory against the base: exactly the files the change should touch differ.** A layer raster that is absent, a dangling link included, reads as no layer rather than an error (`test_a_declared_layer_whose_raster_is_absent_is_read_as_ABSENT_not_as_an_error`), so an arm whose input never arrived renders as the base with every recipe matching.
 - **The three recipes beside the scratch mosaics must be identical.**
 - **Read success from the per-block `[1/1] rNNcNN ... s` line, never the exit code**, which is 0 when a block fails.
 - **Snapshot the store's mtimes and sizes before the first render and diff after the last.** It is the proof that nothing shipping moved.
+
+## A cap frame, or the code that rendered one
+
+For the question "does a frame on disk match what today's code renders", which decides whether a recipe that moved only in format can be re-stamped rather than re-rendered.
+
+- **A cap has no `--work`, so redirect in-process.** Every writer calls `cap_render.cap_work_dir` at call time, so replacing that function in a scratch script sends the AEQD warps, the render directory and the frames to scratch while the inputs still come from the store. Create `cap_raytrace.frames_dir(grid)` first: `render` makes it and `render_frame` assumes it. Snapshot the store's cap folder before and after, as above.
+- **Compare the prepped inputs before any frame.** The images, `frame.json` and `render_inputs.json` against the store's render directory: when all match, only the builder is left to differ.
+- **To render with the code that made a frame, export its commit, never check it out**: `git archive <commit> | tar -x -C <scratch>`, then run that tree's `scene_build.py` with the arguments its own `blender_command` built, against today's render directory once its inputs are shown identical. Take the last commit before the frame's mtime that holds the code, and say so if none does.
+- **`scene_dump` both built scenes and map node renames before diffing**, or the renames drown the diff.
+- **The floors this has measured**: two renders of one code differ at 1 DN on about 0.008% of a 4096² frame's values, and a change in node names or creation order alone moved two pixels by up to 3 DN.
 
 ## Hand over frames, not a verdict
 

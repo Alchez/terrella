@@ -16,6 +16,7 @@ Derived from the registry rather than listing bodies, so a third body joins by e
 
 import dataclasses
 import importlib
+import json
 import sys
 import types
 
@@ -60,7 +61,7 @@ def polar_window(latitude_deg: float, rows: int = 4) -> layer_producers.LayerWin
     return layer_producers.LayerWindow(
         raw=None, watercode=None, land=ones.astype(bool), ocean=~ones.astype(bool),
         latitude=latitude,
-        ground_metres_per_px=ones, top=0.0, bottom=0.0)
+        ground_metres_per_px=ones)
 
 
 def registry_whites(body: bodies.Body) -> dict[str, tuple]:
@@ -237,4 +238,5 @@ class TestTheOldTrackingIsGone:
     """
 
     def test_the_rig_recipe_no_longer_carries_the_white(self, scene_build):
-        assert "snow_rgba" not in scene_build.rig_recipe(palette.EARTH_LOOK)
+        recipe = scene_build.rig_recipe(palette.EARTH_LOOK, render_files.KNOWN_IMAGES)
+        assert "snow_rgba" not in recipe["rig"] and "snow_rgba" not in json.dumps(recipe)

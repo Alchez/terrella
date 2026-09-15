@@ -44,9 +44,9 @@ limit rather than an oversight:
     terrain-derived block geometry moves no field here. Nothing in this repo currently does that
     without also moving a constant, but the day one does, this will read green.
   * `rasters`. Production passes `planet_seam.declared(body)`, which reads what a producer wrote and
-    raises on a clone. Held at `layers.PLANET_LAYERS`, the full code-side vocabulary, which is the
-    deterministic stand-in AND the useful one: `layers_off` then reflects what the BODY refuses,
-    which is a code fact, so a body that stops declaring a layer still shows up.
+    raises on a clone. Held at what each body's producer declares, `DECLARED_RASTERS`, because a
+    recipe records only what its stage can load: a stand-in giving Mars an ocean would have its
+    blocks move for a water colour production Mars never reads.
 
 `scene_build.rig_recipe` is not called here and is not missing. It cannot be imported outside
 Blender (`import bpy`), and `block_render.rig_recipe` is its one venv-side caller, stubbing bpy
@@ -60,7 +60,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from pipeline import bodies, layers
+from pipeline import bodies, planet_seam
 from pipeline.acquire.mars import download_nomenclature, download_sim3292
 from pipeline.compose import (
     countries_pmtiles,
@@ -68,7 +68,7 @@ from pipeline.compose import (
     features_pmtiles,
     vector_cut,
 )
-from pipeline.look import palette, viking_luma
+from pipeline.look import viking_luma
 from pipeline.tile import block_render, cap_raytrace, cap_render, relief_scan
 
 BASELINE = Path(__file__).resolve().parents[1] / "tests" / "render_fingerprint.json"
@@ -88,8 +88,13 @@ OWED_PASS = "docs/PROCESS.md § The planet tile pipeline"
 #: "no blocks" instead of a plausible number nobody derived.
 FIXED_BLOCKS: list[Any] = []
 
-#: The full code-side vocabulary, standing in for what a producer declares at run time.
-FIXED_RASTERS = layers.PLANET_LAYERS
+#: What each body's planet producer declares at run time, by body name: `fuse_planet` every raster it
+#: built, `relabel_mars` the heightfield alone. Held equal to the suite's stand-in, which is held
+#: against the store.
+DECLARED_RASTERS = {
+    "earth": planet_seam.KNOWN_RASTERS,
+    "mars": frozenset({"heightfield"}),
+}
 
 #: `viking_luma`'s recipe records the fraction of valid pixels in the Viking mosaic, which is
 #: measured off the raster. Pinned so this file stays a function of the code; a change to the
@@ -125,13 +130,13 @@ def fingerprint() -> dict[str, dict[str, Any]]:
     # `cap_raytrace.params`, and those two are its only callers in the pipeline, so a third copy
     # here would report one moved field three times and add nothing a reader could act on.
     for body in (bodies.EARTH, bodies.MARS):
+        rasters = DECLARED_RASTERS[body.name]
         recorded[f"tile/block_render:{body.name}"] = _as_dict(
-            block_render.params(body, FIXED_RASTERS, palette.look_for(body.name),
-                                block_render.rig_recipe(body), FIXED_BLOCKS))
+            block_render.recipe_for(body, rasters, FIXED_BLOCKS))
         recorded[f"tile/relief_scan:{body.name}"] = _as_dict(relief_scan.params(body))
         for grid in (cap_render.north_grid(body), cap_render.south_grid(body)):
             recorded[f"tile/cap_raytrace:{body.name}:{grid.name}"] = _as_dict(
-                cap_raytrace.params(grid, FIXED_RASTERS))
+                cap_raytrace.params(grid, rasters))
     return json.loads(json.dumps(dict(sorted(recorded.items()))))
 
 

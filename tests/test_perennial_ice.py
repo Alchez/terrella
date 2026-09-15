@@ -125,9 +125,8 @@ class TestEarthsProducersComputeWhatTheyComputedInline:
     def test_the_north_reproduces_the_TILE_paths_alpha_at_saturating_latitude(self):
         """The cap comment's load-bearing sentence, made executable. The whole disc is north of 78,
         and `snow_alpha`'s threshold ramp saturates at `RAMP_LAT_HI` (63) — so above that band the
-        cap's fixed-threshold reproduction and the tile path's per-row function must agree exactly.
-        That equality is why the cap is allowed to skip `snow_alpha`, whose per-row latitude is
-        Mercator-specific and simply wrong on an AEQD grid.
+        cap's fixed-threshold reproduction and the tile path's function must agree exactly. That
+        equality is what lets the cap keep its fixed thresholds rather than call `snow_alpha`.
 
         `snow.snow_alpha` is the oracle rather than a smoothstep written out here: a second copy of
         the formula would prove the two copies agree, not that either matches what ships.
@@ -159,7 +158,8 @@ class TestEarthsProducersComputeWhatTheyComputedInline:
         top, bottom = (float(mercator.northing_at(lat, mercator.WEB_MERCATOR_RADIUS_M))
                        for lat in (84.0, 78.0))
         expected = snow.soften_source_cells(
-            snow.snow_alpha(snow.unpack_persistence(packed), top, bottom),
+            snow.snow_alpha(snow.unpack_persistence(packed),
+                            snow.latitude_per_row(top, bottom, packed.shape[0])),
             EARTH_CAP_GROUND_M_PER_PX)
         assert alpha == pytest.approx(expected)
         assert alpha.max() > 0.9 and alpha.min() == 0.0, "a saturated or dead ramp proves nothing"
@@ -466,8 +466,7 @@ class TestTheTwoTiersAgreeOnTheColourOfTheSameIce:
                     ocean=np.zeros((4, 4), dtype=bool), latitude=latitude,
                     ground_metres_per_px=mercator.ground_metres_per_pixel(
                         latitude, (top - bottom) / 4,
-                        bodies.ground_metres_per_mercator_unit(body)),
-                    top=top, bottom=bottom)
+                        bodies.ground_metres_per_mercator_unit(body)))
                 tile_paint = layer_producers.producer_for(
                     body, layers.PERENNIAL_ICE).paint(window)
                 assert tile_paint is not None

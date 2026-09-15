@@ -104,10 +104,10 @@
   "earth/perennial_ice": {
     "antarctic": {
       "contribution": {
-        "digest": "e32b72246565b018",
-        "distinct": 18,
+        "digest": "4e116d38c63a1736",
+        "distinct": 93,
         "max": 1.0,
-        "mean": 0.720947612,
+        "mean": 0.62448404,
         "min": 0.0,
         "shape": [
           32,
@@ -128,10 +128,10 @@
     },
     "arctic": {
       "contribution": {
-        "digest": "b9b049910b1c8400",
-        "distinct": 18,
-        "max": 1.0,
-        "mean": 0.441895224,
+        "digest": "ac61d7326d3a4115",
+        "distinct": 92,
+        "max": 0.999999976,
+        "mean": 0.248574435,
         "min": 0.0,
         "shape": [
           32,
@@ -140,6 +140,40 @@
       },
       "paint": {
         "digest": "308ddd080a230f23",
+        "ends": [
+          [
+            3
+          ],
+          [
+            3
+          ]
+        ]
+      }
+    }
+  },
+  "earth/salt_flats": {
+    "antarctic": {
+      "contribution": {
+        "result": "none"
+      },
+      "paint": {
+        "digest": "58ddcc9842163f8a",
+        "ends": [
+          [
+            3
+          ],
+          [
+            3
+          ]
+        ]
+      }
+    },
+    "arctic": {
+      "contribution": {
+        "result": "none"
+      },
+      "paint": {
+        "digest": "58ddcc9842163f8a",
         "ends": [
           [
             3

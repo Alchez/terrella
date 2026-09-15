@@ -272,11 +272,10 @@ def declared(body: bodies.Body) -> frozenset[str]:
     return rasters
 
 
-def rasters_off(rasters: frozenset[str]) -> list[str]:
-    """Which of the vocabulary this planet stage did NOT emit, sorted — one stage's freshness record.
+def rasters_on(rasters: frozenset[str]) -> list[str]:
+    """The rasters this planet stage emitted, sorted: one stage's freshness record.
 
-    The ones that are off and never the ones that are on, exactly as `bodies.layers_off` does it and
-    for the same measured reason, which that function holds. Earth emits all three, so its list is
-    empty and nothing enters its recipe.
+    The ones that are on, as `layers.layers_on` records layers and for the reason it gives: a list
+    of what is off moves every body lacking a raster the day the vocabulary gains one.
     """
-    return sorted(KNOWN_RASTERS - rasters)
+    return sorted(rasters)

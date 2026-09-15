@@ -48,17 +48,23 @@ class NothingBurnt(RuntimeError):
     """
 
 
-def reproject_argv(source: Path, target_srs: str, out: Path) -> list[str]:
+def reproject_argv(source: Path, target_srs: str, out: Path,
+                   lonlat_filter: "tuple[float, float, float, float] | None" = None) -> list[str]:
     """`ogr2ogr` into the target CRS. Pure, so a test can pin the flags without a GDAL run.
 
     `-t_srs` and never `-a_srs`; the module note holds why that is the whole subject here. The output
     driver comes from `out`'s extension, which is `ogr2ogr`'s own convention rather than ours.
 
+    `lonlat_filter` (west, south, east, north in degrees) keeps only the features meeting that box,
+    for a global source landing on a grid that covers a sliver of it.
+
     NO `-overwrite`, and its absence is the fix rather than an omission: the flag asks for a
     DeleteLayer the GeoJSON driver does not implement, so it turned every re-run into an exit 1.
     `burn_onto_grid` removes `out` first, which is what overwriting a single-layer file actually is.
     """
-    return ["ogr2ogr", "-t_srs", target_srs, str(out), str(source)]
+    spatial = ([] if lonlat_filter is None else
+               ["-spat", *(repr(float(edge)) for edge in lonlat_filter), "-spat_srs", "EPSG:4326"])
+    return ["ogr2ogr", "-t_srs", target_srs, *spatial, str(out), str(source)]
 
 
 def rasterize_argv(vector: Path, bounds: tuple[float, float, float, float], width: int, height: int,
@@ -103,7 +109,8 @@ def drew_nothing(raster: Path) -> bool:
 def burn_onto_grid(source: Path, target_srs: str, bounds: tuple[float, float, float, float],
                    width: int, height: int, projected: Path, out: Path,
                    creation_options: tuple[str, ...] = (),
-                   must_draw: "str | None" = None) -> Path:
+                   must_draw: "str | None" = None,
+                   lonlat_filter: "tuple[float, float, float, float] | None" = None) -> Path:
     """Reproject `source` into `target_srs`, burn it onto this grid, and return the raster.
 
     `projected` is the intermediate the caller names, on `perennial_ice.WarpToCap`'s rule: a helper
@@ -117,7 +124,8 @@ def burn_onto_grid(source: Path, target_srs: str, bounds: tuple[float, float, fl
     # The overwrite, done the one way that works for a single-layer file — see the module note. It
     # must be here rather than in `reproject_argv`, which is pure so the flags stay checkable.
     projected.unlink(missing_ok=True)
-    subprocess.run(reproject_argv(source, target_srs, projected), check=True, capture_output=True)
+    subprocess.run(reproject_argv(source, target_srs, projected, lonlat_filter), check=True,
+                   capture_output=True)
     subprocess.run(rasterize_argv(projected, bounds, width, height, out, creation_options),
                    check=True, capture_output=True)
     if must_draw is not None and drew_nothing(out):

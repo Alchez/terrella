@@ -44,6 +44,13 @@ from pipeline.tile import cap_render
 RECIPE_NAME = "cap_recipe.json"
 
 
+def rig_images(body: bodies.Body, rasters: frozenset[str]) -> frozenset[str]:
+    """Every image `build` can write for this body, which is every texture a cap's rig can load and
+    all that `cap_raytrace`'s recipe records. No row scale: the disc is equidistant from its centre."""
+    return (frozenset({render_files.HEIGHTFIELD}) | prep_block.planet_images(rasters)
+            | layers.images_for(body, layers.CAP_LAYERS))
+
+
 def build(grid: cap_render.CapGrid, rasters: frozenset[str], outdir: Path) -> list[str]:
     """Write every image the rig reads for this disc, and return what was written.
 
@@ -66,14 +73,19 @@ def build(grid: cap_render.CapGrid, rasters: frozenset[str], outdir: Path) -> li
                        **GTIFF_CREATE) as out:
         out.write(heights.astype(np.float32), 1)
 
-    prep_block.write_mask(outdir / render_files.OCEANMASK, ocean.astype(float))
-    # The cap tier collapses watercode 2 and 3 into one boolean, so lake and river cannot be told
-    # apart on this grid. The river mask is written EMPTY rather than skipped: the rig reads both,
-    # and an absent one would be the statement "this body has no rivers" instead of "this tier
-    # cannot separate them", which is a different fact about a different subject.
-    prep_block.write_mask(outdir / render_files.INLANDLAKE, water.astype(float))
-    prep_block.write_mask(outdir / render_files.RIVER, np.zeros(heights.shape))
-    written += [render_files.OCEANMASK, render_files.INLANDLAKE, render_files.RIVER]
+    # Each mask only from a raster the planet declared, as the block prep writes them: zeros for a
+    # body with none would be a fabricated dataset the rig loads as though it had been measured.
+    if "oceanmask" in rasters:
+        prep_block.write_mask(outdir / render_files.OCEANMASK, ocean.astype(float))
+        written.append(render_files.OCEANMASK)
+    if "watermask" in rasters:
+        # The cap tier collapses watercode 2 and 3 into one boolean, so lake and river cannot be
+        # told apart on this grid. The river mask is written EMPTY rather than skipped: the rig reads
+        # both, and an absent one would be the statement "this body has no rivers" instead of "this
+        # tier cannot separate them", which is a different fact about a different subject.
+        prep_block.write_mask(outdir / render_files.INLANDLAKE, water.astype(float))
+        prep_block.write_mask(outdir / render_files.RIVER, np.zeros(heights.shape))
+        written += [render_files.INLANDLAKE, render_files.RIVER]
 
     snow_a, snow_paint = cap_render._cap_perennial_ice(
         grid, ocean, water, latitude, f"the raytraced {grid.name} cap paints no ice")
@@ -90,6 +102,12 @@ def build(grid: cap_render.CapGrid, rasters: frozenset[str], outdir: Path) -> li
         prep_block.write_mask(outdir / render_files.SEAICE, ice_a)
         render_seam.declare_paint(outdir, render_files.SEAICE, *seaice.ice_paint())
         written.append(render_files.SEAICE)
+    unrecorded = sorted(set(written) - rig_images(grid.body, rasters))
+    if unrecorded:
+        raise ValueError(
+            f"the {grid.name} cap prep wrote {unrecorded}, which `rig_images` does not list, so the "
+            f"cap recipe records no texture for it and a change to its wiring would restage "
+            f"nothing. Name the image on its layer's row in `layers`, or in `rig_images`.")
     return written
 
 
@@ -149,8 +167,8 @@ def write_recipe(grid: cap_render.CapGrid, rasters: frozenset[str], outdir: Path
         "quadrant_split": cap_render.CAP_QUADRANT_SPLIT,
         "exaggeration": grid.body.baked_exaggeration,
         "ground_scale": bodies.ground_metres_per_aeqd_unit(grid.body),
-        "layers_off": layers.layers_off(grid.body, layers.CAP_LAYERS),
-        "rasters_off": planet_seam.rasters_off(rasters),
+        "layers_on": layers.layers_on(grid.body, layers.CAP_LAYERS),
+        "rasters_on": planet_seam.rasters_on(rasters),
         "mask_full_scale": prep_block.MASK_FULL_SCALE,
         # `painted=True` because the two cryosphere masks are declared with their colours above, so
         # a body's white reaches a raytraced cap pixel through this directory and nothing else.

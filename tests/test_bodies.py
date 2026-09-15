@@ -1139,8 +1139,7 @@ def _southern_white(body: bodies.Body, persistence: "np.ndarray | None"):
             latitude=latitude,
             ground_metres_per_px=mercator.ground_metres_per_pixel(
                 latitude, body.map_units_per_pixel,
-                bodies.ground_metres_per_mercator_unit(body)),
-            top=top, bottom=bottom),
+                bodies.ground_metres_per_mercator_unit(body))),
         layers.PLANET_LAYERS)
     white, _carried = layer_producers.fold_white(contributions, (rows, cols),
                                                  exclusions=exclusions)
@@ -1207,6 +1206,7 @@ def test_every_built_layer_names_the_raster_the_planet_tier_reads(subtests) -> N
         "glaciers": "glacier_3857.tif",
         "sea_ice": "seaice_3857.tif",
         "antarctic_rock": "addrock_3857.tif",
+        "salt_flats": "salt_3857.tif",
     }
     with subtests.test("every composite layer builds a raster today"):
         assert {layer.name for layer in layers.warped_for(layers.PLANET_LAYERS)} == layers.PLANET_LAYERS, (
@@ -1230,7 +1230,7 @@ def test_the_stage_vocabularies_together_cover_the_whole_one_and_nothing_else(su
         with subtests.test(layer.name):
             assert layer.in_planet or layer.in_cap or layer.in_block, (
                 f"{layer.name} is read by no stage — a body could declare it and nothing would "
-                f"ever build it, and `layers_off` would never mention it either"
+                f"ever build it, and no stage's `layers_on` would mention it either"
             )
     with subtests.test("no stage is empty"):
         assert layers.PLANET_LAYERS and layers.CAP_LAYERS and layers.BLOCK_LAYERS
@@ -1277,7 +1277,7 @@ def test_the_stages_disagree_about_which_layers_they_read(subtests) -> None:
     with subtests.test("cap only"):
         assert layers.CAP_LAYERS - layers.PLANET_LAYERS == {"coastline"}
     with subtests.test("composite only"):
-        assert layers.PLANET_LAYERS - layers.CAP_LAYERS == {"lake_depth", "glaciers"}
+        assert layers.PLANET_LAYERS - layers.CAP_LAYERS == {"lake_depth", "glaciers", "salt_flats"}
     with subtests.test("block matches the composite exactly, and on purpose"):
         # The rig grew its ice input, so a raytraced Arctic paints pack instead of open teal
         # ocean; what remains block-versus-composite is agreement, pinned from both directions.
@@ -1285,7 +1285,11 @@ def test_the_stages_disagree_about_which_layers_they_read(subtests) -> None:
         assert layers.BLOCK_LAYERS - layers.PLANET_LAYERS == set()
     with subtests.test("block against the caps"):
         assert layers.CAP_LAYERS - layers.BLOCK_LAYERS == {"coastline"}
-        assert layers.BLOCK_LAYERS - layers.CAP_LAYERS == {"lake_depth", "glaciers"}
+        assert layers.BLOCK_LAYERS - layers.CAP_LAYERS == {"lake_depth", "glaciers", "salt_flats"}
+    with subtests.test("the hero snow stage reads the white union and the salt that takes from it"):
+        # Lake depth reaches a hero through its own stage, sea ice not at all, and the rock only
+        # where the Antarctic rule does, which the stage refuses.
+        assert layers.HERO_LAYERS == {"perennial_ice", "glaciers", "salt_flats"}
 
 
 def test_the_rock_row_is_read_by_every_stage_that_forces_antarctic_white(subtests) -> None:
@@ -1305,6 +1309,8 @@ def test_the_rock_row_is_read_by_every_stage_that_forces_antarctic_white(subtest
         assert layers.ANTARCTIC_ROCK.in_planet
         assert layers.ANTARCTIC_ROCK.in_cap
         assert layers.ANTARCTIC_ROCK.in_block
+    with subtests.test("but the hero stage, which refuses the rule's latitudes instead"):
+        assert not layers.ANTARCTIC_ROCK.in_hero
     with subtests.test("no planet raster behind it"):
         # Subtraction from a mask the caller already computed — it needs no oceanmask of its own,
         # and claiming one would refuse the layer on any body whose seam emitted none.
@@ -1314,35 +1320,43 @@ def test_the_rock_row_is_read_by_every_stage_that_forces_antarctic_white(subtest
         assert layers.ANTARCTIC_ROCK.name not in bodies.MARS.surface_layers
 
 
-def test_layers_off_names_what_is_missing_and_stays_silent_when_nothing_is(subtests) -> None:
-    """Off, never on. Earth answers with an empty list at every stage, which is what lets the
-    callers' conditional record write nothing and leave a live 46 GB composite and a 14 GB cap
-    render byte-identical."""
+def test_layers_on_names_what_the_body_has_at_each_stage(subtests) -> None:
+    """On, never off, so a layer joining a stage moves only the bodies that have it."""
     for name, vocabulary in (("composite", layers.PLANET_LAYERS), ("cap", layers.CAP_LAYERS),
                              ("block", layers.BLOCK_LAYERS)):
         with subtests.test(f"earth {name}"):
-            assert layers.layers_off(bodies.EARTH, vocabulary) == []
-    with subtests.test("mars cap"):
-        assert layers.layers_off(bodies.MARS, layers.CAP_LAYERS) == [
-            "antarctic_rock", "coastline", "sea_ice"]
-    with subtests.test("mars block"):
-        # Mars declares perennial ice and nothing else, so a Martian block is short the layers
-        # whose only sources are Earth datasets — sea ice too now that the rig reads it, because
-        # Mars has no sea for pack to float on, and Antarctic outcrop because it has no Antarctica.
-        assert layers.layers_off(bodies.MARS, layers.BLOCK_LAYERS) == [
-            "antarctic_rock", "glaciers", "lake_depth", "sea_ice"]
-    with subtests.test("a body that declares nothing names the whole vocabulary"):
-        # The all-off end of the range, which Mars stopped supplying when its ice landed. Without
-        # it the sweep only ever exercises "none off" and "some off", and the branch that names
-        # every layer would never run.
-        assert layers.layers_off(LAYERLESS, layers.CAP_LAYERS) == sorted(layers.CAP_LAYERS)
-        assert layers.layers_off(LAYERLESS, layers.BLOCK_LAYERS) == sorted(layers.BLOCK_LAYERS)
+            assert layers.layers_on(bodies.EARTH, vocabulary) == sorted(vocabulary)
+    with subtests.test("mars"):
+        # Mars declares perennial ice and nothing else: every other layer's only source describes
+        # Earth.
+        assert layers.layers_on(bodies.MARS, layers.CAP_LAYERS) == ["perennial_ice"]
+        assert layers.layers_on(bodies.MARS, layers.BLOCK_LAYERS) == ["perennial_ice"]
+    with subtests.test("a body that declares nothing records nothing"):
+        assert layers.layers_on(LAYERLESS, layers.CAP_LAYERS) == []
+        assert layers.layers_on(LAYERLESS, layers.BLOCK_LAYERS) == []
+    with subtests.test("a layer the body lacks joining the stage moves nothing"):
+        assert (layers.layers_on(bodies.MARS, layers.BLOCK_LAYERS | {"test_crust"})
+                == layers.layers_on(bodies.MARS, layers.BLOCK_LAYERS))
     with subtests.test("sorted"):
         # Sorted, so a frozenset's iteration order cannot make one body's recipe two recipes.
         partial = dataclasses.replace(bodies.EARTH, name="partial",
-                                      surface_layers=frozenset({"perennial_ice"}))
-        assert layers.layers_off(partial, layers.SURFACE_LAYERS) == sorted(
-            layers.layers_off(partial, layers.SURFACE_LAYERS))
+                                      surface_layers=frozenset({"sea_ice", "perennial_ice"}))
+        assert layers.layers_on(partial, layers.SURFACE_LAYERS) == ["perennial_ice", "sea_ice"]
+
+
+def test_every_layer_names_the_rig_image_it_paints() -> None:
+    """Pinned against literals, because a stage's recipe records the textures its layers' images
+    name and no others: a row naming the wrong image leaves the right one's wiring unrecorded where
+    it is loaded, and the preps' refusal fires only on a window that writes it."""
+    assert {layer.name: layer.image for layer in layers.LAYERS} == {
+        "lake_depth": "lakedepth.tif",
+        "perennial_ice": "snowmask.png",
+        "glaciers": "snowmask.png",
+        "sea_ice": "seaice.png",
+        "coastline": None,
+        "antarctic_rock": None,
+        "salt_flats": "saltmask.png",
+    }
 
 
 def test_the_cap_ground_ratio_divides_by_the_cap_sphere_and_not_the_tile_grids() -> None:

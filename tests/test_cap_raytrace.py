@@ -291,8 +291,10 @@ class TestTheRaytraceRecipeIsNotTheCompositesWearingAnotherName:
     def test_the_rig_is_read_from_the_rig_rather_than_restated(self):
         """Through JSON on both sides: `rig_recipe` holds tuples where the serialised recipe holds
         lists, and comparing the two forms directly would fail for a reason that is not a drift."""
+        from pipeline.render import prep_cap
         from pipeline.tile import block_render
-        assert self._recipe()["rig"] == json.loads(json.dumps(block_render.rig_recipe(EARTH)))
+        rig = block_render.rig_recipe(EARTH, prep_cap.rig_images(EARTH, WHOLE_PLANET))
+        assert self._recipe()["rig"] == json.loads(json.dumps(rig))
 
     def test_a_look_constant_moving_restages_the_disc(self, monkeypatch):
         """The claim the recipe exists to make, run rather than described. `constants_for` resolves
@@ -304,15 +306,16 @@ class TestTheRaytraceRecipeIsNotTheCompositesWearingAnotherName:
         assert cap_raytrace.params(grid, WHOLE_PLANET) != before
 
     def test_a_layer_switched_off_restages_although_its_source_stops_being_tracked(self):
-        """The conditional-record idiom: turning a layer off REMOVES its file from the mtime
-        dependencies, so the absence has nowhere to show except here."""
+        """Turning a layer off REMOVES its file from the mtime dependencies, so the absence has
+        nowhere to show except here."""
         # A REGISTERED body with its layers stripped, not a stand-in under a new name: `params`
         # reaches `palette.look_for`, which has no fallback, so an invented body fails for a reason
         # that has nothing to do with what is being asked.
         bare = dataclasses.replace(bodies.BODIES["mars"], surface_layers=frozenset())
         grid = dataclasses.replace(cap_render.north_grid(bare), body=bare)
-        recipe = json.loads(cap_raytrace.params(grid, WHOLE_PLANET))
-        assert set(recipe["layers_off"]) == set(layers.CAP_LAYERS)
+        assert json.loads(cap_raytrace.params(grid, WHOLE_PLANET))["layers_on"] == []
+        assert json.loads(cap_raytrace.params(cap_render.north_grid(bodies.MARS), WHOLE_PLANET))[
+            "layers_on"] == ["perennial_ice"]
 
-    def test_earth_records_nothing_off_so_its_recipe_keeps_its_shape(self):
-        assert "layers_off" not in self._recipe()
+    def test_earth_records_every_cap_layer_it_has(self):
+        assert self._recipe()["layers_on"] == sorted(layers.CAP_LAYERS)

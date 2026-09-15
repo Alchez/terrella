@@ -101,7 +101,7 @@ SOURCES: dict[str, Source] = {
     "worldcover": Source(
         name="ESA WorldCover 2021",
         href="https://esa-worldcover.org",
-        role="Snow / ice mask",
+        role="Water mask for DEM gaps & salt flats",
         licence="CC-BY 4.0",
         notice="© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data "
                "(2021) processed by ESA WorldCover consortium.",
@@ -151,10 +151,24 @@ SOURCES: dict[str, Source] = {
     "naturalearth": Source(
         name="Natural Earth",
         href="https://www.naturalearthdata.com",
-        role="Borders & coastlines",
+        role="Borders, coastlines & salt flats",
         licence="Public domain",
         notice="Made with Natural Earth (naturalearthdata.com).",
         obligation=False,
+    ),
+    "gwl": Source(
+        name="GWL_FCS30 Global Wetlands",
+        href="https://doi.org/10.5281/zenodo.7340516",
+        role="Salt flats",
+        licence="CC-BY 4.0",
+        # ESSD's own "How to cite", prefixed with the statement of change CC-BY 4.0 § 3(a)(1)(B)
+        # asks an adaptation to make.
+        notice="Salt flats derived from GWL_FCS30: Zhang, X., Liu, L., Zhao, T., Chen, X., Lin, S., "
+               "Wang, J., Mi, J., and Liu, W.: GWL_FCS30: a global 30 m wetland map with a fine "
+               "classification system using multi-sourced and time-series remote sensing imagery in "
+               "2020, Earth Syst. Sci. Data, 15, 265–293, https://doi.org/10.5194/essd-15-265-2023, "
+               "2023.",
+        obligation=True,
     ),
     "mars_dem": Source(
         name="MOLA / HRSC Blended DEM",
@@ -241,11 +255,10 @@ COPERNICUS_LIABILITY = ("The organisations in charge of the Copernicus programme
 
 CREDITS: dict[str, BodyCredits] = {
     "earth": BodyCredits(
-        # WorldCover is here and not only under `heroes`, which is where believing the standing
-        # brief put it. OpenTopography serves the withheld GLO-30 tiles as DEM with no watermask,
-        # so `fuse/build_void_wbm.py` synthesises one from WorldCover class 80 and
-        # `build_mosaics.sh` globs it into the WBM mosaic that `fuse_heightfield` reads. It is
-        # CC-BY, so every Earth raster archive owes it a notice.
+        # WorldCover is here and not only where the salt reads it. OpenTopography serves the
+        # withheld GLO-30 tiles as DEM with no watermask, so `fuse/build_void_wbm.py` synthesises
+        # one from WorldCover class 80 and `build_mosaics.sh` globs it into the WBM mosaic that
+        # `fuse_heightfield` reads. It is CC-BY, so every Earth raster archive owes it a notice.
         heightfield=("glo30", "gebco", "worldcover"),
         painted={
             "lake_depth": ("globathy",),
@@ -253,10 +266,13 @@ CREDITS: dict[str, BodyCredits] = {
             "glaciers": ("rgi",),
             "sea_ice": ("seaice",),
             "antarctic_rock": ("addrock",),
+            # GWL_FCS30's saline cells stay where WorldCover calls their ground bare, snow or water.
+            "salt_flats": ("naturalearth", "gwl", "worldcover", "snow_persistence"),
         },
         vector=("naturalearth",),
-        # WorldCover again, as the snow mask, and GLOBathy as the lake tint.
-        heroes=("worldcover", "globathy"),
+        # The tiles' snow, glaciers and salt flats, which the hero snow stage folds on its own
+        # grid, and GLOBathy as the lake tint.
+        heroes=("snow_persistence", "rgi", "naturalearth", "gwl", "worldcover", "globathy"),
         focus=("naturalearth",),
         legal=(f"{COPERNICUS_LIABILITY}.",),
     ),
@@ -315,7 +331,8 @@ def keys_for(body: bodies.Body, layer: str) -> tuple[str, ...]:
     if layer == "terrain":
         return credits.heightfield
     painted = (key for name in sorted(painted_layers(body)) for key in credits.painted[name])
-    return (*credits.heightfield, *painted)
+    # Once each, first mention first: two layers can read one source, and a notice is owed once.
+    return tuple(dict.fromkeys((*credits.heightfield, *painted)))
 
 
 def compose(keys: tuple[str, ...]) -> str:
