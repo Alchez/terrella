@@ -62,8 +62,8 @@ GATE_BIT = 128
 #: Degrees of NSIDC-0791 read around a box before its white is followed, doubled until no kept
 #: component meets the edge.
 WHITE_MARGIN_DEG = 1.0
-#: Pixels around an outline's box or a saline tile on the planet grid, doubled while the window
-#: cuts what it keeps.
+#: Pixels around an outline's box or a saline tile on the planet grid, and a window's first widening,
+#: each widening after it doubling the total.
 PLANET_MARGIN_PX = 256
 
 EIGHT = np.ones((3, 3), bool)
@@ -387,6 +387,18 @@ def _holds(window: windows.Window, box: windows.Window) -> bool:
             and box.row_off + box.height <= window.row_off + window.height)
 
 
+def _taking_in(window: windows.Window, boxes: list[windows.Window],
+               clusters: list[windows.Window]) -> windows.Window:
+    """`window` grown to hold the cluster of every box it cuts, until it cuts none."""
+    while True:
+        cut = [box for box in boxes if windows.intersect(box, window) and not _holds(window, box)]
+        met = [cluster for cluster in clusters
+               if not _holds(window, cluster) and any(windows.intersect(cluster, box) for box in cut)]
+        if not met:
+            return window
+        window = windows.union(window, *met)
+
+
 def _core(bounds: tuple[float, float, float, float], transform: Affine) -> windows.Window:
     """A lon/lat box's cells on the planet grid, each edge rounded on its own, so tiles that meet
     divide the cells between them."""
@@ -433,16 +445,18 @@ def build_planet(bounds: tuple[float, float, float, float], width: int, height: 
     saline tile. Merging touching tiles as the outlines merge is the temptation, and it makes one
     window of a continent's salt. A window grows until every outline it meets lies inside it, none of
     its own patches lies near its edge, and nothing it paints meets the edge, so a lake body or a
-    white component is never cut by a window and then by a block. Where windows overlap, the salt is
-    the most any of them paints.
+    white component is never cut by a window and then by a block. An outline it cuts brings its whole
+    cluster in, and anything else widens it on every side, each widening doubling the total. Widening
+    for a cut outline too looks simpler, and across a field of outlines each widening cuts another
+    until the window outgrows memory. Where windows overlap, the salt is the most any of them paints.
     """
     transform = from_bounds(*bounds, width, height)
     pairs = _projected(outlines(), "EPSG:3857")
     boxes = [windows.from_bounds(*features.bounds(projected), transform=transform)
              .round_offsets().round_lengths() for _, projected in pairs]
     tiles = saline_tiles()
-    seeds: list[tuple[windows.Window, windows.Window | None]] = [
-        (cluster, None) for cluster in _clusters([_padded(box, PLANET_MARGIN_PX) for box in boxes])]
+    clusters = _clusters([_padded(box, PLANET_MARGIN_PX) for box in boxes])
+    seeds: list[tuple[windows.Window, windows.Window | None]] = [(cluster, None) for cluster in clusters]
     seeds += [(_padded(core, PLANET_MARGIN_PX), core)
               for core in (_core(box, transform) for _tile, box in tiles)]
     out.unlink(missing_ok=True)
@@ -453,21 +467,22 @@ def build_planet(bounds: tuple[float, float, float, float], width: int, height: 
     with rasterio.open(heightfield) as height_source, rasterio.open(watermask) as water_source, \
             rasterio.open(out, "r+") as target:
         for seed, core in seeds:
-            window, full, gate = bake_window(seed, core, height_source, water_source, pairs, boxes, tiles)
+            window, full, gate = bake_window(seed, core, height_source, water_source, pairs, boxes, clusters,
+                                             tiles)
             held_full, held_gate = unpack(target.read(1, window=window))
             target.write(pack(np.maximum(held_full, full), held_gate | gate), 1, window=window)
 
 
 def bake_window(seed: windows.Window, core: "windows.Window | None", height_source, water_source,
-                pairs: list[tuple[dict, dict]], boxes: list[windows.Window],
+                pairs: list[tuple[dict, dict]], boxes: list[windows.Window], clusters: list[windows.Window],
                 tiles: list[tuple[str, tuple[float, float, float, float]]],
                 ) -> tuple[windows.Window, np.ndarray, np.ndarray]:
     """One of `build_planet`'s windows, grown from `seed` until it cuts nothing it keeps: the window,
     and its full share and gate. `core` is its saline tile, None for a cluster of outlines."""
     grid = windows.Window(0, 0, height_source.width, height_source.height)  # pyright: ignore[reportCallIssue]
+    window = seed.intersection(grid)
     grow = 0
     while True:
-        window = _padded(seed, grow).intersection(grid)
         window_transform = height_source.window_transform(window)
         members = [index for index, box in enumerate(boxes) if windows.intersect(box, window)]
         elevation = height_source.read(1, window=window).astype(float)
@@ -485,7 +500,12 @@ def bake_window(seed: windows.Window, core: "windows.Window | None", height_sour
                 or not all(_holds(window, boxes[index]) for index in members))
         if not cuts or window == grid:
             return window, full, gate
-        grow = max(PLANET_MARGIN_PX, 2 * grow)
+        taken = _taking_in(window, boxes, clusters).intersection(grid)
+        if taken == window:
+            step = max(PLANET_MARGIN_PX, 2 * grow)
+            taken = _padded(window, step - grow).intersection(grid)
+            grow = step
+        window = taken
 
 
 def build_recipe() -> dict:

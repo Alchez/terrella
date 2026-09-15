@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 import rasterio
 from affine import Affine
+from rasterio import windows
 from rasterio.transform import from_origin
 from rasterio.warp import Resampling, reproject
 from rasterio.warp import transform as warp_points
@@ -200,11 +201,23 @@ def tile_cells(west: float, north: float, lon: tuple[float, float], lat: tuple[f
             & (cols[None, :] >= lon[0]) & (cols[None, :] <= lon[1])).astype(np.uint8)
 
 
+def planet_point(col, row):
+    """The lon and lat of a point on the planet grid, given in cells from its corner."""
+    x, y = PLANET.c + col * PLANET.a, PLANET.f + row * PLANET.e
+    return np.degrees(x / 6_378_137.0), np.degrees(2 * np.arctan(np.exp(y / 6_378_137.0)) - np.pi / 2)
+
+
 def planet_lonlat() -> tuple[np.ndarray, np.ndarray]:
     """Each planet cell's centre, lon and lat."""
     rows, cols = np.mgrid[0:PLANET_SHAPE[0], 0:PLANET_SHAPE[1]]
-    x, y = PLANET.c + (cols + 0.5) * PLANET.a, PLANET.f + (rows + 0.5) * PLANET.e
-    return np.degrees(x / 6_378_137.0), np.degrees(2 * np.arctan(np.exp(y / 6_378_137.0)) - np.pi / 2)
+    return planet_point(cols + 0.5, rows + 0.5)
+
+
+def cells_outline(col0: int, row0: int, col1: int, row1: int) -> dict:
+    """A lon/lat outline over planet columns col0..col1-1 and rows row0..row1-1 exactly."""
+    (west, north), (east, south) = planet_point(col0, row0), planet_point(col1, row1)
+    return {"type": "Polygon", "coordinates": [[(west, south), (east, south), (east, north), (west, north),
+                                                (west, south)]]}
 
 
 class TestThePlanetBakeHoldsEveryPatchAndOutlineWhole:
@@ -276,6 +289,32 @@ class TestThePlanetBakeHoldsEveryPatchAndOutlineWhole:
         full = self.bake(store, heightfield)
         assert (full[band & (lon > 2.5) & (lon < 5.0)] > 0.9).all()
         assert (full[band & (lon > 5.5) & (lon < 7.0)] == 0.0).all()
+
+    def test_a_tile_window_that_cuts_an_outline_takes_in_its_cluster_and_nothing_else(self, monkeypatch, store):
+        """The eastern tile's window cuts the first of two outlines whose margins meet, and a third
+        outline lies past the window's far side, where widening on every side would cut it."""
+        chain = [(40, 33, 45, 37), (42, 39, 47, 42)]
+        apart = (40, 1, 45, 3)
+        monkeypatch.setattr(salt, "outlines", lambda: [cells_outline(*box) for box in (*chain, apart)])
+        shipped, baked = salt.bake_window, []
+
+        def recording(seed, core, *args):
+            window, full, gate = shipped(seed, core, *args)
+            baked.append((seed, core, window))
+            return window, full, gate
+
+        monkeypatch.setattr(salt, "bake_window", recording)
+        self.bake(store, np.full(PLANET_SHAPE, FLOOR_M))
+        seed, _core, window = max((entry for entry in baked if entry[1] is not None),
+                                  key=lambda entry: entry[1].col_off)
+        margin = salt.PLANET_MARGIN_PX
+        first, second, third = (windows.Window(col0, row0, col1 - col0, row1 - row0)  # pyright: ignore[reportCallIssue]
+                                for col0, row0, col1, row1 in (*chain, apart))
+        assert windows.intersect(seed, first) and not salt._holds(seed, first)
+        assert not windows.intersect(seed, second) and not windows.intersect(seed, third)
+        assert windows.intersect(salt._padded(seed, margin), third)
+        cluster = windows.union(salt._padded(first, margin), salt._padded(second, margin))
+        assert window == windows.union(seed, cluster)
 
 
 class TestTheShareIsEachTilesOwn:
