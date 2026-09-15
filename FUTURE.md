@@ -620,7 +620,7 @@ Deferred past the 22h Earth pass deliberately: every part of it is a HERO defici
   - Natural Earth's lakes layer classes 69 lakes "Alkaline Lake", Australia's salt lakes among them, but also open water (Great Salt Lake, the Dead Sea, Issyk-Kul), so it is not a salt source on its own.
   - The salt colour marks salt ground whether or not it was white (ART § Salt flats), so the union's non-white flats take it if they are salt. Most of its patches are specks: the 87% under 1 km² hold 3% of its area, and may want a minimum size, a value nobody has set.
 - **An NDVI veto on the gate is parked, the maintainer's call.** After the filter the gate's white covers 1,642 km², and clearing it where the composite's NDVI p90 passes 0.2 on half a cell's pixels would take 314 km², 83 at Telmen Nuur and 50 of Uyuni's 674, from 29 of its 1° tiles (5.0 GB). It changes which of two near-whites that ground takes, at the cost of a new source read on both surfaces and a tile list only the bake can name. HISTORY, *the NDVI veto on the snow-joined salt is parked*.
-- **The next action** is the maintainer's look at the filtered salt, before an Earth pass carries it. HISTORY, *the WorldCover filter is built into GWL's extraction*. How much white sits on level ground that neither source touches, Sirjan's kind, is still unmeasured, and sizes what the union leaves as it is.
+- **The next action** is a measurement: how much white sits on level ground that neither source touches, Sirjan's kind, which sizes what the union leaves as it is. The look the salt still wants rides the Earth pass, § *Passes the tree has already earned*.
 
 ## Doc and guard debts, carried out of the working plan (parked 2026-09-08)
 
@@ -791,9 +791,9 @@ The working plan went back to holding one onboarding question at a time, which i
 
 - **The Mars pass is owed rather than parked, being the price of decisions already taken.** `palette.py` carries two ratified look calls, one authored white for both poles and a land ramp ratified on a rendered block, so every block and both caps restage while nothing on the live site has moved.
   - Whether a pass is owed is answered by diffing `raytrace_params.json` against `block_render.recipe_for`, fed the store's declared rasters and planned blocks, which is the text `run` writes. Building `params()`'s four arguments by hand is the defect that deleted the curve fingerprint.
-- **The salt flats are built and not yet on the globe.** The maintainer judged the tone on Uyuni's tiles alone, so the flats painted for the first time (Etosha, the Rann of Kutch, the Great Salt Lake Desert, the Aralkum) want his look on the rendered pass before it ships.
-  - Salt lies in 28 of Earth's 1,024 blocks, and the recipe move re-renders all of them. Mars and the caps record only what they can draw, so it moves neither.
-- **Re-render only the blocks whose inputs moved**, which a marker set cleared whole cannot do: the salt reaches 28 of Earth's 1,024 blocks and re-renders all of them. The largest saving against identical-pixel re-renders, and a design of its own.
+- **The salt flats are built and not yet on the globe.** The maintainer has judged them at eight look sites (HISTORY, *the eight look sites are rendered under the filtered salt*), so the rest, Etosha, the Great Salt Lake Desert, the Aralkum, Chott el Djerid and GWL's specks among it, wants his look on the rendered pass before it ships.
+  - The recipe move re-renders every Earth block, wherever the salt lies. Mars and the caps record only what they can draw, so it moves neither.
+- **Re-render only the blocks whose inputs moved**, which a marker set cleared whole cannot do: a layer that reaches some of Earth's 1,024 blocks re-renders all of them. The largest saving against identical-pixel re-renders, and a design of its own.
 - **The block-row seam wants an Earth pass, for a gain 95% hidden by the polar cap.** `block_render` plus the cut plus both caps plus pack, which is a night.
   - **The code half is settled and is not on offer again**: `prep_block.ROW_EDGE_MODE` is `"edge"` in the tree and `block_render.params` records it, so what is left is render hours.
   - **A recipe move re-renders every block rather than the ice ones**: `start_generation` clears the whole marker set, so all 256 on Mars and all 1,024 on Earth.

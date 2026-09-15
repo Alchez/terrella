@@ -152,7 +152,7 @@ flowchart LR
 | `water_3857.tif` / `ocean_3857.tif` + `.done` | 81 MB | 3857 masks; `water_3857` reads class 1 at the Caspian | Keep |
 | `glacier_3857.tif` + `.done` | 30 MB | RGI 7.0 glacier mask (Byte 0/1) rasterized ONCE to the 3857 grid; exact vector burn, so no banding needed | Keep: regenerable, dep is `rgi7_g_3857.gpkg` |
 | `addrock_3857.tif` + `.done` | 30 MB | SCAR rock outcrop on the 3857 grid, the Antarctic ice subtraction | Keep: regenerable, dep is `add_rock_3857.gpkg` |
-| `salt_3857.tif` + `.done` | ~1 MB | the salt flats baked on the 3857 grid (packed Byte, sparse), built by the next pass | Keep: regenerable from `ne_10m_playas`, GWL_FCS30's saline tiles, the persistence and the height and water rasters |
+| `salt_3857.tif` + `.done` | ~2.2 MB | the salt flats baked on the 3857 grid (packed Byte, sparse), built by the next pass | Keep: regenerable from `ne_10m_playas`, GWL_FCS30's saline tiles, the persistence and the height and water rasters |
 | `raytrace_params.json`, `tile_params.json`, `relief_params.json` | ~7 KB | materialised palette/knob params: **the freshness guards' dependency records** | Keep (regenerated; **mtime is load-bearing**) |
 | `index.html` | 2.6 KB | **tile SMOKE TEST, not the product globe**: proves the raw pyramid renders with only `python -m http.server`, so broken tiles and a broken frontend can be told apart (labelled in-page after being mistaken for the product once) | Keep: a *different tool*, and gitignored means deleting is permanent |
 | `tmp/` | ~0 | `pmtiles convert --tmpdir` home (ext4, not tmpfs): self-cleans on normal exit | Keep the dir |
