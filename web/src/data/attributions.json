@@ -18,7 +18,7 @@
         {
           "name": "ESA WorldCover 2021",
           "href": "https://esa-worldcover.org",
-          "role": "Water mask for DEM gaps",
+          "role": "Water mask for DEM gaps & salt flats",
           "license": "CC-BY 4.0"
         },
         {
@@ -83,7 +83,7 @@
         {
           "name": "ESA WorldCover 2021",
           "href": "https://esa-worldcover.org",
-          "role": "Water mask for DEM gaps",
+          "role": "Water mask for DEM gaps & salt flats",
           "license": "CC-BY 4.0"
         }
       ]
@@ -165,7 +165,7 @@
         {
           "name": "ESA WorldCover 2021",
           "href": "https://esa-worldcover.org",
-          "role": "Water mask for DEM gaps",
+          "role": "Water mask for DEM gaps & salt flats",
           "license": "CC-BY 4.0",
           "attribution": "© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium."
         },
@@ -276,7 +276,7 @@
         {
           "name": "ESA WorldCover 2021",
           "href": "https://esa-worldcover.org",
-          "role": "Water mask for DEM gaps",
+          "role": "Water mask for DEM gaps & salt flats",
           "license": "CC-BY 4.0"
         },
         {

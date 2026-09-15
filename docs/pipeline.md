@@ -53,7 +53,12 @@ python -m pipeline.acquire.earth.download_gebco         # global bathymetry
 | `pipeline.acquire.mars.download_nomenclature` | the IAU gazetteer, the source of Mars's named features |
 | `pipeline.acquire.earth.download_rgi` | RGI 7.0 glacier shapefiles merged to `data/raw/rgi/rgi7_g_3857.gpkg` |
 | `pipeline.acquire.earth.download_seaice` | OSI SAF monthly sea-ice concentration → the annual ice-frequency climatology |
-| `pipeline.acquire.earth.download_worldcover` | ESA WorldCover tiles for one `--extent`, the water mask for GLO-30's void tiles |
+| `pipeline.acquire.earth.download_add_rock` | SCAR ADD's Antarctic rock outcrop, reprojected to `data/raw/addrock/add_rock_3857.gpkg` |
+| `pipeline.acquire.earth.download_globathy` | GLOBathy's modelled lake depths, as the one zip it publishes |
+| `pipeline.acquire.earth.extract_globathy` | the GLOBathy lakes large enough to show a depth gradient, and their mosaic VRT |
+| `pipeline.acquire.earth.download_worldcover` | ESA WorldCover tiles for one `--extent`; `build_void_wbm` and `extract_gwl` fetch exactly theirs through it |
+| `pipeline.acquire.earth.download_gwl` | GWL_FCS30's twelve archives, pinned by md5 |
+| `pipeline.acquire.earth.extract_gwl` | GWL_FCS30's saline class as 0/1 tiles and their VRT, a cell kept where WorldCover calls its ground bare, snow or water. It fetches the WorldCover tiles under the class first, INVENTORY's `worldcover/` row |
 | NSIDC-0791 snow persistence | the snow-persistence NetCDF, obtained from NSIDC via Earthdata (earthaccess/CMR) and placed at `data/raw/snow/`. **No committed acquire script** (unlike RGI / sea ice), because the fetch needs a NASA Earthdata login and no acquirer carries a credential |
 
 ## The look

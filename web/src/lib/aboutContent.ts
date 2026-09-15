@@ -165,7 +165,8 @@ export const ABOUT: Record<BodySlug, BodyAbout> = {
       },
       // Not "a permanent snow and ice mask from ESA WorldCover": neither surface uses it, class 70
       // being permanent ice only, which leaves mid- and high-latitude ranges bare. WorldCover keeps
-      // its credit below for the water mask it gives the DEM's gap tiles.
+      // its credit below for the water mask it gives the DEM's gap tiles and the salt ground it
+      // confirms.
       {
         title: "Snow",
         text: "Permanent snow from a MODIS persistence climatology and the Randolph glacier inventory, faded at its margins so the edges take the hillshade. Antarctica is painted white outright: the climatology saturates over the continent but leaves clustered gaps, and the glacier inventory only reaches its coastal fringe.",

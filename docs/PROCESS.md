@@ -153,9 +153,9 @@ Run once; all are resumable and verify against a pinned size/md5, so a re-run is
 | Source | Size | Notes |
 |---|---|---|
 | Copernicus GLO-30 | **551 GB** | per-country, on demand: never bootstrapped globally (Russia alone ≈ 4,900 tiles) |
-| ESA WorldCover | 669 MB held | the 12 tiles over the GLO-30 void extent, for its water mask (class 80); the global land set is ~114 GB and is never fetched whole |
+| ESA WorldCover | 15.0 GB held | the 12 tiles over the GLO-30 void extent, for its water mask (class 80), and the 223 under GWL_FCS30's saline class, 14.3 GB that `extract_gwl` fetched in **10 min**; the global land set is ~114 GB and is never fetched whole |
 | GLOBathy | 16.7 GB zip | → 83,357 per-lake rasters; reclaimable once extracted |
-| GWL_FCS30 | 2.4 GB | twelve zips kept as published; `extract_gwl` writes the saline class of the 134 tiles of 962 that hold any in **57 s** at 8 threads, 8.2 GiB peak |
+| GWL_FCS30 | 2.4 GB | twelve zips kept as published; `extract_gwl` lists the WorldCover tiles under the saline class in **under 1.5 min**, then writes the saline cells WorldCover keeps, 126 tiles of 962, in **65 s**, both at 8 threads, 6.5 GiB peak |
 | GEBCO 2026 | 7.3 GB | bathymetry + ice surface |
 | RGI 7.0 glaciers | 2.7 GB | all 19 regions, merged to a 1.1 GB gpkg. Never pass `-skipfailures`: it sets the transaction size to 1, which is quadratic into a populated table (51.8 s against 1.3 s for one region) |
 | NSIDC-0791 snow persistence | 1.6 GB | tile snow |

@@ -6,7 +6,7 @@ The **current** map of on-disk data stores: what each is, who reads it, whether 
 
 | | size | |
 |---|---|---|
-| `data/raw/` | **576 GB** | sources, re-downloadable, never re-derivable |
+| `data/raw/` | **592 GB** | sources, re-downloadable, never re-derivable |
 | `data/work/` | **365 GB** | intermediates, every byte rebuildable |
 | `blender/renders/` | **28.1 GB** | the hero products |
 | `web/public/caps/` | **12.3 MB** | the only rendered assets inside the site build |
@@ -31,10 +31,11 @@ The **current** map of on-disk data stores: what each is, who reads it, whether 
 
 ```mermaid
 flowchart LR
-  subgraph SRC["data/raw/ · 576 GB · re-downloadable, never re-derivable"]
+  subgraph SRC["data/raw/ · 592 GB · re-downloadable, never re-derivable"]
     GLO["glo30 · 550 GB"]
     GEB["gebco · 7.2 GB"]
-    LAY["rgi · snow · seaice · addrock<br/>globathy · naturalearth · mars"]
+    WCV["worldcover · 15.0 GB<br/>void water mask, salt ground"]
+    LAY["rgi · snow · seaice · addrock<br/>globathy · gwl_fcs30 · naturalearth · mars"]
   end
 
   subgraph MID["data/work/ · 365 GB · every byte rebuildable"]
@@ -56,8 +57,10 @@ flowchart LR
 
   GLO --> FUSE
   GEB --> FUSE
+  WCV --> FUSE
   FUSE --> W
   LAY --> W
+  WCV --> W
   W -->|"block_render<br/>Cycles, every body"| RGB
   RGB --> PYR
   PYR --> PM
@@ -87,12 +90,12 @@ flowchart LR
   constants, so a look change restages both, and nothing else would keep them from drifting apart at
   the seam.
 
-## Raw sources: `data/raw/` (579 GB)
+## Raw sources: `data/raw/` (592 GB)
 
 | Store | Size | What it is | Used by | Reclaim? |
 |---|---|---|---|---|
 | `glo30/` | 550 GB | Copernicus GLO-30 land DEM tiles (downloaded per-country, on demand) | fusion (heroes + planet) | Keep: any re-fuse, new country, or z9/z10 extension reads it; largest store on the box |
-| `worldcover/` | 669 MB | ESA WorldCover 2021, the 12 tiles over the GLO-30 void extent | the void tiles' water mask (`fuse/build_void_wbm.py`, class 80) and nothing else | Keep: exactly what that stage re-derives on every run, so a rebuild needs no network |
+| `worldcover/` | 15.0 GB | ESA WorldCover 2021: the 12 tiles over the GLO-30 void extent, and the 223 under GWL_FCS30's saline class | the void tiles' water mask (`fuse/build_void_wbm.py`, class 80), and which saline cells stand on bare ground, snow or water (`acquire/earth/extract_gwl.py`) | Keep: exactly what those two stages re-derive on every run, so a rebuild needs no network |
 | `mars/` | 11.4 GB | Two whole-planet downloads, no per-tile machinery. `Mars_HRSC_MOLA_BlendDEM_Global_200mp_v2.tif` (11,384,463,908 B, 106694 x 53347 int16) is the heightfield. `Mars_Viking_ClrMosaic_global_925m.tif` (797,888,177 B, 23059 x 11530 RGB) is the field Mars's polar ice alpha is graded from, and `mars_ice.ALPHA_LEVELS` was measured over these exact bytes | the DEM feeds `fuse/relabel_mars.py`; the mosaic feeds `mars/ice/` | Keep the DEM: re-downloadable against the publisher's md5, but a ~23 min single-stream fetch. The mosaic re-fetches byte-identically in ~90 s against its md5, so deleting it costs a re-fetch rather than nothing |
 | `gebco/` | 7.2 GB | GEBCO 2026 bathymetry / ice-surface | fusion (heroes + planet); Caspian bathymetry | Keep |
 | `rgi/` | 2.6 GB | RGI 7.0 glaciers, **all 19 regions** (merged `rgi7_g_3857.gpkg` 1.1 GB + source shp) | tile and hero snow (`look/snow.py`, `render/snow_mask.py`) | Keep |
@@ -114,7 +117,7 @@ flowchart LR
 | `planet/` | 14.4 GB | Fused planet heightfield + masks, **648 cells** of 10 degrees (36 lon x 18 lat, pole to pole), five files per cell | Keep: input to the tiler |
 | `planet_terrain/` | **5.07 GB** | Terrain-RGB (Tier 3 displacement), built by `tile/terrain_rgb.py` from `height_3857.tif`. Now exactly two things: the shipping pyramid `bathy_s8_webp/tiles/` (2.53 GB, 87,381 tiles, z0-8, stamped `tiles.done` + `terrain_params.json`) and its archive `terrain.pmtiles` (2.53 GB) | Keep both. The `elev_z0..z7` downsample chain that used to live in `bathy_s8_webp/work/` is reclaimed; it re-derives from `height_3857.tif` on the next cut and costs ~17 GB transiently while it does |
 | `cap/` | **3.25 GB** | Earth's cap intermediates: the AEQD warps, the full-size `cap_{north,south}.tif`, the freshness sidecars, the prepped `render_{north,south}/` (0.39 GB) and the 28 Cycles frames per pole in `frames_{north,south}/` (0.93 GB), plus ~0.5 GB of superseded A/B discs (`cap_*_raytraced82.tif`, `ab_ice_damp`, `ab_pole_taper`, `ab_prod`) | Mixed. The render dirs and frames are kept on purpose: they make a stopped render cost one frame instead of the ring. The A/B discs are decision records whose decisions have landed. Budget **>=16 G** for any re-render: the stage peaks ~14.4 GiB |
-| `gwl/` | 74 MB | GWL_FCS30's saline class: `saline/` = 0/1 tiles, one per 5° tile that holds any, + `saline.vrt` + `saline_recipe.json` | Keep (small): the salt flats' law (`look/salt.py`) reads each tile, the VRT being their index, and it re-derives from `raw/gwl_fcs30/` in about a minute (`acquire/earth/extract_gwl.py`) |
+| `gwl/` | 68 MB | GWL_FCS30's saline class where WorldCover calls the ground bare, snow or water: `saline/` = 0/1 tiles, one per 5° tile that holds any, + `saline.vrt` + `saline_recipe.json` | Keep (small): the salt flats' law (`look/salt.py`) reads each tile, the VRT being their index, and it re-derives from `raw/gwl_fcs30/` and `raw/worldcover/` in about three minutes (`acquire/earth/extract_gwl.py`) |
 | `borders/` | 21 MB | `countries.geojson` + `boundary_lines.geojson` (NE to GeoJSON emitters), served at `/borders/` | Keep (tiny); regenerable from `naturalearth/` |
 | `planet_vector/` | **10.2 MB** | Earth's VECTOR tiles (MVT), cut by `compose/countries_pmtiles.py` from `borders/countries.geojson` plus the two layers it derives. One archive, three source-layers (`country_fill`, `country_outline`, `country_hit`), z0-8, stamped `countries_tiles_params.json`. **Three orders of magnitude smaller than the raster pyramids**: it is geometry, not pixels | Keep. Re-cuts from `countries.geojson` in **17 s**; the recipe sidecar is what makes a settings change visible, since the filename cannot carry one |
 | `_profile_tiles/` · `_profile_pass/` · `_profile_mars_tiles/` · `_profile_tiles_earth_z8/` | 41 MB | `pass.log` (stage timings) + `samples.jsonl` per run label. `samples.jsonl` is rewritten every run; `pass.log` is ROTATED to `pass-<timestamp>.log`, because a producer that resumes across nights would otherwise keep only the last night's record of which blocks failed | **Keep: the source of every number in docs/PROCESS.md.** These are the four directories a reclaim must never sweep along with their leading-underscore siblings |

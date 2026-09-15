@@ -1,7 +1,9 @@
 """ESA WorldCover 2021 v200: the bucket, its tile naming, and the fetch.
 
-One stage reads it: `fuse/build_void_wbm.py`, class 80, for the watermask OpenTopography's void DEM
-tiles ship without. Its class and its mosaic stay beside the code choosing them.
+Two stages read it, and each fetches exactly its own tiles through `fetch_tiles`:
+`fuse/build_void_wbm.py`, class 80, for the watermask OpenTopography's void DEM tiles ship without,
+and `acquire/earth/extract_gwl.py`, the tiles under GWL_FCS30's saline class, for which of its cells
+stand on bare ground, snow or water. Each keeps its classes beside the code choosing them.
 
 Ocean cells legitimately 404, so the fetch asks for 'absent' rather than failing, and `fetch_tiles`
 returns the counts so the caller decides what an empty result means.

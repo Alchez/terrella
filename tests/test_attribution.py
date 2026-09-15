@@ -133,8 +133,9 @@ class TestTheRequiredNoticesReachTheArchiveThatOwesThem:
     def test_a_terrain_cut_carries_its_heightfield_and_none_of_the_paint(self, subtests):
         for body in bodies.BODIES.values():
             credit = attribution.for_archive(body, "terrain")
+            # WorldCover paints Earth's salt and fills its DEM's gaps, so it is the heightfield's too.
             painted = {key for keys in attribution.CREDITS[body.name].painted.values()
-                       for key in keys}
+                       for key in keys} - set(attribution.CREDITS[body.name].heightfield)
             with subtests.test(f"{body.name} keeps the DEM"):
                 assert all(attribution.SOURCES[key].notice in credit
                            for key in attribution.CREDITS[body.name].heightfield)
@@ -275,8 +276,9 @@ HERO_STEP_SOURCES: dict[str, set[str]] = {
     "pipeline/fuse/build_mosaics.sh": {"glo30", "worldcover"},
     "pipeline.fuse.fuse_heightfield": {"glo30", "gebco"},
     "pipeline.render.render_prep": set(),
-    # Its salt flats are Natural Earth's outlines and GWL_FCS30's saline patches.
-    "pipeline.render.snow_mask": {"snow_persistence", "rgi", "naturalearth", "gwl"},
+    # Its salt flats are Natural Earth's outlines and GWL_FCS30's saline patches, the saline cells
+    # those WorldCover calls bare, snow or water.
+    "pipeline.render.snow_mask": {"snow_persistence", "rgi", "naturalearth", "gwl", "worldcover"},
     "pipeline.render.lake_mask": {"globathy"},
     "pipeline/render/scene_build.py": set(),
     # The batch's own steps. The acquirer fetches what the snow stage paints from.
@@ -350,6 +352,13 @@ class TestWhatAHeroIsBuiltFrom:
 
     def test_natural_earth_is_credited_inside_the_hero_for_the_salt_it_outlines(self):
         assert attribution.SOURCES["naturalearth"].notice in attribution.for_hero(bodies.EARTH)
+
+    def test_the_salt_names_worldcover_which_decides_its_saline_ground(self):
+        """`extract_gwl` keeps a saline cell only where WorldCover calls its ground bare, snow or
+        water. Every composed credit carries WorldCover through the heightfield already, so only the
+        salt's own entries can say it."""
+        assert "worldcover" in attribution.CREDITS["earth"].painted["salt_flats"]
+        assert "worldcover" in attribution.CREDITS["earth"].heroes
 
     def test_every_notice_appears_once_though_two_layers_read_one_source(self):
         """Salt flats and perennial ice both read NSIDC-0791, and the archive owes its notice once."""

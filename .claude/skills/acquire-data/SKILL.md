@@ -5,13 +5,11 @@ description: Acquiring or refetching one of Terrella's source datasets. Load whe
 
 # Acquiring a source
 
-`ATTRIBUTIONS.md` is the authority on which datasets exist, what each does in the pipeline, and what
-its licence requires. This skill carries only the operational half: the things that go wrong on the
-way to having the bytes, none of which belong in a licence table.
+`ATTRIBUTIONS.md` is the authority on which datasets exist, what each does in the pipeline, and what its licence requires. This skill carries only the operational half: the things that go wrong on the way to having the bytes, none of which belong in a licence table.
 
-`pipeline/acquire/**` is the only writer of `data/raw`, held there by
-`test_fetch.test_only_an_acquirer_reaches_a_server`. Downloads need the maintainer's explicit
-permission before they start.
+`pipeline/acquire/**` is the only writer of `data/raw`, held there by `test_fetch.test_only_an_acquirer_reaches_a_server`. Downloads need the maintainer's explicit permission before they start.
+
+Two stages download as they run, each fetching the WorldCover tiles it reads: `fuse/build_void_wbm.py`, and `acquire/earth/extract_gwl.py`, whose first run fetches the tiles under GWL_FCS30's saline class, INVENTORY's `worldcover/` row. Ask before running either on a store without them.
 
 ## Where a new source's module goes
 
@@ -22,9 +20,7 @@ permission before they start.
 
 ## Copernicus DEM GLO-30 has holes, and a hole fuses silently as ocean
 
-The AWS **Public DGED 2021** edition withholds tiles over some regions. A missing tile does not
-fail: it fuses as ocean, so the defect is a plausible sea where land should be, discovered by eye
-rather than by an error.
+The AWS **Public DGED 2021** edition withholds tiles over some regions. A missing tile does not fail: it fuses as ocean, so the defect is a plausible sea where land should be, discovered by eye rather than by an error.
 
 Fill the gaps from OpenTopography's keyless `2023_1` edition: `download_cop30_void` fetches exactly the withheld set, and `fuse/build_void_wbm.py` synthesises the water mask OpenTopography does not serve from WorldCover class 80. Without that mask the fuse reads the gap as ocean all the same.
 
@@ -41,8 +37,4 @@ Fill the gaps from OpenTopography's keyless `2023_1` edition: `download_cop30_vo
 
 ## Licence terms come from the product, not from the mission
 
-Read the constraint fields on the specific product being downloaded. Two Mars sources in this
-project state different terms from what their parent mission is usually cited as, and the
-share-alike half of the blended DEM's licence is what makes the whole site's output CC BY-SA 4.0.
-Where a source publishes a machine-readable constraint field, re-read it on every acquisition so a
-republished archive with changed terms stops the pipeline rather than flowing through unnoticed.
+Read the constraint fields on the specific product being downloaded. Two Mars sources in this project state different terms from what their parent mission is usually cited as, and the share-alike half of the blended DEM's licence is what makes the whole site's output CC BY-SA 4.0. Where a source publishes a machine-readable constraint field, re-read it on every acquisition so a republished archive with changed terms stops the pipeline rather than flowing through unnoticed.

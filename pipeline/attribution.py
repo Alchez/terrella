@@ -101,7 +101,7 @@ SOURCES: dict[str, Source] = {
     "worldcover": Source(
         name="ESA WorldCover 2021",
         href="https://esa-worldcover.org",
-        role="Water mask for DEM gaps",
+        role="Water mask for DEM gaps & salt flats",
         licence="CC-BY 4.0",
         notice="© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data "
                "(2021) processed by ESA WorldCover consortium.",
@@ -255,11 +255,10 @@ COPERNICUS_LIABILITY = ("The organisations in charge of the Copernicus programme
 
 CREDITS: dict[str, BodyCredits] = {
     "earth": BodyCredits(
-        # WorldCover is here and not only under `heroes`, which is where believing the standing
-        # brief put it. OpenTopography serves the withheld GLO-30 tiles as DEM with no watermask,
-        # so `fuse/build_void_wbm.py` synthesises one from WorldCover class 80 and
-        # `build_mosaics.sh` globs it into the WBM mosaic that `fuse_heightfield` reads. It is
-        # CC-BY, so every Earth raster archive owes it a notice.
+        # WorldCover is here and not only where the salt reads it. OpenTopography serves the
+        # withheld GLO-30 tiles as DEM with no watermask, so `fuse/build_void_wbm.py` synthesises
+        # one from WorldCover class 80 and `build_mosaics.sh` globs it into the WBM mosaic that
+        # `fuse_heightfield` reads. It is CC-BY, so every Earth raster archive owes it a notice.
         heightfield=("glo30", "gebco", "worldcover"),
         painted={
             "lake_depth": ("globathy",),
@@ -267,12 +266,13 @@ CREDITS: dict[str, BodyCredits] = {
             "glaciers": ("rgi",),
             "sea_ice": ("seaice",),
             "antarctic_rock": ("addrock",),
-            "salt_flats": ("naturalearth", "gwl", "snow_persistence"),
+            # GWL_FCS30's saline cells stay where WorldCover calls their ground bare, snow or water.
+            "salt_flats": ("naturalearth", "gwl", "worldcover", "snow_persistence"),
         },
         vector=("naturalearth",),
         # The tiles' snow, glaciers and salt flats, which the hero snow stage folds on its own
         # grid, and GLOBathy as the lake tint.
-        heroes=("snow_persistence", "rgi", "naturalearth", "gwl", "globathy"),
+        heroes=("snow_persistence", "rgi", "naturalearth", "gwl", "worldcover", "globathy"),
         focus=("naturalearth",),
         legal=(f"{COPERNICUS_LIABILITY}.",),
     ),

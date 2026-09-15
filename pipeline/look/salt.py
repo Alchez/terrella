@@ -3,8 +3,8 @@
 NSIDC-0791 reads bright salt crust as persistent snow, and the elevation data's water body mask reads
 it as lake. Two sources say where salt lies. Natural Earth's playas are outlines it calls dry lake
 beds, saying nothing of salt; GWL_FCS30's saline class, a 30 m wetland map's, arrives as the share of
-each cell it holds (`acquire/earth/extract_gwl.py`), and a patch is the 8-connected ground where that
-share reaches `PATCH_SHARE`. On a grid the salt is:
+each cell it holds on ground ESA WorldCover calls bare, snow or water (`acquire/earth/extract_gwl.py`),
+and a patch is the 8-connected ground where that share reaches `PATCH_SHARE`. On a grid the salt is:
 
   - each outline and each patch on its level floor, within `FLOOR_TOLERANCE_M` of its median height,
     so a hill or a slope inside a generalised outline stays land: an outline at its coverage of each

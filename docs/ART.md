@@ -100,6 +100,7 @@ Border style dicts (`overlay_borders.py`) and the hero variant rungs (`hero_vari
 
 - Bright salt crust is misread twice: NSIDC-0791 calls it snow and the water mask calls it lake. Both surfaces paint salt ground in its own tone instead, last in the colour chain, so it covers the white and the lake paint alike.
 - Two sources say where: Natural Earth's playas, and GWL_FCS30's saline class, whose patches are the ground where it holds at least half a cell.
+- A saline cell counts only where ESA WorldCover calls its ground bare, snow or water: salty ground under plants reads as plants, not salt.
 - The salt is each outline and each patch on its level floor, the lake bodies lying mostly inside them, and the white connected to them. A lake they only brush stays water: the Great Salt Lake Desert's outline overlaps the Great Salt Lake.
 - Colour `F0ECE4`, picked on the globe's own tiles over Uyuni: **warm where snow is cool**, so the two never read as one. It renders about 5 DN dimmer than its hex.
 - Natural Earth calls every one a dry lake bed and says nothing of salt, so the tone marks all 73. GWL_FCS30 adds the flats it classes saline, and a flat neither source holds keeps its snow white.
