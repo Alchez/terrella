@@ -156,6 +156,20 @@ SOURCES: dict[str, Source] = {
         notice="Made with Natural Earth (naturalearthdata.com).",
         obligation=False,
     ),
+    "gwl": Source(
+        name="GWL_FCS30 Global Wetlands",
+        href="https://doi.org/10.5281/zenodo.7340516",
+        role="Salt flats",
+        licence="CC-BY 4.0",
+        # ESSD's own "How to cite", prefixed with the statement of change CC-BY 4.0 § 3(a)(1)(B)
+        # asks an adaptation to make.
+        notice="Salt flats derived from GWL_FCS30: Zhang, X., Liu, L., Zhao, T., Chen, X., Lin, S., "
+               "Wang, J., Mi, J., and Liu, W.: GWL_FCS30: a global 30 m wetland map with a fine "
+               "classification system using multi-sourced and time-series remote sensing imagery in "
+               "2020, Earth Syst. Sci. Data, 15, 265–293, https://doi.org/10.5194/essd-15-265-2023, "
+               "2023.",
+        obligation=True,
+    ),
     "mars_dem": Source(
         name="MOLA / HRSC Blended DEM",
         href="https://astrogeology.usgs.gov/search/map/"
@@ -253,12 +267,12 @@ CREDITS: dict[str, BodyCredits] = {
             "glaciers": ("rgi",),
             "sea_ice": ("seaice",),
             "antarctic_rock": ("addrock",),
-            "salt_flats": ("naturalearth", "snow_persistence"),
+            "salt_flats": ("naturalearth", "gwl", "snow_persistence"),
         },
         vector=("naturalearth",),
         # The tiles' snow, glaciers and salt flats, which the hero snow stage folds on its own
         # grid, and GLOBathy as the lake tint.
-        heroes=("snow_persistence", "rgi", "naturalearth", "globathy"),
+        heroes=("snow_persistence", "rgi", "naturalearth", "gwl", "globathy"),
         focus=("naturalearth",),
         legal=(f"{COPERNICUS_LIABILITY}.",),
     ),

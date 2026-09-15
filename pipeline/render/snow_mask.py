@@ -5,9 +5,9 @@ One law with the block prep. The producers `layer_producers` registers answer ea
 `layers.HERO_LAYERS` and `fold_white` folds them, then `salt.take` gives the salt flats their
 ground, so a hero's snow and salt and its tiles' differ only in the grid. The sources land on that
 grid from their own files, as the cap tier's do: NSIDC-0791 persistence warped bilinear, RGI's
-outlines reprojected and burnt, and the salt baked from Natural Earth's outlines with this grid's
-own heightfield and water mask, rather than re-warped from the planet's 3857 rasters at a second
-remove.
+outlines reprojected and burnt, and the salt baked from Natural Earth's outlines and GWL_FCS30's
+saline share with this grid's own heightfield and water mask, rather than re-warped from the
+planet's 3857 rasters at a second remove.
 
 A grid reaching the forced Antarctic white is refused: that white is a latitude rule less SCAR ADD's
 exposed rock, and this stage burns no rock, so it would paint the outcrop.

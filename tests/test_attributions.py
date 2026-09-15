@@ -109,7 +109,7 @@ def test_the_obligations_are_the_ones_the_registry_marks() -> None:
     failure that let SCAR ADD sit uncredited while every licence test passed.
     """
     marked = {name for name, source in attribution.SOURCES.items() if source.obligation}
-    assert marked == {"glo30", "worldcover", "rgi", "addrock", "seaice", "mars_dem",
+    assert marked == {"glo30", "worldcover", "rgi", "addrock", "seaice", "gwl", "mars_dem",
                       "mars_sim3292"}, (
         "the set of licence-required sources changed. That is a legal claim, not a refactor: "
         "confirm it against ATTRIBUTIONS.md § Required / requested attribution strings, then "

@@ -460,8 +460,8 @@ def _mars_ice_build_recipe() -> dict[str, Any]:
 #:
 #: Seven entries and seven mechanisms: a banded NetCDF warp, a vector rasterize, a banded GeoTIFF
 #: warp, a nodata-masked bilinear warp, Mars's graded-and-feathered polar bands, a vector rasterize
-#: whose result no pixel of its own is painted from, and a packed salt field baked from outlines,
-#: persistence and the planet's own rasters.
+#: whose result no pixel of its own is painted from, and a packed salt field baked from outlines, a
+#: saline share, persistence and the planet's own rasters.
 PRODUCER_BY_BODY_LAYER: dict[tuple[str, str], LayerProducer] = {
     ("earth", layers.LAKE_DEPTH.name): LayerProducer(
         sources=lambda: (extract_globathy.lake_vrt(),),

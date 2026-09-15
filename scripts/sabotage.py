@@ -7826,7 +7826,7 @@ def _earth_lake_depth''',
     ),
     # The flag three parametrized sweeps derive their population from, unset on the source that has
     # already been missed once. It turns none of them red: each loses that source's case and reports
-    # a smaller green, so only the literal seven-name list can say the derivation came back short.
+    # a smaller green, so only the literal list of names can say the derivation came back short.
     Sabotage(
         suite='python',
         label='a licence-required source is unmarked and drops out of every derived sweep',
@@ -8884,17 +8884,33 @@ def _earth_lake_depth''',
         suite='python',
         label='the hero credit drops the lake tint the hero lane paints',
         path='pipeline/attribution.py',
-        needle='        heroes=("snow_persistence", "rgi", "naturalearth", "globathy"),',
-        replacement='        heroes=("snow_persistence", "rgi", "naturalearth"),',
+        needle='        heroes=("snow_persistence", "rgi", "naturalearth", "gwl", "globathy"),',
+        replacement='        heroes=("snow_persistence", "rgi", "naturalearth", "gwl"),',
         guard='test_the_hero_credit_is_what_the_lane_reads',
     ),
     Sabotage(
         suite='python',
         label='a hero file stops crediting Natural Earth though its salt flats are painted from it',
         path='pipeline/attribution.py',
-        needle='        heroes=("snow_persistence", "rgi", "naturalearth", "globathy"),',
-        replacement='        heroes=("snow_persistence", "rgi", "globathy"),',
+        needle='        heroes=("snow_persistence", "rgi", "naturalearth", "gwl", "globathy"),',
+        replacement='        heroes=("snow_persistence", "rgi", "gwl", "globathy"),',
         guard='test_natural_earth_is_credited_inside_the_hero_for_the_salt_it_outlines',
+    ),
+    Sabotage(
+        suite='python',
+        label='a hero file stops crediting GWL_FCS30 though its salt reads the saline class',
+        path='pipeline/attribution.py',
+        needle='        heroes=("snow_persistence", "rgi", "naturalearth", "gwl", "globathy"),',
+        replacement='        heroes=("snow_persistence", "rgi", "naturalearth", "globathy"),',
+        guard='test_the_hero_credit_is_what_the_lane_reads',
+    ),
+    Sabotage(
+        suite='python',
+        label='a relief archive stops crediting GWL_FCS30 though its salt reads the saline class',
+        path='pipeline/attribution.py',
+        needle='            "salt_flats": ("naturalearth", "gwl", "snow_persistence"),',
+        replacement='            "salt_flats": ("naturalearth", "snow_persistence"),',
+        guard='test_earth_relief_carries_every_licence_required_notice',
     ),
     Sabotage(
         suite='web',

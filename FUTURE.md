@@ -615,11 +615,11 @@ Deferred past the 22h Earth pass deliberately: every part of it is a HERO defici
   - The white connected to a GWL patch stays on its flat: 924 km² in 47 components, the 30 largest within 32 m of their floor, bar 31 km² of faint white in Mongolia. So a patch can take the gate an outline takes.
   - Natural Earth's lakes layer classes 69 lakes "Alkaline Lake", Australia's salt lakes among them, but also open water (Great Salt Lake, the Dead Sea, Issyk-Kul), so it is not a salt source on its own.
   - The salt colour marks salt ground whether or not it was white (ART § Salt flats), so the union's non-white flats take it if they are salt. Most of its patches are specks: the 87% under 1 km² hold 3% of its area, and may want a minimum size, a value nobody has set.
-- **The next actions**: the union's credit, then his look at the flats it adds, specks included. How much white sits on level ground that neither source touches, Sirjan's kind, is still unmeasured, and sizes what the union leaves as it is.
+- **The next action**: his look at the flats the union adds, specks included. How much white sits on level ground that neither source touches, Sirjan's kind, is still unmeasured, and sizes what the union leaves as it is.
 
 ## Doc and guard debts, carried out of the working plan (parked 2026-09-08)
 
-> **MIXED**, and the subsections below carry the states. Most is a maintainer call or needs this project's own account; the doc-pointer widening and the invisible-character test below are the exceptions and need a clone and nothing else. See also *One concept with two homes* in the entry below.
+> **MIXED**, and the subsections below carry the states. Most is a maintainer call or needs this project's own account; the doc-pointer widening, the invisible-character test and the diagrams below are the exceptions and need a clone and nothing else. See also *One concept with two homes* in the entry below.
 
 The same reason as the entry below it: the working plan is live state and one question in hand, not a backlog, and these had no deadline and no relation to the arc that carried them. None is urgent. Each is here so it is greppable rather than compressed away.
 
@@ -673,7 +673,7 @@ The same reason as the entry below it: the working plan is live state and one qu
 
 ### Sweeps that are priced and unstarted
 
-- **The dataset sweep is priced and would not have caught the one real error it was proposed for.** Three maintainer calls if it goes ahead: whether `cop30_void` takes its own credit or sits under GLO-30, `datasets.mars()` returning one directory for two datasets, and six raw-form functions whose derived sibling is what production actually reads.
+- **The dataset sweep is priced, and it would have caught GWL_FCS30's missing credit but not WorldCover's misplaced one**, since it asks only whether each acquired dataset is credited somewhere. HISTORY, *GWL_FCS30 is credited where the salt reads it*. Three maintainer calls if it goes ahead: whether `cop30_void` takes its own credit or sits under GLO-30, `datasets.mars()` returning one directory for two datasets, and the raw-form functions whose derived sibling is what production actually reads.
 - **Shouted runs across the tree, against the standing no-all-caps rule**, the lead now in `tests/` and `web/` rather than `pipeline/`. **Re-derive before quoting any total**: the last two readings disagreed and grew, a detector counts runs rather than sites, and any total is a floor, since two consecutive capitals is the trigger and the usual roots miss `web/scripts` and every tracked `.md`.
   - **"Do it with each file's prose pass" has stopped reaching it**, four fifths of the runs being in files no remaining prose target opens. Maintainer call, and unruled: its own item, or accepted as slow.
 
@@ -686,6 +686,14 @@ The same reason as the entry below it: the working plan is live state and one qu
 - **Nothing is left to pick up here**, and the note is so a re-run is a decision rather than a reflex. No module-level public `def` under `pipeline/` is unmentioned outside its own definition, and the few reached only by `tests/` are each a recorded decision: the palette LUT family in `palette.py`'s own text, `cap_render.feather_is_wide_enough` in the rung that calls it, and `palette.EXAGGERATION` under both its own note and a guard.
 - **Re-derive before believing that, and use the classifier that counts an in-module mention**: one that does not buckets every helper a module's own `main` calls, and reads 76 dead names where there are none.
 - **A name-reachability sweep finds names and says nothing about what one means.** Every item filed from this one was wrong when it was opened, each in the same direction, so read the guards around a name before filing it as anything.
+
+### A fuse missing the void tiles draws sea and raises nothing
+
+- **The fuse's coverage abort cannot see the southern Caucasus go missing.** It counts cells the water mask calls land where no DEM tile exists, and a gap with neither a tile nor a mask reads the mask's nodata, which the ocean rule takes as sea. `docs/pipeline.md` names the two hand-run stages that fill it; a guard would have the fuse refuse a mosaic lacking a tile OpenTopography's index lists, and whether to build one is the maintainer's call.
+
+### The pipeline diagrams stop short of the layers
+
+- **`docs/pipeline-detail.mmd` and `docs/pipeline-overview.mmd` draw neither the salt flats, SCAR ADD's rock nor WorldCover's void mask**, so their sources and look nodes stop short of `layers.LAYERS`. Redrawing them is a pass of its own, and § *Findings from the recipe-seam arc* notes they have only ever been checked as text.
 
 ## Small debts and open calls, carried out of the working plan (parked 2026-08-24)
 
@@ -754,7 +762,7 @@ The working plan had become the project's only backlog as well as its live state
 ### What the site does not tell a visitor
 
 - **The vertical exaggeration reaches a downloader and not a visitor.** The archives page states each body's baked scale and says the relief pyramid is a picture rather than a measurement; the About page, where the lake beds and the borders both get notes, still says nothing, and the globe a visitor is actually looking at says nothing either. Mars is the sharper half: its elevation key reads -6,000 m to +6,100 m and its lede states 200 metres to the pixel, so the one place the site gives real numbers sits beside a surface drawn at 20x, and a reader who pairs them computes a slope twenty times the real one. The wording is a look call, and the About grid pads every card to the tallest, so this wants a note rather than a seventh step.
-- **Three CC-BY credits do not say the site changed the data, which CC-BY 4.0 asks of anyone sharing an adaptation (§ 3(a)(1)(B)).** WorldCover's notice is ESA's wording about ESA's own processing, and RGI's and SCAR ADD's are plain citations; OSI SAF's says "derived from", and the About page has no sentence covering the rest. The wording on each card is the maintainer's call, and OSI SAF's is the form already shipped.
+- **Three CC-BY credits do not say the site changed the data, which CC-BY 4.0 asks of anyone sharing an adaptation (§ 3(a)(1)(B)).** WorldCover's notice is ESA's wording about ESA's own processing, and RGI's and SCAR ADD's are plain citations; OSI SAF's and GWL_FCS30's say "derived from", and the About page has no sentence covering the rest. The wording on each card is the maintainer's call, and OSI SAF's is the form already shipped.
 
 ### A colour call and a product question
 

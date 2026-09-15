@@ -118,7 +118,7 @@ class TestTheRequiredNoticesReachTheArchiveThatOwesThem:
 
     def test_earth_relief_carries_every_licence_required_notice(self, subtests):
         credit = attribution.for_archive(bodies.EARTH, "relief")
-        for key in ("glo30", "rgi", "seaice", "addrock"):
+        for key in ("glo30", "rgi", "seaice", "addrock", "gwl"):
             with subtests.test(key):
                 assert attribution.SOURCES[key].notice in credit
         with subtests.test("Copernicus 6(c)"):
@@ -275,8 +275,8 @@ HERO_STEP_SOURCES: dict[str, set[str]] = {
     "pipeline/fuse/build_mosaics.sh": {"glo30", "worldcover"},
     "pipeline.fuse.fuse_heightfield": {"glo30", "gebco"},
     "pipeline.render.render_prep": set(),
-    # Its salt flats are Natural Earth's outlines.
-    "pipeline.render.snow_mask": {"snow_persistence", "rgi", "naturalearth"},
+    # Its salt flats are Natural Earth's outlines and GWL_FCS30's saline patches.
+    "pipeline.render.snow_mask": {"snow_persistence", "rgi", "naturalearth", "gwl"},
     "pipeline.render.lake_mask": {"globathy"},
     "pipeline/render/scene_build.py": set(),
     # The batch's own steps. The acquirer fetches what the snow stage paints from.

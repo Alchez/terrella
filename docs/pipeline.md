@@ -41,6 +41,8 @@ python -m pipeline.acquire.earth.download_gebco         # global bathymetry
 
 **Copernicus GLO-30 land tiles are not bootstrapped**, being hundreds of GB for a planet. They are fetched per country, only for the tiles a frame needs: Russia alone pulls ~4900.
 
+**The tiles AWS withholds over the southern Caucasus take two stages by hand, and skipping either raises nothing.** `pipeline.acquire.earth.download_cop30_void` fetches them from OpenTopography, and `pipeline.fuse.build_void_wbm` gives them the water mask OpenTopography does not serve, from WorldCover. Without both, the fuse draws Armenia and Azerbaijan as sea.
+
 **No source serves two planets**, which is why `pipeline/acquire/` is grouped by body and nothing else in `pipeline/` is.
 
 | Module | Produces |
@@ -137,7 +139,7 @@ The chain `country_config` prints per country, in order. Each stage finalizes it
 | 2 | Build mosaics | `fuse/build_mosaics.sh` | VRT mosaics of DEM + water-body mask |
 | 3 | Fuse heightfield | `pipeline.fuse.fuse_heightfield` | Seamless land+sea heightfield + ocean/lake/river masks |
 | 4 | Render prep | `pipeline.render.render_prep` | Projected rasters + `frame.json` (every derived number) |
-| 5 | Snow mask | `pipeline.render.snow_mask` | The tiles' snow and glaciers (NSIDC-0791, RGI 7.0) folded on the country's grid |
+| 5 | Snow mask | `pipeline.render.snow_mask` | The tiles' snow and glaciers (NSIDC-0791, RGI 7.0) folded on the country's grid, and its salt flats (Natural Earth, GWL_FCS30) |
 | 6 | Lake depth mask | `pipeline.render.lake_mask` | `lakedepth.tif` (GLOBathy depth → ramp position; lakes shade by depth, rivers stay flat) |
 | 7 | Render | `render/scene_build.py` via `blender -b` | The hero PNG |
 

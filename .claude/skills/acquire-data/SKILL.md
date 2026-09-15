@@ -26,13 +26,18 @@ The AWS **Public DGED 2021** edition withholds tiles over some regions. A missin
 fail: it fuses as ocean, so the defect is a plausible sea where land should be, discovered by eye
 rather than by an error.
 
-Fill the gaps from OpenTopography `2023_1`, which is a keyless S3 bucket, so `--no-sign-request`.
+Fill the gaps from OpenTopography's keyless `2023_1` edition: `download_cop30_void` fetches exactly the withheld set, and `fuse/build_void_wbm.py` synthesises the water mask OpenTopography does not serve from WorldCover class 80. Without that mask the fuse reads the gap as ocean all the same.
 
 ## The cryosphere sources each fail in a way that reads as an auth bug
 
 - **An Earthdata bearer token authenticates CMR granule downloads but NOT the NSIDC file pool.** The same credential that just worked will 401 against the pool, which reads as an expired token rather than as the wrong service.
 - **RGI 7.0 is not granule-searchable at all**, so no amount of CMR querying finds it. Take it from the UNESCO IHP-WINS CKAN mirror.
 - **OSI SAF OSI-450-a was chosen over the NSIDC sea-ice CDR purely on access**, being anonymous over met.no THREDDS with no token churn. It is reduced to a 1991 to 2020 ice-frequency climatology in `look/seaice.py`.
+
+## A tiled source's tiles may not share one grid
+
+- **Check that a tile's cell count times its resolution equals the span its name gives.** GWL_FCS30's 5° tiles are 18,553 cells of 0.000269494585°, a quarter cell short, so neighbouring tiles sit on grids a quarter cell apart.
+- **`gdalbuildvrt` over such tiles moves each one up to half a cell and says nothing**, placing it at a fractional offset and filling by nearest. Where position matters, read each tile on its own, as `salt.saline_share` does.
 
 ## Licence terms come from the product, not from the mission
 
