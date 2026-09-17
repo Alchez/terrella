@@ -1,6 +1,6 @@
 ---
 name: block-ab
-description: Rendering one tile block twice, from the shipped inputs and from altered ones, to see whether a change to heights, masks or a layer shows. Load when asked whether a data or pipeline change is visible, to A/B a block or a cap frame, to check whether a frame on disk matches today's code before re-stamping a recipe, or to render a before and after for a look call. Carries how to alter one input on the planet grid without touching the store, how to render an old commit's code, and the controls without which a difference means nothing.
+description: Rendering one tile block twice, from the shipped inputs and from altered ones, to see whether a change to heights, masks or a layer shows. Load when asked whether a data or pipeline change is visible, to A/B a block or a cap frame, to check whether a frame on disk matches today's code before re-stamping a recipe, to price which blocks a pass would actually move, or to render a before and after for a look call. Carries how to alter one input on the planet grid without touching the store, how to render an old commit's code, and the controls without which a difference means nothing.
 ---
 
 # A/B one tile block
@@ -22,6 +22,15 @@ description: Rendering one tile block twice, from the shipped inputs and from al
 - **The three recipes beside the scratch mosaics must be identical.**
 - **Read success from the per-block `[1/1] rNNcNN ... s` line, never the exit code**, which is 0 when a block fails.
 - **Snapshot the store's mtimes and sizes before the first render and diff after the last.** It is the proof that nothing shipping moved.
+
+## A block against the live planet
+
+For "does the shipped planet still match today's code", and for "which blocks would a pass actually move", which is what decides whether a pass can be a partial one.
+
+- **No flags and no scratch work directory**: `prep_block.cut(body, block, scratch_dir, work=<the store's>)`, then `block_render.blender_command`, then `block_render.cropped(png, block)` against `planet_rgb.tif` read at `block.delivered_window`. The store is read and never written, and the mtime snapshot above is the proof.
+- **Pick the blocks by what each one holds, never at random or by convenience.** A change that moves only the polar rows is invisible to every mid-latitude block, and the blocks nearest a previous arc are all mid-latitude. Cover both polar rows, ice, ocean, desert, mountain, forest and lakes.
+- **Name a cause by putting the old value back, in-process, and rendering the same block again.** Reproducing the live pixels names the cause; a difference that merely looks like the suspect leaves it open. `prep_block.ROW_EDGE_MODE` set to `"constant"`, the fill its block row was rendered under, is the worked case.
+- **The floors this has measured on blocks**: one block rendered twice sits at 1 DN on p99 and 2 at worst, and ten blocks rendered weeks after the mosaic sit at 1 DN on p99, mean 0.10 to 0.16, with no pixel above 2 DN. A block that differs by more than that has a cause worth naming.
 
 ## A cap frame, or the code that rendered one
 

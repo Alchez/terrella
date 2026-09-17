@@ -793,10 +793,9 @@ The working plan went back to holding one onboarding question at a time, which i
   - Whether a pass is owed is answered by diffing `raytrace_params.json` against `block_render.recipe_for`, fed the store's declared rasters and planned blocks, which is the text `run` writes. Building `params()`'s four arguments by hand is the defect that deleted the curve fingerprint.
 - **The salt flats are built and not yet on the globe.** The maintainer has judged them at eight look sites (HISTORY, *the eight look sites are rendered under the filtered salt*), so the rest, Etosha, the Great Salt Lake Desert, the Aralkum, Chott el Djerid and GWL's specks among it, wants his look on the rendered pass before it ships.
   - The recipe move re-renders every Earth block, wherever the salt lies. Mars and the caps record only what they can draw, so it moves neither.
-- **Re-render only the blocks whose inputs moved**, which a marker set cleared whole cannot do: a layer that reaches some of Earth's 1,024 blocks re-renders all of them. The largest saving against identical-pixel re-renders, and a design of its own.
 - **The block-row seam wants an Earth pass, for a gain 95% hidden by the polar cap.** `block_render` plus the cut plus both caps plus pack, which is a night.
   - **The code half is settled and is not on offer again**: `prep_block.ROW_EDGE_MODE` is `"edge"` in the tree and `block_render.params` records it, so what is left is render hours.
-  - **A recipe move re-renders every block rather than the ice ones**: `start_generation` clears the whole marker set, so all 256 on Mars and all 1,024 on Earth.
+  - **A recipe move re-renders every block rather than the ice ones**, the recipe reaching every block's digest whole: all 256 on Mars and all 1,024 on Earth. Naming the blocks a moved key reaches is a separate act with its own evidence.
 - **Does 1 to 4 DN show where the cap feathers into the tiles at 82 degrees?** A look call that rides the Mars pass, with nothing to measure first.
   - **The cap's own constant at +1.6 DN is moot and must not be re-proposed**, and the 18 DN mismatch behind it is retracted as an estimator artifact. → HISTORY, *the two lanes turn out to obey ONE transfer*.
   - What is left is that those are fitted transfers on one block (`r00c04`, 97.3% ice) rather than rendered frames at the seam.

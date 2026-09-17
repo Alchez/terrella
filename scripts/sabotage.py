@@ -4852,9 +4852,9 @@ def _earth_lake_depth''',
         replacement='    return min(quantised, CONTEXT_CEILING_PX)',
         guard='test_flat_ground_still_gets_a_plane_that_covers_the_traced_rectangle',
     ),
-    # THE RECIPE GOING SHORT, which is the failure that bit three times in one session and is
-    # silent every time: the recipe text does not move, the generation stamp still reads as
-    # current, and the next resume keeps blocks rendered under a rule that no longer exists.
+    # The recipe going short, which is the failure that bit three times in one session and is silent
+    # every time: the recipe text does not move, so every marker still agrees with the block it
+    # describes, and the next resume keeps blocks rendered under a rule that no longer exists.
     Sabotage(
         suite='python',
         label='the recipe stops recording the contexts, so a law change restages nothing at all',
@@ -4868,20 +4868,20 @@ def _earth_lake_depth''',
     # neighbourhood. None of them raise, and the pixels look plausible in all of them.
     Sabotage(
         suite='python',
-        label="the resume's generation test becomes is_stale, which calls every healthy run stale",
-        path='pipeline/tile/block_render.py',
-        needle='    return stamp.exists() and freshness.newest_mtime(*deps) <= stamp.stat().st_mtime',
-        replacement='    return stamp.exists() and not freshness.is_stale(markers, *deps)',
-        guard='test_a_directory_written_into_after_its_stamp_is_still_current',
+        label="a marker with no digest is trusted, so every block rendered before them ships stale",
+        path='pipeline/tile/block_freshness.py',
+        needle='    if not path.exists():\n        return None',
+        replacement='    if not path.exists():\n        return None\n    return "trusted"',
+        guard='test_a_marker_carrying_no_digest_vouches_for_nothing',
     ),
     Sabotage(
         suite='python',
-        label='a new generation leaves the mosaic stamped, so the cut can run on half a producer',
+        label='a run leaves the mosaic stamped while it writes, so the cut can run on half a pass',
         path='pipeline/tile/block_render.py',
         needle='    freshness.done_marker(mosaic).unlink(missing_ok=True)\n'
-               '    shutil.rmtree(markers, ignore_errors=True)',
-        replacement='    shutil.rmtree(markers, ignore_errors=True)',
-        guard='test_the_mosaics_completion_marker_is_removed',
+               '    ensure_mosaic(mosaic, body)',
+        replacement='    ensure_mosaic(mosaic, body)',
+        guard='test_the_stamp_is_gone_while_blocks_are_being_written',
     ),
     Sabotage(
         suite='python',
@@ -4893,12 +4893,77 @@ def _earth_lake_depth''',
     ),
     Sabotage(
         suite='python',
-        label="the raytrace inherits the composite's hillshade as a dependency it never reads",
+        label="the raytrace inherits the composite's hillshade as an input it never reads",
+        path='pipeline/tile/block_freshness.py',
+        needle='    paths = {planet_warp.HEIGHT_3857: work / planet_warp.HEIGHT_3857}',
+        replacement='    paths = {planet_warp.HEIGHT_3857: work / planet_warp.HEIGHT_3857,\n'
+                    '             "hs_3857.tif": work / "hs_3857.tif"}',
+        guard='test_the_hillshade_is_not_an_input',
+    ),
+    # The digest, whose every failure is a block skipped rather than a block rendered twice: the
+    # pass finishes early, the log reads like a saving, and the planet ships ground nobody re-lit.
+    Sabotage(
+        suite='python',
+        label='a block is digested over the block it delivers, so a shadow cast into it is missed',
+        path='pipeline/tile/block_freshness.py',
+        needle='        for row, column in covered_cells(block.plane_window, grid.width, '
+               'grid.height, grid.cell_px):',
+        replacement='        for row, column in covered_cells(block.delivered_window, grid.width, '
+                    'grid.height, grid.cell_px):',
+        guard='test_a_change_in_a_blocks_context_ring_restages_it',
+    ),
+    Sabotage(
+        suite='python',
+        label='the cover clips at the antimeridian instead of wrapping, so column 0 skips',
+        path='pipeline/tile/block_freshness.py',
+        needle='    return sorted({*range(start // cell_px, count),\n'
+               '                   *range((end - width - 1) // cell_px + 1)})',
+        replacement='    return list(range(start // cell_px, count))',
+        guard='test_a_change_across_the_antimeridian_restages_the_first_column',
+    ),
+    # No case for a raster going missing, and the reason is worth keeping: every arrangement of this
+    # code digests a present raster differently from an absent one, so there is no mutation that
+    # leaves the deletion invisible. What it is guarded against is the SCHEME rather than a line, an
+    # mtime comparison scoring an absent path 0.0, and
+    # `test_a_declared_layers_raster_going_missing_restages_its_readers` was red against exactly
+    # that before this existed.
+    Sabotage(
+        suite='python',
+        label='the recipe leaves the digest, so a look change reaches no block already rendered',
+        path='pipeline/tile/block_freshness.py',
+        needle='    hasher.update(recipe_text.encode())',
+        replacement='',
+        guard='test_a_look_constant_moving_restages_the_whole_grid',
+    ),
+    # The sample, which is the only thing between a digest that is wrong about the code and a
+    # planet shipped half under one build and half under another.
+    Sabotage(
+        suite='python',
+        label='a partial run stops asking whether the planet it is skipping is still reproducible',
         path='pipeline/tile/block_render.py',
-        needle='    return (work / planet_warp.HEIGHT_3857, work / planet_warp.OCEAN_3857,',
-        replacement='    return (work / "hs_3857.tif", work / planet_warp.HEIGHT_3857,\n'
-                    '            work / planet_warp.OCEAN_3857,',
-        guard='test_the_hillshade_is_not_a_raytrace_dependency',
+        needle='    if only is None and todo and skipped:',
+        replacement='    if only is not None and todo and skipped:',
+        guard='test_a_disagreeing_sample_stops_the_run_before_any_block',
+    ),
+    Sabotage(
+        suite='python',
+        label='a disagreeing sample is reported and the run renders on, which is the rejected fallback',
+        path='pipeline/tile/block_render.py',
+        needle='            status.state = "aborted-sample"\n'
+               '            status.write()\n'
+               '            return 0',
+        replacement='            status.state = "aborted-sample"\n'
+                    '            status.write()',
+        guard='test_a_disagreeing_sample_stops_the_run_before_any_block',
+    ),
+    Sabotage(
+        suite='python',
+        label='the sample stops being stratified, so it can meet none of what a change reaches',
+        path='pipeline/tile/block_render.py',
+        needle='        key = (block.row0 // block.size_px in edge_rows, '
+               'block_freshness.holds(block, cells))',
+        replacement='        key = (False, ())',
+        guard='test_a_block_holding_a_layer_is_not_stood_in_for_by_one_that_does_not',
     ),
     Sabotage(
         suite='python',
@@ -4936,8 +5001,9 @@ def _earth_lake_depth''',
         label='the run keeps the answer to itself and every block sweeps as usual',
         path='pipeline/tile/block_render.py',
         needle='            render_block(body, block, mosaic, scratch, markers, work,\n'
-               '                         keep_intermediates=keep_intermediates)',
-        replacement='            render_block(body, block, mosaic, scratch, markers, work)',
+               '                         digest=digests[name], keep_intermediates=keep_intermediates)',
+        replacement='            render_block(body, block, mosaic, scratch, markers, work,\n'
+                    '                         digest=digests[name])',
         guard='test_the_run_hands_its_answer_to_every_block',
     ),
     Sabotage(
@@ -5329,7 +5395,8 @@ def _earth_lake_depth''',
         suite='python',
         label='completion is asked of the selection, so --only on one block stamps a whole planet',
         path='pipeline/tile/block_render.py',
-        needle='    complete = all((markers / block_name(block)).exists() for block in blocks)',
+        needle='    complete = all(block_freshness.marker_digest(markers / name) == digest\n'
+               '                   for name, digest in digests.items())',
         replacement='    complete = all((markers / block_name(block)).exists() for block in selected)',
         guard='test_a_named_subset_never_stamps_even_when_all_of_it_renders',
     ),
@@ -6229,8 +6296,8 @@ def _earth_lake_depth''',
     Sabotage(
         suite='python',
         # The recipe goes back to the work directory both runs share. This is the expensive one:
-        # the recipe is in `raytrace_deps`, so the next production pass finds it moved and
-        # `start_generation` clears every marker on a planet that is already correct.
+        # the recipe reaches every block's digest, so the next production pass finds every marker
+        # disagreeing with the block it describes on a planet that is already correct.
         label='the recipe is keyed on the work directory, so an A/B restages the shipping planet',
         path='pipeline/tile/block_render.py',
         needle='    recipe = freshness.write_if_changed(sidecars.recipe,',
@@ -9712,9 +9779,9 @@ def _earth_lake_depth''',
     ),
     Sabotage(
         suite='python',
-        # Back to `: > pass.log`. The pass still resumes correctly -- blocks are skipped by marker
-        # existence -- so nothing is lost but the record of which of them failed on every night but
-        # the last, on a producer whose whole point is that it runs across several.
+        # Back to `: > pass.log`. The pass still resumes correctly, a block being skipped on its own
+        # marker rather than on anything in the log, so nothing is lost but the record of which of
+        # them failed on every night but the last, on a producer that runs across several.
         label='the pass log is emptied at the top of every run, so a resumed render loses its record',
         path='pipeline/profile/run_pass.sh',
         # The guard is closed rather than the block deleted, because a comment sits between the test
@@ -11003,6 +11070,9 @@ def _earth_lake_depth''',
         replacement='    result = subprocess.run(blender_command(body, render_dir, scratch / f"{name}.blend", png),\n'
                     '                            cwd=paths.ROOT, capture_output=True, text=True, check=False)',
         guard='test_block_render_launches_through_the_shared_launcher',
+        # Two launches in this module now, the block and the sample block, and both must go through
+        # the shared launcher for the same reason. The first is the one the guard drives.
+        expected_matches=2,
     ),
     Sabotage(
         suite='python',

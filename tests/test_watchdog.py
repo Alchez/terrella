@@ -24,7 +24,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+import numpy as np
 import pytest
+import rasterio
 
 from pipeline import bodies, planet_warp, progress
 from pipeline.profile import watchdog
@@ -110,7 +112,11 @@ class TestTheProducersOwnOutputIsReportedOrDeliberatelyQuiet:
         monkeypatch.setattr(block_render, "plan_blocks", lambda body, w: plan)
         monkeypatch.setattr(block_render, "ensure_mosaic", lambda mosaic, body: None)
         for name in (planet_warp.HEIGHT_3857, planet_warp.OCEAN_3857, planet_warp.WATER_3857):
-            (work / name).write_bytes(b"")
+            # Rasters rather than empty files: a run digests the ground each block reads out of
+            # them, so an unopenable input is a run that cannot start.
+            with rasterio.open(work / name, "w", driver="GTiff", width=64,  # pyright: ignore[reportCallIssue]
+                               height=64, count=1, dtype="uint8") as out:
+                out.write(np.zeros((64, 64), dtype="uint8"), 1)
         (work / block_render.PARAMS_NAME).write_text(block_render.recipe_for(
             bodies.EARTH, frozenset(block_render.planet_seam.KNOWN_RASTERS), []))
         mosaic = work / cut_tiles.PLANET_RGB
