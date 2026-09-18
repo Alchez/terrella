@@ -181,8 +181,8 @@ def warp_inputs(work: Path, planet: Path, body: bodies.Body, rasters: frozenset[
         # pixels behind a restage that looks like it worked. `write_if_changed` moves an mtime if and
         # only if a value moved, and is written BEFORE the question is asked, per its own docstring.
         #
-        # Empty for every Earth producer, which writes no file and leaves this list exactly as it
-        # was — the reason adopting this restages nothing.
+        # A producer with no tunables writes no file and adds no source, so this gate can never
+        # restage a layer whose raster is already on disk.
         tunables = producer.build_recipe()
         if tunables:
             sources = (*sources, write_if_changed(

@@ -156,8 +156,8 @@ def write_if_changed(path: Path, text: str) -> Path:
     """Write `text` to `path` only when it differs, and return `path`.
 
     The only-when-different part is load-bearing, not an optimisation: it lets a generated
-    file stand in as a dependency for `is_stale`. Tunables like KNOBS and the ramp colours
-    live in source, whose mtime moves on any `git checkout` and would force a full planet
+    file stand in as a dependency for `is_stale`. Tunables like the rig's constants and the ramp
+    colours live in source, whose mtime moves on any `git checkout` and would force a full planet
     rebuild; materialised here, their mtime moves if and only if a VALUE actually changed.
 
     THE ORDER EVERY STAGE WITH A RECIPE FOLLOWS: write the recipe, THEN ask the freshness question.

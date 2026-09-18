@@ -171,6 +171,7 @@
     ],
     "rig": {
       "look": {
+        "fill_kelvin": 12000.0,
         "land_range": [
           0.0,
           6000.0
@@ -514,6 +515,7 @@
     ],
     "rig": {
       "look": {
+        "fill_kelvin": null,
         "land_range": [
           -8600.0,
           6100.0
@@ -764,6 +766,7 @@
     ],
     "rig": {
       "look": {
+        "fill_kelvin": 12000.0,
         "land_range": [
           0.0,
           6000.0
@@ -1084,6 +1087,7 @@
     ],
     "rig": {
       "look": {
+        "fill_kelvin": 12000.0,
         "land_range": [
           0.0,
           6000.0
@@ -1392,6 +1396,7 @@
     ],
     "rig": {
       "look": {
+        "fill_kelvin": null,
         "land_range": [
           -8600.0,
           6100.0
@@ -1619,6 +1624,7 @@
     ],
     "rig": {
       "look": {
+        "fill_kelvin": null,
         "land_range": [
           -8600.0,
           6100.0

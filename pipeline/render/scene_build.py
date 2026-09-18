@@ -175,7 +175,8 @@ class Rig:
     fill_rotation: tuple[float, float, float]
     fill_angle: float
     #: 15% of `sun_strength`; a shadowless SE fill so shadowed faces keep directional modelling and
-    #: never go pure black. `arrival_azimuth_deg` is what says which bearing it arrives from.
+    #: never go pure black. `arrival_azimuth_deg` is what says which bearing it arrives from. Its
+    #: luminance whatever colour the look gives it, which `fill_colour` checks.
     fill_strength: float
     #: Achromatic, and the scene's only ambient light rather than a backdrop swatch: a tint does not
     #: tint a near-white surface, it replaces it, so re-warming this to colour the backdrop tints
@@ -425,6 +426,7 @@ def rig_recipe(look: palette.Look, images: frozenset[str]) -> dict[str, Any]:
             "sea_range": None if constants.sea_range is None else list(constants.sea_range),
             "sea_stops": None if constants.sea_stops is None else
             [[position, list(rgba)] for position, rgba in constants.sea_stops],
+            "fill_kelvin": look.fill_kelvin,
         },
     }
 
@@ -608,7 +610,7 @@ def build_sun(azimuth_delta_deg=0.0):
     return ob
 
 
-def build_fill(azimuth_delta_deg=0.0):
+def build_fill(look, azimuth_delta_deg=0.0):
     """The fill turns with the key, never on its own. `cap_render.azimuth_delta` applies to both
     azimuths, so a rig that moved only the key would be a different intervention from the one the
     cap's law describes."""
@@ -616,10 +618,55 @@ def build_fill(azimuth_delta_deg=0.0):
     sun.energy = RIG.fill_strength
     sun.angle = RIG.fill_angle
     sun.use_shadow = RIG.fill_casts_shadow
+    sun.use_temperature = look.fill_kelvin is not None
+    if look.fill_kelvin is not None:
+        sun.temperature = look.fill_kelvin
     ob = bpy.data.objects.new("Fill", sun)
     ob.rotation_euler = rotate_arrival(RIG.fill_rotation, azimuth_delta_deg)
     bpy.context.collection.objects.link(ob)
     return ob
+
+
+def fill_colour(light) -> tuple[float, float, float]:
+    """The linear colour a fill light shines, read back off the built light: its own colour, times
+    its temperature's when it takes one.
+
+    Blender scales a temperature's colour to unit luminance, so the fill keeps `RIG.fill_strength`'s
+    brightness whatever its colour. A Blender that scaled it otherwise would render the fill brighter
+    or dimmer than it was judged at with nothing else moving, so this refuses one.
+    """
+    colour = tuple(light.color)
+    if light.use_temperature:
+        colour = tuple(own * tint for own, tint in zip(colour, light.temperature_color))
+    luminance = 0.2126 * colour[0] + 0.7152 * colour[1] + 0.0722 * colour[2]
+    if abs(luminance - 1.0) > 1e-3:
+        raise ValueError(f"the fill's colour {colour} has luminance {luminance:.5f}, not 1, so it "
+                         f"would shine at {luminance:.3f} of the strength it was judged at")
+    return colour
+
+
+def fill_compensation(fill_rgb) -> tuple[float, float, float]:
+    """Per channel, what a surface's colour is multiplied by so that flat, sunlit, open ground under
+    a fill of linear colour `fill_rgb` renders as it would under a white one.
+
+    Such ground takes each sun by the cosine of its tilt from the zenith, over pi, and the world's
+    radiance whole: the white fill's sum over this one's. Exact there alone. A face turned to the
+    sun takes less of the fill and comes out warmer, one turned away cooler.
+    """
+    sun = RIG.sun_strength * math.cos(RIG.sun_rotation[0]) / math.pi
+    fill = RIG.fill_strength * math.cos(RIG.fill_rotation[0]) / math.pi
+    return tuple((sun + ambient * RIG.world_strength + fill)
+                 / (sun + ambient * RIG.world_strength + fill * tint)
+                 for ambient, tint in zip(RIG.world_rgba[:3], fill_rgb))
+
+
+def compensated(rgba, compensation):
+    """`rgba` with its colour multiplied through by `fill_compensation`'s answer, alpha kept."""
+    return (*(channel * scale for channel, scale in zip(rgba[:3], compensation)), rgba[3])
+
+
+def compensated_stops(stops, compensation):
+    return [(position, compensated(rgba, compensation)) for position, rgba in stops]
 
 
 def build_world():
@@ -700,11 +747,13 @@ def float_socket(mix_node, sock):
                 if socket.name == sock and socket.type == "VALUE")
 
 
-def build_material(ob, render_dir, displacement_scale, look, present):
+def build_material(ob, render_dir, displacement_scale, look, present, compensation):
     """`present` is the prep's own declaration of what it wrote, never a `Path.exists()` sweep.
 
     The two optional images are skipped by a prep that measured no snow or no lake bed in this
     region, and an absent file cannot tell that measurement from a prep that died before writing it.
+
+    `compensation` is `fill_compensation`'s answer for the fill this scene was built with.
     """
     mat = bpy.data.materials.new("Terrain")
     mat.use_nodes = True
@@ -748,7 +797,8 @@ def build_material(ob, render_dir, displacement_scale, look, present):
                  make_map_range(nt, "Sea Range", "Sea", constants.sea_range, (1.0, 0.0)))
     land_ramp = make_ramp(nt, "Land Ramp", "Land", constants.land_stops)
     sea_ramp = (None if constants.sea_stops is None else
-                make_ramp(nt, "Sea Ramp", "Sea", constants.sea_stops))
+                make_ramp(nt, "Sea Ramp", "Sea",
+                          compensated_stops(constants.sea_stops, compensation)))
 
     # One flat colour for both inland-water masks, built only where one of them is, so a render with
     # neither never reads `RIG.water_rgba` and its recipe does not record it.
@@ -756,7 +806,7 @@ def build_material(ob, render_dir, displacement_scale, look, present):
     if render_files.INLANDLAKE in present or render_files.RIVER in present:
         rgb = nt.nodes.new("ShaderNodeRGB")
         rgb.name = "Water Color"
-        rgb.outputs[0].default_value = RIG.water_rgba
+        rgb.outputs[0].default_value = compensated(RIG.water_rgba, compensation)
 
     # Each mix exists only where its mask does, the same rule the optional nodes below follow.
     lake = make_mix(nt, "Lake Mix", "Lake") if lake_spec.filename in present else None
@@ -768,7 +818,8 @@ def build_material(ob, render_dir, displacement_scale, look, present):
     if render_files.SNOWMASK in present:
         tex[snow_spec.name] = make_texture(nt, render_dir, snow_spec)
         snow = make_mix(nt, "Snow Mix", "Snow")
-        mix_socket(snow, "B").default_value = declared_albedo(render_dir, render_files.SNOWMASK)
+        mix_socket(snow, "B").default_value = compensated(
+            declared_albedo(render_dir, render_files.SNOWMASK), compensation)
         print(f"{render_files.SNOWMASK} declared — wiring Snow mix", flush=True)
 
     # optional salt flats (look/salt.py): mixed last, over the lake paint the water mask puts on a
@@ -777,7 +828,8 @@ def build_material(ob, render_dir, displacement_scale, look, present):
     if render_files.SALTMASK in present:
         tex[salt_spec.name] = make_texture(nt, render_dir, salt_spec)
         salt = make_mix(nt, "Salt Mix", "Salt")
-        mix_socket(salt, "B").default_value = declared_albedo(render_dir, render_files.SALTMASK)
+        mix_socket(salt, "B").default_value = compensated(
+            declared_albedo(render_dir, render_files.SALTMASK), compensation)
         print(f"{render_files.SALTMASK} declared — wiring Salt mix", flush=True)
 
     # optional depth-keyed lake tint (render/lake_mask.py); raster absent -> the Lake mix keeps the
@@ -788,7 +840,8 @@ def build_material(ob, render_dir, displacement_scale, look, present):
     lake_ramp = None
     if render_files.LAKEDEPTH in present:
         tex[lake_depth_spec.name] = make_texture(nt, render_dir, lake_depth_spec)
-        lake_ramp = make_ramp(nt, "Lake Ramp", "Lake Bed", RIG.lake_stops)
+        lake_ramp = make_ramp(nt, "Lake Ramp", "Lake Bed",
+                              compensated_stops(RIG.lake_stops, compensation))
         print(f"{render_files.LAKEDEPTH} declared — wiring depth-keyed Lake ramp", flush=True)
 
     # optional sea ice (block prep only today): one continuous ocean-gated alpha drives both arms,
@@ -801,7 +854,8 @@ def build_material(ob, render_dir, displacement_scale, look, present):
     if render_files.SEAICE in present:
         tex[ice_spec.name] = make_texture(nt, render_dir, ice_spec)
         ice = make_mix(nt, "Ice Mix", "Ice")
-        mix_socket(ice, "B").default_value = declared_albedo(render_dir, render_files.SEAICE)
+        mix_socket(ice, "B").default_value = compensated(
+            declared_albedo(render_dir, render_files.SEAICE), compensation)
         ice_flatten = make_float_mix(nt, "Ice Flatten", "Ice Flatten")
         float_socket(ice_flatten, "B").default_value = RIG.ice_flatten_floor  # sea level
         print(f"{render_files.SEAICE} declared — wiring Ice mix + displacement damp", flush=True)
@@ -1011,7 +1065,14 @@ def main():
                                         args.tile))
     build_camera(frame["ortho_scale"], offset)
     sun = build_sun(args.sun_azimuth_delta)
-    fill = build_fill(args.sun_azimuth_delta)
+    fill = build_fill(look, args.sun_azimuth_delta)
+    fill_rgb = fill_colour(fill.data)
+    compensation = fill_compensation(fill_rgb)
+    # Echoed so a caller can assert it, for `--denoise-device`'s reason: a temperature the light
+    # never took renders a white fill with every recipe matching.
+    kelvin = "white" if look.fill_kelvin is None else f"{look.fill_kelvin:.0f} K"
+    print(f"FILL {kelvin} rgb {', '.join(f'{channel:.4f}' for channel in fill_rgb)} "
+          f"compensation {', '.join(f'{scale:.4f}' for scale in compensation)}", flush=True)
     # Echoed so a caller can assert them, for `--denoise-device`'s reason and harder: a dropped
     # `--sun-azimuth-delta` renders a frame lit from the base bearing and a dropped `--tile`
     # photographs the whole plane at a quadrant's resolution, both succeeding, both looking like a
@@ -1033,7 +1094,7 @@ def main():
     patches = base_patches(span_px) if args.base_grid == "fitted" else 1
     plane = build_plane(frame["plane_height_units"], patches)
     build_material(plane, render_dir, frame["displacement_scale"], look,
-                   render_seam.declared(render_dir))
+                   render_seam.declared(render_dir), compensation)
 
     print(f"body {args.body}, {'sea' if look.sea is not None else 'no sea'}; ", flush=True)
     # Echoed so a caller can assert it, for `--denoise-device`'s reason: a base grid that failed to

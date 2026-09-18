@@ -17,6 +17,7 @@ description: Rendering one tile block twice, from the shipped inputs and from al
 ## Controls, or the difference means nothing
 
 - **Render the unaltered arm twice.** Cycles is not bit-deterministic, and the spread between those two is the floor for one scene rendered twice.
+- **A change that moves geometry needs a second seed as its floor instead**, the mesh, the heights or the exaggeration: it moves where every ray lands, so it decorrelates the noise across the whole frame as a new seed does. Set `scene.cycles.seed` from a `render_pre` handler and print it back. On the Himalaya block a seed alone moves the mean 1.6 DN and 19% of pixels past 2, so read such a change in its tail.
 - **Diff where the input did not change, against a pair that changed as much.** Changing a mask's content lifts the difference across the whole frame above that floor, with a signed mean of zero and no fall-off with distance (measured once, a salt mask on one Earth block: 0.15 DN mean for one scene twice, 0.32 to 0.35 with the mask changed, at most 4 DN 50 km away), so two altered arms against each other are the far-field control. A leak shows as a signed mean or as a difference that decays with distance; the change's own edge reaches about 24 px.
 - **Diff each arm's prep directory against the base: exactly the files the change should touch differ.** A layer raster that is absent, a dangling link included, reads as no layer rather than an error (`test_a_declared_layer_whose_raster_is_absent_is_read_as_ABSENT_not_as_an_error`), so an arm whose input never arrived renders as the base with every recipe matching.
 - **The three recipes beside the scratch mosaics must be identical.**
@@ -27,6 +28,8 @@ description: Rendering one tile block twice, from the shipped inputs and from al
 
 For "does the shipped planet still match today's code", and for "which blocks would a pass actually move", which is what decides whether a pass can be a partial one.
 
+- **The data half of that second question needs no render at all.** `block_render.run` names the blocks it owes before it renders any, from each block's own digest, and `block_freshness.refresh` with `block_digest` answers it out of process against a store it only reads. Reach for a render for the other half, whether today's build reproduces the planet at all, which no file can carry.
+- **A partial run already renders a sample of what it skips** and stops on a disagreement, so what follows is how to ask that question by hand, on blocks of your own choosing, or against an arm.
 - **No flags and no scratch work directory**: `prep_block.cut(body, block, scratch_dir, work=<the store's>)`, then `block_render.blender_command`, then `block_render.cropped(png, block)` against `planet_rgb.tif` read at `block.delivered_window`. The store is read and never written, and the mtime snapshot above is the proof.
 - **Pick the blocks by what each one holds, never at random or by convenience.** A change that moves only the polar rows is invisible to every mid-latitude block, and the blocks nearest a previous arc are all mid-latitude. Cover both polar rows, ice, ocean, desert, mountain, forest and lakes.
 - **Name a cause by putting the old value back, in-process, and rendering the same block again.** Reproducing the live pixels names the cause; a difference that merely looks like the suspect leaves it open. `prep_block.ROW_EDGE_MODE` set to `"constant"`, the fill its block row was rendered under, is the worked case.
@@ -41,6 +44,30 @@ For the question "does a frame on disk match what today's code renders", which d
 - **To render with the code that made a frame, export its commit, never check it out**: `git archive <commit> | tar -x -C <scratch>`, then run that tree's `scene_build.py` with the arguments its own `blender_command` built, against today's render directory once its inputs are shown identical. Take the last commit before the frame's mtime that holds the code, and say so if none does.
 - **`scene_dump` both built scenes and map node renames before diffing**, or the renames drown the diff.
 - **The floors this has measured**: two renders of one code differ at 1 DN on about 0.008% of a 4096² frame's values, and a change in node names or creation order alone moved two pixels by up to 3 DN.
+
+## A lane difference, rather than a data one
+
+For "what does one of the flags the hero and tile lanes disagree on actually cost", which is a look question rather than a freshness one.
+
+- **Prep the block once and render it twice, swapping only the flag.** `block_render.blender_command` hardcodes `BLOCK_DENOISE_DEVICE` and `BLOCK_BASE_GRID`, so an arm rebuilds the same argument list with one value changed rather than calling it.
+- **Read Blender's own `BASE_GRID` / `DENOISE_DEVICE` line back from each run.** Without it two arms that silently took the same setting are indistinguishable from a flag that changes nothing.
+- **Choose the block for what the flag acts on.** Dicing is carried by relief, so flat ground cannot show a base-grid difference at all whatever the numbers say.
+- **A block is the mild case for anything plane-width dependent.** The single quad caps at 2**12 micropolygons along the whole edge, so a 4,864 px block plane sits at 1.19 px each and a 7,680 px hero at 1.875: whatever a block measures, a hero loses more.
+- **Measured for `--base-grid`** on the Himalaya block: the mean (1.95 DN against a seed's 1.61) and the share over 2 DN (23% against 19%) are almost all noise, and the signal is the tail, 1.6% of pixels past 10 DN against a seed's 0.09%. Time is not the constraint (67.4 s against 65.0); VRAM is.
+
+## A rig setting, changed in-process
+
+For a look round on a light or a surface colour: a Blender-side script, run as `blender -b --python`, changes one thing and then calls `scene_build.main()` with production's own arguments, so every other setting is the rig's.
+
+- **A light or the seed changes in a `render_pre` handler**, which runs before Cycles reads the scene. Print the value back from inside the handler: an arm whose change never landed renders as the base with every recipe matching.
+- **Hold a coloured light to the luminance of the white it replaces**, or the arm moves brightness and hue together and the eye cannot say which it judged.
+- **A surface colour is read at build time through a module-level seam**, so replace it before `main()`: `scene_build.declared_albedo` for snow, salt and sea ice, `palette.LOOK_BY_BODY[body]` for the land and sea ramps, and `scene_build.RIG` through `dataclasses.replace` for lakes and river water. Each is looked up when called, which is what lets the replacement reach the build.
+- **Measure by surface with the prep's own masks**, cut to the delivered window from the centre of the plane-sized mask. A brightness quartile mixes surfaces, and the look calls come back split by surface.
+
+## A projection arm on a hero
+
+- **`render_prep` hardcodes `dst_crs = aea_crs(args.frame)`**, so a projection arm replaces that function in a scratch script, exactly as the cap arm replaces `cap_work_dir`.
+- **Filling a far-north frame needs no re-fuse.** The empty share is the per-country fuse stopping at its lon/lat box; `planet_heightfield.vrt` is global at 10 arcsec, which is finer than Greenland, Canada and Russia are rendered at. Only the small frames need their own fuse.
 
 ## Hand over frames, not a verdict
 

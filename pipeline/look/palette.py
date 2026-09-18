@@ -229,7 +229,8 @@ class Surface:
 
 @dataclass(frozen=True)
 class Look:
-    """Everything the ramps need to draw one planet.
+    """Everything one planet is coloured by: its ramps, and the colour of the light filling its
+    shade.
 
     A look is not a body: `bodies.py` owns geometry, this owns colour, and the two are independent
     axes. One planet could carry several looks, and a look says nothing about a radius.
@@ -243,12 +244,16 @@ class Look:
 
     land: Surface
     sea: Surface | None
+    #: The fill light's colour as a temperature in kelvin, taken from Blender's own blackbody, or
+    #: None for a white fill.
+    fill_kelvin: float | None
 
 
 #: Earth's look, assembled from the authored constants above rather than restating them.
 EARTH_LOOK = Look(
     land=Surface(stops=LAND_STOPS, origin_m=0.0, extreme_m=LAND_MAX_M),
     sea=Surface(stops=SEA_STOPS, origin_m=0.0, extreme_m=SEA_MIN_M),
+    fill_kelvin=12000.0,
 )
 
 #: Mars's land ramp: cartographic convention, not a picture of the planet, and the About page says
@@ -291,6 +296,7 @@ MARS_LAND_STOPS: list[Stop] = [
 MARS_LOOK = Look(
     land=Surface(stops=MARS_LAND_STOPS, origin_m=-8600.0, extreme_m=6100.0),
     sea=None,
+    fill_kelvin=None,
 )
 
 #: The look each body draws with today, keyed by slug rather than held as a `Body` field, since

@@ -10,8 +10,8 @@
 // supposed to match, for exactly this reason: a copied colour with nothing comparing it back.
 // Anything added here needs a line in that test in the same edit.
 
-// These are AUTHORED stops, not shipped pixels: `shade.KNOBS` resaturates land 1.18 and warms it
-// 0.06, so `#784F3C` ships as `#814D35`.
+// These are authored stops, not shipped pixels: a tile is lit and tone-mapped in Blender on its way
+// to the globe, which `palette.py`'s own docstring spells out.
 //
 // The chrome ACCENTS live in `bodies.ts`, not here. Deriving them from stops was tried, measured
 // against the shipped ramp, and reverted — do not retry it.

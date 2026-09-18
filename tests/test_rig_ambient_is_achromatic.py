@@ -1,7 +1,8 @@
 """The rig's ambient must carry no hue, because a tint REPLACES a near-white rather than tinting it.
 
-`RIG.world_rgba` is not a backdrop swatch, it is the scene's only coloured light: the two suns
-carry energy and angle and nothing else. Authored as `F2E7D5`, it arrives with a linear B/R of
+`RIG.world_rgba` is not a backdrop swatch, it is light on every surface: the sun carries energy and
+angle and nothing else, and the fill's colour is undone on every surface but the land
+(`test_rig_fill_colour`). Authored as `F2E7D5`, it arrives with a linear B/R of
 0.749, and a surface whose own colour is nearly white has almost no blue to defend. Measured on the
 Iceland hero arms, the warm ambient costs snow 9 of its 14 DN of blue, the sea 4 of 56, and land
 essentially nothing. That asymmetry is why this bit the poles alone.
@@ -16,10 +17,11 @@ colour reaches every render, and `test_scene_build_sync` pins that derivation, s
 cannot move without restaging.
 """
 
-import dataclasses
+import ast
 import importlib
 import sys
 import types
+from pathlib import Path
 from typing import cast
 
 import numpy as np
@@ -83,13 +85,35 @@ class TestTheDecision:
         red, green, blue = scene_build.RIG.world_rgba[:3]
         assert red == green == blue, f"the ambient is still tinted: {scene_build.RIG.world_rgba}"
 
-    def test_it_is_a_light_and_the_suns_stay_colourless(self, scene_build):
-        """The anti-vacuity arm: neutralising the world is only worth doing while it is the ONLY
-        coloured emitter. A sun given a colour later would restore the defect by another route,
-        and `Rig` has no field to hold one."""
-        fields = {field.name for field in dataclasses.fields(scene_build.RIG)}
-        assert not {name for name in fields
-                    if name.startswith(("sun_", "fill_")) and name.endswith(("rgba", "color"))}
+    SUN_ATTRIBUTES = frozenset({"energy", "angle", "location", "rotation_euler"})
+
+    @staticmethod
+    def attributes_set(source: str, function_name: str) -> set[str]:
+        """Every attribute `function_name` assigns, by name. Source text: the claim is about what
+        the builder writes onto the light."""
+        function = next(node for node in ast.walk(ast.parse(source))
+                        if isinstance(node, ast.FunctionDef) and node.name == function_name)
+        return {target.attr for node in ast.walk(function) if isinstance(node, ast.Assign)
+                for target in node.targets if isinstance(target, ast.Attribute)}
+
+    def test_the_sun_stays_colourless(self, scene_build):
+        """The anti-vacuity arm: neutralising the world only holds while nothing else colours the
+        sunlit ground unaccounted for. The fill's colour is compensated on every surface it would
+        damage (`test_rig_fill_colour`); a colour or a temperature on the sun is compensated
+        nowhere and tints every surface on the planet, snow first.
+
+        The attributes the builder may set, not the ones it may not: a colour reaches a light under
+        `color`, `temperature` or any name a later Blender adds."""
+        source = Path(scene_build.__file__).read_text(encoding="utf-8")
+        assert self.attributes_set(source, "build_sun") == self.SUN_ATTRIBUTES
+
+    def test_the_scan_sees_a_colour_on_the_sun(self):
+        """The control, in the shape the builder writes."""
+        assert "temperature" in self.attributes_set(
+            "def build_sun(delta):\n"
+            "    sun = bpy.data.lights.new('Light', 'SUN')\n"
+            "    sun.energy = RIG.sun_strength\n"
+            "    sun.temperature = RIG.sun_kelvin\n", "build_sun")
 
 
 class TestItMovesHueNotBrightness:
