@@ -97,6 +97,7 @@ Not a lower tier. Nobody has written down what would make them worth doing, and 
 - [A cold page load at high zoom paints a flat fill and never recovers](#a-cold-page-load-at-high-zoom-paints-a-flat-fill-and-never-recovers-observed-2026-08-11-not-analysed)
 - [Tiles "jump" a little when panning around a pole](#tiles-jump-a-little-when-panning-around-a-pole-observed-2026-08-11-not-analysed)
 - [The heightfield wraps at a block's plane edge, and the context law does not bound the wall it stands](#the-heightfield-wraps-at-a-blocks-plane-edge-and-the-context-law-does-not-bound-the-wall-it-stands-observed-2026-09-13-not-analysed)
+- [Mars's source elevation steps about 110 m along 15°S](#marss-source-elevation-steps-about-110-m-along-15s-observed-2026-09-19-not-analysed)
 
 ## The detail card cannot state an elevation the DEM does not know (analysed 2026-08-27)
 
@@ -180,6 +181,16 @@ The globe's detail card carries a country's name, its continent and a link, and 
 - **The census that settles it**: per block, the tallest wall at the north and west plane edges, exaggerated and turned into a per-axis shadow length, against the block's context. It reads a strip along each plane edge from the planet raster, so it runs under the cgroup cap.
 - **A candidate link, nothing more**: *the context's zero fill stood a 71 km wall* left a residual join of −2.90 DN that its fix did not close.
 - **If it is real, the fix is EXTEND on the heightfield's `TextureSpec`**, which `rig_recipe` records, so it re-renders both planets and belongs with the next batched look change.
+
+## Mars's source elevation steps about 110 m along 15°S (observed 2026-09-19, not analysed)
+
+> **OBSERVED, NOT ANALYSED**. Seen on one Mars block and confirmed in the source raster, with its extent across the planet unmeasured, so the next action is the census below.
+
+- **Seen on Valles Marineris' block `r08c04`** as a straight east-west line in three segments across a 1,024 px crop, there before bump shading and sharper with it. HISTORY, *bump shading is built for every body*.
+- **It is in the source, not the pipeline.** USGS's HRSC and MOLA blend steps a median 112 m between two rows at 15.006°S, from 81.6°W to 75.9°W, in 61% of the columns; the block's heightfield carries the same step spread over three rows.
+- **A round latitude suggests a boundary in how the product was assembled**, so the other multiples of 15° are the first place to look. That is a guess from one line.
+- **The census that settles it**: the mean absolute step between consecutive source rows, planet-wide, against each row's neighbours. It reads the whole raster, so it runs under the cgroup cap.
+- **Any fix smooths the step in our copy before the warp**, and per-block freshness then re-renders only the blocks whose ground moved.
 
 ## Heroes record no recipe, so nothing on disk says which rig made any of the 203 (analysed 2026-08-21, PARKED)
 

@@ -165,8 +165,9 @@ Border style dicts (`overlay_borders.py`) and the hero variant rungs (`hero_vari
 
 - Orthographic camera, straight down. Ortho scale, plane height and render resolution are per-country derived numbers in frame.json (formulas in docs/framing-math.md). Resolution rule: 7680 px on the longer axis.
 - Displacement Midlevel 0, adaptive subdivision and dicing rates.
+- Displacement and bump (`RIG.displacement_method` `BOTH`): the diced mesh casts the shadows and each pixel is shaded from the height image's own slope. A finer mesh would carry that relief as geometry instead, and a block diced at half a pixel ran out of memory under the heavy-job cap.
 - Mask wiring (ocean, lake, river, snow): Non-Color, Closest interpolation. Binary masks are 0/255; graded ones are 16-bit, because 8 bits terraced the sea floor.
-- Warp width about render width and at most source width, the anti-bump rule.
+- Warp width about render width and at most source width, so the height image never carries detail finer than the render can show, which reads as noise rather than relief.
 - No Map Range with reversed ranges: Math Multiply plus Clamp only.
 
 ## Rejected, so it is not re-proposed

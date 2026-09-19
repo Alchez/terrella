@@ -227,6 +227,8 @@ class Rig:
     map_range_clamp: bool
     mix_blend_type: str
     mix_clamp_factor: bool
+    #: `BOTH`: the diced mesh is the geometry and casts the shadows, and each pixel is shaded from the
+    #: height image's own slope, which keeps the relief a pixel or two wide that the mesh rounds off.
     displacement_method: str
     displacement_space: str
     #: The B input of the ice-flatten mix: the height ice is pulled toward, in displacement units.
@@ -294,7 +296,7 @@ RIG = Rig(
     map_range_clamp=True,
     mix_blend_type="MIX",
     mix_clamp_factor=True,
-    displacement_method="DISPLACEMENT",
+    displacement_method="BOTH",
     displacement_space="OBJECT",
     ice_flatten_floor=0.0,
     rowscale_operation="MULTIPLY",
