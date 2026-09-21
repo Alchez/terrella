@@ -169,7 +169,7 @@ export const ABOUT: Record<BodySlug, BodyAbout> = {
       // confirms.
       {
         title: "Snow",
-        text: "Permanent snow from a MODIS persistence climatology and the Randolph glacier inventory, faded at its margins so the edges take the hillshade. Antarctica is painted white outright: the climatology saturates over the continent but leaves clustered gaps, and the glacier inventory only reaches its coastal fringe.",
+        text: "Permanent snow from a MODIS persistence climatology and the Randolph glacier inventory, faded at its margins so the edges take the hillshade. Antarctica is painted white outright, and the note below says why.",
       },
       {
         title: "Sea ice",
@@ -190,6 +190,13 @@ export const ABOUT: Record<BodySlug, BodyAbout> = {
         paragraphs: [
           "Lake beds are <strong>modelled, not surveyed</strong>. All 1.43 million of GLOBathy's lakes get the same synthetic cone, which correlates about <strong>0.53</strong> against the Caspian's real soundings, and only <strong>0.8%</strong> of lakes here have a measured depth at all.",
           "Modelling them alike is deliberate: showing only surveyed lakes would draw survey funding as geology, since ~85% of them sit in the USA.",
+        ],
+      },
+      {
+        heading: "Antarctica",
+        paragraphs: [
+          "Antarctica is painted white by a <strong>rule</strong> rather than read from the snow data. Over most of the continent the climatology agrees with that anyway, but it also leaves clustered gaps with no observation behind them, and those would render as tan blotches inside the ice sheet.",
+          "The glacier inventory does not fill them either, reaching only the coastal fringe. So the rule closes holes rather than standing in for a measurement, and SCAR's exposed <strong>rock outcrop</strong> is subtracted back out from under the white.",
         ],
       },
     ],

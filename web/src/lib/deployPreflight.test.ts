@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 import {
   advertisedObjects,
@@ -124,9 +125,12 @@ describe("the deploy preflight holds the bundle to its record and to the pages",
 
 describe("a bucket R2 cannot list", () => {
   it("throws rather than reading as an empty one", () => {
-    // A closed local port, so nothing leaves the machine, and one attempt, so it fails at once.
-    // Where `aws` is not installed the spawn fails instead, which must throw the same way.
-    vi.stubEnv("AWS_MAX_ATTEMPTS", "1");
+    // A PATH carrying no `aws`, so the spawn fails before any binary runs; the closed local port
+    // is belt and braces, since nothing reaches the network to use it.
+    //
+    // Do not put the real `aws` back. Running it made this pass only when the CLI happened to
+    // start inside the timeout, which is not the claim: a cold one took 6.2 s against 5 s.
+    vi.stubEnv("PATH", fileURLToPath(new URL(".", import.meta.url)));
     try {
       expect(() => listBucket("http://127.0.0.1:9", ASSET_BUCKET)).toThrow(R2Unreachable);
     } finally {
