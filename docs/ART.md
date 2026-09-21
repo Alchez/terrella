@@ -29,6 +29,7 @@ The globe's tiles render through the same rig as the heroes, so a `RIG` field re
 | `sun_angle` (`RIG`) | 12° disc, the shadow penumbra | § Shadow softness |
 | `sun_strength` / `world_strength` / `world_rgba` (`RIG`) | 3.0 / 0.3 / achromatic | § Fill sun |
 | `fill_rotation` / `fill_angle` / `fill_strength` (`RIG`) | alt 60° az 135° / 10° disc / 0.45, being 15% of sun | § Fill sun |
+| `Look.fill_kelvin` | Earth 12,000 K, Mars white | § Fill sun |
 | `view_transform` (`RIG`) | Khronos PBR Neutral | § View transform |
 | render quality (`samples` 4096, `adaptive_threshold` 0.01, `clamp_indirect` 10) | cost, not look | § View transform |
 
@@ -49,7 +50,7 @@ Every tile pixel comes off Cycles, so any look change reaching a recipe restages
 | NH ice `ICE_LO` / `ICE_BAND` / `ICE_MAX_ALPHA` (seaice.py) | 0.55 / 0.40 / 0.85 | § Sea ice |
 | SH ice `SH_ICE_LO` / `SH_ICE_MAX_ALPHA` (seaice.py) | 0.62 / 0.55 | § Sea ice |
 | `lake_depth.LAKE_CURVE` | log1p, hero only, through `render/lake_mask.py` | § Inland water |
-| `CAP_PX` / `CAP_WEBP_QUALITY` / `edge_lat` (cap_pass.py) | 8192 / 85 / ±78° | § Polar caps |
+| `CAP_PX` / `CAP_WEBP_QUALITY` / `CAP_EDGE_LAT` (cap_render.py) | 8192 / 85 / ±82°, one disc size for both bodies | § Polar caps |
 
 ### Compositing and web, seconds to minutes
 
@@ -81,6 +82,10 @@ Border style dicts (`overlay_borders.py`) and the hero variant rungs (`hero_vari
 - It re-lights shadowed faces directionally, so gullies and spurs keep modeling where the main sun cannot reach. This, not world strength, is the fix for "shadows are hiding texture".
 - Self-regulating: fill only matters where resolved slopes are steep (fine grids, Switzerland) and barely registers on coarse ones (India), so one global strength behaves per-country. Swept 10/15/20%: 15 balanced, 10 defensibly moodier.
 - **It is why the tiles work at all.** A single 45° sun on the 15×-exaggerated grid turns a 4° real slope into 46°, past the sun, and the face goes to zero light: measured **43.7% of the Alps at zero**, which any fill at or above 0.10 clears everywhere. Flat country is untouched (Amazon 0.02%), so if flat terrain ever moves, something is broken.
+- **Colour: Earth's fill is a blue sky's, Blender's own 12,000 K blackbody; Mars's stays white**, its sky not being blue. Blender holds a temperature's colour to unit luminance, so the fill keeps its strength whatever its colour.
+- 12,000 K is also the top of Blender's blackbody (the `blender-rig` skill), so a bluer fill needs an explicit colour rather than a bigger number.
+- **Every surface but the land is recoloured to cancel it**: snow, salt, sea ice, rivers, flat lakes and the sea and lake ramps are multiplied by what the fill does to flat, sunlit, open ground (`scene_build.fill_compensation`), so there they render as their authored colours. The land keeps the cooler shade, which is what the fill is for.
+- The cancelling is exact on flat ground only: a slope facing the sun takes less fill and comes out warmer, so the Alps' sunniest snow renders up to about 7 DN redder than its authored colour.
 
 ### Land color ramp (elevation-keyed): `palette.LAND_STOPS` + `LAND_MAX_M`
 
@@ -160,8 +165,9 @@ Border style dicts (`overlay_borders.py`) and the hero variant rungs (`hero_vari
 
 - Orthographic camera, straight down. Ortho scale, plane height and render resolution are per-country derived numbers in frame.json (formulas in docs/framing-math.md). Resolution rule: 7680 px on the longer axis.
 - Displacement Midlevel 0, adaptive subdivision and dicing rates.
+- Displacement and bump (`RIG.displacement_method` `BOTH`): the diced mesh casts the shadows and each pixel is shaded from the height image's own slope. A finer mesh would carry that relief as geometry instead, and a block diced at half a pixel ran out of memory under the heavy-job cap.
 - Mask wiring (ocean, lake, river, snow): Non-Color, Closest interpolation. Binary masks are 0/255; graded ones are 16-bit, because 8 bits terraced the sea floor.
-- Warp width about render width and at most source width, the anti-bump rule.
+- Warp width about render width and at most source width, so the height image never carries detail finer than the render can show, which reads as noise rather than relief.
 - No Map Range with reversed ranges: Math Multiply plus Clamp only.
 
 ## Rejected, so it is not re-proposed

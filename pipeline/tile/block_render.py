@@ -14,13 +14,18 @@ of work has to be the block: prep, render, crop, write into the mosaic, mark, st
 order, because a marker written before the bytes it vouches for is how a crash leaves a state that
 reads as complete. Stopping this at any instant costs the one block in flight.
 
-The marker is an existence test and not an mtime one, and that is forced rather than chosen: every
-block lands in one shared raster whose mtime advances with every later block, so the first block's
-marker is older than the mosaic the moment the second one writes, and the repo's ordinary rule that
-a marker must be newer than the bytes it vouches for cannot hold here. What replaces it is one
-generation stamp for the whole run, compared against the recipe and the warped inputs once at pass
-start; the rule beside this file owns what feeds that comparison. Per-block freshness answers "did
-this block finish", never "is this block still correct".
+A marker is not an mtime test, and that is forced rather than chosen: every block lands in one
+shared raster whose mtime advances with every later block, so the first block's marker is older than
+the mosaic the moment the second one writes, and the repo's ordinary rule that a marker must be
+newer than the bytes it vouches for cannot hold here. What a marker carries instead is a digest of
+what that block was rendered from, which `block_freshness` owns, so a block whose own inputs and
+settings still match is skipped however much of the rest of the planet moved. The rule beside this
+file owns what reaches that digest.
+
+No digest can see the render code, Blender, the driver or Cycles' own noise, so a run that is about
+to skip blocks re-renders a sample of them against the planet on disk first and stops rather than
+shipping a patchwork. Narrowing a setting to the blocks it reaches is deliberately not done here: it
+is a separate act with its own evidence, and a run that guessed at the reach would skip on a guess.
 
     python -m pipeline.tile.block_render --body earth              # the planet, resumable
     python -m pipeline.tile.block_render --body earth --only r00c00,r31c40   # named blocks
@@ -56,7 +61,7 @@ from pipeline.block_plan import Block
 from pipeline.look import layer_producers, palette
 from pipeline.raster_io import GTIFF_CREATE
 from pipeline.render import blender_proc, prep_block
-from pipeline.tile import cut_tiles, relief_scan
+from pipeline.tile import block_freshness, cut_tiles, relief_scan
 
 #: Consecutive block failures that stop the run. A single block can fail for its own reasons, a
 #: transient OptiX fault or a bad frame, and throwing away the hours still queued behind it would be
@@ -76,8 +81,15 @@ PARAMS_NAME = "raytrace_params.json"
 #: since checking on a run that lasts a night must not mean reading a log that grew all night.
 STATUS_NAME = "raytrace_status.json"
 
-#: The file whose mtime dates the current generation of block markers beside it.
-GENERATION_NAME = "generation.stamp"
+#: How many of the blocks a run means to skip it re-renders into scratch first, to ask whether
+#: today's code still reproduces the planet on disk. The only instrument that can see a change no
+#: file carries, so a partial pass runs it and a full one has nothing to sample.
+SAMPLE_BLOCKS = 12
+
+#: What a sampled block may differ from the shipped pixels by before the run stops: the floor one
+#: block rendered twice already sits at, Cycles not being bit-deterministic.
+SAMPLE_P99_DN = 1
+SAMPLE_WORST_DN = 2
 
 
 def mosaic_in(work: Path) -> Path:
@@ -92,11 +104,6 @@ def markers_in(mosaic: Path) -> Path:
     return mosaic.with_name(f"{mosaic.stem}_blocks")
 
 
-def generation_stamp(markers: Path) -> Path:
-    """The stamp dating this generation of markers."""
-    return markers / GENERATION_NAME
-
-
 @dataclass(frozen=True)
 class Sidecars:
     """Every path one run of this producer writes, and whether that run fills the canonical raster,
@@ -104,6 +111,7 @@ class Sidecars:
 
     mosaic: Path
     markers: Path
+    cells: Path
     scratch: Path
     recipe: Path
     status: Path
@@ -115,10 +123,10 @@ def sidecars_for(work: Path, mosaic: Path) -> Sidecars:
 
     One rule and one owner: what a run writes sits beside its raster and is named after it.
     `--mosaic` exists so an A/B cannot disturb a shipping planet, and a half-kept seam disturbs it
-    in the direction nothing looks at. The recipe is in `raytrace_deps`, so an A/B writing the
-    shipping recipe moves it, the next production pass moves it back, `generation_is_current` reads
-    False and `start_generation` clears a finished planet's entire marker set: a night of Cycles to
-    emit the pixels already on disk, logged as a line that reads like ordinary operation.
+    in the direction nothing looks at. The recipe reaches every block's digest, so an A/B writing the
+    shipping recipe moves it, the next production pass moves it back, and every marker disagrees with
+    the block it describes: a night of Cycles to emit the pixels already on disk, logged as a line
+    that reads like ordinary operation.
 
     The canonical raster's sidecars keep their bare names, because prefixing every mosaic's alike
     renames two files a finished pass left on disk, which moves an mtime and costs the same night on
@@ -134,6 +142,7 @@ def sidecars_for(work: Path, mosaic: Path) -> Sidecars:
     prefix = "" if canonical else f"{mosaic.stem}_"
     return Sidecars(mosaic=mosaic,
                     markers=markers_in(mosaic),
+                    cells=mosaic.with_name(f"{mosaic.stem}_cells"),
                     scratch=mosaic.with_name(f"{mosaic.stem}_scratch"),
                     recipe=mosaic.with_name(f"{prefix}{PARAMS_NAME}"),
                     status=mosaic.with_name(f"{prefix}{STATUS_NAME}"),
@@ -169,13 +178,12 @@ def params(body: bodies.Body, rasters: frozenset[str], look: palette.Look,
            rig: dict[str, Any], blocks: list[Block]) -> str:
     """Everything that can move a raytraced pixel and is not a file with an mtime.
 
-    The split is recipe against deps: a warped source moves an mtime and `raytrace_deps` tracks it,
-    where a constant moves nothing at all and only a recipe can see it. A look constant that reaches
-    neither leaves a stale planet reading fresh forever.
+    The split is the recipe against the ground: a warped source's pixels reach a block's digest
+    through `block_freshness`, where a constant reaches no file at all and only a recipe can see it.
+    A look constant that reaches neither leaves a stale planet reading fresh forever.
 
-    `layers_on` and `rasters_on` are what tracks a layer or a raster going off, which the dependency
-    mtimes structurally cannot, a path that is not there scoring 0.0 and being invisible, so
-    switching sea ice off would otherwise leave a planet painted with it looking current.
+    `layers_on` and `rasters_on` are what tracks a layer or a raster being switched OFF, which is a
+    declaration rather than a file, so no digest over what is on disk can see it.
 
     Three tiers reach a block, each declared by the code that reads it: this module's own, the rig's
     through `rig_recipe`, and the producers' through `layer_producers.constants_for`. The rig
@@ -205,23 +213,23 @@ def params(body: bodies.Body, rasters: frozenset[str], look: palette.Look,
         # A pass resumed across a change of it would write both dicings into one mosaic.
         "base_grid": BLOCK_BASE_GRID,
         # The mask writer's depth, which is `prep_block`'s constant and not this module's. It is
-        # here because nothing else can carry it: a re-cut mask does not restage a rendered block,
-        # since blocks are skipped by marker existence and `raytrace_deps` tracks planet rasters
-        # rather than the per-block prep directory. Left out, a depth change would reach only the
-        # blocks that were going to render anyway and leave every finished one terraced.
+        # here because nothing else can carry it: a block's digest covers the planet rasters the
+        # prep reads and not the directory it writes, so a re-cut mask restages nothing. Left out, a
+        # depth change would reach only the blocks that were going to render anyway and leave every
+        # finished one terraced.
         "mask_full_scale": prep_block.MASK_FULL_SCALE,
         # The same argument one line up, for the policy at the poles rather than the mask depth: it
-        # moves only the two edge block rows, and those are exactly the blocks a marker already
-        # calls done, so left out, a fix to the row edge would reach nothing on disk.
+        # moves only the two edge block rows, and those are exactly the blocks whose digests it
+        # would not otherwise reach, so left out, a fix to the row edge would reach nothing on disk.
         "row_edge_mode": prep_block.ROW_EDGE_MODE,
-        # What the prep grades its masks with, and the general case of the line above it: none of
-        # it moves a warped raster, so `raytrace_deps` is blind to all of it.
+        # What the prep grades its masks with, and the general case of the line above it: none of it
+        # moves a warped raster, so a digest over the ground is blind to all of it.
         #
         # `painted=True` since the rig stopped holding its own albedo: the prep resolves each
         # producer's colour and declares it, so a producer's white now reaches a raytraced pixel and
         # `rig` no longer carries one to record. Left False, a re-tuned white would restage nothing
-        # anywhere — the prep directory is not in `raytrace_deps` and blocks skip on marker
-        # existence, so every finished block would keep the old colour.
+        # anywhere, the prep directory being no part of any digest, so every finished block would
+        # keep the old colour.
         **layer_producers.constants_for(body, layers.BLOCK_LAYERS, painted=True),
         # The fold's own law, which no producer's constants can stand in for: a layer moving between
         # the union and the exclusions repaints the Antarctic outcrop and moves nothing else here.
@@ -258,50 +266,25 @@ def rig_recipe(body: bodies.Body, images: frozenset[str]) -> dict[str, Any]:
             del sys.modules["bpy"]
 
 
-def raytrace_deps(work: Path, recipe: Path) -> tuple[Path, ...]:
-    """Everything the raytraced mosaic must be newer than.
+def block_digests(body: bodies.Body, blocks: list[Block], recipe: Path,
+                  cells: dict[str, "block_freshness.InputCells | None"]) -> dict[str, str]:
+    """What each block would have to have been rendered from to be skipped, by block name."""
+    text = recipe.read_text()
+    return {block_name(block): block_freshness.block_digest(block, text, cells)
+            for block in blocks}
 
-    The warped input set the block prep cuts from, being the heightfield, the two masks and every
-    optional surface layer, plus this producer's own recipe. No hillshade and no shading recipe:
-    Cycles computes its own light.
 
-    Over-inclusive deliberately: `is_stale` takes the newest mtime, so naming a raster this body
-    does not have costs nothing, while missing one is silent.
+def write_marker(markers: Path, block: Block, digest: str, reported: str) -> None:
+    """Record this block as finished, and say what it was rendered from.
 
-    There is no producer stamp because one producer cannot be confused about who filled the mosaic.
-    A second one arriving needs that seam back before it writes a pixel, which is the standing brief
-    rather than this function's to argue.
+    One owner because a second writer would be free to leave the digest line off, which reads on
+    disk as a block rendered before digests existed and re-renders rather than shipping stale
+    pixels. That is the safe direction and it is still a night of Cycles.
     """
-    return (work / planet_warp.HEIGHT_3857, work / planet_warp.OCEAN_3857,
-            work / planet_warp.WATER_3857,
-            *(layer.warped_in(work) for layer in layers.warped_for(layers.BLOCK_LAYERS)), recipe)
-
-
-def generation_is_current(markers: Path, deps: tuple[Path, ...]) -> bool:
-    """Whether the markers on disk describe the planet being rendered now.
-
-    Not `freshness.is_stale`, and the difference is structural: that predicate also calls an output
-    stale when it was rewritten since it was stamped, which catches a crashed half-written raster.
-    Here the output grows after its stamp by design, every block landing in the same directory the
-    stamp sits in, so that clause would call a healthy resume stale on its second block and
-    re-render the planet from scratch every time. What is asked instead is only the other half: did
-    any input move since this generation began.
-    """
-    stamp = generation_stamp(markers)
-    return stamp.exists() and freshness.newest_mtime(*deps) <= stamp.stat().st_mtime
-
-
-def start_generation(markers: Path, mosaic: Path) -> None:
-    """Begin a new generation: no block on disk is trusted, and the mosaic stops being complete.
-
-    The mosaic's own marker goes first and that order matters: `tiles_are_fresh` keys on it, so a
-    mosaic left stamped while it is being rewritten block by block is a pyramid cut from a planet
-    that is half one generation and half the next, with every gate passing.
-    """
-    freshness.done_marker(mosaic).unlink(missing_ok=True)
-    shutil.rmtree(markers, ignore_errors=True)
-    markers.mkdir(parents=True, exist_ok=True)
-    generation_stamp(markers).touch()
+    (markers / block_name(block)).write_text(
+        f"context {block.context_px} traced {block.traced_edge_px} "
+        f"plane {block.plane_edge_px} {reported}\n"
+        f"{block_freshness.DIGEST_KEY} {digest}\n")
 
 
 def check_inputs(work: Path, body: bodies.Body, rasters: frozenset[str]) -> None:
@@ -456,7 +439,8 @@ def cropped(png: Path, block: Block) -> np.ndarray:
 
 
 def render_block(body: bodies.Body, block: Block, mosaic: Path, scratch: Path,
-                 markers: Path, work: Path, *, keep_intermediates: bool = False) -> None:
+                 markers: Path, work: Path, *, digest: str,
+                 keep_intermediates: bool = False) -> None:
     """One block, end to end: prep, render, crop, write into the mosaic, mark.
 
     The marker is last and the mosaic is closed before it: only a flushed write is a block that
@@ -511,13 +495,78 @@ def render_block(body: bodies.Body, block: Block, mosaic: Path, scratch: Path,
     # afterwards, since it is not identifiable from its pixels.
     reported = next((line for line in result.stdout.splitlines()
                      if line.startswith("BASE_GRID ")), "BASE_GRID ? BASE_PATCHES ?")
-    (markers / name).write_text(
-        f"context {block.context_px} traced {block.traced_edge_px} "
-        f"plane {block.plane_edge_px} {reported}\n")
+    write_marker(markers, block, digest, reported)
     if not keep_intermediates:
         shutil.rmtree(render_dir, ignore_errors=True)
         png.unlink(missing_ok=True)
         (scratch / f"{name}.blend").unlink(missing_ok=True)
+
+
+def sample_for(blocks: list[Block], skipped: list[Block],
+               cells: dict[str, "block_freshness.InputCells | None"], count: int) -> list[Block]:
+    """Which of the blocks a run means to skip it should render anyway.
+
+    Chosen by what each block holds and never at random or by convenience: a change that moves only
+    the polar rows is invisible to every mid-latitude block, and a sample taken near a previous
+    arc's blocks is mid-latitude throughout. Grouping on the inputs that reach a block's plane
+    window covers ice, ocean, lakes and bare ground by construction, and the grid's first and last
+    rows are their own groups because the plane overhangs the grid only there.
+    """
+    edge_rows = {0, max(block.row0 // block.size_px for block in blocks)}
+    groups: dict[tuple, list[Block]] = {}
+    for block in skipped:
+        key = (block.row0 // block.size_px in edge_rows, block_freshness.holds(block, cells))
+        groups.setdefault(key, []).append(block)
+    ordered = [sorted(members, key=block_name) for _, members in sorted(groups.items())]
+    picked: list[Block] = []
+    while len(picked) < count and any(ordered):
+        for members in ordered:
+            if members and len(picked) < count:
+                # The middle of each group rather than its first: block names sort by row, so the
+                # first is the group's northernmost and a sample of firsts is a sample of one edge.
+                picked.append(members.pop(len(members) // 2))
+    return sorted(picked, key=block_name)
+
+
+def block_difference(body: bodies.Body, block: Block, mosaic: Path, scratch: Path,
+                     work: Path) -> tuple[float, int]:
+    """One block rendered again into scratch against the pixels the mosaic already holds.
+
+    Reads the store and writes nothing into it: the prep goes to scratch and the comparison is a
+    windowed read of the mosaic, so this can run against a shipping planet.
+    """
+    name = f"{block_name(block)}_sample"
+    render_dir, png = scratch / name, scratch / f"{name}.png"
+    shutil.rmtree(render_dir, ignore_errors=True)
+    png.unlink(missing_ok=True)
+    prep_block.cut(body, block, render_dir, work=work)
+    result = blender_proc.run(
+        blender_command(body, render_dir, scratch / f"{name}.blend", png))
+    if result.returncode != 0 or not png.exists():
+        raise RuntimeError(f"blender exited {result.returncode} for {name}: "
+                           f"{result.stdout[-1500:]}{result.stderr[-1500:]}")
+    rendered = cropped(png, block).astype(np.int16)
+    with rasterio.open(mosaic) as shipped:  # pyright: ignore[reportCallIssue]
+        already = shipped.read(window=block.delivered_window)[:3].astype(np.int16)
+    difference = np.abs(rendered - already).max(axis=0)
+    shutil.rmtree(render_dir, ignore_errors=True)
+    png.unlink(missing_ok=True)
+    (scratch / f"{name}.blend").unlink(missing_ok=True)
+    return float(np.percentile(difference, 99)), int(difference.max())
+
+
+def sample_disagreements(body: bodies.Body, picked: list[Block], mosaic: Path, scratch: Path,
+                         work: Path) -> list[str]:
+    """Every sampled block whose pixels today's code does not reproduce, as lines to log.
+
+    Stated as a list rather than a verdict because the run reports what it found and stops; falling
+    back to rendering the whole planet would spend a night hiding the fact that the cheap check was
+    wrong about something.
+    """
+    return [f"{block_name(block)} p99 {p99:.0f} DN, worst {worst} DN"
+            for block, (p99, worst) in
+            ((block, block_difference(body, block, mosaic, scratch, work)) for block in picked)
+            if p99 > SAMPLE_P99_DN or worst > SAMPLE_WORST_DN]
 
 
 def disk_floor_bytes(body: bodies.Body, remaining: int, total: int) -> float:
@@ -617,36 +666,49 @@ def run(body: bodies.Body, work: Path, mosaic: Path, *, limit: int | None = None
     mosaic = sidecars.mosaic
     blocks = plan_blocks(body, work)
     recipe = freshness.write_if_changed(sidecars.recipe, recipe_for(body, rasters, blocks))
-    deps = raytrace_deps(work, recipe)
     markers = sidecars.markers
-
-    if not freshness.is_stale(mosaic, *deps):
-        log(f"{mosaic.name} fresh -> skip render", stage=True)
-        return 0
-    if not generation_is_current(markers, deps):
-        log("inputs or recipe moved since the last generation -> every block re-renders",
-            stage=True)
-        start_generation(markers, mosaic)
-    freshness.done_marker(mosaic).unlink(missing_ok=True)
-
-    ensure_mosaic(mosaic, body)
-    scratch = sidecars.scratch
-    scratch.mkdir(parents=True, exist_ok=True)
+    markers.mkdir(parents=True, exist_ok=True)
+    cells = block_freshness.refresh(sidecars.cells,
+                                    block_freshness.inputs_for(work, body, rasters))
+    digests = block_digests(body, blocks, recipe, cells)
+    owed = {name for name, digest in digests.items()
+            if block_freshness.marker_digest(markers / name) != digest}
 
     selected = [block for block in blocks if only is None or block_name(block) in only]
     if only is not None:
         missing = only - {block_name(block) for block in blocks}
         if missing:
             raise SystemExit(f"no such block(s) on {body.name}'s grid: {', '.join(sorted(missing))}")
-    todo = [block for block in selected if not (markers / block_name(block)).exists()]
-    already = sum(1 for block in blocks if (markers / block_name(block)).exists())
+    todo = [block for block in selected if block_name(block) in owed]
+    already = len(blocks) - len(owed)
 
+    scratch = sidecars.scratch
+    scratch.mkdir(parents=True, exist_ok=True)
     status = Status(body, mosaic, sidecars.status, len(blocks), already)
     status.state = "rendering"
     status.write()
-    log(f"{body.name}: {already}/{len(blocks)} blocks already done, {len(todo)} to render"
+    log(f"{body.name}: {already}/{len(blocks)} blocks match what they were rendered from, "
+        f"{len(todo)} to render"
         f"{'' if only is None else f' (of {len(selected)} selected)'}, "
         f"{free_bytes(mosaic.parent) / 1e9:.0f} GB free", stage=True)
+
+    # Before anything is unstamped or written, because a run that finds this is meant to leave the
+    # planet exactly as it was. `--only` is exempt: it never stamps the mosaic, so it cannot ship a
+    # planet at all, and the operator picked the blocks.
+    skipped = [block for block in blocks if block_name(block) not in owed]
+    if only is None and todo and skipped:
+        picked = sample_for(blocks, skipped, cells, SAMPLE_BLOCKS)
+        log(f"sampling {len(picked)} of the {len(skipped)} blocks this run would skip", stage=True)
+        disagreements = sample_disagreements(body, picked, mosaic, scratch, work)
+        if disagreements:
+            log("ABORT: today's code does not reproduce the planet on disk, so skipping any block "
+                f"would ship a patchwork -> {'; '.join(disagreements)}", stage=True)
+            status.state = "aborted-sample"
+            status.write()
+            return 0
+
+    freshness.done_marker(mosaic).unlink(missing_ok=True)
+    ensure_mosaic(mosaic, body)
 
     consecutive = 0
     ceiling = max(CONSECUTIVE_ABORT, int(FAILURE_CEILING_FRACTION * len(blocks)))
@@ -668,7 +730,7 @@ def run(body: bodies.Body, work: Path, mosaic: Path, *, limit: int | None = None
         started = time.monotonic()
         try:
             render_block(body, block, mosaic, scratch, markers, work,
-                         keep_intermediates=keep_intermediates)
+                         digest=digests[name], keep_intermediates=keep_intermediates)
         except Exception as failure:            # noqa: BLE001 — one block must not end the night
             consecutive += 1
             status.failures.append(name)
@@ -699,7 +761,11 @@ def run(body: bodies.Body, work: Path, mosaic: Path, *, limit: int | None = None
             f"plane {block.plane_edge_px:4d} {elapsed:5.1f}s | "
             f"{status.done}/{status.total} ({100 * status.done / status.total:.1f}%)")
 
-    complete = all((markers / block_name(block)).exists() for block in blocks)
+    # Compared and not counted. A block that failed keeps whatever marker its last render wrote, so
+    # an existence test stamps a planet complete with a stale block in it that no later run
+    # re-renders. The whole-set clear this replaced could count safely, having just deleted them all.
+    complete = all(block_freshness.marker_digest(markers / name) == digest
+                   for name, digest in digests.items())
     if complete and status.state == "rendering":
         freshness.mark_done(mosaic)
         if not keep_intermediates:

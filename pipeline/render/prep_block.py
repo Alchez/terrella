@@ -58,13 +58,13 @@ RECIPE_NAME = "block_recipe.json"
 
 #: The integer range a 0..1 mask is written across, and it is a geometry constant. `write_mask`
 #: holds why 8 bits terraced the sea floor; this is named rather than spelled inline so that
-#: `block_render.params` can record it, since a depth change moves pixels and blocks are skipped by
-#: marker existence alone.
+#: `block_render.params` can record it, since a depth change moves pixels and reaches no file a
+#: block's own digest covers.
 MASK_FULL_SCALE = 65535.0
 
 #: What a plane overhanging the grid at a pole reads there, as a `numpy.pad` mode. Named for the
 #: same reason as the depth above: `block_render.params` records it, and without that a change of
-#: policy moves every edge block's pixels while every marker still says the block is rendered.
+#: policy moves every edge block's pixels while every marker still agrees with its block.
 #: "edge" repeats the last real row. A zero fill is the rejected alternative, zero being a neutral
 #: elevation on neither body, so it stood a wall of invented geometry along each pole-side plane;
 #: `_read_cyclic` carries what that costs. The columns take no mode at all, longitude wrapping

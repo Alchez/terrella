@@ -290,18 +290,16 @@ def report():
 
 
 def compare(measured, derived) -> int:
-    """Alarm when the ICE moves away from what was measured the day the white was ratified.
+    """Alarm when the ice moves away from what was measured the day the white was ratified.
 
-    THIS USED TO HOLD THE PINNED WHITE TO THE ICE'S HUE, which is the overrule the paragraph below
-    disclaims. That test was right for as long as the whites were DERIVED from the ice; it stopped
-    being right the day a white was authored to a look target instead. The ratified pair's red:violet
-    is 0.893 against a measured 1.042 north and 1.292 south, so the old assertion fires at 7x and 20x
-    tolerance on a value chosen deliberately, and an oracle that cries drift at a decision is an
-    oracle nobody reads by the time it matters.
+    Holding the pinned white to the ice's hue is the temptation, and it was sound only while a white
+    was derived from the ice. An authored white departs from it on purpose, so that assertion fires
+    on a decision rather than a defect, and an oracle that cries drift at a decision stops being read
+    by the time the case it exists for arrives.
 
-    WHAT INVALIDATES A RATIFICATION IS THE SUBJECT MOVING, not the distance from it. The ratified
-    frame of ice measured `ICE_RATIO_AT_RATIFICATION`; if the ice's own hue drifts out of
-    tolerance, that frame has stopped describing the planet and the look decision needs re-taking.
+    What invalidates a ratification is the subject moving rather than the distance from it: the
+    ratified frame of ice measured `ICE_RATIO_AT_RATIFICATION`, and once the ice's own hue drifts out
+    of tolerance that frame has stopped describing the planet and the look decision needs re-taking.
     That is what this returns non-zero for.
 
     The derived pair is printed rather than asserted. It is what a re-pin would copy, but a re-pin is

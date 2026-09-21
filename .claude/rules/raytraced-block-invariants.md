@@ -2,6 +2,7 @@
 paths:
   - "pipeline/block_plan.py"
   - "pipeline/tile/block_render.py"
+  - "pipeline/tile/block_freshness.py"
   - "pipeline/render/prep_block.py"
   - "pipeline/render/scene_build.py"
   - "pipeline/render/render_seam.py"
@@ -12,23 +13,35 @@ paths:
 Four things about this producer that are expensive to re-derive and silent when broken. Every one
 of them cost a measurement to establish; none of them is visible from any single file here.
 
-## The freshness chain has exactly one lever, and it is not a file
+## The freshness chain has two levers, and only one of them is per block
 
-A rendered block is skipped by **marker existence alone** (`block_render.py`, `todo = [...]`). The
-only thing that clears markers is `generation_is_current(markers, deps)` going false, and `deps` is
-the params recipe plus the planet rasters. So:
+A rendered block is skipped when its marker's digest still matches what it would be rendered from
+now (`block_render.py`, `owed = {...}`). `block_freshness` builds that digest from three things: the
+block's own plane window of every input raster, the block's three widths, and the params recipe
+whole. So:
 
-- **Changing what `prep_block` writes does NOT restage a rendered block.** `raytrace_deps` tracks
-  planet rasters, not the per-block prep directory. A new prep image reaches only blocks that were
-  going to render anyway.
+- **Data is per block and settings are not.** A raster that moves restages the blocks whose plane
+  window covers the ground that moved and no others; a recipe that moves restages the planet.
+  - **Narrowing a setting to the blocks it reaches is deliberately not automatic.** It is a separate
+    act with its own evidence, and a run that guessed at the reach would skip blocks on a guess.
+  - **The window is the PLANE and never the delivered block**, because ground outside a block casts
+    shadows into it. `covered_cells` wraps in longitude and clamps at the poles exactly as
+    `prep_block._read_cyclic` does, and clipping either axis is a block silently skipped.
+  - **What no digest can see is the code, Blender, the driver and Cycles' noise**, so a run about to
+    skip blocks re-renders a stratified sample of them against the mosaic and stops on a
+    disagreement. A fallback to rendering the planet was considered and refused: it spends a night
+    hiding the fact that the cheap check was wrong.
+- **Changing what `prep_block` writes does NOT restage a rendered block.** The digest covers the
+  planet rasters the prep reads, never the per-block directory it writes. A new prep image reaches
+  only blocks that were going to render anyway.
 - **`params()` is the lever.** Inside it, two entries move for block-geometry work: `contexts`
   (`context_census`, the context law's *output*) and `rig` (`scene_build.rig_recipe`).
 - **`rig_recipe` is DERIVED, not enumerated**: `dataclasses.asdict(RIG)` plus the texture table plus
   the look, narrowed to the images the stage's prep can write (`rig_images`). A constant added to
   `Rig` is in the recipe with nothing to remember.
   - **And what it costs is the whole planet.** Moving one value into `Rig` changes the recipe's text,
-    so `start_generation` clears every marker and the body re-renders end to end, plus a re-cut, an
-    upload and a Worker deploy. docs/PROCESS.md holds the figure.
+    so every marker disagrees with the block it describes and the body re-renders end to end, plus a
+    re-cut, an upload and a Worker deploy. docs/PROCESS.md holds the figure.
   - A field only an optional branch reads carries that branch's images under `_ONLY_WITH`, and a
     stage that can load none of them does not record it, so a lake colour restages Earth's blocks
     alone. `TestABranchOnlyFieldIsTaggedWithTheImagesItsBranchNeeds` holds each tag equal to the

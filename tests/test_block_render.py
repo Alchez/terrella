@@ -16,14 +16,25 @@ from typing import ClassVar
 
 import numpy as np
 import pytest
+import rasterio
 from conftest import declare_planet_rasters
+from rasterio.transform import from_bounds
 
-from pipeline import block_plan, bodies, freshness, layers, planet_seam, planet_warp
+from pipeline import (
+    block_plan,
+    bodies,
+    freshness,
+    layers,
+    mercator,
+    planet_seam,
+    planet_warp,
+)
 from pipeline.block_plan import Block
 from pipeline.look import layer_producers, palette, seaice, snow
 from pipeline.raster_io import GTIFF_CREATE
 from pipeline.render import prep_block
 from pipeline.tile import (
+    block_freshness,
     block_render,
     cut_tiles,
     relief_scan,
@@ -81,69 +92,108 @@ class TestTheBlockNameIsItsPlaceOnTheGrid:
         assert len({block_render.block_name(block) for block in blocks}) == len(blocks)
 
 
-class TestTheGenerationStampIsNotAFreshnessMarker:
-    """`is_stale` is the wrong predicate here and this is what would go wrong if it were used.
+class TestAMarkerSaysWhatItsBlockWasRenderedFrom:
+    """A marker is not an mtime test, and this is what would go wrong if it were.
 
-    Its load-bearing clause is that an output REWRITTEN since its stamp is stale, which catches a
-    crashed half-written raster. The marker directory is written into after its stamp on purpose —
-    that is what a resume IS — so the same clause would call a healthy run stale on its second
-    block and re-render the planet from the top, every time, forever.
+    `is_stale`'s load-bearing clause is that an output rewritten since its stamp is stale, which
+    catches a crashed half-written raster. Every block lands in one shared mosaic whose mtime
+    advances with every later block, so that clause calls a healthy resume stale on its second block
+    and re-renders the planet from the top, every time. What a marker carries instead is a digest of
+    the ground and the settings its block was rendered from, about which no mtime can be wrong.
     """
 
-    def test_a_directory_written_into_after_its_stamp_is_still_current(self, tmp_path):
-        markers, dependency = tmp_path / "blocks", tmp_path / "recipe.json"
-        dependency.write_text("{}")
-        _stale_by_a_second(dependency)
-        block_render.start_generation(markers, tmp_path / "planet_rgb.tif")
-        (markers / "r00c00").write_text("margin 0\n")
-        assert block_render.generation_is_current(markers, (dependency,))
+    def test_a_marker_carrying_no_digest_vouches_for_nothing(self, tmp_path):
+        """A marker from before the digest existed, and the direction this has to fail in: it
+        cannot say what it was rendered from, so its block renders again rather than shipping."""
+        (tmp_path / "r00c00").write_text("context 128 traced 4224 plane 4352 BASE_GRID fitted\n")
+        assert block_freshness.marker_digest(tmp_path / "r00c00") is None
 
-    def test_is_stale_would_have_called_that_same_state_stale(self, tmp_path):
-        """The positive control for the paragraph above: the rejected predicate, on the state the
-        accepted one just passed. Without this the docstring is an assertion about code nobody ran.
-        """
+    def test_a_missing_marker_vouches_for_nothing_either(self, tmp_path):
+        assert block_freshness.marker_digest(tmp_path / "r00c00") is None
+
+    def test_what_a_render_writes_is_what_a_resume_reads(self, tmp_path):
+        """One writer and one reader, because a second writer would be free to leave the digest off
+        and every block it wrote would re-render for good."""
+        block_render.write_marker(tmp_path, _block(0, 0), "abc123", "BASE_GRID fitted")
+        assert block_freshness.marker_digest(tmp_path / "r00c00") == "abc123"
+
+    def test_the_widths_the_block_rendered_at_are_still_recorded(self, tmp_path):
+        """The three widths are not interchangeable, and the marker is the only record of which one
+        a finished block used, so the digest is added to that line rather than replacing it."""
+        block = _block(0, 0)
+        block_render.write_marker(tmp_path, block, "abc123", "BASE_GRID fitted")
+        written = (tmp_path / "r00c00").read_text()
+        assert f"context {block.context_px}" in written
+        assert f"plane {block.plane_edge_px}" in written
+        assert f"traced {block.traced_edge_px}" in written
+
+    def test_is_stale_would_call_a_healthy_resume_stale(self, tmp_path):
+        """The positive control for the paragraph above: the rejected predicate on the state a
+        resume is actually in. Without it that paragraph is an assertion about code nobody ran."""
         markers, dependency = tmp_path / "blocks", tmp_path / "recipe.json"
+        markers.mkdir()
         dependency.write_text("{}")
         _stale_by_a_second(dependency)
-        block_render.start_generation(markers, tmp_path / "planet_rgb.tif")
         freshness.mark_done(markers)
         _stale_by_a_second(freshness.done_marker(markers))
         (markers / "r00c00").write_text("margin 0\n")
         assert freshness.is_stale(markers, dependency)
 
-    def test_an_input_moving_after_the_stamp_ends_the_generation(self, tmp_path):
-        markers, dependency = tmp_path / "blocks", tmp_path / "recipe.json"
-        dependency.write_text("{}")
-        block_render.start_generation(markers, tmp_path / "planet_rgb.tif")
-        _stale_by_a_second(block_render.generation_stamp(markers))
-        assert not block_render.generation_is_current(markers, (dependency,))
 
-    def test_no_stamp_at_all_is_not_a_generation(self, tmp_path):
-        markers = tmp_path / "blocks"
-        markers.mkdir()
-        (markers / "r00c00").write_text("margin 0\n")
-        assert not block_render.generation_is_current(markers, ())
+class TestASettingsMoveStillRestagesEveryBlock:
+    """Narrowing a setting to the blocks it reaches is a separate act with its own evidence, and a
+    run that guessed at the reach would skip blocks on a guess. So the recipe reaches every block's
+    digest whole, and a look change is still a whole planet."""
+
+    def test_a_look_constant_moving_restages_the_whole_grid(self, tmp_path, monkeypatch):
+        _drive_small_planet(tmp_path, monkeypatch)
+        _age_everything(tmp_path)
+        monkeypatch.setattr(palette, "SNOW_RGB", (1, 2, 3))
+        assert len(_drive_small_planet(tmp_path, monkeypatch)) == 16
+
+    def test_the_recipe_reaches_a_digest_even_with_no_rasters_at_all(self):
+        """The mechanism on its own, so a fix that satisfied the run-level test by moving a raster
+        cannot leave this in place."""
+        block = _block(0, 0)
+        assert (block_freshness.block_digest(block, "one", {})
+                != block_freshness.block_digest(block, "two", {}))
 
 
-class TestStartingAGenerationUnstampsTheMosaic:
-    """THE ORDER THE PYRAMID DEPENDS ON. `tiles_are_fresh` keys on the mosaic's `.done` marker, so
-    a mosaic left stamped while it is rewritten block by block would let a cut run against a planet
-    that is part composite and part raytrace, with every gate green."""
+class TestARunUnstampsTheMosaicBeforeItWritesAPixel:
+    """The order the pyramid depends on. `tiles_are_fresh` keys on the mosaic's `.done` marker, so a
+    mosaic left stamped while it is rewritten block by block would let a cut run against a planet
+    that is part one pass and part the next, with every gate green."""
 
-    def test_the_mosaics_completion_marker_is_removed(self, tmp_path):
-        mosaic = tmp_path / "planet_rgb.tif"
-        mosaic.write_bytes(b"")
-        freshness.mark_done(mosaic)
-        block_render.start_generation(tmp_path / "blocks", mosaic)
+    def test_the_stamp_is_gone_while_blocks_are_being_written(self, tmp_path, monkeypatch):
+        _drive_small_planet(tmp_path, monkeypatch)
+        _age_everything(tmp_path)
+        _paint(tmp_path / planet_warp.HEIGHT_3857, 96, 96)
+        stamped: list[bool] = []
+        _drive_small_planet(tmp_path, monkeypatch,
+                            observe=lambda mosaic, markers: stamped.append(
+                                freshness.done_marker(mosaic).exists()))
+        assert stamped == [False]
+
+    def test_a_finished_run_stamps_it_again(self, tmp_path, monkeypatch):
+        """The control. A run that merely stopped stamping would satisfy the test above and leave
+        every later cut refusing a planet that is complete."""
+        _drive_small_planet(tmp_path, monkeypatch)
+        assert freshness.done_marker((tmp_path / cut_tiles.PLANET_RGB).resolve()).exists()
+
+    def test_a_block_that_failed_leaves_the_planet_unstamped(self, tmp_path, monkeypatch):
+        """A failed block keeps whatever marker its last render wrote, and that marker describes
+        ground that has since moved.
+
+        Counting markers rather than comparing them stamps a planet complete with a stale block in
+        it, which no later run re-renders and no gate can see. The whole-set clear this replaced
+        could count them safely, having just deleted every one.
+        """
+        _drive_small_planet(tmp_path, monkeypatch)
+        _age_everything(tmp_path)
+        _paint(tmp_path / planet_warp.HEIGHT_3857, 96, 96)
+        mosaic = (tmp_path / cut_tiles.PLANET_RGB).resolve()
+        assert _drive_small_planet(tmp_path, monkeypatch, fails={"r01c01"}) == ["r01c01"]
         assert not freshness.done_marker(mosaic).exists()
-
-    def test_every_marker_of_the_previous_generation_is_cleared(self, tmp_path):
-        markers = tmp_path / "blocks"
-        markers.mkdir()
-        (markers / "r00c00").write_text("margin 0\n")
-        block_render.start_generation(markers, tmp_path / "planet_rgb.tif")
-        assert not (markers / "r00c00").exists()
-        assert block_render.generation_stamp(markers).exists()
 
 
 class TestTheMarkersFollowTheMosaicTheyDescribe:
@@ -163,10 +213,10 @@ class TestASecondMosaicOwnsEverySidecarThatDescribesIt:
     """The markers above follow the mosaic; the recipe, the progress document and the producer
     declaration do not, and they decide whether the raster they are keyed on is still correct.
 
-    THE PRICE IS THE WHOLE PLANET, and it is silent. The recipe is in `raytrace_deps`, so an A/B
-    moves it, the next production pass moves it back, `generation_is_current` reads False and
-    `start_generation` clears every marker: a night of Cycles to emit the pixels already on disk.
-    The line the runner logs for that is true and reads as ordinary operation.
+    The price is the whole planet, and it is silent. The recipe reaches every block's digest, so an
+    A/B moves it, the next production pass moves it back, and every marker disagrees with the block
+    it describes: a night of Cycles to emit the pixels already on disk. The line the runner logs for
+    that is true and reads as ordinary operation.
 
     So `--mosaic` protects a shipping planet's PIXELS and nothing else, while its own help text
     offers it for "an A/B, or a first pass that must not overwrite a shipping planet".
@@ -276,38 +326,55 @@ class TestTheWorkDirectoryReachesTheBlocksAndNotJustTheChecks:
         assert captured["work"] == relief_scan.work_dir(bodies.EARTH)
 
 
-class TestTheDependencySetIsExactlyWhatTheRaytraceReads:
-    """The list must name what Cycles actually consumes and nothing it merely inherited.
+class TestTheInputSetIsExactlyWhatTheRaytraceReads:
+    """The set must name what Cycles actually consumes and nothing it merely inherited.
 
-    A SIBLING TEST WAS DELETED HERE AND ITS ABSENCE IS THE POINT. It asserted that
+    A sibling test was deleted here and its absence is the point. It asserted that
     `composite_params.json` was not a dependency, which no longer distinguishes anything: the
-    compositor is gone, so nothing can put that name in the list and the assertion passes for a
+    compositor is gone, so nothing can put that name in the set and the assertion passes for a
     reason that has nothing to do with the claim. The hillshade test below survives it because a
     mutation case still plants `hs_3857` back into this set and this is what catches it.
     """
 
-    def test_the_hillshade_is_not_a_raytrace_dependency(self, tmp_path):
+    def _inputs(self, tmp_path, body=bodies.EARTH):
+        return block_freshness.inputs_for(tmp_path, body, planet_seam.KNOWN_RASTERS)
+
+    def test_the_hillshade_is_not_an_input(self, tmp_path):
         """Cycles computes its own light; `hs_3857` reaches no raytraced pixel."""
-        deps = block_render.raytrace_deps(tmp_path, tmp_path / block_render.PARAMS_NAME)
-        assert not any("hs" == path.stem or path.name.startswith("hs_") for path in deps)
+        assert not any(name == "hs" or name.startswith("hs_")
+                       for name in self._inputs(tmp_path))
 
     def test_the_warped_inputs_the_prep_cuts_from_are_all_tracked(self, tmp_path):
-        """The block prep reads exactly these, so a re-warp — a re-fuse, a new NSIDC or RGI —
-        has to restage the planet."""
-        deps = set(block_render.raytrace_deps(tmp_path, tmp_path / block_render.PARAMS_NAME))
+        """The block prep reads exactly these, so a re-warp, a re-fuse, a new NSIDC or RGI, moves
+        the ground under every block that reads it."""
+        inputs = set(self._inputs(tmp_path).values())
         for name in (planet_warp.HEIGHT_3857, planet_warp.OCEAN_3857, planet_warp.WATER_3857):
-            assert tmp_path / name in deps
+            assert tmp_path / name in inputs
         for layer in layers.warped_for(layers.BLOCK_LAYERS):
-            assert layer.warped_in(tmp_path) in deps
-        # THE OTHER DIRECTION, and it is the one that is silent: a dependency list built from the
-        # composite's set would restage every block when a layer this tier cannot read moves.
+            if layer.name in bodies.EARTH.surface_layers:
+                assert layer.warped_in(tmp_path) in inputs
+        # The other direction, and it is the one that is silent: a set built from the composite's
+        # would move every block's digest when a layer this tier cannot read moves.
         for layer in layers.LAYERS:
             if layer.warped_basename and layer.name not in layers.BLOCK_LAYERS:
-                assert layer.warped_in(tmp_path) not in deps
+                assert layer.warped_in(tmp_path) not in inputs
 
-    def test_the_recipe_itself_is_a_dependency(self, tmp_path):
-        recipe = tmp_path / block_render.PARAMS_NAME
-        assert recipe in block_render.raytrace_deps(tmp_path, recipe)
+    def test_a_layer_this_body_does_not_paint_is_not_one_of_its_inputs(self, tmp_path):
+        """The narrowing, which the mtime set did not have and could afford not to have: an
+        over-inclusive list cost nothing against a newest-mtime, and against a digest it re-renders
+        a planet for a raster the prep never opens."""
+        painted = {layer.warped_in(tmp_path)
+                   for layer in layers.warped_for(layers.BLOCK_LAYERS)
+                   if layer.name not in bodies.MARS.surface_layers}
+        assert painted, "Earth and Mars paint the same layers, so this test measures nothing"
+        assert not painted & set(self._inputs(tmp_path, bodies.MARS).values())
+
+    def test_a_raster_the_seam_does_not_declare_is_not_an_input(self, tmp_path):
+        """A body with no inland water is never asked for a water mask, which is the seam's own
+        rule rather than a `Path.exists()` sweep."""
+        thin = block_freshness.inputs_for(tmp_path, bodies.MARS, frozenset({"heightfield"}))
+        assert planet_warp.WATER_3857 not in thin and planet_warp.OCEAN_3857 not in thin
+        assert planet_warp.HEIGHT_3857 in thin
 
 
 class TestTheRecipeSeesWhatNoMtimeCan:
@@ -595,7 +662,7 @@ def _render_one_block(tmp_path, monkeypatch, **kwargs):
     monkeypatch.setattr(block_render, "rasterio",
                         _FakeRasterio(np.zeros((4, edge, edge), dtype=np.uint8)))
     block_render.render_block(bodies.EARTH, block, tmp_path / "planet_rgb.tif", scratch, markers,
-                              tmp_path, **kwargs)
+                              tmp_path, digest="0" * 32, **kwargs)
     return SimpleNamespace(frame=frame, scene=scene, render_dir=scratch / name,
                            marker=markers / name)
 
@@ -691,37 +758,26 @@ class TestABlockTooBigToRenderStopsTheRun:
             block_render.check_fits([_block(0, 0), oversized], bodies.EARTH)
 
 
-class TestTheRunnerStopsWhenTheMosaicIsAlreadyCurrent:
-    """The shipping path's early return, exercised rather than assumed: a fresh planet must cost a
-    plan and a stat, never a night. Planning is what the recipe is computed FROM, so it runs first
-    now; what must not run is a single Blender invocation."""
+class TestARunThatOwesNothingRendersNothing:
+    """A planet whose blocks all match what they were rendered from must cost a plan and a digest
+    pass, never a night.
 
-    def test_a_fresh_mosaic_renders_nothing(self, tmp_path, monkeypatch):
-        """The recipe is already on disk holding exactly what this run would write, which is the
-        second-run state: `write_if_changed` moves no mtime, so the stamp stays the newest thing."""
-        declare_planet_rasters(monkeypatch)
-        planned = [_block(0, column) for column in range(3)]
-        monkeypatch.setattr(block_render, "plan_blocks", lambda body, work: planned)
-        _stage_warped_inputs(tmp_path)
-        (tmp_path / block_render.PARAMS_NAME).write_text(block_render.recipe_for(
-            bodies.EARTH, planet_seam.declared(bodies.EARTH), planned))
-        mosaic = tmp_path / "planet_rgb.tif"
+    The mosaic's own completion stamp is not what makes it cheap any more, and that is a correction
+    rather than a regression: a stamp says a pass finished and nothing about which ground each block
+    read, so a mosaic stamped over blocks nobody rendered is a claim with no evidence under it.
+    """
+
+    def test_a_second_run_over_an_untouched_store_renders_nothing(self, tmp_path, monkeypatch):
+        _drive_small_planet(tmp_path, monkeypatch)
+        assert _drive_small_planet(tmp_path, monkeypatch) == []
+
+    def test_a_stamped_mosaic_with_no_markers_renders_everything(self, tmp_path, monkeypatch):
+        """The other direction, so the test above cannot pass by never rendering. The old early
+        return read the stamp and skipped the planet on the strength of it."""
+        mosaic = tmp_path / cut_tiles.PLANET_RGB
         mosaic.write_bytes(b"")
         freshness.mark_done(mosaic)
-        assert block_render.run(bodies.EARTH, tmp_path, mosaic) == 0
-
-    def test_a_moved_input_is_not_fresh(self, tmp_path, monkeypatch):
-        """The other direction, so the test above cannot pass by the predicate always saying yes."""
-        declare_planet_rasters(monkeypatch)
-        monkeypatch.setattr(block_render, "plan_blocks", _stop_here)
-        mosaic = tmp_path / "planet_rgb.tif"
-        mosaic.write_bytes(b"")
-        freshness.mark_done(mosaic)
-        _stale_by_a_second(freshness.done_marker(mosaic))
-        _stale_by_a_second(mosaic)
-        _stage_warped_inputs(tmp_path)
-        with pytest.raises(SystemExit, match="reached the plan"):
-            block_render.run(bodies.EARTH, tmp_path, mosaic)
+        assert len(_drive_small_planet(tmp_path, monkeypatch)) == 16
 
 
 class TestTheLoopStampsOnlyAWholePlanet:
@@ -833,16 +889,19 @@ class TestATHinSeamNoLongerStopsTheProducer:
 
 
 def _stage_warped_inputs(tmp_path):
-    """The warped rasters the block prep cuts from, as empty files: `check_inputs` asks only
-    whether they are there, and a test that wrote real ones would be testing rasterio.
+    """The warped rasters the block prep cuts from, as rasters rather than as empty files.
 
-    ONE THAT IS ALREADY THERE IS LEFT ALONE, because a test that drives two runs over one work
+    Empty files are cheaper and `check_inputs` accepts them, since it asks only whether they are
+    there. A run digests the ground each block reads out of them, so an unopenable file is a run
+    that cannot start.
+
+    One that is already there is left alone, because a test that drives two runs over one work
     directory would otherwise move an input's mtime between them and restage the second by its own
-    setup — which reads exactly like the defect such a test is looking for.
+    setup, which reads exactly like the defect such a test is looking for.
     """
     for name in (planet_warp.HEIGHT_3857, planet_warp.OCEAN_3857, planet_warp.WATER_3857):
         if not (tmp_path / name).exists():
-            (tmp_path / name).write_bytes(b"")
+            _write_small_raster(tmp_path / name)
 
 
 def _age_everything(root):
@@ -881,12 +940,12 @@ def _drive_planet(tmp_path, monkeypatch, *, mosaic=None, blocks=3, **kwargs):
     cut_from: set[Path] = set()
     handed: list[dict] = []
 
-    def _fake_render(body, block, mosaic, scratch, markers, work, **passed):
+    def _fake_render(body, block, mosaic, scratch, markers, work, *, digest, **passed):
         attempted.append(block_render.block_name(block))
         scratches.add(scratch)
         cut_from.add(work)
         handed.append(passed)
-        (markers / block_render.block_name(block)).write_text("margin 0\n")
+        block_render.write_marker(markers, block, digest, "BASE_GRID fitted BASE_PATCHES 1")
 
     monkeypatch.setattr(block_render, "plan_blocks", lambda body, work: planned)
     monkeypatch.setattr(block_render, "ensure_mosaic", lambda mosaic, body: None)
@@ -900,10 +959,6 @@ def _drive_planet(tmp_path, monkeypatch, *, mosaic=None, blocks=3, **kwargs):
     rendered = block_render.run(bodies.EARTH, tmp_path, mosaic, **kwargs)
     return SimpleNamespace(attempted=attempted, mosaic=mosaic, rendered=rendered,
                            scratches=scratches, cut_from=cut_from, handed=handed)
-
-
-def _stop_here(*args, **kwargs):
-    raise SystemExit("reached the plan")
 
 
 class TestTheDenoiseDeviceIsTheCallersAndIsRecorded:
@@ -942,10 +997,10 @@ class TestTheDenoiseDeviceIsTheCallersAndIsRecorded:
     def test_the_recipe_records_the_mask_depth(self):
         """The mask writer's depth is `prep_block`'s constant, and only this recipe can carry it.
 
-        A re-cut mask does not restage a rendered block: blocks are skipped by marker existence and
-        `raytrace_deps` tracks planet rasters rather than the per-block prep directory. So without
-        this key, changing the depth reaches only the blocks that were going to render anyway and
-        leaves every finished one carrying whatever the old depth produced.
+        A re-cut mask does not restage a rendered block: a block's digest covers the planet rasters
+        the prep reads, not the per-block directory it writes. So without this key, changing the
+        depth reaches only the blocks that were going to render anyway and leaves every finished one
+        carrying whatever the old depth produced.
         """
         recipe = json.loads(block_render.params(
             bodies.EARTH, frozenset(planet_seam.KNOWN_RASTERS), palette.EARTH_LOOK,
@@ -1023,7 +1078,7 @@ class TestTheRecipeRecordsWhatThePrepGradesWith:
 
     def test_the_ice_softening_moving_moves_the_recipe(self, monkeypatch):
         """`SOFTEN_FRACTION` reaches a pixel and reaches no file: the warped persistence raster is
-        unchanged by it, so `raytrace_deps` sees nothing move."""
+        unchanged by it, so every block's digest over the ground is unchanged too."""
         before = self._params()
         monkeypatch.setattr(snow, "SOFTEN_FRACTION", snow.SOFTEN_FRACTION * 2)
         assert self._params() != before
@@ -1055,9 +1110,9 @@ class TestTheRecipeRecordsWhatThePrepGradesWith:
         block pixel and recording it would have put a night of GPU behind a cap re-tune.
 
         The rig now reads the colour the prep resolved from the body's registry, so the white moves
-        a block pixel — and reaches freshness only here. `raytrace_deps` tracks planet rasters, not
-        the prep directory, and blocks skip on marker existence, so without this a re-tuned white
-        would leave every finished block wearing the old colour with every gate green.
+        a block pixel, and reaches freshness only here. A block's digest covers the planet rasters
+        the prep reads and not the directory it writes, so without this a re-tuned white would leave
+        every finished block wearing the old colour with every gate green.
         """
         before = self._params()
         monkeypatch.setattr(palette, "SNOW_RGB", (1, 2, 3))
@@ -1085,3 +1140,261 @@ class TestTheRecipeRecordsWhatThePrepGradesWith:
         recorded = json.loads(self._params(bodies.MARS))
         assert "snow_rgb_north" in recorded and "snow_rgb_south" in recorded, \
             "Mars paints its polar ice per pole, so both keys must be tracked even while they agree"
+
+
+#: The planet the ground tests below drive: four blocks across, on rasters small enough to write per
+#: test. Real pixels rather than the empty files the rest of this file stages, because what is being
+#: asked is which ground each block reads, which no `exists()` can answer.
+SMALL_GRID_PX = 256
+SMALL_BLOCK_PX = 64
+SMALL_CONTEXT_PX = 16
+
+#: The digest cell for these tests, scaled down with the grid. Production's is the rasters' own
+#: internal tile, which is wider than this whole planet and would put every block in one cell.
+SMALL_CELL_PX = 16
+
+
+def _small_block(row_index, column_index):
+    return Block(col0=column_index * SMALL_BLOCK_PX, row0=row_index * SMALL_BLOCK_PX,
+                 size_px=SMALL_BLOCK_PX, context_px=SMALL_CONTEXT_PX)
+
+
+def _write_small_raster(path, fill=0):
+    half = mercator.MERCATOR_HALF_M
+    with rasterio.open(path, "w", driver="GTiff", width=SMALL_GRID_PX,  # pyright: ignore[reportCallIssue]
+                       height=SMALL_GRID_PX, count=1, dtype="uint8", crs="EPSG:3857",
+                       transform=from_bounds(-half, -half, half, half,
+                                             SMALL_GRID_PX, SMALL_GRID_PX)) as out:
+        out.write(np.full((SMALL_GRID_PX, SMALL_GRID_PX), fill, dtype="uint8"), 1)
+
+
+def _paint(path, row, column, value=200):
+    """Move one pixel of a planet raster, leaving every other pixel as it was."""
+    with rasterio.open(path, "r+") as raster:  # pyright: ignore[reportCallIssue]
+        band = raster.read(1)
+        band[row, column] = value
+        raster.write(band, 1)
+
+
+def _an_earth_block_layer():
+    """One surface layer Earth declares and the block prep reads, derived rather than named: a
+    hardcoded layer would go quietly inert the day that layer left `BLOCK_LAYERS`."""
+    for layer in layers.warped_for(layers.BLOCK_LAYERS):
+        if layer.name in bodies.EARTH.surface_layers:
+            return layer
+    raise AssertionError("Earth declares no block layer, so this file's premise has moved")
+
+
+def _drive_small_planet(tmp_path, monkeypatch, *, across=4, observe=None, sample=None,
+                        sampled=None, fails=None, **kwargs):
+    """`run` over the small planet, returning the block names it attempted.
+
+    The stand-in renderer writes the marker production writes, because what these tests measure is
+    which blocks a SECOND run decides it owes. A fake that wrote its own marker format would be
+    measuring the fake.
+    """
+    declare_planet_rasters(monkeypatch)
+    monkeypatch.setattr(block_render, "free_bytes", lambda path: 1 << 60)
+    monkeypatch.setattr(block_freshness, "CELL_PX", SMALL_CELL_PX)
+
+    def _fake_sample(body, picked, mosaic, scratch, work):
+        """The sample needs Blender, so what it renders is stood in for. What is under test here is
+        whether the run consults it at all and what it does with the answer."""
+        if sampled is not None:
+            sampled.append([block_render.block_name(block) for block in picked])
+        return list(sample or [])
+
+    monkeypatch.setattr(block_render, "sample_disagreements", _fake_sample)
+    planned = [_small_block(row, column) for row in range(across) for column in range(across)]
+    attempted: list[str] = []
+
+    def _fake_render(body, block, mosaic, scratch, markers, work, *, digest, **passed):
+        if observe is not None:
+            observe(mosaic, markers)
+        attempted.append(block_render.block_name(block))
+        if block_render.block_name(block) in (fails or ()):
+            raise RuntimeError(f"{block_render.block_name(block)} was asked to fail")
+        block_render.write_marker(markers, block, digest, "BASE_GRID fitted BASE_PATCHES 1")
+
+    monkeypatch.setattr(block_render, "plan_blocks", lambda body, work: planned)
+    monkeypatch.setattr(block_render, "ensure_mosaic", lambda mosaic, body: None)
+    monkeypatch.setattr(block_render, "render_block", _fake_render)
+    for name in (planet_warp.HEIGHT_3857, planet_warp.OCEAN_3857, planet_warp.WATER_3857):
+        if not (tmp_path / name).exists():
+            _write_small_raster(tmp_path / name)
+    mosaic = tmp_path / cut_tiles.PLANET_RGB
+    if not mosaic.exists():
+        mosaic.write_bytes(b"")
+    block_render.run(bodies.EARTH, tmp_path, mosaic.resolve(), **kwargs)
+    return attempted
+
+
+class TestABlockOwesOnTheGroundItReadsAndNotOnThePlanet:
+    """Which blocks a second run re-renders, which today is all of them or none of them.
+
+    A block's pixels are a function of its own plane window of each input raster, the recipe and the
+    code. The first of those is per block and nothing reads it: a marker is an existence test, and
+    the only thing that clears markers clears every one of them, so a layer reaching 69 blocks costs
+    1,024. What each test below names is the ground one block reads, and the failure it guards is
+    the other direction: a block whose ground moved being skipped.
+
+    The plane window is the subject rather than the delivered block, and the two differ by the
+    context ring. Ground just outside a block casts shadows into it, so a check over the delivered
+    window alone skips a block whose light changed. That is the silent one.
+    """
+
+    def test_a_change_inside_one_block_restages_that_block_alone(self, tmp_path, monkeypatch):
+        """The saving, stated as the smallest case: a pixel no other block's plane window reaches."""
+        _drive_small_planet(tmp_path, monkeypatch)
+        _age_everything(tmp_path)
+        _paint(tmp_path / planet_warp.HEIGHT_3857, 96, 96)
+        assert _drive_small_planet(tmp_path, monkeypatch) == ["r01c01"]
+
+    def test_a_change_in_a_blocks_context_ring_restages_it(self, tmp_path, monkeypatch):
+        """The silent one. Column 124 belongs to r01c01 and lies inside r01c02's context ring, so it
+        can cast into r01c02 while r01c02 owns no pixel of it. A check over each block's delivered
+        window passes the test above and leaves this one shipping a stale shadow.
+
+        Neither block wraps, so what this measures is the ring rather than the antimeridian below.
+        """
+        _drive_small_planet(tmp_path, monkeypatch)
+        _age_everything(tmp_path)
+        _paint(tmp_path / planet_warp.HEIGHT_3857, 96, 124)
+        attempted = _drive_small_planet(tmp_path, monkeypatch)
+        assert "r01c02" in attempted, "the block whose ring reaches the change must re-render"
+        assert set(attempted) == {"r01c01", "r01c02"}
+
+    def test_a_change_across_the_antimeridian_restages_the_first_column(self, tmp_path, monkeypatch):
+        """The planet joins itself in longitude, and `prep_block._read_cyclic` wraps for it, so
+        r01c00's ring reads the far side of the grid. A cover that clipped at the edge instead would
+        skip column 0 for a change it actually renders, and nothing on the frame would show it."""
+        _drive_small_planet(tmp_path, monkeypatch)
+        _age_everything(tmp_path)
+        _paint(tmp_path / planet_warp.HEIGHT_3857, 96, 244)
+        attempted = _drive_small_planet(tmp_path, monkeypatch)
+        assert "r01c00" in attempted, "a plane window wraps in longitude and must be read wrapped"
+        assert set(attempted) == {"r01c00", "r01c03"}
+
+    def test_a_change_at_the_south_edge_does_not_restage_the_north_row(self, tmp_path, monkeypatch):
+        """The control for the wrap above, and the asymmetry it rests on: rows CLAMP where columns
+        wrap, because a Mercator planet does not join itself at the poles. A cover that wrapped both
+        axes alike passes the antimeridian test and re-renders the far pole for nothing."""
+        _drive_small_planet(tmp_path, monkeypatch)
+        _age_everything(tmp_path)
+        _paint(tmp_path / planet_warp.HEIGHT_3857, 250, 96)
+        attempted = _drive_small_planet(tmp_path, monkeypatch)
+        assert "r00c01" not in attempted, "the north row reads no ground from the south row"
+        assert set(attempted) == {"r03c01"}
+
+    def test_an_identical_rewrite_restages_nothing(self, tmp_path, monkeypatch):
+        """A re-warp that lands the same pixels moves an mtime and no ground, and today it costs a
+        whole night of Cycles to emit the planet already on disk."""
+        _drive_small_planet(tmp_path, monkeypatch)
+        _age_everything(tmp_path)
+        _write_small_raster(tmp_path / planet_warp.HEIGHT_3857)
+        assert _drive_small_planet(tmp_path, monkeypatch) == []
+
+    def test_a_declared_layers_raster_going_missing_restages_its_readers(self, tmp_path,
+                                                                        monkeypatch):
+        """The one no mtime can see, and it fails in the direction that ships.
+
+        `newest_mtime` scores an absent path 0.0, so deleting a warped layer moves nothing at all
+        and every marker goes on vouching for pixels painted with it. The prep reads a layer only
+        where its raster is on disk, so the next render of any block would drop it silently.
+        """
+        layer = _an_earth_block_layer()
+        _write_small_raster(layer.warped_in(tmp_path), fill=40)
+        _drive_small_planet(tmp_path, monkeypatch)
+        _age_everything(tmp_path)
+        layer.warped_in(tmp_path).unlink()
+        assert len(_drive_small_planet(tmp_path, monkeypatch)) == 16, \
+            f"{layer.name}'s raster left the store and no block noticed"
+
+
+class TestAPartialRunProvesWhatItIsAboutToSkip:
+    """Nothing in a file can see the render code, Blender, the driver or Cycles' own noise, so the
+    only instrument that can is a skipped block rendered again against the planet on disk.
+
+    A disagreement stops the run and reports it rather than falling back to rendering the planet. A
+    fallback spends a night hiding the fact that the cheap check was wrong about something, and the
+    planet that then ships is the one nobody looked at.
+    """
+
+    def _partial(self, tmp_path, monkeypatch, **kwargs):
+        """A run owing one block and skipping fifteen, which is the state the sample exists for."""
+        _drive_small_planet(tmp_path, monkeypatch)
+        _age_everything(tmp_path)
+        _paint(tmp_path / planet_warp.HEIGHT_3857, 96, 96)
+        return _drive_small_planet(tmp_path, monkeypatch, **kwargs)
+
+    def test_a_run_that_would_skip_blocks_samples_them_first(self, tmp_path, monkeypatch):
+        sampled: list[list[str]] = []
+        assert self._partial(tmp_path, monkeypatch, sampled=sampled) == ["r01c01"]
+        assert len(sampled) == 1 and sampled[0] and "r01c01" not in sampled[0], \
+            "the sample is of what the run would skip, so the block it owes is not one of them"
+
+    def test_a_disagreeing_sample_stops_the_run_before_any_block(self, tmp_path, monkeypatch):
+        assert self._partial(tmp_path, monkeypatch,
+                             sample=["r00c00 p99 9 DN, worst 40 DN"]) == []
+
+    def test_a_stopped_run_leaves_the_planet_exactly_as_it_was(self, tmp_path, monkeypatch):
+        """Stop and report means change nothing. A run that unstamped the mosaic on its way out
+        would leave every later cut refusing a planet no worse than before it started."""
+        self._partial(tmp_path, monkeypatch, sample=["r00c00 p99 9 DN, worst 40 DN"])
+        assert freshness.done_marker((tmp_path / cut_tiles.PLANET_RGB).resolve()).exists()
+
+    def test_a_first_pass_has_nothing_to_sample(self, tmp_path, monkeypatch):
+        """It disarms itself on a full pass rather than needing a flag: with no block skipped there
+        is nothing whose skipping could be wrong, and the sample would be GPU spent on nothing."""
+        sampled: list[list[str]] = []
+        _drive_small_planet(tmp_path, monkeypatch, sampled=sampled)
+        assert sampled == []
+
+    def test_a_named_subset_is_the_operators_and_is_not_sampled(self, tmp_path, monkeypatch):
+        """`--only` never stamps the mosaic, so it cannot ship a planet at all, and its blocks were
+        picked by hand rather than by the digest."""
+        _drive_small_planet(tmp_path, monkeypatch)
+        _age_everything(tmp_path)
+        _paint(tmp_path / planet_warp.HEIGHT_3857, 96, 96)
+        sampled: list[list[str]] = []
+        _drive_small_planet(tmp_path, monkeypatch, sampled=sampled, only=frozenset({"r01c01"}))
+        assert sampled == []
+
+
+class TestTheSampleIsPickedByWhatEachBlockHolds:
+    """A change that moves only the polar rows is invisible to every mid-latitude block, and a
+    sample picked by convenience proves nothing about the planet it lets through."""
+
+    def _blocks(self):
+        return [_small_block(row, column) for row in range(4) for column in range(4)]
+
+    def _cells(self, reach) -> dict[str, "block_freshness.InputCells | None"]:
+        """One input reaching exactly the cells named, on the small planet's own cell grid."""
+        edge = SMALL_GRID_PX // SMALL_CELL_PX
+        nonzero = np.zeros((edge, edge), dtype=bool)
+        for row, column in reach:
+            nonzero[row, column] = True
+        return {"ice.tif": block_freshness.InputCells(
+            "ice.tif", SMALL_GRID_PX, SMALL_GRID_PX, SMALL_CELL_PX,
+            np.zeros((edge, edge), dtype=np.uint64), nonzero)}
+
+    def test_both_edge_rows_are_represented(self, ):
+        """The plane overhangs the grid only at the poles, so those two rows are the ones a change
+        to the overhang moves and every other block is blind to it."""
+        blocks = self._blocks()
+        picked = block_render.sample_for(blocks, blocks, self._cells([]), 4)
+        assert {0, 3} <= {block.row0 // block.size_px for block in picked}
+
+    def test_a_block_holding_a_layer_is_not_stood_in_for_by_one_that_does_not(self):
+        blocks = self._blocks()
+        picked = block_render.sample_for(blocks, blocks, self._cells([(6, 6)]), 3)
+        assert "r01c01" in {block_render.block_name(block) for block in picked}
+
+    def test_the_sample_is_capped_at_what_was_asked_for(self):
+        blocks = self._blocks()
+        assert len(block_render.sample_for(blocks, blocks, self._cells([]), 5)) == 5
+
+    def test_a_sample_wider_than_what_is_skipped_is_what_is_skipped(self):
+        """A run skipping three blocks samples three, rather than looping on empty groups."""
+        blocks = self._blocks()
+        assert len(block_render.sample_for(blocks, blocks[:3], self._cells([]), 12)) == 3

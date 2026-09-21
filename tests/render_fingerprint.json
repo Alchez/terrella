@@ -171,6 +171,7 @@
     ],
     "rig": {
       "look": {
+        "fill_kelvin": 12000.0,
         "land_range": [
           0.0,
           6000.0
@@ -311,7 +312,7 @@
         "denoising_quality": "HIGH",
         "device": "GPU",
         "dicing_rate": 1.0,
-        "displacement_method": "DISPLACEMENT",
+        "displacement_method": "BOTH",
         "displacement_midlevel": 0.0,
         "displacement_space": "OBJECT",
         "engine": "CYCLES",
@@ -514,6 +515,7 @@
     ],
     "rig": {
       "look": {
+        "fill_kelvin": null,
         "land_range": [
           -8600.0,
           6100.0
@@ -605,7 +607,7 @@
         "denoising_quality": "HIGH",
         "device": "GPU",
         "dicing_rate": 1.0,
-        "displacement_method": "DISPLACEMENT",
+        "displacement_method": "BOTH",
         "displacement_midlevel": 0.0,
         "displacement_space": "OBJECT",
         "engine": "CYCLES",
@@ -677,24 +679,24 @@
     "row_edge_mode": "edge",
     "sea": null,
     "snow_rgb_north": [
-      226,
-      242,
-      253
+      232,
+      241,
+      246
     ],
     "snow_rgb_south": [
-      226,
-      242,
-      253
+      232,
+      241,
+      246
     ],
     "snow_shadow_rgb_north": [
-      185,
-      198,
-      207
+      189,
+      197,
+      201
     ],
     "snow_shadow_rgb_south": [
-      185,
-      198,
-      207
+      189,
+      197,
+      201
     ],
     "traced_px": 4352,
     "white_exclusions": [],
@@ -764,6 +766,7 @@
     ],
     "rig": {
       "look": {
+        "fill_kelvin": 12000.0,
         "land_range": [
           0.0,
           6000.0
@@ -904,7 +907,7 @@
         "denoising_quality": "HIGH",
         "device": "GPU",
         "dicing_rate": 1.0,
-        "displacement_method": "DISPLACEMENT",
+        "displacement_method": "BOTH",
         "displacement_midlevel": 0.0,
         "displacement_space": "OBJECT",
         "engine": "CYCLES",
@@ -1084,6 +1087,7 @@
     ],
     "rig": {
       "look": {
+        "fill_kelvin": 12000.0,
         "land_range": [
           0.0,
           6000.0
@@ -1224,7 +1228,7 @@
         "denoising_quality": "HIGH",
         "device": "GPU",
         "dicing_rate": 1.0,
-        "displacement_method": "DISPLACEMENT",
+        "displacement_method": "BOTH",
         "displacement_midlevel": 0.0,
         "displacement_space": "OBJECT",
         "engine": "CYCLES",
@@ -1392,6 +1396,7 @@
     ],
     "rig": {
       "look": {
+        "fill_kelvin": null,
         "land_range": [
           -8600.0,
           6100.0
@@ -1483,7 +1488,7 @@
         "denoising_quality": "HIGH",
         "device": "GPU",
         "dicing_rate": 1.0,
-        "displacement_method": "DISPLACEMENT",
+        "displacement_method": "BOTH",
         "displacement_midlevel": 0.0,
         "displacement_space": "OBJECT",
         "engine": "CYCLES",
@@ -1545,24 +1550,24 @@
       }
     },
     "snow_rgb_north": [
-      226,
-      242,
-      253
+      232,
+      241,
+      246
     ],
     "snow_rgb_south": [
-      226,
-      242,
-      253
+      232,
+      241,
+      246
     ],
     "snow_shadow_rgb_north": [
-      185,
-      198,
-      207
+      189,
+      197,
+      201
     ],
     "snow_shadow_rgb_south": [
-      185,
-      198,
-      207
+      189,
+      197,
+      201
     ],
     "white_exclusions": [],
     "white_union": [
@@ -1619,6 +1624,7 @@
     ],
     "rig": {
       "look": {
+        "fill_kelvin": null,
         "land_range": [
           -8600.0,
           6100.0
@@ -1710,7 +1716,7 @@
         "denoising_quality": "HIGH",
         "device": "GPU",
         "dicing_rate": 1.0,
-        "displacement_method": "DISPLACEMENT",
+        "displacement_method": "BOTH",
         "displacement_midlevel": 0.0,
         "displacement_space": "OBJECT",
         "engine": "CYCLES",
@@ -1772,24 +1778,24 @@
       }
     },
     "snow_rgb_north": [
-      226,
-      242,
-      253
+      232,
+      241,
+      246
     ],
     "snow_rgb_south": [
-      226,
-      242,
-      253
+      232,
+      241,
+      246
     ],
     "snow_shadow_rgb_north": [
-      185,
-      198,
-      207
+      189,
+      197,
+      201
     ],
     "snow_shadow_rgb_south": [
-      185,
-      198,
-      207
+      189,
+      197,
+      201
     ],
     "white_exclusions": [],
     "white_union": [

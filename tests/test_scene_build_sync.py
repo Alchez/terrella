@@ -103,10 +103,10 @@ class TestRampsAreThePalettes:
         supplies the difference — which is what taking the look as an ARGUMENT bought: this used to
         need `importlib.reload` around a monkeypatched module global.
         """
-        moved = palette.Look(
+        moved = dataclasses.replace(
+            palette.EARTH_LOOK,
             land=palette.Surface(stops=palette.EARTH_LOOK.land.stops,
                                  origin_m=-1234.0, extreme_m=palette.LAND_MAX_M),
-            sea=palette.EARTH_LOOK.sea,
         )
         assert scene_build.look_constants(moved).land_range == (-1234.0, palette.LAND_MAX_M)
         assert scene_build.look_constants(palette.EARTH_LOOK).land_range == (
@@ -359,7 +359,7 @@ class TestTheRigRecipeCarriesTheLook:
     def test_a_sealess_look_records_the_absence(self, scene_build):
         """`None` is the statement that this planet draws no sea, and the recipe has to carry it:
         a body that GAINED a sea would otherwise restage nothing."""
-        sealess = palette.Look(land=palette.EARTH_LOOK.land, sea=None)
+        sealess = dataclasses.replace(palette.EARTH_LOOK, sea=None)
         recipe = scene_build.rig_recipe(sealess, EVERY_IMAGE)
         assert recipe["look"]["sea_stops"] is None
         assert recipe["sea_texture"] is None

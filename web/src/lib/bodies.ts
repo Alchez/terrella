@@ -287,10 +287,9 @@ export const BODIES: Record<BodySlug, BodyDescriptor> = {
     hasBorders: true,
     hasHeroes: true,
   },
-  // MARS'S ACCENTS ARE EYE-RATIFIED AGAINST THE SHIPPED GLOBE, not ramp-derived. Deriving them from
-  // ramp stops was tried, measured and reverted — the authored stops read visibly cooler than the
-  // tiles, which `shade.KNOBS` resaturates and warms. Do not retry it. Earth's `accent.dark` is the
-  // same shape: no ramp stop.
+  // Mars's accents are eye-ratified against the shipped globe, not ramp-derived. Deriving them from
+  // ramp stops was tried, measured and reverted: a stop is not the colour a lit, tone-mapped tile
+  // shows. Do not retry it. Earth's `accent.dark` is the same shape: no ramp stop.
   //
   // THE THREE BOOLEANS ARE DECISIONS. Each says what Mars ships today, and each has a reason that
   // is not "we have not got to it yet".

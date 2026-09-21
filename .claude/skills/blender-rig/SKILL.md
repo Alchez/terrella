@@ -1,6 +1,6 @@
 ---
 name: blender-rig
-description: Working with Blender for Terrella's relief renders. Load when driving the Blender GUI, writing or changing bpy code in the render rig, or diagnosing an OptiX or CUDA failure. Carries the 5.1.2 UI posture, the shader gotchas that produce plausible wrong output rather than an error, and the crash recipe.
+description: Working with Blender for Terrella's relief renders. Load when driving the Blender GUI, writing or changing bpy code in the render rig, or diagnosing an OptiX or CUDA failure. Carries the 5.1.2 UI posture, the shader gotchas that produce plausible wrong output rather than an error, the crash recipe, and how to read how dense a mesh Cycles diced.
 ---
 
 # Blender, for this project
@@ -31,6 +31,9 @@ Every one of these produces plausible-looking wrong output rather than an error,
 - **ColorRamp stops re-sort by position**, so never address one by index. The bpy edition of this is documented where it bites, in `scene_build.make_ramp`: `elements.new()` and position writes both re-sort the collection and invalidate any element reference held across the mutation.
 - **`ShaderNodeMath` defaults to ADD with `use_clamp` off.** Both need setting explicitly; a silently clamped factor is correct near 1.0 and wrong at the extremes.
 - **Blender's blackbody stops at 12,000 K, in the Blackbody node and in a light's own temperature field alike.** Every temperature from 12,000 K up returns 12,000 K's colour exactly, so a hotter light renders as 12,000 K and raises nothing. Below that both agree with the CIE Planckian locus within 0.2%; a hotter colour needs an explicit RGB computed from the locus.
+- **"Displacement and Bump" replaces the mesh's shading normal rather than adding to it.** Cycles rebuilds each normal from the displacement sampled at the shading point and one ray differential away, on the undisplaced surface, so nothing is counted twice, and on terrain the mesh already resolves it changes nothing. A new material is "Bump Only" until told otherwise, which drops the geometry and every shadow.
+  - **Its strength is fixed at 1 and no Blender property reaches it.** The kernel ends `normalize(strength * bumped + (1 - strength) * mesh)`, and `bump_from_displacement` builds that node with distance 1 and the default strength. Dialling it means building the bump in the shader: either mix the bumped surface with one shaded off the per-facet normal, whose travel is unknown at one facet per pixel, or drive an explicit bump node, which counts the mesh's own slope twice unless the height is high-passed first.
+  - **It darkens wherever fine relief exists**, since facets turned from a low sun lose more than facets turned toward it gain. The loss is roughly a fixed number of DN, so it is a far larger share of ground that was already shaded, which is what reads as valleys deepening.
 - **`is` on any RNA reference is False even for the same datablock**, because Blender returns a fresh Python wrapper on every access: `link.to_node is node` and `link.to_socket is node.inputs[0]` never match, so compare `.name`. A probe that unlinks a socket this way cuts nothing, the socket keeps its link, the default it then writes is ignored because a linked socket has no default, and the render is production under a different filename. Assert the count of links you CUT, never the count of nodes you found.
 
 ## When a render dies
@@ -38,3 +41,7 @@ Every one of these produces plausible-looking wrong output rather than an error,
 `OPTIX_ERROR_UNKNOWN` at context creation is usually not a driver fault. Check `journalctl -k` for NVRM **Xid** lines. If the Xid names a Blender pid, the driver is fine and the CUDA context is dead: restart Blender to clear it.
 
 Render heavy jobs one at a time under the project's cgroup scope. A hook enforces this, and the category that matters is "touches a full-planet raster" rather than "is a pipeline stage".
+
+## How dense a mesh Cycles actually built
+
+Nothing in bpy reports the diced mesh. Run Blender with `--log cycles --log-level debug` and read the `Buffer allocate: tri_verts` line: its bytes scale with the vertices Cycles made, off-screen dicing included, so two setups compare by bytes per pixel in view. Read it before trusting that a changed camera or dicing rate changed only what you meant: a camera narrowed onto a window meshes that window more densely than the full block's camera does.

@@ -28,6 +28,10 @@ Ideas deliberately **not** planned: analysed enough to record, parked without co
 - [Large-country warp and small-island exaggeration](#hero-presentation-large-country-warp--small-island-exaggeration-analysed-2026-07-24) · look-call · needs-gpu
 - [Hero and block renders differ in their contents](#hero-and-block-renders-differ-in-their-contents-when-only-their-projection-should-raised-2026-08-24) · look-call · needs-gpu
 
+**Mars's caps re-render.** The disc's size is free to change only then.
+
+- [Mars's cap disc is drawn finer than its source's rows](#marss-cap-disc-is-drawn-finer-than-its-sources-rows-analysed-2026-09-21) · look-call · needs-render-store
+
 **An accessibility pass.** Each says to do the other at the same time, for one round of judgement.
 
 - [`forced-colors` is unhandled](#forced-colors-is-unhandled-and-the-rails-icons-are-the-thing-it-breaks-analysed-2026-08-02) · no-data-needed
@@ -97,6 +101,8 @@ Not a lower tier. Nobody has written down what would make them worth doing, and 
 - [A cold page load at high zoom paints a flat fill and never recovers](#a-cold-page-load-at-high-zoom-paints-a-flat-fill-and-never-recovers-observed-2026-08-11-not-analysed)
 - [Tiles "jump" a little when panning around a pole](#tiles-jump-a-little-when-panning-around-a-pole-observed-2026-08-11-not-analysed)
 - [The heightfield wraps at a block's plane edge, and the context law does not bound the wall it stands](#the-heightfield-wraps-at-a-blocks-plane-edge-and-the-context-law-does-not-bound-the-wall-it-stands-observed-2026-09-13-not-analysed)
+- [Mars's source elevation steps about 110 m along 15°S](#marss-source-elevation-steps-about-110-m-along-15s-observed-2026-09-19-not-analysed)
+- [GLO-30 steps up to 16 m along a straight line near the South Pole](#glo-30-steps-up-to-16-m-along-a-straight-line-near-the-south-pole-observed-2026-09-19-not-analysed)
 
 ## The detail card cannot state an elevation the DEM does not know (analysed 2026-08-27)
 
@@ -181,6 +187,37 @@ The globe's detail card carries a country's name, its continent and a link, and 
 - **A candidate link, nothing more**: *the context's zero fill stood a 71 km wall* left a residual join of −2.90 DN that its fix did not close.
 - **If it is real, the fix is EXTEND on the heightfield's `TextureSpec`**, which `rig_recipe` records, so it re-renders both planets and belongs with the next batched look change.
 
+## Mars's source elevation steps about 110 m along 15°S (observed 2026-09-19, not analysed)
+
+> **OBSERVED, NOT ANALYSED**. Seen on one Mars block and confirmed in the source raster, with its extent across the planet unmeasured, so the next action is the census below.
+
+- **Seen on Valles Marineris' block `r08c04`** as a straight east-west line in three segments across a 1,024 px crop, there before bump shading and sharper with it. HISTORY, *bump shading is built for every body*.
+- **It is in the source, not the pipeline.** USGS's HRSC and MOLA blend steps a median 112 m between two rows at 15.006°S, from 81.6°W to 75.9°W, in 61% of the columns; the block's heightfield carries the same step spread over three rows.
+- **A round latitude suggests a boundary in how the product was assembled**, so the other multiples of 15° are the first place to look. That is a guess from one line.
+- **The census that settles it**: the mean absolute step between consecutive source rows, planet-wide, against each row's neighbours. It reads the whole raster, so it runs under the cgroup cap.
+- **Any fix smooths the step in our copy before the warp**, and per-block freshness then re-renders only the blocks whose ground moved.
+
+## Mars's cap disc is drawn finer than its source's rows (analysed 2026-09-21)
+
+> **OPEN** · look-call · needs-render-store · **reopens when** Mars's caps re-render, which is the only moment the disc's size costs nothing to change.
+
+- **State at analysis:** Mars's caps are drawn at 115.8 m of ground per pixel from a blend whose rows are 200 m apart, so the disc stretches the source's row-scale texture by 1.7. Mars exaggerates 20 times, which turns 0.2 to 0.8 m of it into a slope steep enough to shade, and bump shades that slope directly. Judged acceptable on one frame a pole. HISTORY, *bump on Mars's two caps*.
+- **The ratio alone does not predict it.** Earth's caps sit at 217.4 m against a fuse whose rows are about 308 m, finer by 1.4, and show none of it: that fuse is averaged from 30 m data, so it has no row-scale texture to stretch.
+- **The lever is the disc's side, and it is one constant for both bodies.** `cap_render.CAP_PX` sizes both grids and the shipped ladder pins its top rung to it, which `test_cap_render` holds. Mars at 4096 draws at 231.6 m per pixel, coarser than the source's rows, and the elevation texture's side still divides it.
+- **What it costs to build:** the side becomes a body field, as the tile ceiling and the exaggeration already are, and the ladder and `caps.json` then derive per body. The web needs no change, since it fetches that manifest rather than copying it.
+- **What it costs in the picture, which is why it is a look call:** Mars's top texture halves, so the disc carries a quarter of the pixels at full zoom. That trades detail over the whole disc against the striation. Re-rendering both discs at the smaller side costs about a third of today's per-pole time, interpolated between the two disc sizes PROCESS records.
+- **The half-measure** is smoothing the cap height image for Mars before the rig: it keeps the texture size and softens real relief along with the texture.
+
+## GLO-30 steps up to 16 m along a straight line near the South Pole (observed 2026-09-19, not analysed)
+
+> **OBSERVED, NOT ANALYSED**. Seen on one south cap frame and confirmed in the source tile, with how many such lines the disc carries unmeasured, so the next action is the census below.
+
+- **Seen on the south cap's frame `r1c1` pass 11** as a straight line about 56 km long, from 88.4°S to 88.9°S near 178°E, there before bump shading and faintly sharper with it. HISTORY, *the fill and bump on Antarctica's painted white*.
+- **It is in the source, not the pipeline.** The raw GLO-30 tile, the fused heightfield and the cap's height image all step at the same place: 12 to 16 m across the line's middle, about 5 m toward one end.
+- **It follows neither a meridian nor a GLO-30 tile edge**, being straight in the polar plane and crossing 178°E. A seam between two of the satellite's acquisitions would draw such a line; that is a guess, not a finding.
+- **The census that settles it**: each cap's height image scanned for straight steps well above the local relief. It reads only the two cap rasters.
+- **Any fix smooths the step in our copy before the warp.** The line lies south of where the Mercator blocks stop, so only the south cap re-renders.
+
 ## Heroes record no recipe, so nothing on disk says which rig made any of the 203 (analysed 2026-08-21, PARKED)
 
 > **OPEN** · needs-render-store · **reopens when** a hero re-render is scheduled. One of three entries that fire on that same event.
@@ -255,7 +292,7 @@ The raytraced rig's look was ratified with one reservation named: slightly too m
 
 **Lit land did not move.** That is the control: the ramp's own output is unchanged to within a rounding error, so every bit of the land's gain is shading, and a ramp edit would move the one population that is already right. The first pass at this binned on ELEVATION and reached the opposite conclusion, because the ramp's mid stops are both dark and already saturated, so "dark" and "saturated" were confounded.
 
-**The levers are `fill_strength` 0.45, `world_strength` 0.3 and `world_rgba`, all in `scene_build.py` and all global**, so any of them reaches the sea as well. The sea survives that better than feared: its gain is majority-LIT (+32.7% before shadow adds 13 more points), so a lever that removes the shadow-specific saturation entirely should leave the sea near +33% against the +39% measured overall, keeping roughly four fifths of what was ratified. **That last sentence is a prediction from the split above, not a rendered arm.**
+**The levers are `fill_strength` 0.45, `world_strength` 0.3 and `world_rgba`, all in `scene_build.py` and all global**, so any of them reaches the sea as well. The fill's colour is a fourth, and the table above was measured under a white fill: Earth's 12,000 K fill cools shaded land, the population carrying the gain, while the sea's colour is compensated back on flat ground. The sea survives that better than feared: its gain is majority-LIT (+32.7% before shadow adds 13 more points), so a lever that removes the shadow-specific saturation entirely should leave the sea near +33% against the +39% measured overall, keeping roughly four fifths of what was ratified. **That last sentence is a prediction from the split above, not a rendered arm.**
 
 **The unpriced third term.** Those levers work by lifting ambient into shadow, and shadow contrast is what carries the relief modelling. Cast shadows were rejected twice, the second time on precisely this mechanism: scaling light amplitude scales fine detail with it. These are fill and world rather than the main sun, so the objection does not transfer automatically, and it does not obviously fail either.
 
@@ -374,14 +411,14 @@ Presets decompose into **three kinds by where the variation lives**: costs diffe
   | z0–9 | 152.9 | 443 GB | 10.8 h | 349,525 | 12 GB | 3.0× |
   | z0–10 | 76.4 | **1,773 GB** | **43.2 h** | 1,398,101 | 48 GB | 6.1× |
 
-- **z10 does not fit, and that is the decision.** 1.73 TB of intermediates does not fit beside the ~1.3 TB already on the render box's disk. Reclaiming every hero intermediate (~182 GB) still falls short, and `glo30/`'s 551 GB cannot go: it is what the re-fuse reads. This is a hardware precondition, not a scheduling one.
+- **z10 does not fit, and that is the decision.** It needs 1.73 TB of intermediates beside everything the render store already holds. Reclaiming every hero intermediate (~182 GB) still falls short, and `glo30/`'s 551 GB cannot go: it is what the re-fuse reads. This is a hardware precondition, not a scheduling one, so check 1.73 TB against the store's own free space rather than against any figure written here.
 - **The single worst stage is the lake warp: 1:01:44 → ~16.5 h**, more than a third of the 43 h.
 - **WebP changed the delivery side only.** A z10 archive is ~48 GB in WebP vs ~260 GB in PNG (5.2×, measured on the real pyramid: 16 GB → 3.0 GB). That is what would make a deep pyramid *shippable* at all. The intermediates are uncompressed working rasters and are unmoved, so "we use WebP now" does not reopen z10.
 - **The aesthetic argument, which stands independently of cost.** GEBCO is 15 arc-sec: **measured on the file: 464 m/px**. Land has real headroom at z10 (30 m source into 76 m/px); the sea does not. Upsampling goes **1.5× → 6.1×**, so z10 makes land crisper while leaving the sea exactly as soft as it is now, **quadrupling the land/sea detail mismatch**. Bathymetry is signature, not optional (CLAUDE.md § Data sources), so this is a look regression bought with 43 hours.
 - **The old precondition is CLOSED: do not re-raise it.** Locking z8 recorded a latent gap (`ocean`/`water`/`lakedepth` take their grid from `height_3857` but did not depend on it, so a re-fuse would leave `lakedepth` falsely fresh at old dimensions: a silently wrong composite) with *"fix before any re-fuse, not after."* It was fixed at the Antarctica re-fuse: `warp_needs_rebuild` is now `is_stale(...) or not grid_matches(...)`, exactly the prescribed dimension/bounds test. Reading the 07-17 entry alone still reads as outstanding; it is not.
 - **Sequencing vs Tier 3: Tier 3 first, and it is not close.** (a) z10 is blocked, so there is no ordering to decide; (b) Tier 3 is disk-cheap: terrain-RGB is a single-band elevation encode cut from the `height_3857.tif` that already exists, roughly the colour archive's size, not another 1.7 TB; (c) they are **independent MapLibre sources with their own `maxzoom`**, so terrain need not match the colour pyramid's depth: displacement meshes are coarse and z8 terrain is ample. Building Tier 3 now is therefore not invalidated by a later re-fuse, and `warp_needs_rebuild`'s grid comparison would restage it correctly if one ever landed.
 - **Measured 2026-07-27, correcting two estimates above; settled 2026-07-28.** (b) held, and better than projected: the built z0–8 terrain archive is **2.63 GB** against the colour archive's 3.0 GB (the ~3.3 GB projection was 25% high). (c) was wrong: **"z8 terrain is ample" confused what is built with what is reachable.** MapLibre picks the DEM zoom from the *declared* tile size, so depth is not a free choice: at `tileSize: 512` the DEM sits at `camera − 2` and **nothing past z6 could ever load** against `maxZoom: 8`; 256 reaches z7; only **128 reaches z8**, which is what shipped. z8 is the floor in any case: 256 tiles × 512 px = 131,072 px, exactly the master's grid, so anything deeper needs a re-fuse and lands squarely in the z9/z10 question above.
-- **If depth is wanted, z9 is the one that is merely expensive rather than impossible:** 443 GB and ~11 h, 3× GEBCO upsample rather than 6×. Not recommended, and it **no longer fits the free space** either: 443 GB against **389 GB free**, so it fits only by deleting the ~100 GB z8 store first, i.e. with no rollback. **Nothing in the raytraced-tile work needs it**: a raytraced pyramid renders the same 17.18 Gpx z8 grid, and depth makes its one known amplification (GEBCO's survey artefacts) worse. HISTORY, *the raytraced planet costs about 24 hours*.
+- **If depth is wanted, z9 is the one that is merely expensive rather than impossible:** 443 GB and ~11 h, 3× GEBCO upsample rather than 6×. Not recommended, and whether it fits is a question to ask the disk rather than this file: measure 443 GB against the store's free space, and expect it to need the ~100 GB z8 store deleted first, i.e. with no rollback. **Nothing in the raytraced-tile work needs it**: a raytraced pyramid renders the same 17.18 Gpx z8 grid, and depth makes its one known amplification (GEBCO's survey artefacts) worse. HISTORY, *the raytraced planet costs about 24 hours*.
 - **Revisit when:** a larger disk lands. Then re-derive from PROCESS rather than trusting this table: every number here is ×16 of a measured z8 stage, not itself measured. Ties to the `glo30/` retention lever above: a firm no-go on a finer re-fuse is what would let 551 GB drop to on-demand.
 
 ### A re-fuse WITHOUT a deeper pyramid: it inflates one store and leaves delivery alone (analysed 2026-08-25)
@@ -793,10 +830,9 @@ The working plan went back to holding one onboarding question at a time, which i
   - Whether a pass is owed is answered by diffing `raytrace_params.json` against `block_render.recipe_for`, fed the store's declared rasters and planned blocks, which is the text `run` writes. Building `params()`'s four arguments by hand is the defect that deleted the curve fingerprint.
 - **The salt flats are built and not yet on the globe.** The maintainer has judged them at eight look sites (HISTORY, *the eight look sites are rendered under the filtered salt*), so the rest, Etosha, the Great Salt Lake Desert, the Aralkum, Chott el Djerid and GWL's specks among it, wants his look on the rendered pass before it ships.
   - The recipe move re-renders every Earth block, wherever the salt lies. Mars and the caps record only what they can draw, so it moves neither.
-- **Re-render only the blocks whose inputs moved**, which a marker set cleared whole cannot do: a layer that reaches some of Earth's 1,024 blocks re-renders all of them. The largest saving against identical-pixel re-renders, and a design of its own.
 - **The block-row seam wants an Earth pass, for a gain 95% hidden by the polar cap.** `block_render` plus the cut plus both caps plus pack, which is a night.
   - **The code half is settled and is not on offer again**: `prep_block.ROW_EDGE_MODE` is `"edge"` in the tree and `block_render.params` records it, so what is left is render hours.
-  - **A recipe move re-renders every block rather than the ice ones**: `start_generation` clears the whole marker set, so all 256 on Mars and all 1,024 on Earth.
+  - **A recipe move re-renders every block rather than the ice ones**, the recipe reaching every block's digest whole: all 256 on Mars and all 1,024 on Earth. Naming the blocks a moved key reaches is a separate act with its own evidence.
 - **Does 1 to 4 DN show where the cap feathers into the tiles at 82 degrees?** A look call that rides the Mars pass, with nothing to measure first.
   - **The cap's own constant at +1.6 DN is moot and must not be re-proposed**, and the 18 DN mismatch behind it is retracted as an estimator artifact. → HISTORY, *the two lanes turn out to obey ONE transfer*.
   - What is left is that those are fitted transfers on one block (`r00c04`, 97.3% ice) rather than rendered frames at the seam.
@@ -809,6 +845,8 @@ The working plan went back to holding one onboarding question at a time, which i
 - **`SITE-4`'s publish waits for the re-render, by the maintainer's call, so the download files go up once and already re-rendered.** The download line under every country image, the PNG copies for print and the country maps bundle are built. `docs/pipeline.md` § *Publishing heroes (Earth only)* runs the rest, with his look at the live page before the deploy.
   - Until then no tree carrying the download line can deploy. The preflight refuses while R2 lacks a download file the manifest records, and `SKIP_ASSET_SYNC_CHECK=1` would ship 203 dead print links and a dead bundle link.
   - His look also judges what the build left open: "Download:" alone on its line at 320 px, the Country maps card alone on a second row at 1440, the SHA-256 on that card, and the words of the bundle's `README.txt`. Zooming a country image in Zen is the only check that a full-size file marked to download still paints in Firefox, which was tested in Chromium alone.
+- **R2's 1,010 border PNGs go before the next deploy, by the maintainer's call, and the deletion is his as every rendered-asset deletion is.** 209.7 MB under `heroes/`, written by the border ladder that was deleted with its producer; nothing serves them, the globe drawing vector GeoJSON and a hero its own Focus overlay. → HISTORY, *the border ladder is deleted with its producer*.
+  - **The bytes are not the reason.** The deploy preflight's unreferenced-object warning prints the first ten keys sorted, and all ten are Afghanistan's rungs, so a genuine orphan hides behind them at exactly the pass that produces orphans.
 - **Once the bundle is public, a re-render changes its bytes, and nothing stops the rebuilt one going up over `earth/country-maps-webp-v1.zip`.** It first goes up with the re-render above, so this starts at the one after. The bucket is additive by decision, so it goes up as v2 with v1 kept, which needs `downloads.BUNDLE_KEY` bumped and a superseded row the Archives page can list, `ARCHIVED` holding tile cuts alone. The deploy preflight refuses until R2 holds what `web/src/data/downloads.json` records, and an upload over v1 satisfies it.
 - **The tier picker has no way back to automatic, deferred until a visitor asks for one.** A press of Lite, Globe or Full pins that tier in `rg:quality` for good, and only clearing the site's data hands the choice back to the probe, which the About note says. An Auto button was offered and declined for now; Earth's bar at 320 px has its one-row fit held by the view bar test, so a fourth tier button is measured against that before it is designed.
 - **Do two GPU backends render identically?** Blocked on hardware, this box having one card. If they differ, the backend belongs in the recipe rather than in `scene_build`'s module-constant allowlist, and `GPU_BACKENDS`'s own comment says so.
