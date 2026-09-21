@@ -84,6 +84,37 @@ def registry_whites(body: bodies.Body) -> dict[str, tuple]:
     return whites
 
 
+#: A white no body authored, held here so a disjoint pair exists whatever two real bodies agree on.
+STAND_IN_WHITE = ((11, 22, 33), (44, 55, 66))
+
+
+@pytest.fixture
+def stand_in_body(monkeypatch) -> bodies.Body:
+    """A registered body whose producer declares `STAND_IN_WHITE`, for the width of the contract.
+
+    Only a pair of bodies with disjoint whites can show that the rig reads each body's own answer.
+    Deriving that pair from the real registry makes the guard's reach a property of two look
+    decisions rather than of the code: the day two bodies are painted one colour, which is a look
+    call nothing forbids, the comparison has no pair left to make and the contract goes unwatched.
+
+    Its paint mirrors Mars's in shape, per row over the window, so the seam carries it exactly as it
+    carries a real one.
+    """
+    body = dataclasses.replace(bodies.BODIES["mars"], name="stand-in")
+    shipped = layer_producers.PRODUCER_BY_BODY_LAYER[("mars", layers.PERENNIAL_ICE.name)]
+
+    def paint(window: layer_producers.LayerWindow):
+        return tuple(np.broadcast_to(np.asarray(end, dtype=np.float32).reshape(3, 1, 1),
+                                     (3, len(window.latitude), 1)).copy()
+                     for end in STAND_IN_WHITE)
+
+    monkeypatch.setitem(bodies.BODIES, body.name, body)
+    monkeypatch.setitem(layer_producers.PRODUCER_BY_BODY_LAYER,
+                        (body.name, layers.PERENNIAL_ICE.name),
+                        dataclasses.replace(shipped, paint=paint))
+    return body
+
+
 def rig_white(scene_build, body: bodies.Body, render_dir) -> tuple:
     """The sunlit white the rig actually paints this body's ice with, driven END TO END.
 
@@ -133,11 +164,12 @@ class TestTheRigPaintsEachBodysOwnWhite:
         )
 
     def test_two_bodies_with_different_whites_do_not_render_the_same_one(self, scene_build,
-                                                                        tmp_path):
+                                                                        stand_in_body, tmp_path):
         """The general statement, so a third body is covered without being named here.
 
         A rig holding ONE white cannot satisfy two bodies that declare different ones, and this is
-        what says so without asserting any particular colour.
+        what says so without asserting any particular colour. The stand-in is what guarantees a
+        disjoint pair exists to say it about, rather than the real bodies happening to disagree.
         """
         rendered = {name: rig_white(scene_build, bodies.BODIES[name], tmp_path / name)
                     for name in sorted(bodies.BODIES)
@@ -154,8 +186,15 @@ class TestTheRigPaintsEachBodysOwnWhite:
             )
 
 
-class TestMarsIsTheInstanceThatMakesItVisible:
-    """Named rather than derived, because the measurement behind it is Mars's alone."""
+class TestMarsIsWhyThisSuiteExists:
+    """Mars is the body the defect shipped on, so its premise and its route are pinned here.
+
+    What cannot be pinned here is a COLOUR. Two bodies are free to be painted one white by a look
+    call, and once they are, "Mars is not painted in Earth's white" cannot be told from "Mars is
+    painted in Earth's white", which is the defect. So the difference this suite watches is which
+    constant a body reads, and the disjoint pair that proves the rig honours the difference is the
+    stand-in's.
+    """
 
     def test_mars_ice_reaches_a_cycles_render(self):
         """The premise the contract rests on: if no Martian ice layer reached the rig, a global
@@ -165,27 +204,26 @@ class TestMarsIsTheInstanceThatMakesItVisible:
             "Mars declares no ice layer reaching a Cycles render; this suite's premise is gone"
         )
 
-    def test_mars_declares_a_white_earth_does_not_have(self):
-        """The oracle, stated as a fact about the registry rather than about a render.
+    def test_the_rig_paints_mars_what_marss_own_constant_says(self, scene_build, monkeypatch,
+                                                              tmp_path):
+        """Move Mars's constant and the rig must follow it; move Earth's and it must not.
 
-        The two whites were decided separately: Earth's is authored on its own physics, since
-        blue-in-shadow is glacial ice absorbing red and does not travel, and Mars's is authored on a
-        rendered frame. Nothing makes them converge, so sharing a value would mean one body had
-        inherited the other's rather than agreeing with it.
+        This is the value-free form of the shipped failure. A rig reading a module global renders
+        Mars in whichever white was authored first, and that is now invisible as a colour, so it is
+        asked as a question about which constant reaches the pixel.
         """
-        martian = set(registry_whites(bodies.BODIES["mars"]).values())
-        terrestrial = set(registry_whites(bodies.BODIES["earth"]).values())
-        assert martian, "Mars declares no white at all"
-        assert not (martian & terrestrial), (
-            f"Mars {martian} and Earth {terrestrial} share a white; the two bodies were measured "
-            f"separately and should not agree"
+        moved = ((11, 22, 33), (44, 55, 66))
+        monkeypatch.setitem(palette.MARS_ICE_WHITE, "north", moved)
+        monkeypatch.setitem(palette.MARS_ICE_WHITE, "south", moved)
+        assert rig_white(scene_build, bodies.BODIES["mars"], tmp_path / "mars") == moved[0], (
+            "the rig did not follow Mars's own constant, so something upstream holds a white"
         )
 
-    def test_the_rig_does_not_paint_mars_in_earths_white(self, scene_build, tmp_path):
-        """In one sentence: a raytraced Mars must not be painted in Earth's snow."""
-        assert rig_white(scene_build, bodies.BODIES["mars"], tmp_path) not in set(
-            registry_whites(bodies.BODIES["earth"]).values()), (
-            "the rig paints Martian polar ice in Earth's snow white"
+        monkeypatch.setattr(palette, "SNOW_RGB", (1, 2, 3))
+        monkeypatch.setattr(palette, "SNOW_SHADOW_RGB", (4, 5, 6))
+        assert rig_white(scene_build, bodies.BODIES["mars"], tmp_path / "earth-moved") == moved[0], (
+            "moving EARTH's constant moved what Mars renders, which is the module-global read this "
+            "suite exists for"
         )
 
 

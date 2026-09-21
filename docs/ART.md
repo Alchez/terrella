@@ -50,7 +50,7 @@ Every tile pixel comes off Cycles, so any look change reaching a recipe restages
 | NH ice `ICE_LO` / `ICE_BAND` / `ICE_MAX_ALPHA` (seaice.py) | 0.55 / 0.40 / 0.85 | § Sea ice |
 | SH ice `SH_ICE_LO` / `SH_ICE_MAX_ALPHA` (seaice.py) | 0.62 / 0.55 | § Sea ice |
 | `lake_depth.LAKE_CURVE` | log1p, hero only, through `render/lake_mask.py` | § Inland water |
-| `CAP_PX` / `CAP_WEBP_QUALITY` / `edge_lat` (cap_pass.py) | 8192 / 85 / ±78° | § Polar caps |
+| `CAP_PX` / `CAP_WEBP_QUALITY` / `CAP_EDGE_LAT` (cap_render.py) | 8192 / 85 / ±82°, one disc size for both bodies | § Polar caps |
 
 ### Compositing and web, seconds to minutes
 

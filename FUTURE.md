@@ -28,6 +28,10 @@ Ideas deliberately **not** planned: analysed enough to record, parked without co
 - [Large-country warp and small-island exaggeration](#hero-presentation-large-country-warp--small-island-exaggeration-analysed-2026-07-24) · look-call · needs-gpu
 - [Hero and block renders differ in their contents](#hero-and-block-renders-differ-in-their-contents-when-only-their-projection-should-raised-2026-08-24) · look-call · needs-gpu
 
+**Mars's caps re-render.** The disc's size is free to change only then.
+
+- [Mars's cap disc is drawn finer than its source's rows](#marss-cap-disc-is-drawn-finer-than-its-sources-rows-analysed-2026-09-21) · look-call · needs-render-store
+
 **An accessibility pass.** Each says to do the other at the same time, for one round of judgement.
 
 - [`forced-colors` is unhandled](#forced-colors-is-unhandled-and-the-rails-icons-are-the-thing-it-breaks-analysed-2026-08-02) · no-data-needed
@@ -98,6 +102,7 @@ Not a lower tier. Nobody has written down what would make them worth doing, and 
 - [Tiles "jump" a little when panning around a pole](#tiles-jump-a-little-when-panning-around-a-pole-observed-2026-08-11-not-analysed)
 - [The heightfield wraps at a block's plane edge, and the context law does not bound the wall it stands](#the-heightfield-wraps-at-a-blocks-plane-edge-and-the-context-law-does-not-bound-the-wall-it-stands-observed-2026-09-13-not-analysed)
 - [Mars's source elevation steps about 110 m along 15°S](#marss-source-elevation-steps-about-110-m-along-15s-observed-2026-09-19-not-analysed)
+- [GLO-30 steps up to 16 m along a straight line near the South Pole](#glo-30-steps-up-to-16-m-along-a-straight-line-near-the-south-pole-observed-2026-09-19-not-analysed)
 
 ## The detail card cannot state an elevation the DEM does not know (analysed 2026-08-27)
 
@@ -191,6 +196,27 @@ The globe's detail card carries a country's name, its continent and a link, and 
 - **A round latitude suggests a boundary in how the product was assembled**, so the other multiples of 15° are the first place to look. That is a guess from one line.
 - **The census that settles it**: the mean absolute step between consecutive source rows, planet-wide, against each row's neighbours. It reads the whole raster, so it runs under the cgroup cap.
 - **Any fix smooths the step in our copy before the warp**, and per-block freshness then re-renders only the blocks whose ground moved.
+
+## Mars's cap disc is drawn finer than its source's rows (analysed 2026-09-21)
+
+> **OPEN** · look-call · needs-render-store · **reopens when** Mars's caps re-render, which is the only moment the disc's size costs nothing to change.
+
+- **State at analysis:** Mars's caps are drawn at 115.8 m of ground per pixel from a blend whose rows are 200 m apart, so the disc stretches the source's row-scale texture by 1.7. Mars exaggerates 20 times, which turns 0.2 to 0.8 m of it into a slope steep enough to shade, and bump shades that slope directly. Judged acceptable on one frame a pole. HISTORY, *bump on Mars's two caps*.
+- **The ratio alone does not predict it.** Earth's caps sit at 217.4 m against a fuse whose rows are about 308 m, finer by 1.4, and show none of it: that fuse is averaged from 30 m data, so it has no row-scale texture to stretch.
+- **The lever is the disc's side, and it is one constant for both bodies.** `cap_render.CAP_PX` sizes both grids and the shipped ladder pins its top rung to it, which `test_cap_render` holds. Mars at 4096 draws at 231.6 m per pixel, coarser than the source's rows, and the elevation texture's side still divides it.
+- **What it costs to build:** the side becomes a body field, as the tile ceiling and the exaggeration already are, and the ladder and `caps.json` then derive per body. The web needs no change, since it fetches that manifest rather than copying it.
+- **What it costs in the picture, which is why it is a look call:** Mars's top texture halves, so the disc carries a quarter of the pixels at full zoom. That trades detail over the whole disc against the striation. Re-rendering both discs at the smaller side costs about a third of today's per-pole time, interpolated between the two disc sizes PROCESS records.
+- **The half-measure** is smoothing the cap height image for Mars before the rig: it keeps the texture size and softens real relief along with the texture.
+
+## GLO-30 steps up to 16 m along a straight line near the South Pole (observed 2026-09-19, not analysed)
+
+> **OBSERVED, NOT ANALYSED**. Seen on one south cap frame and confirmed in the source tile, with how many such lines the disc carries unmeasured, so the next action is the census below.
+
+- **Seen on the south cap's frame `r1c1` pass 11** as a straight line about 56 km long, from 88.4°S to 88.9°S near 178°E, there before bump shading and faintly sharper with it. HISTORY, *the fill and bump on Antarctica's painted white*.
+- **It is in the source, not the pipeline.** The raw GLO-30 tile, the fused heightfield and the cap's height image all step at the same place: 12 to 16 m across the line's middle, about 5 m toward one end.
+- **It follows neither a meridian nor a GLO-30 tile edge**, being straight in the polar plane and crossing 178°E. A seam between two of the satellite's acquisitions would draw such a line; that is a guess, not a finding.
+- **The census that settles it**: each cap's height image scanned for straight steps well above the local relief. It reads only the two cap rasters.
+- **Any fix smooths the step in our copy before the warp.** The line lies south of where the Mercator blocks stop, so only the south cap re-renders.
 
 ## Heroes record no recipe, so nothing on disk says which rig made any of the 203 (analysed 2026-08-21, PARKED)
 

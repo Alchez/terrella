@@ -415,25 +415,19 @@ class TestTheAgreementProbeSamplesInsideTheDiscItReads:
 
 
 class TestTheOracleAlarmsOnTheICEMovingRatherThanOnTheWHITEDeparting:
-    """`compare` used to hold the pinned white to the ice's measured hue, which is the one thing it
-    disclaims one function down: "a re-pin is a look decision -- the eye ratified these, and a ratio
-    has no standing to overrule it". It said that about the DERIVED pair while asserting exactly that
-    overrule against the PINNED one.
+    """The alarm is on the ice moving, never on how far the authored white sits from it.
 
-    IT BECAME LOAD-BEARING WHEN THE WHITE STOPPED BEING MEASURED. The ratified white is authored to a
-    look target and departs from the ice's hue on purpose: its red:violet is 0.893 against a measured
-    1.042 north and 1.292 south, so the old assertion fires at 7x and 20x tolerance on a value that
-    was ratified by eye. An oracle that cries DRIFT at a deliberate decision gets ignored, and then it is
-    not there for the case it exists for.
+    Holding the pinned white to the ice's hue is the temptation, and it was sound only while a white
+    was derived from the ice. An authored white departs from it on purpose, so that assertion fires
+    on a decision rather than a defect, and an oracle that cries drift at a decision stops being read
+    by the time the case it exists for arrives.
 
-    WHAT STILL HAS TO ALARM is the SUBJECT moving. A ratification is about ice that was measured at a
-    moment; if the ice's own hue drifts, the judged frame no longer describes the planet and
-    the decision needs re-taking. That is the question this class pins.
+    What has to alarm instead is the subject moving: a ratification is about ice measured at a
+    moment, and once the ice's own hue drifts the judged frame has stopped describing the planet.
     """
 
     def test_an_authored_white_departing_from_the_ice_is_not_drift(self):
-        """The ratified white against today's ice is 0.149 and 0.399 off, both far outside
-        RATIO_TOLERANCE, and that is a look decision rather than a defect."""
+        """Ice that has not moved returns zero, whatever white is pinned against it."""
         assert ice_white.compare(dict(ice_white.ICE_RATIO_AT_RATIFICATION), {}) == 0
 
     def test_the_ice_moving_away_from_the_ratified_measurement_IS_drift(self):

@@ -54,22 +54,26 @@ WATER_RGB: RGB8 = (142, 198, 196)  # 8EC6C4
 
 # Earth's ice white rather than the project's: a producer declares which white paints its alpha, so
 # no body inherits another's by omission. The blue is physics and not decoration — thick clean
-# glacial ice absorbs red — and it does not travel; see MARS_ICE_WHITE.
+# glacial ice absorbs red. Mars is authored on its own frames and currently lands on this same pair;
+# that is agreement and not inheritance, and what keeps the two apart is each body's producer
+# reading its own constant rather than the values differing: see MARS_ICE_WHITE.
 SNOW_RGB: RGB8 = (232, 241, 246)         # E8F1F6 — sunlit snow (bright glacial white)
 SNOW_SHADOW_RGB: RGB8 = (176, 199, 219)  # B0C7DB — shaded snow (cool blue-white, not grey)
 
-# Mars, one authored white for both poles, ratified on a rendered frame.
+# Mars, one authored white for both poles.
 #
 # Per-pole whites are the temptation, and the two deposits really are different colours. One white
-# is what looked right on both; the measured difference stays in the ice, where it belongs. Do not
-# derive a candidate back from that difference either: what ships is warmer than the hex, since the
-# render adds twenty-odd DN, so a white is chosen by naming a RENDERED target and inverting.
+# is what looked right on both; the measured difference stays in the ice, where it belongs.
+#
+# A hex cannot be judged as a swatch either. What ships is warmer than the constant, by an amount
+# that depends on how much of the ice the sun reaches, so a cap disc and a tile block show one
+# colour differently and a candidate is rendered on both before it is chosen.
 #
 # `scripts/measure_mars_ice_white.py` owns the arithmetic, the tolerance and the ice as ratified.
-# Its `--compare` asks whether the ICE has moved since, which is what expires a look decision.
+# Its `--compare` asks whether the ice has moved since, which is what expires a look decision.
 MARS_ICE_WHITE: dict[str, tuple[RGB8, RGB8]] = {   # pole -> (sunlit, shadowed)
-    "north": ((226, 242, 253), (185, 198, 207)),   # E2F2FD / B9C6CF
-    "south": ((226, 242, 253), (185, 198, 207)),   # E2F2FD / B9C6CF
+    "north": ((232, 241, 246), (189, 197, 201)),   # E8F1F6 / BDC5C9
+    "south": ((232, 241, 246), (189, 197, 201)),   # E8F1F6 / BDC5C9
 }
 # Salt flats: warm where snow is cool, so bright salt crust never reads as snow. The shadowed half
 # holds snow's sunlit-to-shadow ratio per channel; the rig lights the shaded end itself.

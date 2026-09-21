@@ -679,24 +679,24 @@
     "row_edge_mode": "edge",
     "sea": null,
     "snow_rgb_north": [
-      226,
-      242,
-      253
+      232,
+      241,
+      246
     ],
     "snow_rgb_south": [
-      226,
-      242,
-      253
+      232,
+      241,
+      246
     ],
     "snow_shadow_rgb_north": [
-      185,
-      198,
-      207
+      189,
+      197,
+      201
     ],
     "snow_shadow_rgb_south": [
-      185,
-      198,
-      207
+      189,
+      197,
+      201
     ],
     "traced_px": 4352,
     "white_exclusions": [],
@@ -1550,24 +1550,24 @@
       }
     },
     "snow_rgb_north": [
-      226,
-      242,
-      253
+      232,
+      241,
+      246
     ],
     "snow_rgb_south": [
-      226,
-      242,
-      253
+      232,
+      241,
+      246
     ],
     "snow_shadow_rgb_north": [
-      185,
-      198,
-      207
+      189,
+      197,
+      201
     ],
     "snow_shadow_rgb_south": [
-      185,
-      198,
-      207
+      189,
+      197,
+      201
     ],
     "white_exclusions": [],
     "white_union": [
@@ -1778,24 +1778,24 @@
       }
     },
     "snow_rgb_north": [
-      226,
-      242,
-      253
+      232,
+      241,
+      246
     ],
     "snow_rgb_south": [
-      226,
-      242,
-      253
+      232,
+      241,
+      246
     ],
     "snow_shadow_rgb_north": [
-      185,
-      198,
-      207
+      189,
+      197,
+      201
     ],
     "snow_shadow_rgb_south": [
-      185,
-      198,
-      207
+      189,
+      197,
+      201
     ],
     "white_exclusions": [],
     "white_union": [

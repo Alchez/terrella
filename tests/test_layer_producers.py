@@ -640,13 +640,29 @@ class TestAProducerDeclaresTheWhiteItIsPaintedIn:
             "the producer stopped resolving per pole: a re-split of MARS_ICE_WHITE would paint "
             "both poles in the north's white and nothing would report it")
 
-    def test_mars_does_not_paint_in_earths_white(self):
-        """The failure this replaced, and it shipped: a module-global read gave Mars Earth's
-        `E8F1F6` with nothing anywhere able to show a reader that a second planet existed."""
-        recorded = layer_producers.producer_for(bodies.MARS, layers.PERENNIAL_ICE).paint_recipe()
-        assert recorded, "no white recorded at all — the negatives below would pass vacuously"
-        assert list(palette.SNOW_RGB) not in [list(v) for v in recorded.values()]
-        assert list(palette.SNOW_SHADOW_RGB) not in [list(v) for v in recorded.values()]
+    def test_mars_records_its_own_constant_rather_than_earths(self, monkeypatch):
+        """The failure this replaced shipped: a module-global read gave Mars Earth's white with
+        nothing anywhere able to show a reader that a second planet existed.
+
+        Asked as which constant is read, never as which value comes out. The two bodies are free to
+        be painted one colour by a look call, and on the day they are, a value comparison answers
+        the same for a correct producer and for the module-global read.
+        """
+        def recipe() -> dict:
+            return layer_producers.producer_for(bodies.MARS, layers.PERENNIAL_ICE).paint_recipe()
+
+        recorded = recipe()
+        assert recorded, "no white recorded at all, so the moves below would pass vacuously"
+
+        monkeypatch.setattr(palette, "SNOW_RGB", (1, 2, 3))
+        monkeypatch.setattr(palette, "SNOW_SHADOW_RGB", (4, 5, 6))
+        assert recipe() == recorded, "Mars's recorded white moved when EARTH's constant moved"
+
+        monkeypatch.setitem(palette.MARS_ICE_WHITE, "north", ((7, 8, 9), (10, 11, 12)))
+        assert recipe() != recorded, (
+            "Mars's recorded white did not move when MARS's constant did, so the check above "
+            "proves nothing"
+        )
 
 
 class TestARockLayerBuildsARasterAndContributesNothing:
