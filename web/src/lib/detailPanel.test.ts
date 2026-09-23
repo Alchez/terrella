@@ -29,6 +29,7 @@ function country(overrides: Partial<Country> = {}): Country {
   return {
     slug: "chile",
     name: "Chile",
+    admin: "Chile",
     continent: "South America",
     searchTerms: ["Republic of Chile", "Chile.", "CL", "CHL"],
     bbox: [-75.6, -55.9, -66.4, -17.5],
@@ -36,6 +37,7 @@ function country(overrides: Partial<Country> = {}): Country {
     sizes: [640, 1920, 3840],
     native: 3840,
     rendered: true,
+    listedOnly: false,
     download: { width: 1920, height: 3840, webpBytes: 4_000_000, pngBytes: 30_000_000 },
     hasSpotlight: false,
     spotlightSizes: [],
@@ -53,6 +55,12 @@ describe("a country becomes card content", () => {
       label: HERO_LINK_LABEL,
       external: false,
     });
+  });
+
+  it("links nowhere for a place listed on the globe alone, which has no page to open", () => {
+    const content = countryPanelContent(country({ listedOnly: true, rendered: false }));
+    expect(content.name).toBe("Chile");
+    expect(content.link).toBeNull();
   });
 
   it("empties the eyebrow rather than printing a missing continent", () => {

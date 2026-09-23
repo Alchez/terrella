@@ -217,6 +217,13 @@
           "role": "Sea ice",
           "license": "CC-BY 4.0",
           "attribution": "Sea-ice climatology derived from the OSI SAF Global sea ice concentration climate data record 1978–2020 (v3.0, 2022), OSI-450-a, EUMETSAT Ocean and Sea Ice Satellite Application Facility (doi:10.15770/EUM_SAF_OSI_0013). Reduced to a 1991-2020 annual ice-frequency climatology."
+        },
+        {
+          "name": "Global Tectonics plate boundaries",
+          "href": "https://doi.org/10.5281/zenodo.6586972",
+          "role": "Plate boundaries",
+          "license": "CC-BY 4.0",
+          "attribution": "Plate boundaries derived from Hasterok, D., Halpin, J.A., Collins, A.S., Hand, M., Kreemer, C., Gard, M.G., Glorie, S. (2022), New Maps of Global Geological Provinces and Tectonic Plates, Earth-Science Reviews 231, 104069 (doi:10.1016/j.earscirev.2022.104069); data deposit doi:10.5281/zenodo.6586972, CC-BY 4.0. Segments the source marks as inferred are left out, so the globe draws only the boundaries it states as observed."
         }
       ],
       "legal": [

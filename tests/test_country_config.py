@@ -32,17 +32,23 @@ DEFAULTS = {"pad_pct": 5.0, "hero_long_edge": 7680,
             "warp_long_edge": 8192, "fusion": "auto", "resolution_floor_m": 60.0}
 
 
-def _cfg(countries=None, exclude=None, include=None):
+def _cfg(countries=None, exclude=None, include=None, listed_only=None):
     return {"defaults": dict(DEFAULTS),
-            "scope": {"exclude": exclude or [], "include": include or []},
+            "scope": {"exclude": exclude or [], "include": include or [],
+                      "listed_only": listed_only or []},
             "countries": countries or {}}
 
 
 def _rows():
+    """Natural Earth rows, carrying the `has_hero` a scope row has so `resolve` can take one
+    directly; `build_scope` sets it afresh."""
     return [
-        {"admin": "Nepal", "sov": "Nepal", "bbox": (80.0, 26.0, 88.0, 30.0), "idx": 0},
-        {"admin": "France", "sov": "France", "bbox": (-5.0, 41.0, 10.0, 51.0), "idx": 1},
-        {"admin": "Somaliland", "sov": "Somalia", "bbox": (42.0, 8.0, 49.0, 11.0), "idx": 2},
+        {"admin": "Nepal", "sov": "Nepal", "bbox": (80.0, 26.0, 88.0, 30.0), "idx": 0,
+         "has_hero": True},
+        {"admin": "France", "sov": "France", "bbox": (-5.0, 41.0, 10.0, 51.0), "idx": 1,
+         "has_hero": True},
+        {"admin": "Somaliland", "sov": "Somalia", "bbox": (42.0, 8.0, 49.0, 11.0), "idx": 2,
+         "has_hero": True},
     ]
 
 
@@ -126,15 +132,84 @@ def test_the_burns_strength_is_refused_as_an_unknown_key(tmp_path, monkeypatch, 
 # ---- build_scope ------------------------------------------------------------
 
 def test_build_scope_keeps_strict_selectors():
-    scope = cc.build_scope(_cfg(), _rows())
+    scope = cc.build_scope(_cfg(exclude=["Somaliland"]), _rows())
     assert set(scope) == {"nepal", "france"}  # Somaliland: admin != sov, not strict
     assert scope["nepal"]["admin"] == "Nepal"
+
+
+def test_a_listed_only_row_joins_the_scope_without_a_hero():
+    scope = cc.build_scope(_cfg(listed_only=["Somaliland"]), _rows())
+    assert set(scope) == {"nepal", "france", "somaliland"}
+    assert scope["somaliland"]["has_hero"] is False
+    assert scope["nepal"]["has_hero"] is True
+    assert cc.hero_slugs(scope) == ["france", "nepal"]
+
+
+def test_an_included_row_gets_a_hero():
+    scope = cc.build_scope(_cfg(include=["Somaliland"]), _rows())
+    assert scope["somaliland"]["has_hero"] is True
+    assert cc.hero_slugs(scope) == ["france", "nepal", "somaliland"]
+
+
+def test_resolve_carries_whether_the_country_gets_a_hero():
+    scope = cc.build_scope(_cfg(listed_only=["Somaliland"]), _rows())
+    for slug, expected in [("somaliland", False), ("nepal", True)]:
+        resolved = cc.resolve(slug, scope[slug], _cfg(listed_only=["Somaliland"]))
+        assert resolved is not None and resolved["has_hero"] is expected
+
+
+def test_a_dropped_row_no_list_decides_stops_the_pipeline():
+    """A row the strict selector drops must be named somewhere, or a new Natural Earth release
+    drops a place with nobody deciding to."""
+    with pytest.raises(SystemExit) as exc:
+        cc.build_scope(_cfg(), _rows())
+    assert "'Somaliland'" in str(exc.value)
+
+
+def test_exclude_takes_a_dropped_row_and_leaves_it_out():
+    assert "somaliland" not in cc.build_scope(_cfg(exclude=["Somaliland"]), _rows())
+
+
+@pytest.mark.parametrize("lists", [
+    {"include": ["Somaliland"], "listed_only": ["Somaliland"]},
+    {"include": ["Somaliland"], "exclude": ["Somaliland"]},
+    {"listed_only": ["Somaliland"], "exclude": ["Somaliland"]},
+])
+def test_a_row_in_two_lists_is_refused(lists):
+    with pytest.raises(SystemExit) as exc:
+        cc.build_scope(_cfg(**lists), _rows())
+    assert "Somaliland" in str(exc.value)
+
+
+@pytest.mark.parametrize("name, needle", [("Atlantis", "no such ADMIN"),
+                                          ("Nepal", "already passes the strict selector")])
+def test_listed_only_refuses_an_unknown_or_strict_row(name, needle):
+    with pytest.raises(SystemExit) as exc:
+        cc.build_scope(_cfg(exclude=["Somaliland"], listed_only=[name]), _rows())
+    assert needle in str(exc.value)
 
 
 def test_build_scope_honours_exclude_and_include():
     scope = cc.build_scope(_cfg(exclude=["France"], include=["Somaliland"]), _rows())
     assert "france" not in scope
     assert "somaliland" in scope
+
+
+def test_the_real_config_includes_palestine():
+    """Natural Earth records Palestine's sovereign as Israel, so the strict selector drops it while
+    Somaliland and Northern Cyprus pass; only the `include` line puts it in the gallery."""
+    assert "Palestine" in cc.load_config()["scope"]["include"]
+
+
+def test_the_real_config_leaves_out_bases_carve_outs_and_the_unframeable():
+    """Listing a lease or a base would give it a country's place on the globe, and US Minor
+    Outlying Islands spans the antimeridian with no frame to fly to."""
+    left_out = {"US Naval Base Guantanamo Bay", "Baykonur Cosmodrome", "Akrotiri Sovereign Base Area",
+                "Dhekelia Sovereign Base Area", "Siachen Glacier",
+                "United States Minor Outlying Islands"}
+    scope = cc.load_config()["scope"]
+    assert left_out <= set(scope["exclude"])
+    assert not left_out & set(scope["listed_only"])
 
 
 def test_build_scope_rejects_unknown_include():
@@ -172,6 +247,39 @@ def test_resolve_override_wins_over_computed_frame():
     assert resolved is not None
     assert resolved["frame_overridden"] is True
     assert resolved["frame"] == (-5.9, 40.6, 10.3, 51.9)
+
+
+def test_resolve_names_a_country_by_its_admin_unless_the_config_says_otherwise():
+    """`name` is what a visitor reads; `admin` stays Natural Earth's, the key the globe's features
+    carry, so renaming never unhooks a country from its shape."""
+    plain = cc.resolve("nepal", _rows()[0], _cfg())
+    assert plain is not None
+    assert (plain["name"], plain["admin"]) == ("Nepal", "Nepal")
+    renamed = cc.resolve("nepal", _rows()[0], _cfg(countries={"nepal": {"name": "Gorkha"}}))
+    assert renamed is not None
+    assert (renamed["name"], renamed["admin"]) == ("Gorkha", "Nepal")
+
+
+@pytest.mark.parametrize("value", ['""', '"  "', "1", '["Hong Kong"]'])
+def test_load_config_refuses_a_name_that_is_not_one_non_blank_string(tmp_path, monkeypatch, value):
+    _point_config_at(tmp_path, monkeypatch, VALID_TOML + f"\n[countries.x]\nname = {value}\n")
+    with pytest.raises(SystemExit) as exc:
+        cc.load_config()
+    assert "name" in str(exc.value)
+
+
+def test_the_real_config_shows_hong_kong_and_macao_by_their_common_names():
+    """Natural Earth's ADMIN is "Hong Kong S.A.R." and "Macao S.A.R"; he chose the short forms."""
+    countries = cc.load_config()["countries"]
+    shown = {table["admin"]: table.get("name") for table in countries.values() if "admin" in table}
+    assert shown["Hong Kong S.A.R."] == "Hong Kong"
+    assert shown["Macao S.A.R"] == "Macao"
+
+
+def test_the_real_config_gives_hong_kong_a_hero():
+    scope = cc.load_config()["scope"]
+    assert "Hong Kong S.A.R." in scope["include"]
+    assert "Hong Kong S.A.R." not in scope["listed_only"]
 
 
 def test_resolve_carries_also_and_defaults_to_a_list():

@@ -41,7 +41,10 @@ resolution_floor_m = 60.0 # hero heightfield detail floor (m); render_prep box-l
                           # it only where the frame upsampled >~5x past it (tiny countries)
 
 [scope]
-# Strict-selector rows that are not countries to render:
+# The strict selector keeps rows whose ADMIN is their own SOVEREIGNT. Every row it drops must be
+# named in exactly one of include, listed_only and exclude below, or the pipeline stops.
+#
+# Rows left off the site entirely, whether the selector keeps them or not:
 exclude = [
     "Antarctica",                      # deferred: special-case hero (polar projection; the hero snow stage refuses the Antarctic white)
     "Bir Tawil",                       # terra nullius wedge (Egypt/Sudan), not a country
@@ -52,14 +55,63 @@ exclude = [
     "Cyprus No Mans Area",             # UN buffer strip, not a country
     "Brazilian Island",                # disputed Uruguay-river islet, data artifact
     "Southern Patagonian Ice Field",   # undelimited Argentina/Chile section
+    "US Naval Base Guantanamo Bay",    # a lease inside Cuba, not a place of its own
+    "Baykonur Cosmodrome",             # a lease inside Kazakhstan
+    "Akrotiri Sovereign Base Area",    # a military base on Cyprus
+    "Dhekelia Sovereign Base Area",    # a military base on Cyprus
+    "Siachen Glacier",                 # a carve-out of Kashmir between India and Pakistan
+    "United States Minor Outlying Islands",  # spans the antimeridian, no frame to fly to
 ]
-# Curated dependent territories that get their own hero:
+# Rows the strict selector drops that get their own hero:
 include = [
     "Greenland",           # Denmark
     "Faroe Islands",       # Denmark
     "New Caledonia",       # France
     "French Polynesia",    # France
     "Puerto Rico",         # United States
+    "Palestine",           # Natural Earth: SOVEREIGNT Israel, TYPE Indeterminate
+    "Hong Kong S.A.R.",    # China
+]
+# Rows the strict selector drops that the globe and its search carry with no hero, page or
+# gallery card:
+listed_only = [
+    "Aland",                                 # Finland
+    "American Samoa",                        # United States of America
+    "Anguilla",                              # United Kingdom
+    "Aruba",                                 # Netherlands
+    "Ashmore and Cartier Islands",           # Australia
+    "Bermuda",                               # United Kingdom
+    "British Indian Ocean Territory",        # United Kingdom
+    "British Virgin Islands",                # United Kingdom
+    "Cayman Islands",                        # United Kingdom
+    "Clipperton Island",                     # France
+    "Cook Islands",                          # New Zealand
+    "Coral Sea Islands",                     # Australia
+    "Curaçao",                               # Netherlands
+    "Falkland Islands",                      # United Kingdom
+    "French Southern and Antarctic Lands",   # France
+    "Gibraltar",                             # United Kingdom
+    "Guam",                                  # United States of America
+    "Guernsey",                              # United Kingdom
+    "Heard Island and McDonald Islands",     # Australia
+    "Indian Ocean Territories",             # Australia
+    "Isle of Man",                           # United Kingdom
+    "Jersey",                                # United Kingdom
+    "Macao S.A.R",                           # China
+    "Montserrat",                            # United Kingdom
+    "Niue",                                  # New Zealand
+    "Norfolk Island",                        # Australia
+    "Northern Mariana Islands",              # United States of America
+    "Pitcairn Islands",                      # United Kingdom
+    "Saint Barthelemy",                      # France
+    "Saint Helena",                          # United Kingdom
+    "Saint Martin",                          # France
+    "Saint Pierre and Miquelon",             # France
+    "Sint Maarten",                          # Netherlands
+    "South Georgia and the Islands",         # United Kingdom
+    "Turks and Caicos Islands",              # United Kingdom
+    "United States Virgin Islands",          # United States of America
+    "Wallis and Futuna",                     # France
 ]
 
 # ---- resolution floor (hero heightfield anti-striping). [defaults].resolution_floor_m
@@ -160,6 +212,14 @@ notes = "Türkiye is the CURRENT official name, not a former one; NE's only home
 
 [countries.taiwan]
 also = ["Formosa"]
+
+[countries.hongkong]
+admin = "Hong Kong S.A.R."
+name = "Hong Kong"
+
+[countries.macao]
+admin = "Macao S.A.R"
+name = "Macao"
 
 [countries.unitedkingdom]
 also = ["England", "Scotland", "Wales"]

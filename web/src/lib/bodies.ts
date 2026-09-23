@@ -221,6 +221,16 @@ export interface BodyDescriptor {
    *  no cap, so nothing else has to be true for this to be. That absence is stated because an
    *  unexplained gap in a rule set reads as an oversight. */
   hasBorders: boolean;
+  /** Whether this body has tectonic plate boundaries to draw over the relief.
+   *
+   *  A second GeoJSON in the same store as the border overlay, fetched from `BORDERS_BASE`, so it
+   *  is answerable from no registry for the reason `hasBorders` is not. Separate from that flag
+   *  rather than folded into it: a plate boundary is geology and a border is politics, and a body
+   *  can plausibly have either without the other.
+   *
+   *  It has no coherence partner either, and for a body's own reason: a planet with a stagnant lid
+   *  has no plate boundaries at all, whatever else it publishes. */
+  hasTectonics: boolean;
   /** Whether this body has ray-traced hero renders — the gallery's cards, the detail pages, and the
    *  in-globe panel.
    *
@@ -285,6 +295,7 @@ export const BODIES: Record<BodySlug, BodyDescriptor> = {
     // planet inherits an answer nobody gave.
     rendersPolarCaps: true,
     hasBorders: true,
+    hasTectonics: true,
     hasHeroes: true,
   },
   // Mars's accents are eye-ratified against the shipped globe, not ramp-derived. Deriving them from
@@ -346,6 +357,10 @@ export const BODIES: Record<BodySlug, BodyDescriptor> = {
     // of SIM 3292 are the candidate — is a different product from a political boundary line, so it
     // will arrive as its own layer rather than by flipping this.
     hasBorders: false,
+    // Mars is a stagnant-lid planet: one plate, so no boundaries between plates to draw. Its
+    // faults, graben and the Valles Marineris rift are real and are a different product, the way
+    // the geologic units are, so they arrive as their own layer rather than by flipping this.
+    hasTectonics: false,
     // No Blender pass has ever run for Mars, and whether one should is deliberately parked until a
     // look is ratified: a hero is the most expensive thing to re-render after a palette changes.
     hasHeroes: false,

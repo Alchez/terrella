@@ -43,10 +43,10 @@ export function variantWidth(longEdge: number, aspect: number): number {
   return Math.round(longEdge * Math.min(1, aspect));
 }
 
-/** Natural Earth GeoJSON. The browser fetches ONE file from here — `boundary_lines.geojson`, the
- *  white border overlay. `countries.geojson` sits in the same store at 9.2 MB and is no longer
- *  fetched by anything: hit-testing and the highlight moved to the countries MVT pyramid, and it
- *  survives as the input that pyramid is cut from. */
+/** The overlay GeoJSON store. The browser fetches two files from here, the border overlay and the
+ *  plate boundaries; the deploy preflight's test lists them from the fetch sites. `countries.geojson`
+ *  sits in the same store and nothing fetches it: it is the input the countries MVT pyramid is cut
+ *  from. */
 export const BORDERS_BASE = resolveAssetBase(import.meta.env.PUBLIC_BORDERS_BASE, "/borders/");
 
 /** Root of the relief tile endpoint — a tile server, not a directory listing. */

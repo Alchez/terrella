@@ -136,7 +136,8 @@ def test_the_snow_stage_is_told_which_body_it_paints():
     config = {"defaults": {"pad_pct": 5.0, "hero_long_edge": 7680, "warp_long_edge": 8192,
                            "fusion": "auto", "resolution_floor_m": 60.0},
               "scope": {"exclude": [], "include": []}, "countries": {}}
-    row = {"admin": "Nepal", "sov": "Nepal", "bbox": (80.0, 26.0, 88.0, 30.0), "idx": 0}
+    row = {"admin": "Nepal", "sov": "Nepal", "bbox": (80.0, 26.0, 88.0, 30.0), "idx": 0,
+           "has_hero": True}
     resolved = country_config.resolve("nepal", row, config)
     assert resolved is not None
     stage = next(command for command in country_config.stage_commands(resolved)

@@ -1,6 +1,7 @@
 """The batch runner's render stage: the hero lands at its final path atomically, and nothing runs
 after the render."""
 
+import inspect
 import subprocess
 from pathlib import Path
 
@@ -74,3 +75,11 @@ def test_a_failed_render_leaves_neither_the_hero_nor_its_temporary(tmp_path, run
     assert outcome == f"FAIL@{batch.RENDER_STAGE} (error)"
     heroes = tmp_path / Path(FINAL).parent
     assert not heroes.exists() or not any(heroes.iterdir()), sorted(heroes.iterdir())
+
+
+def test_the_batch_renders_only_the_countries_that_get_a_hero():
+    """A `listed_only` country has no hero, so a batch walking the whole scope would render one
+    anyway and the next manifest would publish it."""
+    source = inspect.getsource(batch.main)
+    assert "slugs = hero_slugs(scope)" in source
+    assert "sorted(scope)" not in source

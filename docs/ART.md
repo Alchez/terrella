@@ -33,7 +33,7 @@ The globe's tiles render through the same rig as the heroes, so a `RIG` field re
 | `view_transform` (`RIG`) | Khronos PBR Neutral | § View transform |
 | render quality (`samples` 4096, `adaptive_threshold` 0.01, `clamp_indirect` 10) | cost, not look | § View transform |
 
-### Hero only (`countries.toml`, `render_prep.py`), the 203-country batch
+### Hero only (`countries.toml`, `render_prep.py`), the hero batch
 
 | Lever | Value | Section |
 |---|---|---|

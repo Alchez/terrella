@@ -559,11 +559,11 @@ describe("Base.astro view bar", () => {
   const base = readFileSync(new URL("../layouts/Base.astro", import.meta.url), "utf8");
 
   it("carries no collapse machinery, on any of the four surfaces it used to touch", () => {
-    // The bar's controls measure 229.7 px against the 281.6 px it is allowed at 320 px, so they
-    // fit one row at every width the site serves — and a trigger is what pushes 320 px onto two,
-    // since trigger-plus-controls is what does not fit there. Reintroducing any one of these
-    // brings the wrap back, so all four are named: markup, class, persisted state, and the media
-    // query.
+    // The removed collapse put one trigger in front of every control, and trigger-plus-controls is
+    // wider than the controls alone, so it pushed 320 px onto two rows. Reintroducing any one of
+    // these brings that back, so all four are named: markup, class, persisted state, and the media
+    // query. The tier segment's trigger is not this: it replaces three buttons rather than adding
+    // to them, and none of these names is its.
     const css = readFileSync(new URL("../styles/global.css", import.meta.url), "utf8");
     expect(base).not.toContain("view-bar-toggle");
     expect(base).not.toContain("is-collapsible");

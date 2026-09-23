@@ -40,7 +40,8 @@ import {
 const WEB_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const MANIFEST = `${WEB_ROOT}src/data/countries.json`;
 const BUNDLES = `${WEB_ROOT}src/data/downloads.json`;
-const GEOJSON = ["borders/countries.geojson", "borders/boundary_lines.geojson"];
+/** What the globe fetches from `BORDERS_BASE`; a test holds this to the fetch sites in `src/`. */
+const GEOJSON = ["borders/boundary_lines.geojson", "borders/tectonic_boundaries.geojson"];
 
 /** Exits; typed `never` so callers are not treated as possibly falling through. */
 function fail(...lines: string[]): never {

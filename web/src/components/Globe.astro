@@ -595,6 +595,14 @@ import { GITHUB_MARK, REPO_URL } from "../lib/siteLinks";
     featureTilesSource,
     hoverStateTargets,
   } from "../lib/featureOverlay";
+  import {
+    TECTONIC_LAYERS,
+    TECTONICS_EVENT,
+    TECTONICS_SOURCE,
+    tectonicLayers,
+    tectonicsOn,
+    tectonicsSource,
+  } from "../lib/tectonicBoundaries";
   import { candidateFrom, framingZoom, pickFeature } from "../lib/featureTargeting";
   // The matcher and the field, both statically. NEITHER reaches a catalogue — `catalogueSearch`
   // ranks `SearchEntry` and names no body at all, and `catalogueSearchBox` takes its `search` as a
@@ -1947,16 +1955,54 @@ import { GITHUB_MARK, REPO_URL } from "../lib/siteLinks";
     setBordersVisible(on);
   });
 
+  // --- Tectonic plate boundaries (Hasterok 2022 vector lines) -----------------
+  // The same shape as the borders above and deliberately so: one GeoJSON, a dark casing under a
+  // dark ink, every feature drawn alike. The specs live in `lib/tectonicBoundaries.ts` rather than
+  // here, which is where the newer overlays keep them.
+  //
+  // Added under the borders, so politics draws over geology where a plate boundary runs along a
+  // national one. Anchored below the hover highlight for the reason the borders are: the gold
+  // outline stays on top of everything it outlines.
+  // No anchor, unlike `addBorders`. This runs inside the ordered run below and before that one, so
+  // neither the border casing nor the hover highlight exists yet and appending IS the position. A
+  // border toggled on later anchors itself above these, which is what keeps the order the same
+  // whichever way a visitor arrives at it.
+  function addTectonicBoundaries() {
+    map.addSource(TECTONICS_SOURCE, tectonicsSource());
+    for (const layer of tectonicLayers()) map.addLayer(layer);
+  }
+
+  function setTectonicsVisible(on: boolean) {
+    for (const id of TECTONIC_LAYERS) {
+      if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
+    }
+  }
+
+  // Added on the first turn-on, so a globe nobody asked plate boundaries of never fetches the
+  // GeoJSON. Unlike `addBorders`, a late add lands at the TOP of the stack rather than under the
+  // borders it should sit below, so it anchors itself against whichever of those exists.
+  document.addEventListener(TECTONICS_EVENT, (event) => {
+    const { on } = (event as CustomEvent<{ on: boolean }>).detail;
+    if (on && !map.getSource(TECTONICS_SOURCE)) {
+      map.addSource(TECTONICS_SOURCE, tectonicsSource());
+      const beforeBorders = BORDER_LAYERS.find((id) => map.getLayer(id));
+      for (const layer of tectonicLayers()) map.addLayer(layer, beforeBorders);
+      return;
+    }
+    setTectonicsVisible(on);
+  });
+
   // --- Click a country -> fly to it -> show its hero -------------------------
   // The globe is raster, so an invisible fill of the Natural Earth country
-  // polygons is the click target. We filter it to our in-scope names (the join
-  // is free: manifest name === NE ADMIN), so only rendered countries are
-  // hoverable/clickable — everything else is a no-op. The fly-to frame is the
+  // polygons is the click target. We filter it to the manifest's ADMINs (the join
+  // is free: every feature carries its NE ADMIN), so every listed country is
+  // hoverable/clickable, with or without a hero, and anything unlisted is a no-op. The fly-to frame is the
   // authored hero bbox carried in the manifest, so it matches the hero's own
   // framing (metropolitan France, CONUS, etc.).
   const byName = new Map(manifest.countries.map((c) => [c.name, c]));
-  const inScope = manifest.countries.map((c) => c.name);
-  // Only in-scope (rendered) countries are interactive; reused by every country layer.
+  const byAdmin = new Map(manifest.countries.map((c) => [c.admin, c]));
+  const inScope = manifest.countries.map((c) => c.admin);
+  // Every manifest country is interactive; reused by every country layer.
   const inScopeFilter: FilterSpecification = ["in", ["get", "ADMIN"], ["literal", inScope]];
 
   /** ONE vector source carrying fill, outline and hit as three source-layers.
@@ -2231,6 +2277,12 @@ import { GITHUB_MARK, REPO_URL } from "../lib/siteLinks";
     return best;
   }
 
+  /** The listed country under the pointer, found by the ADMIN its feature carries. */
+  function countryAtPoint(point: Point): Country | undefined {
+    const admin = countryAt(point);
+    return admin === null ? undefined : byAdmin.get(admin);
+  }
+
   // --- The name chip ----------------------------------------------------------
   // The gold outline says WHICH country; this says which country it IS. Kept a plain element
   // rather than a MapLibre Popup so it costs no per-hover DOM churn and inherits the same token
@@ -2258,7 +2310,7 @@ import { GITHUB_MARK, REPO_URL } from "../lib/siteLinks";
    */
   function paintChip(admin: string | null) {
     if (!countryChip || !countryChipName) return;
-    if (admin !== null) countryChipName.textContent = admin;
+    if (admin !== null) countryChipName.textContent = byAdmin.get(admin)?.name ?? admin;
     countryChip.hidden = admin === null;
   }
 
@@ -2447,16 +2499,15 @@ import { GITHUB_MARK, REPO_URL } from "../lib/siteLinks";
   }
 
   /**
-   * Earth's pick path: a name becomes a flight and, where there is a hero, a card.
+   * Earth's pick path: a country becomes a flight and a card.
    *
-   * TAKES A NAME RATHER THAN A COUNTRY, which is what lets the search field reach it — a row knows
-   * `SearchEntry.name` and nothing else, and `byName` is the lookup the click already did inline.
+   * The two callers find the country by different keys: a click by the ADMIN its feature carries,
+   * through `countryAtPoint`, and a search row by the display name it shows, through `byName`.
    * The shape mirrors Mars's `goToFeature` deliberately: one pick path per body, reached from both
    * the pointer and the field, so a card someone searched to and a card they tapped are one card
    * built once.
    */
-  function goToCountry(name: string | null) {
-    const country = name ? byName.get(name) : undefined;
+  function goToCountry(country: Country | undefined) {
     if (!country) return;
     setSpinning(false); // a deliberate pick retires the idle spin
     flyToCountry(country);
@@ -2467,7 +2518,7 @@ import { GITHUB_MARK, REPO_URL } from "../lib/siteLinks";
     if (subsystems.heroes) openPanel(countryPanelContent(country));
   }
 
-  map.on("click", (event) => goToCountry(countryAt(event.point)));
+  map.on("click", (event) => goToCountry(countryAtPoint(event.point)));
 
   // Pitch the sky was last built for. Tracked because `setSky` restarts a 300 ms transition, so
   // rebuilding when nothing moved is not free — it re-runs the crossfade.
@@ -2521,7 +2572,7 @@ import { GITHUB_MARK, REPO_URL } from "../lib/siteLinks";
   // typed exhaustive — these are gates inside an ordered run, not a returning switch — so what
   // holds it is `globeSubsystems.test.ts` reading this source for every product the registry can
   // hand it. A member with no branch is an idle that adds nothing and reports nothing.
-  if (subsystems.vectorProduct !== null || subsystems.borders) {
+  if (subsystems.vectorProduct !== null || subsystems.borders || subsystems.tectonics) {
     map.once("idle", () => {
       // Spans the whole construction run, not each call: MapLibre does the work when the source
       // and layers are added, and splitting it four ways would price the caller rather than the
@@ -2533,6 +2584,9 @@ import { GITHUB_MARK, REPO_URL } from "../lib/siteLinks";
       const endLayers = beginSpan("countries:layers");
       const countries = subsystems.vectorProduct === "countries";
       if (countries) addCountryTiles(); // source + fill, under the borders
+      // Under the borders, so a national line drawn along a plate boundary stays on top. Asked for
+      // by flag alone, so the default globe downloads no plate geometry at all.
+      if (subsystems.tectonics && tectonicsOn()) addTectonicBoundaries();
       if (subsystems.borders && bordersOn()) addBorders(); // opted-in only — default globe skips it
       if (countries) addCountryHighlight(); // hover outline, on top so the edge is crisp
       if (subsystems.vectorProduct === "features") {
@@ -2652,7 +2706,7 @@ import { GITHUB_MARK, REPO_URL } from "../lib/siteLinks";
     // list that is already in memory. `goToCountry` is hoisted, which is what lets it be named from
     // above the rail without moving the click wiring down here.
     if (subsystems.vectorProduct === "countries") {
-      searchPick = goToCountry;
+      searchPick = (name) => goToCountry(byName.get(name));
       matcher = createCatalogueSearch(manifest.countries.map(countrySearchEntry));
       searchToggle.setAvailable(true);
     }

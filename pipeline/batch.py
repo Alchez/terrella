@@ -47,6 +47,7 @@ from pipeline.frame.country_config import (
     build_scope,
     country_render_dir,
     country_work_dir,
+    hero_slugs,
     load_config,
     load_ne_rows,
     preflight_gebco,
@@ -219,11 +220,11 @@ def main() -> int:
     _sf, rows = load_ne_rows()
     scope = build_scope(cfg, rows)
 
-    slugs = sorted(scope)
+    slugs = hero_slugs(scope)
     if args.only:
         want = set(args.only.split(","))
         if unknown := want - set(slugs):
-            sys.exit(f"unknown slugs: {sorted(unknown)}")
+            sys.exit(f"not a country that gets a hero: {sorted(unknown)}")
         slugs = [slug for slug in slugs if slug in want]
     if args.limit:
         slugs = slugs[:args.limit]

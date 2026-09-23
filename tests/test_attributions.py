@@ -109,8 +109,8 @@ def test_the_obligations_are_the_ones_the_registry_marks() -> None:
     failure that let SCAR ADD sit uncredited while every licence test passed.
     """
     marked = {name for name, source in attribution.SOURCES.items() if source.obligation}
-    assert marked == {"glo30", "worldcover", "rgi", "addrock", "seaice", "gwl", "mars_dem",
-                      "mars_sim3292"}, (
+    assert marked == {"glo30", "worldcover", "rgi", "addrock", "seaice", "gwl", "tectonics",
+                      "mars_dem", "mars_sim3292"}, (
         "the set of licence-required sources changed. That is a legal claim, not a refactor: "
         "confirm it against ATTRIBUTIONS.md § Required / requested attribution strings, then "
         "update this literal."
@@ -186,11 +186,15 @@ def test_attributions_file_still_records_the_required_string(label: str, require
     )
 
 
-#: The required notices no archive owes.
-# EMPTY, and the entry it used to hold is why the list is exceptions rather than targets. WorldCover
-# was exempted here as a snow mask, and it also synthesises the watermask for the void GLO-30 tiles,
+#: The required notices no archive owes, by the label `REQUIRED_STRINGS` gives each one.
+# These are exceptions rather than targets, and the entry that has left is why. WorldCover was
+# exempted here as a snow mask, and it also synthesises the watermask for the void GLO-30 tiles,
 # which reaches every Earth raster archive through the fused heightfield.
-NOT_IN_ANY_ARCHIVE: set[str] = set()
+#
+# An entry belongs here only where the source reaches no pyramid at all. The plate boundaries are a
+# GeoJSON the globe fetches whole, packed into nothing and offered as no download, so the About page
+# is the medium the credit is given in.
+NOT_IN_ANY_ARCHIVE: set[str] = {attribution.SOURCES["tectonics"].name}
 
 
 def every_archive_credit() -> str:

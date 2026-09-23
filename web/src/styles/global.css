@@ -209,8 +209,8 @@ a {
   gap: 0.2rem;
 }
 
-/* No phone collapse, deliberately — the controls fit one row at every width the site serves, and
-   a trigger is what pushes 320 px onto two. See Base.astro. */
+/* No collapse of the whole bar: a trigger in front of every control adds width rather than saving
+   it. The tier segment's own collapse, further down, is the opposite trade. */
 
 /* The view controls are pure JS enhancements — a dead toggle is worse than none,
    so hide the bar when JavaScript is unavailable. */
@@ -281,12 +281,27 @@ a {
   margin: 0.15rem 0.25rem;
   background: var(--line);
 }
+/* The tier segment and, on a phone, the control that stands in for it. `relative` so the list can
+   be positioned against this rather than against the bar, which would put it over the other
+   controls instead of over the tiers it replaces. */
+.quality-picker {
+  display: inline-flex;
+  position: relative;
+}
+/* Absent by default: above the phone width the row has space for three tiers, and the per-tier
+   tooltips only mean anything to a pointer anyway. The rule that shows it is keyed on WIDTH rather
+   than on the pointer, so a window narrowed past that width gets the same list. */
+.quality-trigger {
+  display: none;
+}
 .quality-fab {
   display: inline-flex;
   gap: 0.2rem; /* the pill, blur and border are .view-bar's; this is only the segment's spacing */
 }
-/* The site picked the lit tier, until the visitor presses one. */
-.quality-fab button[data-auto]::after {
+/* The site picked the lit tier, until the visitor presses one. Both spellings of that tier carry
+   it: the button in the row, and the trigger that stands in for the row on a phone. */
+.quality-fab button[data-auto]::after,
+.quality-trigger[data-auto]::after {
   content: "· auto";
   margin-left: 0.3em;
   font-size: 0.9em;
@@ -295,7 +310,8 @@ a {
 /* Narrower than this, a pointer's bar also carries the highlight button and the tag would wrap it.
    Phones hide that button, so they keep the tag down to the narrowest width served. */
 @media (max-width: 349px) and (hover: hover) {
-  .quality-fab button[data-auto]::after {
+  .quality-fab button[data-auto]::after,
+  .quality-trigger[data-auto]::after {
     content: none;
   }
 }
@@ -361,6 +377,57 @@ a {
      is what insets a `stretch`ed 1 px line from the pill's edges, a different job. */
   .view-bar-divider {
     margin-inline: 0;
+  }
+}
+
+/* The three tiers leave the row and become a list above it, with the trigger standing in their
+   place. Three abreast is what stopped fitting once the bar took a fifth control.
+
+   It has its own breakpoint, wider than the tighter-button one above, and sharing that one is the
+   mistake to avoid: the buttons go roomy one pixel past it, which widens the bar by more than the
+   viewport gained, so a collapse ending there hands the row straight back to a bar that does not
+   fit. This number is where three abreast clear the floor instead, and `viewBar.browser.test.ts`
+   pins it from both sides.
+
+   Keyed also on the trigger carrying a label: the picker writes that once it has resolved the
+   tier, and until then the served markup has no name to show, so the row keeps the three buttons
+   rather than collapsing to an empty pill. */
+@media (max-width: 473px) {
+  .quality-trigger:not(:empty) {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+  /* The chevron takes `::before` and is ordered last, because `::after` is already the auto tag
+     and one element has only the two. A text node is an anonymous flex item at order 0, so the
+     three read label, tag, chevron. */
+  .quality-trigger:not(:empty)::before {
+    content: "⌄";
+    order: 2;
+    font-size: 0.9em;
+    line-height: 1;
+    opacity: 0.7;
+  }
+  .quality-trigger[data-auto]::after {
+    order: 1;
+  }
+  .quality-picker:has(.quality-trigger:not(:empty)) .quality-fab {
+    display: none;
+    position: absolute;
+    bottom: calc(100% + 0.45rem);
+    right: 0;
+    flex-direction: column;
+    align-items: stretch;
+    padding: 0.25rem;
+    background: color-mix(in srgb, var(--bg-2) 92%, transparent);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    border: 1px solid var(--line);
+    border-radius: 1rem;
+    box-shadow: var(--shadow);
+  }
+  .quality-picker:has(.quality-trigger:not(:empty)) .quality-fab[data-open] {
+    display: flex;
   }
 }
 

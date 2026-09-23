@@ -11,6 +11,17 @@ Local Blender is **5.1.2**, tarball at `~/software/blender-5.1.2-linux-x64/blend
 
 **5.2.1 is also unpacked, at `~/software/blender-5.2.1-linux-x64/`, and is NOT what production runs.** `paths.BLENDER` names 5.1.2 and `MAPS_BLENDER` overrides it, which is how an A/B runs a second binary without a code change.
 
+**The rig never pitches its camera, and what that does and does not imply is easy to get backwards.** `build_camera` sets `camera_type` `ORTHO` and no rotation; grep `rotation_euler` across `pipeline/` and the only hits are the sun and the fill. So every hero and every block is baked straight down.
+
+- **A pitched frame is a fair stand-in for a HERO.** Pitching the hero camera is a live proposal, so a pitched render is the thing being evaluated rather than an error. Say which pitch and exaggeration it used, because both are undecided and a value solved at one does not transfer to another.
+- **A pitched frame is NOT a stand-in for a TILE.** A tile's shading is baked straight down under a fixed north-west sun, then draped as a `raster` source over a mesh the browser displaces from an independent `raster-dem` pyramid (`terrainSource.ts` states the split). A visitor pitching the globe re-projects the geometry and not the baked shadows, which a pitched Blender render does re-project.
+- **Before offering any frame as a comparison, say which rig and camera produced it and what it is standing in for.** A round of look frames was once sent as "what the tiles do today" at a pitch and an exaggeration no tile uses.
+
+**`Body.baked_exaggeration` is NOT what the globe displaces at, and a frame rendered at it is not a picture of the globe.** The browser ramps terrain exaggeration down with zoom in `web/src/lib/terrainSource.ts`: `rampedExaggeration` holds the baked value to `TERRAIN_RAMP_START_ZOOM` and decays it geometrically to `DEFAULT_TERRAIN_RAMP_FLOOR` at `TERRAIN_RAMP_END_ZOOM`. Read those three constants and compute rather than quoting a remembered figure.
+
+- **Heroes and the baked tile shading DO use the flat baked value**, since a hero is one image and `cut_tiles` downsamples one mosaic to every zoom. So the mismatch is real and one-sided: at depth the shading is lit as if the baked exaggeration while the mesh is displaced at a fraction of it.
+- **The ramp exists to remove needles and its own derivation says so**, naming the zoom where an earlier floor let them back in. Proposing a needle fix without reading it re-opens a solved problem: that has now happened twice, and the archive's entry about labelling a flat baked value "ratified" was written the first time.
+
 **TWO THINGS BITE ON EVERY VERSION CHANGE, AND NEITHER RAISES.**
 
 - **A Blender default the rig does not pin becomes a look change.** `cycles.sampling_pattern` defaults `TABULATED_SOBOL` on 5.1 and `AUTOMATIC` on 5.2, and unpinned it moved a block by 1.0973 DN against a 0.0363 DN floor and cost 9% more time. It is pinned in `Rig` now, and `test_every_rig_field_is_actually_read_by_the_builder` covers the field being applied. When a version moves, diff the built scene's state, not the property list: a property present in both can still arrive with a different value.
