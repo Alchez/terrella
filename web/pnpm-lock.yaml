@@ -179,6 +179,9 @@ importers:
       '@astrojs/check':
         specifier: ^0.9.10
         version: 0.9.10(prettier@3.9.6)(typescript@6.0.3)
+      '@maplibre/maplibre-gl-style-spec':
+        specifier: 26.4.2
+        version: 26.4.2
       '@types/geojson':
         specifier: 7946.0.16
         version: 7946.0.16

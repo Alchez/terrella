@@ -23,8 +23,9 @@ Most of this is visible in `nginx/terrella-locations.conf`, which is commented w
 The two worth stating separately are the ones that **fail silently**, where the site looks fine and
 is quietly wrong:
 
-- **Compress the GeoJSON.** `countries.geojson` is **8.96 MB → 2.50 MB** gzipped (3.6×) and the globe
-  `fetch`es it on every visit. Miss this and nothing breaks; the globe is just slow forever. Scope
+- **Compress the GeoJSON.** The globe `fetch`es `boundary_lines.geojson` and
+  `tectonic_boundaries.geojson` when a visitor turns on their overlay. Miss this and nothing breaks;
+  each overlay is just slow to appear. Scope
   compression to text-like types only: the WebP tiles, hero images and the PMTiles archive are
   already compressed, so recompressing them costs CPU for roughly zero bytes.
 - **Send `Timing-Allow-Origin` if assets are on a different origin than the page.** Without it,

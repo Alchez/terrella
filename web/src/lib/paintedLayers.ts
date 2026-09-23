@@ -104,6 +104,20 @@ export const RATIFIED_LAYERS: RatifiedLayer[] = [
     looks: "the white border line on disputed segments, dashed — the worldview note on About",
   },
   {
+    id: "tectonic-casing",
+    bodies: ["earth"],
+    timing: "opt-in",
+    looks:
+      "a soft dark rim under the plate boundary lines, so they hold their shape over pale ice and deep ocean alike",
+  },
+  {
+    id: "tectonic-ink",
+    bodies: ["earth"],
+    timing: "opt-in",
+    looks:
+      "a dark reddish-brown hairline along every plate boundary, finer than the white border line so the two do not read as one",
+  },
+  {
     id: "country-fill",
     bodies: ["earth"],
     timing: "on-hover",

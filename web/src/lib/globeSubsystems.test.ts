@@ -50,6 +50,7 @@ describe("what a body's globe draws", () => {
       terrain: true,
       vectorProduct: "countries",
       borders: true,
+      tectonics: true,
       heroes: true,
     } satisfies GlobeSubsystems);
   });
@@ -68,6 +69,7 @@ describe("what a body's globe draws", () => {
       terrain: true,
       vectorProduct: "features",
       borders: false,
+      tectonics: false,
       heroes: false,
     } satisfies GlobeSubsystems);
   });
@@ -141,7 +143,8 @@ describe("the tile addresses a globe draws from", () => {
     // subsystem it was watching had quietly turned on. A negative instance borrowed from live data
     // lasts exactly as long as the gap it was borrowed from, and nothing announces its end.
     const nothingButRelief: GlobeSubsystems = {
-      polarCaps: true, terrain: false, vectorProduct: null, borders: false, heroes: false,
+      polarCaps: true, terrain: false, vectorProduct: null, borders: false, tectonics: false,
+      heroes: false,
     };
     expect(() => globeTileAddresses("mars", nothingButRelief)).not.toThrow();
     const addresses = globeTileAddresses("mars", nothingButRelief);

@@ -48,6 +48,12 @@ export interface GlobeSubsystems {
   /** The white boundary overlay, which is its own GeoJSON download rather than part of the
    *  vector pyramid — hence its own answer, and not one derived from `countries`. */
   borders: boolean;
+  /** The plate boundary overlay, a second GeoJSON beside the border one and its own answer.
+   *
+   *  This says the globe CAN draw it, never that it is on: the overlay is opt-in behind its own
+   *  flag, read where the layers are added. Reading that flag here would invert this module's
+   *  polarity, where the registry says what exists and the flags only take things away. */
+  tectonics: boolean;
   /** The country card a click opens, linking to that country's hero page. Requires the `countries`
    *  product, since a click is hit-tested against that pyramid and there is no other route into
    *  the card; the registry holds that rule, and its own tests enforce it. */
@@ -78,6 +84,7 @@ export function globeSubsystems(descriptor: BodyDescriptor, published: Published
     terrain: published.terrain !== null,
     vectorProduct: published.vector !== null && !bare ? vectorProduct : null,
     borders: descriptor.hasBorders && !bare,
+    tectonics: descriptor.hasTectonics && !bare,
     heroes: descriptor.hasHeroes && !bare,
   };
 }

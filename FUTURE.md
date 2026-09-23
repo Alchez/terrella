@@ -22,8 +22,10 @@ Ideas deliberately **not** planned: analysed enough to record, parked without co
 
 ### OPEN, and a named event would reopen these
 
-**A hero re-render is scheduled.** Three entries, and they are one job.
+**A hero re-render is scheduled.** Five entries, and they are one job.
 
+- [A height curve on the displacement](#a-height-curve-on-the-displacement-parked-until-the-hero-camera-is-decided-analysed-2026-09-21) · look-call · needs-gpu
+- [Blurring the heightfield before displacement](#blurring-the-heightfield-before-displacement-where-the-radius-turns-out-to-be-a-per-country-fit-analysed-2026-09-21) · look-call · needs-gpu
 - [Heroes record no recipe](#heroes-record-no-recipe-so-nothing-on-disk-says-which-rig-made-any-of-the-203-analysed-2026-08-21-parked) · needs-render-store
 - [Large-country warp and small-island exaggeration](#hero-presentation-large-country-warp--small-island-exaggeration-analysed-2026-07-24) · look-call · needs-gpu
 - [Hero and block renders differ in their contents](#hero-and-block-renders-differ-in-their-contents-when-only-their-projection-should-raised-2026-08-24) · look-call · needs-gpu
@@ -103,6 +105,44 @@ Not a lower tier. Nobody has written down what would make them worth doing, and 
 - [The heightfield wraps at a block's plane edge, and the context law does not bound the wall it stands](#the-heightfield-wraps-at-a-blocks-plane-edge-and-the-context-law-does-not-bound-the-wall-it-stands-observed-2026-09-13-not-analysed)
 - [Mars's source elevation steps about 110 m along 15°S](#marss-source-elevation-steps-about-110-m-along-15s-observed-2026-09-19-not-analysed)
 - [GLO-30 steps up to 16 m along a straight line near the South Pole](#glo-30-steps-up-to-16-m-along-a-straight-line-near-the-south-pole-observed-2026-09-19-not-analysed)
+
+## A height curve on the displacement, parked until the hero camera is decided (analysed 2026-09-21)
+
+> **OPEN** · `look-call` · `needs-gpu`, and the named event that reopens it is the hero camera being settled. Everything below was measured; none of it was ratified, and the one look the maintainer gave was a ranking between two options he rejected.
+
+The idea: scale the displacement by `gain x knee x ln(1 + h/knee)` above sea level and `gain x h` below, so low ground lifts more than high ground. It reaches the displacement alone, so colour still follows true height.
+
+**Why it is parked rather than rejected.** It was liked twice, in September and again on three of four countries here, and it is the only lever that calms peaks without flattening the low ground: turning the exaggeration down costs exactly what the curve adds. What stops it is that every gain below was solved at one pitch and one exaggeration, 55 degrees and 4x, and both of those are themselves undecided parts of the hero rethink. Move either and the gains have to be solved again. The pitched camera is not the problem: pitch is what the hero rethink is for, and the globe has been pitchable all along.
+
+- **The gain and the exaggeration are one knob.** They only ever appear as a product, proved to the last decimal: exaggeration 4 with gain 4.73, 8 with 2.365 and 15 with 1.261 give identical multipliers at every height. So a gain above 1 IS a higher exaggeration, and on the tiles, where both would be single per-body numbers, the gain is redundant. The knee is the only new parameter a tile curve would need.
+- **The knee is the whole of what the curve costs in truthfulness.** Counting pairs of places where one is really steeper: no curve gets 0% backwards, a 2,000 m knee 5.8%, 1,000 m 8.0%, 500 m 10.6%, 250 m 13.6%. The gain does not appear because scaling every slope alike cannot reorder them.
+- **A gain above 1 breaks small steep islands.** Census over 200 countries at one shared setting (gain 2.19, knee 1,000 m, exaggeration 4): 46 worse than no curve, 7 better, 147 unchanged. 39 of the 46 have median land under 500 m, led by Dominica, the Faroes, Monaco, Saint Vincent, Saint Lucia and Sao Tome. The seven that improve all have median land above 800 m.
+- **A gain of 1 cannot break anything, by construction.** It starts at the exaggeration already in use and only falls with height, so no ground is drawn steeper than today. Same census at the baked 15x: 0 worse, 171 better, 29 unchanged, and it removes over-steepening that 15x already creates. That is the figure heroes and tiles bake, and not what the globe's mesh applies at depth, which the entry below on blurring reads off the ramp.
+- **The tiles cannot have a per-country gain.** The block lane has no notion of a country, so the tiles take one setting for the whole planet. A per-country curve is therefore heroes-only, which makes every hero disagree with the tiles under it and sharpens the hero-to-tile pin.
+- **Nepal was never the counter-example it looked like.** Its bad frame came from its own solved gain of 4.73, not its terrain; at a shared gain it is among the best cases. The claim that its steep ground sits low was true of one elevation band and false of the country, and a validation gate refused the instrument built on it.
+
+**A pitched frame stands in for a hero and not for a tile.** A hero is rendered with its own camera, so pitching it is exactly the change being proposed. A tile's shading is baked straight down under a fixed north-west sun and then draped on a mesh the browser displaces from a separate elevation pyramid, so the shadows in a tile do not re-project when a visitor pitches the globe. Judging a tile setting from a pitched Blender frame therefore compares the wrong thing, and that mistake was made here before this entry was written.
+
+**Solve the gains again before rendering another comparison**, since they were fitted at 55 degrees and 4x and neither value is settled. The instruments that produced the figures above are scratch and reachable only on the maintainer's machine; a clone reproduces them from this entry rather than from a file.
+
+## Blurring the heightfield before displacement, where the radius turns out to be a per-country fit (analysed 2026-09-21)
+
+> **OPEN** · `look-call` · `needs-gpu`, and the named event that reopens it is the hero camera being settled, the same event the height curve above waits on.
+
+The idea, which is the published practice for this look rather than an invention here: low-pass the elevation raster before it drives the displacement, then mix a small share of the untouched raster back in. It reaches the displacement alone, so colour still follows true height. A needle is a narrow feature rather than a tall one, so a filter on width attacks it directly where a curve on elevation reaches it only incidentally.
+
+**Read the ramp first, because most of this problem is already solved.** `terrainSource.rampedExaggeration` holds `Body.baked_exaggeration` to zoom 3 and decays it geometrically to a 2.5x floor at zoom 8, which is 5.12x at zoom 6 and 3.58x at zoom 7. Its own derivation names needles as the thing it exists to remove and calls them an amplitude problem rather than a resolution one. So on the live mesh this question is largely answered. What the ramp does not reach is the baked shading, which is one mosaic cut to every zoom, and the heroes, which carry no ramp at all and bake a single exaggeration.
+
+- **A radius is a per-country fit rather than a setting, which is what parks this.** A hero's grid is a fixed pixel budget spread over the country's own extent, so ground metres per pixel is set by how large the country is: across five heroes measured it ran from 8.1 to 1,340 m/px, a 165x swing. One radius of 220 m then moves the median land slope by 0.0% on Russia and 71.9% on the Netherlands.
+- **Choosing the other unit does not rescue it, and reorders the countries.** Held at 4 heightfield pixels instead, the same five spread from 5.7% to 68.0%, with Russia moving from the least affected to nearly the most.
+- **The terrain's own grain is half of the spread, independently of the grid.** The Netherlands at 45.1 m/px and Switzerland at 47.7 m/px have the same grid within 6%, and the same 220 m radius takes 71.9% of the first country's median slope against 24.5% of the second. Flat countries keep most of their small relief at fine scales, so a blur erases proportionally more of it.
+- **A radius below one pixel is not a filter, but it still decapitates isolated peaks.** At 1,340 m/px a 220 m radius is 0.16 px and changes nothing; at 0.66 px it left the median slope almost alone and still took 259 m off the highest point, because averaging a one-pixel spike with its neighbours works at any kernel size.
+- **What it costs in truthfulness is unmeasured.** The summit loss is known, 828 m off the highest point at an 881 m radius on the steepest country tried, but nobody has counted how often a blur puts two places in the wrong order, which is the figure the height curve above was held to.
+- **The block lane may tolerate one radius where heroes cannot, and that is the half worth measuring first.** Blocks are cut from the planet raster at a fixed projected resolution, so ground metres per pixel varies only with the latitude cosine rather than with the size of a country. It is also the half that would actually ship.
+
+**The split nobody has tried, and the reason it is the next thing rather than another radius.** `RIG.displacement_method` is `BOTH`, so one height image drives the mesh displacement and the bump shading together, and blurring it deletes fine surface shading along with the geometry. Feeding the blurred raster to the mesh and the difference between the two rasters to an explicit bump node would give soft shape with sharp surface, and that difference is exactly the high-pass an explicit bump needs so it does not count the mesh's own slope twice. It brings a bump distance and strength that no current value answers for, and moving `displacement_method` restages the planet.
+
+**What the frames judged so far stand in for.** One country, the steepest one, landlocked, so no blur crossed a coastline. Rendered at a hero's resolution, which is several times finer than a tile at the zooms the ramp was read at, and with a hero's camera. Nothing has been judged on a tile or on flat or coastal ground.
 
 ## The detail card cannot state an elevation the DEM does not know (analysed 2026-08-27)
 

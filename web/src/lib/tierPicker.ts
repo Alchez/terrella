@@ -82,6 +82,38 @@ export function wireTierPicker(
     clearReason = setTimeout(() => (reason.textContent = ""), REFUSAL_VISIBLE_MS);
   };
 
+  // On a phone the three tiers leave the row and the trigger stands in for them — the rule is in
+  // `global.css`, keyed on this label being written. Giving it the lit tier's own text is what
+  // makes the collapsed control say which tier you are on rather than what it is for.
+  const trigger = bar.querySelector<HTMLButtonElement>(".quality-trigger");
+  const activeButton = buttons.find((button) => button.dataset.quality === active);
+  if (trigger && activeButton) {
+    trigger.textContent = activeButton.textContent?.trim() ?? "";
+    // The tag itself is the stylesheet's, on the same rule the lit tier uses, so the collapsed
+    // control and the expanded one cannot come to say it differently.
+    trigger.toggleAttribute("data-auto", activeButton.hasAttribute("data-auto"));
+    const setOpen = (open: boolean) => {
+      control.toggleAttribute("data-open", open);
+      trigger.setAttribute("aria-expanded", String(open));
+    };
+    trigger.addEventListener("click", (event) => {
+      event.stopPropagation();
+      setOpen(!control.hasAttribute("data-open"));
+    });
+    // A press on a tier navigates, so closing here is for the refused one, which stays on the page.
+    for (const button of buttons) button.addEventListener("click", () => setOpen(false));
+    document.addEventListener("click", (event) => {
+      if (control.hasAttribute("data-open") && !control.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape" || !control.hasAttribute("data-open")) return;
+      setOpen(false);
+      trigger.focus();
+    });
+  }
+
   for (const button of buttons) {
     button.addEventListener("click", () => {
       const choice = button.dataset.quality as Quality;

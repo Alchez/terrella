@@ -170,6 +170,24 @@ SOURCES: dict[str, Source] = {
                "2023.",
         obligation=True,
     ),
+    "tectonics": Source(
+        name="Global Tectonics plate boundaries",
+        href="https://doi.org/10.5281/zenodo.6586972",
+        role="Plate boundaries",
+        licence="CC-BY 4.0",
+        # Composed from the deposit's Zenodo metadata and the article's own DOI record rather than
+        # quoted from the archive's readme, which duplicates the journal name on every citation it
+        # carries and spells the article's title differently from the published one. The statement
+        # of change CC-BY 4.0 § 3(a)(1)(B) asks for is the prefix, on GWL_FCS30's precedent.
+        notice="Plate boundaries derived from Hasterok, D., Halpin, J.A., Collins, A.S., Hand, M., "
+               "Kreemer, C., Gard, M.G., Glorie, S. (2022), New Maps of Global Geological "
+               "Provinces and Tectonic Plates, Earth-Science Reviews 231, 104069 "
+               "(doi:10.1016/j.earscirev.2022.104069); data deposit "
+               "doi:10.5281/zenodo.6586972, CC-BY 4.0.",
+        obligation=True,
+        page_note="Segments the source marks as inferred are left out, so the globe draws only the "
+                  "boundaries it states as observed.",
+    ),
     "mars_dem": Source(
         name="MOLA / HRSC Blended DEM",
         href="https://astrogeology.usgs.gov/search/map/"
@@ -234,6 +252,10 @@ class BodyCredits:
     painted: dict[str, tuple[str, ...]]
     #: The geometry behind this body's vector pyramid.
     vector: tuple[str, ...]
+    #: The geometry the globe fetches as a plain served file and draws over the tiles, which is in
+    #: no archive's bytes. That is what separates it from `vector`, whose geometry is packed into a
+    #: pyramid someone can download.
+    overlay: tuple[str, ...] = ()
     #: What a hero render paints beyond its heightfield, so the two together are everything in a
     #: hero's pixels. Empty on a body with no hero renders.
     heroes: tuple[str, ...] = ()
@@ -270,6 +292,7 @@ CREDITS: dict[str, BodyCredits] = {
             "salt_flats": ("naturalearth", "gwl", "worldcover", "snow_persistence"),
         },
         vector=("naturalearth",),
+        overlay=("tectonics",),
         # The tiles' snow, glaciers and salt flats, which the hero snow stage folds on its own
         # grid, and GLOBathy as the lake tint.
         heroes=("snow_persistence", "rgi", "naturalearth", "gwl", "worldcover", "globathy"),
@@ -388,7 +411,7 @@ def on_the_page(body: bodies.Body) -> tuple[Source, ...]:
     credits = CREDITS[body.name]
     ordered = [*credits.heightfield,
                *(key for name in sorted(credits.painted) for key in credits.painted[name]),
-               *credits.vector, *credits.heroes, *credits.focus]
+               *credits.vector, *credits.overlay, *credits.heroes, *credits.focus]
     seen: dict[str, None] = dict.fromkeys(ordered)
     return tuple(SOURCES[key] for key in seen)
 

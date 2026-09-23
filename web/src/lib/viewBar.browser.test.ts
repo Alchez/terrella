@@ -11,23 +11,22 @@ import baseLayout from "../layouts/Base.astro?raw";
 /**
  * The view bar has to hold one row at 320 px.
  *
- * `Base.astro` states that as fact — "the controls measure 229.7 px and the bar is allowed 281.6 px
- * at 320 px" — and nothing checked it. That number is now ambiguous enough to be worth replacing:
- * it matches neither page today (the gallery's bar measures 231 px, the globe's 244 px, because
- * "Borders" is a wider word than "Focus"), and there is no way to tell from the comment which
- * element it was measuring. A number in a comment ratchets nothing; this file ratchets.
+ * A width written in a comment ratchets nothing and stops matching any page the first time a label
+ * changes, which is why the widths live here and nowhere else.
  *
- * It matters more than it did. The gallery's masthead no longer carries a Globe link, so the tier
- * segment in this bar is the ONLY route from the gallery to the globe.
+ * It matters because the tier segment in this bar is the only control that can change the tier.
+ * The body switcher links to a body's globe, but that page's pre-paint guard sends a visitor whose
+ * pick is Lite straight back, so a wrapped or unreachable segment strands them on Lite.
  *
  * Two things make this a different risk from the masthead's, and both are reasons the assertions
  * here are narrower:
  *
  *   - the bar is `position: fixed`, so it is out of flow and wrapping cannot move page content —
  *     a wrap here is a look regression, never a layout shift;
- *   - every label is set in `--sans`, a pure system stack, so nothing about this bar changes width
- *     after first paint. The masthead's cliff needed zero slack AND a post-paint change. This has
- *     slack and no trigger.
+ *   - every label is set in `--sans`, a pure system stack, so no font swap changes its width after
+ *     first paint. The masthead's cliff needed zero slack AND a post-paint widening. The one
+ *     post-paint change here is the tier segment collapsing once the picker writes its label, and
+ *     that only ever narrows the bar.
  *
  * THE SAME SYSTEM STACK IS WHY THE MEASUREMENT IS PINNED TO ONE FACE. `system-ui` is not a font, it
  * is whatever the machine calls its UI font — Noto Sans on the dev box, DejaVu Sans on the CI
@@ -39,9 +38,9 @@ import baseLayout from "../layouts/Base.astro?raw";
  * macOS, Windows and Android are all narrower than it.
  *
  * What it does share is the shape that bites: a fixed set of controls sized against a fixed budget,
- * where the next control added is the one that does not fit. The union of every group `Base.astro`
- * can emit already does not fit at 320 px — see the control at the bottom of this file — so the
- * margin is one prop away from gone.
+ * where the next control added is the one that does not fit. Every group `Base.astro` can emit,
+ * turned on at once, fits one row at 320 px only because the tier segment collapses, and still falls
+ * under the floor — see the control at the bottom of this file.
  *
  * BOTH HALVES OF THE CONFIGURATION ARE FOUND, NOT LISTED — which pages ship a bar, and what each
  * one turns on. The second half was always read from the source; the first was a list of two, and a
@@ -66,6 +65,29 @@ const MIN_SLACK_PX = 16;
  * highlight button. The sheet's breakpoint sits one pixel below, and both sides are exercised.
  */
 const TAG_MIN_PX = 350;
+
+/**
+ * At or below this width the bar is measured as a touch device draws it, which is without the
+ * pointer control: `@media (hover: none)` hides that button, so no phone ever lays it out.
+ *
+ * The browser context fixes its own hover capability for a whole run, so the media query cannot be
+ * flipped here and the presentation is modelled instead. What it models is a claim about devices:
+ * a hovering pointer at these widths is a desktop window dragged narrower than any phone, where a
+ * wrap is a look regression on a window the visitor is actively resizing rather than a state the
+ * site ships to anyone. The same number as the layout's phone breakpoint, so the width that
+ * decides which pointer to assume cannot drift from the width that tightens the buttons.
+ */
+const COARSE_POINTER_MAX_PX = TIGHT_MAX_PX;
+
+/**
+ * The widest window that collapses the tier segment behind its trigger.
+ *
+ * Deliberately NOT `TIGHT_MAX_PX`, which is the tighter-button breakpoint. One pixel past that the
+ * buttons go roomy, so the bar gains more width than the viewport does; a collapse ending there
+ * would hand the row straight back to a bar that does not fit. This is where three tiers abreast
+ * clear the floor on their own, and the assertion below holds it from both sides.
+ */
+const COLLAPSE_MAX_PX = 473;
 
 /**
  * The face every width here is measured in — see the header for why it is pinned rather than
@@ -94,6 +116,7 @@ type BarFlags = {
   highlight: boolean;
   borders: boolean;
   spotlight: boolean;
+  tectonics: boolean;
   quality: boolean;
 };
 
@@ -189,8 +212,9 @@ function barFlags(source: string, pageName: string): BarFlags[] {
   for (const highlight of arms(on("highlight")))
     for (const borders of arms(on("borders")))
       for (const spotlight of arms(on("spotlight")))
+        for (const tectonics of arms(on("tectonics")))
         for (const quality of arms(on("quality")))
-          configurations.push({ highlight, borders, spotlight, quality });
+          configurations.push({ highlight, borders, spotlight, tectonics, quality });
   return configurations;
 }
 
@@ -210,7 +234,7 @@ const PAGE_SOURCES = import.meta.glob("../pages/**/*.astro", {
 
 /** The groups a configuration turns on, so each measured bar names itself in its own title. */
 const describeFlags = (flags: BarFlags) =>
-  (["highlight", "borders", "spotlight", "quality"] as const)
+  (["highlight", "borders", "spotlight", "tectonics", "quality"] as const)
     .filter((flag) => flags[flag])
     .join("+");
 
@@ -229,7 +253,7 @@ const PAGE_BARS = Object.entries(PAGE_SOURCES)
       label: `${name} [${describeFlags(flags)}]`,
     })),
   )
-  .filter(({ flags }) => flags.borders || flags.spotlight || flags.quality)
+  .filter(({ flags }) => flags.borders || flags.spotlight || flags.tectonics || flags.quality)
   .toSorted((a, b) => a.label.localeCompare(b.label));
 
 /**
@@ -240,8 +264,8 @@ const PAGE_BARS = Object.entries(PAGE_SOURCES)
  * is what makes that measurement sensitive enough to fail. Naming a page here would be a second
  * hand-maintained list — the thing the sweep above exists to remove.
  */
-const groupCount = ({ borders, spotlight, quality }: BarFlags) =>
-  Number(borders) + Number(spotlight) + Number(quality);
+const groupCount = ({ borders, spotlight, tectonics, quality }: BarFlags) =>
+  Number(borders) + Number(spotlight) + Number(tectonics) + Number(quality);
 const FULLEST_BAR = PAGE_BARS.toSorted((a, b) => groupCount(b.flags) - groupCount(a.flags))[0];
 
 /**
@@ -308,16 +332,31 @@ function mountBar(flags: BarFlags) {
     const element = host.querySelector<HTMLElement>(selector);
     if (element) element.style.display = "none";
   };
-  if (!flags.highlight) hide("#highlight-toggle");
+  if (!flags.highlight || window.innerWidth <= COARSE_POINTER_MAX_PX) hide("#highlight-toggle");
   if (!flags.borders) hide("#border-toggle");
   if (!flags.spotlight) hide("#spotlight-toggle");
+  if (!flags.tectonics) hide("#tectonics-toggle");
   if (!flags.quality) hide(".quality-fab");
   // The auto tag rides on whichever tier is lit, so every measurement takes it on the widest.
+  //
+  // Lighting that tier is not decoration here. The segment collapses to the pressed button on a
+  // phone, and the rule that does it is guarded on one being pressed — which the served markup
+  // never is, because the picker sets it. A bar mounted with nothing lit is the expanded segment
+  // at every width, which is a wider bar than the site draws and a measurement of no page.
   const tiers = [...host.querySelectorAll<HTMLElement>(".quality-fab button")];
   const widest = tiers.toSorted((a, b) => b.getBoundingClientRect().width - a.getBoundingClientRect().width)[0];
   widest?.setAttribute("data-auto", "");
+  widest?.setAttribute("aria-pressed", "true");
+  // And the label the picker writes onto the trigger, which is the lit tier's own text. The
+  // stylesheet collapses the segment only once that label exists, so a harness that left it empty
+  // would measure three tiers abreast at a width the site shows one.
+  const trigger = host.querySelector<HTMLElement>(".quality-trigger");
+  if (trigger && widest) {
+    trigger.textContent = widest.textContent?.trim() ?? "";
+    trigger.setAttribute("data-auto", "");
+  }
   // Mirrors the layout's own condition for the divider.
-  if (!((flags.highlight || flags.borders || flags.spotlight) && flags.quality)) {
+  if (!((flags.highlight || flags.borders || flags.spotlight || flags.tectonics) && flags.quality)) {
     hide(".view-bar-divider");
   }
 
@@ -375,6 +414,7 @@ describe("the view bar holds one row at the narrowest width the site serves", ()
     expect(markup).toContain("highlight-toggle");
     expect(markup).toContain("border-toggle");
     expect(markup).toContain("spotlight-toggle");
+    expect(markup).toContain("tectonics-toggle");
     expect(markup).toContain("view-bar-divider");
     expect(markup).toContain("quality-fab");
     expect(markup).not.toContain("&&");
@@ -393,7 +433,7 @@ describe("the view bar holds one row at the narrowest width the site serves", ()
     }
     // And that they are not all the SAME bar — three copies of one configuration would pass
     // everything below while measuring one thing three times.
-    for (const flag of ["highlight", "borders", "spotlight"] as const) {
+    for (const flag of ["highlight", "borders", "spotlight", "tectonics"] as const) {
       const answers = [...new Set(PAGE_BARS.map((entry) => entry.flags[flag]))].toSorted();
       expect(answers, `every measured page answers ${flag} the same way`).toEqual([false, true]);
     }
@@ -402,14 +442,15 @@ describe("the view bar holds one row at the narrowest width the site serves", ()
     // a tier segment nested INSIDE the 1 px divider, which every width assertion then passed —
     // a narrower bar fits more easily, so the harness's own bug read as a comfortable result.
     // Assert the shape the browser actually built: four groups, all siblings, in source order.
-    const bar = mountBar({ highlight: true, borders: true, spotlight: true, quality: true });
+    const bar = mountBar({ highlight: true, borders: true, spotlight: true, tectonics: true, quality: true });
     const children = [...bar.bar.querySelector(".view-bar-items")!.children];
     expect(children.map((child) => child.id || child.className)).toEqual([
       "highlight-toggle",
       "border-toggle",
+      "tectonics-toggle",
       "spotlight-toggle",
       "view-bar-divider",
-      "quality-fab",
+      "quality-picker",
     ]);
   });
 
@@ -423,7 +464,10 @@ describe("the view bar holds one row at the narrowest width the site serves", ()
    * class would lose and the control would ship to touch devices regardless, with every other
    * assertion in this file still green.
    */
-  it("does not offer the pointer control where the pointer cannot hover", () => {
+  it("does not offer the pointer control where the pointer cannot hover", async () => {
+    // Above the coarse-pointer width, or `mountBar` hides this button for the other reason and the
+    // cascade below is put to a control that is not in the layout at all.
+    await page.viewport(COARSE_POINTER_MAX_PX + 1, 823);
     const hides = [...document.styleSheets]
       .flatMap(rulesOf)
       .filter((rule) => rule instanceof CSSMediaRule)
@@ -434,7 +478,7 @@ describe("the view bar holds one row at the narrowest width the site serves", ()
     expect(hides, "no `hover: none` block hides the highlight toggle").toHaveLength(1);
     expect(hides[0].style.display).toBe("none");
 
-    const bar = mountBar({ highlight: true, borders: true, spotlight: false, quality: true });
+    const bar = mountBar({ highlight: true, borders: true, spotlight: false, tectonics: false, quality: true });
     const button = bar.bar.querySelector<HTMLElement>("#highlight-toggle")!;
     // `flex`, not the `inline-flex` the sheet declares: a flex item's display is blockified.
     expect(getComputedStyle(button).display).toBe("flex");
@@ -485,6 +529,31 @@ describe("the view bar holds one row at the narrowest width the site serves", ()
     }
   });
 
+  it("expands the tier segment only where three abreast still clear the floor", async () => {
+    // Both sides of the collapse's own breakpoint, because the failure it guards is silent in one
+    // direction: a collapse that ends too early gives the row back to a bar that wraps, and every
+    // other assertion here is taken at widths where the segment is collapsed anyway.
+    await page.viewport(COLLAPSE_MAX_PX, 823);
+    const collapsed = mountBar(FULLEST_BAR.flags);
+    expect(
+      getComputedStyle(collapsed.bar.querySelector(".quality-trigger")!).display,
+      `the trigger is already gone at ${COLLAPSE_MAX_PX}px`,
+    ).not.toBe("none");
+    mounted.splice(0).forEach((element) => element.remove());
+
+    await page.viewport(COLLAPSE_MAX_PX + 1, 823);
+    const expanded = mountBar(FULLEST_BAR.flags);
+    expect(
+      getComputedStyle(expanded.bar.querySelector(".quality-trigger")!).display,
+      `the trigger still shows at ${COLLAPSE_MAX_PX + 1}px`,
+    ).toBe("none");
+    expect(expanded.rows(), `the expanded segment wraps at ${COLLAPSE_MAX_PX + 1}px`).toBe(1);
+    expect(
+      Math.round(expanded.allowed() - expanded.required()),
+      `three tiers abreast do not clear the floor at ${COLLAPSE_MAX_PX + 1}px`,
+    ).toBeGreaterThanOrEqual(MIN_SLACK_PX);
+  });
+
   it("keeps the tighter phone padding, which is what buys the fit", async () => {
     // The 420 px breakpoint is load-bearing, not cosmetic. Measured either side of it so that
     // deleting the media query fails here rather than silently eating the slack above.
@@ -515,13 +584,31 @@ describe("the view bar holds one row at the narrowest width the site serves", ()
   });
 
   it("can tell a bar that does not fit, so a passing measurement means something", async () => {
-    // The positive control, and the record of a real limit: the union of every group Base.astro can
-    // emit needs more than 320 px allows, so no page may turn all four on at once. Nothing does
-    // today — and because the configurations above are read from the pages, the day one does it is
-    // measured rather than assumed.
+    // The positive control, in both ways a bar can fail, because the two assertions above are
+    // independent and a control for one proves nothing about the other. Each arm is a state the
+    // markup really takes rather than a width invented to fail.
     await page.viewport(NARROWEST_PX, 823);
-    const union = mountBar({ highlight: true, borders: true, spotlight: true, quality: true });
-    expect(union.required()).toBeGreaterThan(union.allowed());
-    expect(union.rows()).toBeGreaterThan(1);
+    const everything = {
+      highlight: true, borders: true, spotlight: true, tectonics: true, quality: true,
+    } as const;
+
+    // A wrap: three tiers abreast, which is what the layout serves until the picker writes the
+    // trigger's label and the segment collapses behind it.
+    const abreast = mountBar(everything);
+    abreast.bar.querySelector<HTMLElement>(".quality-trigger")!.textContent = "";
+    expect(abreast.required(), "three tiers abreast now fit at 320px").toBeGreaterThan(
+      abreast.allowed(),
+    );
+    expect(abreast.rows(), "the row counter can no longer see a wrap").toBeGreaterThan(1);
+
+    // And too little room without a wrap: every group `Base.astro` can emit, turned on at once.
+    // No page does that today, and because the configurations above are read from the pages, the
+    // day one does is measured rather than assumed.
+    const union = mountBar(everything);
+    expect(union.rows(), "the collapsed union wraps, so it controls the arm above instead").toBe(1);
+    expect(
+      Math.round(union.allowed() - union.required()),
+      "every group at once now clears the floor, so the slack assertion proves nothing",
+    ).toBeLessThan(MIN_SLACK_PX);
   });
 });

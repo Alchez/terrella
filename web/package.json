@@ -29,6 +29,7 @@
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.10",
+    "@maplibre/maplibre-gl-style-spec": "26.4.2",
     "@types/geojson": "7946.0.16",
     "@types/node": "^26.5.1",
     "@vitest/browser": "5.0.0",

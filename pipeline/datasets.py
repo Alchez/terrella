@@ -62,6 +62,16 @@ def gebco_vrt() -> Path:
     return _raw("gebco", "gebco_2026_global.vrt")
 
 
+def global_tectonics() -> Path:
+    """Plate-boundary vectors, written by `acquire/earth/download_global_tectonics.py`."""
+    return _raw("global_tectonics")
+
+
+def global_tectonics_boundaries() -> Path:
+    """The plate-boundary lines, written by `acquire/earth/download_global_tectonics.py`."""
+    return _raw("global_tectonics", "boundaries.shp")
+
+
 def glo30() -> Path:
     """Copernicus DEM GLO-30 tiles, written by `acquire/earth/download_glo30.py`."""
     return _raw("glo30")

@@ -202,7 +202,9 @@ describe("the site footer", () => {
   it("asks for the view bar's clearance from the condition that draws the bar", () => {
     // Two readers of one condition. Re-derived in the footer instead, a fifth control added to the
     // bar would leave the last row of some page underneath it, silently.
-    expect(base).toMatch(/const hasViewBar = highlight \|\| borders \|\| spotlight \|\| quality;/);
+    expect(base).toMatch(
+      /const hasViewBar = highlight \|\| borders \|\| spotlight \|\| tectonics \|\| quality;/,
+    );
     expect(base).toContain("<Footer clearsViewBar={hasViewBar} />");
     expect(base).toMatch(/\n {6}hasViewBar && \(/);
   });

@@ -11,6 +11,8 @@ interface Props {
   borders?: boolean;
   spotlight?: boolean;
   quality?: boolean;
+  /** The plate-boundary overlay's toggle, on the bodies that have plate boundaries. */
+  tectonics?: boolean;
   /** The cursor button that switches the hover highlight off — see `highlightPreference.ts`.
    *
    *  From the registry rather than from being a globe page, for the reason `borders` is: the paint
@@ -55,6 +57,7 @@ const {
   borders = false,
   spotlight = false,
   quality = false,
+  tectonics = false,
   highlight = false,
   body,
   pageRole,
@@ -68,7 +71,7 @@ const routes = bodyRoutes(body);
 
 // Whether this page floats the view bar, written once because two things now depend on it: the bar
 // itself, and the footer's clearance under it.
-const hasViewBar = highlight || borders || spotlight || quality;
+const hasViewBar = highlight || borders || spotlight || tectonics || quality;
 ---
 
 <!doctype html>
@@ -267,11 +270,9 @@ const hasViewBar = highlight || borders || spotlight || quality;
          the camera goes in the rail (see railControls.ts) — putting it here would sort controls
          by which layer built them rather than by what they do. */
       hasViewBar && (
-        // DO NOT ADD A PHONE COLLAPSE. The controls measure 229.7 px and the bar is allowed
-        // 281.6 px at 320 px, so they sit on one row at every width the site serves — and a
-        // trigger costs more than it saves: adding one back puts 320 px onto two rows, because
-        // trigger-plus-controls is what does not fit there, not the controls.
-        //
+        // The bar as a whole never collapses behind a trigger: one in front of every control adds
+        // width instead of saving it, and a guard holds that. Only the tier segment collapses,
+        // where one trigger stands in for three buttons rather than sitting beside them.
         <div class="view-bar">
           <div class="view-bar-items" id="view-bar-items" role="group" aria-label="View options">
           {/* FIRST IN THE ROW, and an icon where its neighbours are words. Both were ratified,
@@ -310,6 +311,16 @@ const hasViewBar = highlight || borders || spotlight || quality;
               Borders
             </button>
           )}
+          {tectonics && (
+            <button
+              type="button"
+              id="tectonics-toggle"
+              aria-pressed="false"
+              title="Tectonic plate boundaries"
+            >
+              Plates
+            </button>
+          )}
           {spotlight && (
             <button
               type="button"
@@ -320,14 +331,29 @@ const hasViewBar = highlight || borders || spotlight || quality;
               Focus
             </button>
           )}
-          {(highlight || borders || spotlight) && quality && (
+          {(highlight || borders || spotlight || tectonics) && quality && (
             <span class="view-bar-divider" aria-hidden="true" />
           )}
           {/* Each tooltip says what its tier does today, and has to be true on every page the
               picker sits on: both bodies, on the globe and on the lite page. So Lite's names only
               what those pages share, Earth's being a gallery of renders and Mars's a list of names. */}
           {quality && (
-            <div class="quality-fab" role="radiogroup" aria-label="Experience quality">
+            <div class="quality-picker">
+            {/* Empty on purpose, and the stylesheet keys the whole collapse off that. The label is
+                the tier the visitor is actually seeing, which `tierPicker` resolves from the page
+                and the probe — so there is no honest value to render here at build time, and a
+                guessed one would be wrong in the first painted frame on every page it is wrong
+                about. Until it is filled, the three buttons stay in the row. */}
+            <button
+              type="button"
+              class="quality-trigger"
+              id="quality-trigger"
+              aria-expanded="false"
+              aria-controls="quality-fab"
+              aria-label="Experience quality"
+              title="Experience quality"
+            ></button>
+            <div class="quality-fab" id="quality-fab" role="radiogroup" aria-label="Experience quality">
               <button
                 type="button"
                 data-quality="lite"
@@ -347,6 +373,7 @@ const hasViewBar = highlight || borders || spotlight || quality;
               >
                 Full
               </button>
+            </div>
             </div>
           )}
           </div>
@@ -376,6 +403,7 @@ const hasViewBar = highlight || borders || spotlight || quality;
     highlightStorageValue,
     type HighlightChange,
   } from "../lib/highlightPreference";
+  import { TECTONICS_EVENT, TECTONICS_KEY, tectonicsOn } from "../lib/tectonicBoundaries";
 
   const highlightButton = document.getElementById("highlight-toggle") as HTMLButtonElement | null;
   if (highlightButton) {
@@ -413,6 +441,23 @@ const hasViewBar = highlight || borders || spotlight || quality;
       // Pages with map layers (the globe) react to this, not to the raw click —
       // it keeps the layout as the single writer of the persisted state.
       document.dispatchEvent(new CustomEvent("rg:borders", { detail: { on } }));
+    });
+  }
+
+  // Plate-boundary toggle — the same split as borders, and for the same reason: the layout is the
+  // single writer of the persisted state and the globe reacts to the broadcast rather than to the
+  // click. The key and the event name are imported rather than spelled again here.
+  const tectonicsButton = document.getElementById("tectonics-toggle") as HTMLButtonElement | null;
+  if (tectonicsButton) {
+    const applyTectonicsState = (on: boolean) => {
+      tectonicsButton.setAttribute("aria-pressed", String(on));
+    };
+    applyTectonicsState(tectonicsOn());
+    tectonicsButton.addEventListener("click", () => {
+      const on = tectonicsButton.getAttribute("aria-pressed") !== "true";
+      applyTectonicsState(on);
+      localStorage.setItem(TECTONICS_KEY, on ? "1" : "0");
+      document.dispatchEvent(new CustomEvent(TECTONICS_EVENT, { detail: { on } }));
     });
   }
 

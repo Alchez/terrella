@@ -66,8 +66,12 @@ export function drapeStackCount(layerTypes: readonly string[]): number {
  * is the ORDER that costs memory.
  *
  * `borders` are included because the toggle is persisted, so a returning visitor loads with them
- * on; they are `line` and therefore free. Kept as types rather than ids: the cost depends on
- * nothing else.
+ * on; they are `line` and therefore free, as the plate boundaries above them are. Kept as types
+ * rather than ids: the cost depends on nothing else.
+ *
+ * Which is the constraint on anything added here: a `line` or a `fill` joins an existing run and
+ * costs nothing, while one `symbol` between two of them splits the run and spends another stack.
+ * Labelling the plates is the tempting version of exactly that.
  */
 export const GLOBE_LAYER_TYPES: readonly string[] = [
   "background", // space-floor
@@ -76,6 +80,8 @@ export const GLOBE_LAYER_TYPES: readonly string[] = [
   "custom", // polar-cap-north
   "custom", // polar-cap-south
   "fill", // country-fill
+  "line", // tectonic-casing  ) plate boundaries, when toggled on
+  "line", // tectonic-ink     )
   "line", // b-casing-solid   ) borders, when toggled on
   "line", // b-casing-dashed  )
   "line", // b-ink-solid      )

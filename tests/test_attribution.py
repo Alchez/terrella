@@ -12,6 +12,7 @@ new DATASET arriving in an existing layer, which needs an acquisition-side sweep
 anything this file can see.
 """
 
+import dataclasses
 import json
 import re
 from pathlib import Path
@@ -47,19 +48,34 @@ class TestTheRegistryIsTotal:
 
     def test_every_key_named_anywhere_resolves_to_a_source(self, subtests):
         for name, credits in attribution.CREDITS.items():
-            named = {*credits.heightfield, *credits.vector, *credits.heroes, *credits.focus,
+            named = {*credits.heightfield, *credits.vector, *credits.overlay, *credits.heroes,
+                     *credits.focus,
                      *(key for keys in credits.painted.values() for key in keys)}
             with subtests.test(name):
                 assert named <= set(attribution.SOURCES), (
                     f"{sorted(named - set(attribution.SOURCES))} named by {name} but not declared"
                 )
 
+    def test_every_destination_the_dataclass_declares_is_one_a_reader_walks(self):
+        """Each guard here spells the union of destinations itself, which is what keeps them
+        independent of the derivation they check. The cost is that a destination added to
+        `BodyCredits` and left out of all of them is credited nowhere and reddens nothing, so the
+        field list is held against the readers rather than counted."""
+        walked = {"heightfield", "painted", "vector", "overlay", "heroes", "focus"}
+        declared = {field.name for field in dataclasses.fields(attribution.BodyCredits)}
+        assert declared - {"legal"} == walked, (
+            f"{sorted(declared - {'legal'} - walked)} is a destination no guard in this file "
+            f"enumerates and {sorted(walked - declared)} no longer exists. Add it to every union "
+            "here and to `on_the_page`, or a source reachable only through it gets no card."
+        )
+
     def test_no_source_is_declared_and_then_used_by_nobody(self):
         """A source reachable from no body reaches no archive and no card, so it is a dead entry
         that still reads as a credit being given."""
         used = {key for credits in attribution.CREDITS.values()
-                for key in (*credits.heightfield, *credits.vector, *credits.heroes,
-                            *credits.focus, *(k for keys in credits.painted.values() for k in keys))}
+                for key in (*credits.heightfield, *credits.vector, *credits.overlay,
+                            *credits.heroes, *credits.focus,
+                            *(k for keys in credits.painted.values() for k in keys))}
         assert set(attribution.SOURCES) == used
 
 
@@ -158,6 +174,19 @@ class TestTheRequiredNoticesReachTheArchiveThatOwesThem:
         assert attribution.COPERNICUS_LIABILITY not in \
                attribution.for_archive(bodies.EARTH, "vector")
 
+    def test_an_overlay_fetched_as_a_plain_file_is_in_no_archive(self, subtests):
+        """The plate boundaries are a served GeoJSON rather than a packed pyramid, so claiming them
+        inside a `.pmtiles` would credit a source that file does not contain. The card is the only
+        place the obligation is discharged, and it is swept by name beside the other required
+        notices."""
+        for key in attribution.CREDITS["earth"].overlay:
+            for layer in attribution.ARCHIVE_LAYERS:
+                with subtests.test(f"{key} not in earth/{layer}"):
+                    assert attribution.SOURCES[key].notice not in \
+                           attribution.for_archive(bodies.EARTH, layer)
+            with subtests.test(f"{key} on a card"):
+                assert attribution.SOURCES[key] in attribution.on_the_page(bodies.EARTH)
+
     def test_every_archive_states_the_licence_on_its_own_output(self, subtests):
         for body in bodies.BODIES.values():
             for layer in attribution.ARCHIVE_LAYERS:
@@ -184,7 +213,8 @@ class TestThePageListIsDerived:
     def test_a_source_the_body_uses_anywhere_gets_a_card(self, subtests):
         for body in bodies.BODIES.values():
             credits = attribution.CREDITS[body.name]
-            expected = {*credits.heightfield, *credits.vector, *credits.heroes, *credits.focus,
+            expected = {*credits.heightfield, *credits.vector, *credits.overlay, *credits.heroes,
+                        *credits.focus,
                         *(key for keys in credits.painted.values() for key in keys)}
             carded = {source.name for source in attribution.on_the_page(body)}
             with subtests.test(body.name):

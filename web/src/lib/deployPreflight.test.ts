@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -9,6 +9,7 @@ import {
 } from "../../scripts/check_deploy_sync.ts";
 import { ASSET_BUCKET, R2Unreachable, listBucket } from "../../scripts/r2.ts";
 import type { Country, DownloadFiles, Manifest } from "./manifest";
+import { TECTONICS_FILE } from "./tectonicBoundaries";
 
 /** One country as the manifest publishes it: rendered with these download files, or not at all. */
 function country(slug: string, download: DownloadFiles | null): Country {
@@ -84,6 +85,36 @@ describe("the deploy preflight holds R2 to the download files the pages offer", 
   it("leaves a file R2 lacks to the missing list rather than calling it resized", () => {
     const listing = new Map([["heroes/nepal-7680.webp", NEPAL.webpBytes]]);
     expect(downloadSizeMismatches(MANIFEST, listing)).toEqual([]);
+  });
+});
+
+/**
+ * Every file the site fetches from `BORDERS_BASE`, read off the `BORDERS_BASE + …` sites in the
+ * source. An identifier is resolved through `NAMED`, and one it does not know fails, so a new fetch
+ * spelled through a constant cannot pass unseen.
+ */
+function filesFetchedFromTheBordersStore(): string[] {
+  const NAMED: Record<string, string> = { TECTONICS_FILE };
+  const root = fileURLToPath(new URL("../", import.meta.url));
+  const files: string[] = [];
+  for (const path of readdirSync(root, { recursive: true, encoding: "utf8" })) {
+    if (!/\.(ts|astro)$/.test(path) || path.endsWith(".test.ts")) continue;
+    const source = readFileSync(root + path, "utf8");
+    for (const [, literal, name] of source.matchAll(/BORDERS_BASE \+ (?:"([^"]+)"|(\w+))/g)) {
+      if (literal !== undefined) files.push(literal);
+      else if (name in NAMED) files.push(NAMED[name]);
+      else throw new Error(`${path} fetches BORDERS_BASE + ${name}, which this test cannot resolve`);
+    }
+  }
+  return files;
+}
+
+describe("the deploy preflight holds R2 to the GeoJSON the globe fetches", () => {
+  it("advertises exactly the files fetched from the borders store, and none it no longer fetches", () => {
+    const fetched = filesFetchedFromTheBordersStore();
+    expect(fetched.length, "the source scan found no fetch at all").toBeGreaterThan(0);
+    const advertised = [...advertisedObjects(MANIFEST)].filter((key) => key.startsWith("borders/"));
+    expect(advertised.toSorted()).toEqual(fetched.map((file) => `borders/${file}`).toSorted());
   });
 });
 
