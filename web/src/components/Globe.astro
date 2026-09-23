@@ -1994,14 +1994,15 @@ import { GITHUB_MARK, REPO_URL } from "../lib/siteLinks";
 
   // --- Click a country -> fly to it -> show its hero -------------------------
   // The globe is raster, so an invisible fill of the Natural Earth country
-  // polygons is the click target. We filter it to our in-scope names (the join
-  // is free: manifest name === NE ADMIN), so only rendered countries are
-  // hoverable/clickable — everything else is a no-op. The fly-to frame is the
+  // polygons is the click target. We filter it to the manifest's ADMINs (the join
+  // is free: every feature carries its NE ADMIN), so every listed country is
+  // hoverable/clickable, with or without a hero, and anything unlisted is a no-op. The fly-to frame is the
   // authored hero bbox carried in the manifest, so it matches the hero's own
   // framing (metropolitan France, CONUS, etc.).
   const byName = new Map(manifest.countries.map((c) => [c.name, c]));
-  const inScope = manifest.countries.map((c) => c.name);
-  // Only in-scope (rendered) countries are interactive; reused by every country layer.
+  const byAdmin = new Map(manifest.countries.map((c) => [c.admin, c]));
+  const inScope = manifest.countries.map((c) => c.admin);
+  // Every manifest country is interactive; reused by every country layer.
   const inScopeFilter: FilterSpecification = ["in", ["get", "ADMIN"], ["literal", inScope]];
 
   /** ONE vector source carrying fill, outline and hit as three source-layers.
@@ -2276,6 +2277,12 @@ import { GITHUB_MARK, REPO_URL } from "../lib/siteLinks";
     return best;
   }
 
+  /** The listed country under the pointer, found by the ADMIN its feature carries. */
+  function countryAtPoint(point: Point): Country | undefined {
+    const admin = countryAt(point);
+    return admin === null ? undefined : byAdmin.get(admin);
+  }
+
   // --- The name chip ----------------------------------------------------------
   // The gold outline says WHICH country; this says which country it IS. Kept a plain element
   // rather than a MapLibre Popup so it costs no per-hover DOM churn and inherits the same token
@@ -2303,7 +2310,7 @@ import { GITHUB_MARK, REPO_URL } from "../lib/siteLinks";
    */
   function paintChip(admin: string | null) {
     if (!countryChip || !countryChipName) return;
-    if (admin !== null) countryChipName.textContent = admin;
+    if (admin !== null) countryChipName.textContent = byAdmin.get(admin)?.name ?? admin;
     countryChip.hidden = admin === null;
   }
 
@@ -2492,16 +2499,15 @@ import { GITHUB_MARK, REPO_URL } from "../lib/siteLinks";
   }
 
   /**
-   * Earth's pick path: a name becomes a flight and, where there is a hero, a card.
+   * Earth's pick path: a country becomes a flight and a card.
    *
-   * TAKES A NAME RATHER THAN A COUNTRY, which is what lets the search field reach it — a row knows
-   * `SearchEntry.name` and nothing else, and `byName` is the lookup the click already did inline.
+   * The two callers find the country by different keys: a click by the ADMIN its feature carries,
+   * through `countryAtPoint`, and a search row by the display name it shows, through `byName`.
    * The shape mirrors Mars's `goToFeature` deliberately: one pick path per body, reached from both
    * the pointer and the field, so a card someone searched to and a card they tapped are one card
    * built once.
    */
-  function goToCountry(name: string | null) {
-    const country = name ? byName.get(name) : undefined;
+  function goToCountry(country: Country | undefined) {
     if (!country) return;
     setSpinning(false); // a deliberate pick retires the idle spin
     flyToCountry(country);
@@ -2512,7 +2518,7 @@ import { GITHUB_MARK, REPO_URL } from "../lib/siteLinks";
     if (subsystems.heroes) openPanel(countryPanelContent(country));
   }
 
-  map.on("click", (event) => goToCountry(countryAt(event.point)));
+  map.on("click", (event) => goToCountry(countryAtPoint(event.point)));
 
   // Pitch the sky was last built for. Tracked because `setSky` restarts a 300 ms transition, so
   // rebuilding when nothing moved is not free — it re-runs the crossfade.
@@ -2700,7 +2706,7 @@ import { GITHUB_MARK, REPO_URL } from "../lib/siteLinks";
     // list that is already in memory. `goToCountry` is hoisted, which is what lets it be named from
     // above the rail without moving the click wiring down here.
     if (subsystems.vectorProduct === "countries") {
-      searchPick = goToCountry;
+      searchPick = (name) => goToCountry(byName.get(name));
       matcher = createCatalogueSearch(manifest.countries.map(countrySearchEntry));
       searchToggle.setAvailable(true);
     }

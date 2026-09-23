@@ -12,7 +12,10 @@ import rawManifest from "../data/countries.json";
 
 export interface Country {
   slug: string;
+  /** What a visitor reads: Natural Earth's ADMIN unless `config/countries.toml` sets `name`. */
   name: string;
+  /** Natural Earth's ADMIN, the key the globe's country features carry. */
+  admin: string;
   continent: string;
   /**
    * Other published spellings — "United States", "U.S.A.", "US", "USA" — for a query to reach the
@@ -29,6 +32,9 @@ export interface Country {
   /** Largest rendered size, or null if unrendered. */
   native: number | null;
   rendered: boolean;
+  /** On the globe and in its search only: no hero, no page and no gallery card, by decision rather
+   *  than awaiting a render. `config/countries.toml`'s `listed_only` names these. */
+  listedOnly: boolean;
   /** The full-size files the country's page offers for download, or null if unrendered. */
   download: DownloadFiles | null;
   hasSpotlight: boolean;

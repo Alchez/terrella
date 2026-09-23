@@ -10007,9 +10007,9 @@ def _earth_lake_depth''',
         suite='web',
         label='the country card grows a hero figure again',
         path='web/src/lib/detailPanel.ts',
-        needle='    note: null,\n    link: { href: `/${slug}/`',
+        needle='    note: null,\n    link: hasOwnPage(country)',
         replacement='    note: null,\n    figure: { src: `/heroes/${slug}-640.webp`, alt: name },\n'
-                    '    link: { href: `/${slug}/`',
+                    '    link: hasOwnPage(country)',
         guard='carries NEITHER a figure nor a note, whatever the country has rendered',
     ),
     # A portrait hero's key names its HEIGHT. Taking the descriptor from the key overstates every

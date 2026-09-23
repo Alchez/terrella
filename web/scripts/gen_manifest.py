@@ -216,9 +216,14 @@ def country_row(slug: str, resolved: dict, record: dict, renders: Path) -> dict:
     variants_dir = renders / "variants"
     sizes = variant_sizes(variants_dir, slug)
     spotlight = spotlight_sizes(variants_dir, slug)
+    listed_only = not resolved["has_hero"]
+    if listed_only and sizes:
+        raise ValueError(f"{slug}: listed_only in config/countries.toml, yet the store holds hero "
+                         f"variants {sizes}; delete them or move the row to include")
     return dict(
         slug=slug,
-        name=resolved["admin"],
+        name=resolved["name"],
+        admin=resolved["admin"],
         continent=str(record.get("CONTINENT", "")),
         searchTerms=search_terms(record, resolved["admin"], resolved.get("also", ())),
         # The hero's frame, (w, s, e, n) in EPSG:4326, which the globe flies to and the gallery
@@ -229,7 +234,8 @@ def country_row(slug: str, resolved: dict, record: dict, renders: Path) -> dict:
         sizes=sizes,
         native=sizes[-1] if sizes else None,
         rendered=bool(sizes),
-        download=download_files(renders, slug, resolved["admin"], sizes[-1]) if sizes else None,
+        listedOnly=listed_only,
+        download=download_files(renders, slug, resolved["name"], sizes[-1]) if sizes else None,
         hasSpotlight=bool(spotlight),
         spotlightSizes=spotlight,
     )

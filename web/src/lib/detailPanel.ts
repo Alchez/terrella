@@ -14,6 +14,7 @@
 // name, and Mars's etymology is the whole content of its own.
 
 import type { SearchEntry } from "./catalogueSearch";
+import { hasOwnPage } from "./countryPages";
 import type { NamedFeature } from "./featureIndex";
 import type { Country } from "./manifest";
 
@@ -237,6 +238,6 @@ export function countryPanelContent(country: Country): PanelContent {
     eyebrow: countrySummary(country),
     name,
     note: null,
-    link: { href: `/${slug}/`, label: HERO_LINK_LABEL, external: false },
+    link: hasOwnPage(country) ? { href: `/${slug}/`, label: HERO_LINK_LABEL, external: false } : null,
   };
 }

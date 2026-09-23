@@ -15,10 +15,14 @@ import { HERO_BASE, variantWidth as assetVariantWidth } from "../lib/assetBase";
 import { GITHUB_MARK, REPO_URL } from "../lib/siteLinks";
 import { EAGER_CARD_COUNT, STAGED_PLACEHOLDER } from "../lib/lazyCards";
 import { boundsCentre, byInitial, formatPosition } from "../lib/gazetteer";
+import { hasOwnPage } from "../lib/countryPages";
+
+// Every country with a page; a place listed on the globe alone has no card and no index entry.
+const pages = data.countries.filter(hasOwnPage);
 
 // Rendered heroes first (so real imagery leads while the sweep fills in), then
 // everything else alphabetically.
-const countries = [...data.countries].toSorted(
+const countries = pages.toSorted(
   (first, second) =>
     Number(second.rendered) - Number(first.rendered) ||
     first.name.localeCompare(second.name),
@@ -52,7 +56,7 @@ const SIZES = "(max-width: 640px) 92vw, 440px";
 // --- Gazetteer index (the atlas's own find-by-name tool; pure links, works with
 // no JS, and the browser's native Cmd/Ctrl+F searches its text). The grid above
 // stays rendered-first; the index is always the full alphabetical listing.
-const alphabetical = [...data.countries].toSorted((first, second) =>
+const alphabetical = pages.toSorted((first, second) =>
   first.name.localeCompare(second.name),
 );
 
@@ -100,7 +104,7 @@ const indexLetters = [...byLetter.keys()];
   </nav>
   <p class="tagline">
     Ray-traced relief maps of every country.
-    <span class="count">{data.rendered} of {data.count} rendered</span>
+    <span class="count">{pages.filter((country) => country.rendered).length} of {pages.length} rendered</span>
   </p>
 </Masthead>
 

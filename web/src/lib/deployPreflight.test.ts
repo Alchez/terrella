@@ -16,6 +16,7 @@ function country(slug: string, download: DownloadFiles | null): Country {
   return {
     slug,
     name: slug,
+    admin: slug,
     continent: "Asia",
     searchTerms: [],
     bbox: [0, 0, 1, 1],
@@ -23,6 +24,7 @@ function country(slug: string, download: DownloadFiles | null): Country {
     sizes: download ? [640, 7680] : [],
     native: download ? 7680 : null,
     rendered: download !== null,
+    listedOnly: false,
     download,
     hasSpotlight: false,
     spotlightSizes: [],

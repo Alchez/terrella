@@ -32,7 +32,8 @@ CONTRACT = REPO_ROOT / "web/src/lib/manifest.ts"
 
 SLUG, NAME = "example", "Example"
 WIDTH, HEIGHT = 64, 48
-RESOLVED = {"admin": NAME, "frame": (0.0, 0.0, 1.0, 1.0)}
+RESOLVED = {"admin": NAME, "name": NAME, "frame": (0.0, 0.0, 1.0, 1.0), "has_hero": True}
+LISTED = {**RESOLVED, "has_hero": False}
 
 
 def producer():
@@ -199,14 +200,38 @@ class TestTheTwoHalvesOfTheContract:
         )
 
     def test_an_unrendered_country_still_carries_every_field(self, tmp_path):
-        emitted = GEN.country_row("example", {"admin": "Example", "frame": (0.0, 0.0, 1.0, 1.0)},
-                                  {}, tmp_path)
+        emitted = GEN.country_row("example", RESOLVED, {}, tmp_path)
         assert emitted["rendered"] is False and emitted["native"] is None
+        assert emitted["listedOnly"] is False, "a hero not yet rendered is still one to come"
         assert emitted["download"] is None
         assert sorted(emitted) == sorted(country_fields()), (
             "the empty variant store is the shape a consumer sees for a country awaiting its "
             "hero, and it must be missing a value rather than a key"
         )
+
+
+class TestARenamedCountry:
+    def test_shows_its_config_name_and_keeps_natural_earths_for_the_globe(self, tmp_path):
+        """The globe matches a country to its shapes by ADMIN, so that key must survive a rename;
+        a visitor reads `name`."""
+        emitted = GEN.country_row("hongkong", {**RESOLVED, "admin": "Hong Kong S.A.R.",
+                                               "name": "Hong Kong"}, {}, tmp_path)
+        assert (emitted["name"], emitted["admin"]) == ("Hong Kong", "Hong Kong S.A.R.")
+
+
+class TestAListedOnlyCountry:
+    """A place the globe and its search carry with no hero, told apart from a hero not yet rendered."""
+
+    def test_says_it_is_listed_only_and_offers_nothing(self, tmp_path):
+        emitted = GEN.country_row(SLUG, LISTED, {}, tmp_path)
+        assert emitted["listedOnly"] is True
+        assert emitted["rendered"] is False and emitted["download"] is None
+        assert sorted(emitted) == sorted(country_fields())
+
+    def test_one_with_hero_files_on_disk_is_refused(self, renders):
+        """The config says no hero and the store holds one, so one of them is wrong."""
+        with pytest.raises(ValueError, match=SLUG):
+            GEN.country_row(SLUG, LISTED, {}, renders)
 
 
 class TestTheDownloadFiles:
@@ -237,7 +262,7 @@ class TestTheDownloadFiles:
 
     def test_files_stamped_under_another_name_are_refused(self, renders):
         with pytest.raises(GEN.StaleFiles, match="downloads stamp"):
-            GEN.country_row(SLUG, {**RESOLVED, "admin": "Renamed"}, {}, renders)
+            GEN.country_row(SLUG, {**RESOLVED, "name": "Renamed"}, {}, renders)
 
     def test_a_copy_made_before_its_master_last_changed_is_refused(self, renders):
         master = renders / "heroes" / f"{SLUG}.png"
@@ -444,7 +469,9 @@ class TestAuthoredAliases:
         """
         row = GEN.country_row(
             "myanmar",
-            {"admin": "Myanmar", "frame": (92.0, 9.0, 102.0, 29.0), "also": ["Burma"]},
+            {"admin": "Myanmar", "name": "Myanmar", "frame": (92.0, 9.0, 102.0, 29.0),
+             "also": ["Burma"],
+             "has_hero": True},
             record(NAME="Myanmar", CONTINENT="Asia"),
             tmp_path,
         )

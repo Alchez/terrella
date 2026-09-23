@@ -2,15 +2,16 @@
 import Base from "../layouts/Base.astro";
 import Masthead from "../components/Masthead.astro";
 import { manifest as data, type Country } from "../lib/manifest";
+import { hasOwnPage } from "../lib/countryPages";
 import { humanSize } from "../lib/archiveIndex";
 import { smallestRungAtLeast } from "../lib/rungs";
 import { HERO_BASE } from "../lib/assetBase";
 import { pageTitle } from "../lib/pageTitle";
 import CREDITS from "../data/attributions.json";
 
-// One statically-built page per country.
+// One statically-built page per country that has one.
 export function getStaticPaths() {
-  return data.countries.map((country) => ({
+  return data.countries.filter(hasOwnPage).map((country) => ({
     params: { slug: country.slug },
     props: { country },
   }));

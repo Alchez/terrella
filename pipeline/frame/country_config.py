@@ -90,7 +90,7 @@ def country_render_dir(slug: str) -> Path:
 
 DEFAULT_KEYS = {"pad_pct", "hero_long_edge", "warp_long_edge", "fusion",
                 "resolution_floor_m"}
-COUNTRY_KEYS = {"admin", "frame", "hero_long_edge", "fusion", "status", "notes",
+COUNTRY_KEYS = {"admin", "name", "frame", "hero_long_edge", "fusion", "status", "notes",
                 "also", "resolution_floor_m"}
 FUSION_RES = {"1s": 1, "3s": 3}
 FAR_FLUNG_FRACTION = 0.25  # main part below this share of a bbox axis
@@ -131,7 +131,7 @@ def load_config() -> dict:
     if (rf := cfg.get("defaults", {}).get("resolution_floor_m")) is not None \
             and not _valid_floor(rf):
         bad.append("[defaults]: resolution_floor_m must be a number in [0, 1000]")
-    if extra := set(cfg.get("scope", {})) - {"exclude", "include"}:
+    if extra := set(cfg.get("scope", {})) - {"exclude", "include", "listed_only"}:
         bad.append(f"[scope]: unknown keys {sorted(extra)}")
     for slug, tbl in cfg.get("countries", {}).items():
         where = f"[countries.{slug}]"
@@ -144,6 +144,8 @@ def load_config() -> dict:
         if (rf := tbl.get("resolution_floor_m")) is not None \
                 and not _valid_floor(rf):
             bad.append(f"{where}: resolution_floor_m must be a number in [0, 1000]")
+        if (name := tbl.get("name")) is not None and not (isinstance(name, str) and name.strip()):
+            bad.append(f"{where}: name must be one non-blank string")
         if (also := tbl.get("also")) is not None and not _valid_also(also):
             bad.append(f"{where}: also must be a non-empty list of distinct non-blank strings")
         if "frame" in tbl:
@@ -178,22 +180,41 @@ def load_ne_rows():
 
 
 def build_scope(cfg, rows) -> dict[str, dict]:
-    """slug -> NE row for every in-scope country, cross-validated loudly."""
+    """slug -> NE row for every in-scope country, cross-validated loudly.
+
+    Each row gains `has_hero`: False for a `listed_only` country, which the globe and its search carry
+    with no hero, page or gallery card. Every row the strict selector drops must be named in
+    exactly one of `include`, `listed_only` and `exclude`, so a place cannot leave the site without
+    someone deciding it should.
+    """
     by_admin = {row["admin"]: row for row in rows}
     strict = {row["admin"] for row in rows if row["admin"] == row["sov"]}
+    scope_cfg = cfg["scope"]
+    exclude, include = scope_cfg["exclude"], scope_cfg["include"]
+    listed_only = scope_cfg.get("listed_only", [])
     bad = []
-    for name in cfg["scope"]["exclude"]:
-        if name not in strict:
-            bad.append(f"exclude {name!r}: not a strict-selector ADMIN")
-    for name in cfg["scope"]["include"]:
+    for name in exclude:
         if name not in by_admin:
-            bad.append(f"include {name!r}: no such ADMIN")
-        elif name in strict:
-            bad.append(f"include {name!r}: already passes the strict selector")
-    # Only valid includes join the scope; an unknown one is already recorded in
+            bad.append(f"exclude {name!r}: no such ADMIN")
+    for key, names in (("include", include), ("listed_only", listed_only)):
+        for name in names:
+            if name not in by_admin:
+                bad.append(f"{key} {name!r}: no such ADMIN")
+            elif name in strict:
+                bad.append(f"{key} {name!r}: already passes the strict selector")
+    lists = {"exclude": set(exclude), "include": set(include), "listed_only": set(listed_only)}
+    for name in sorted(set(by_admin) - strict):
+        named = [key for key, members in lists.items() if name in members]
+        if not named:
+            bad.append(f"{name!r}: dropped by the strict selector and named in none of "
+                       f"include, listed_only or exclude")
+        elif len(named) > 1:
+            bad.append(f"{name!r}: named in {' and '.join(named)}, which contradict")
+    # Only valid names join the scope; an unknown one is already recorded in
     # `bad` above and must reach the clean sys.exit below, not KeyError here.
-    admins = ((strict - set(cfg["scope"]["exclude"]))
-              | {name for name in cfg["scope"]["include"] if name in by_admin})
+    listed = {name for name in listed_only if name in by_admin}
+    admins = ((strict - set(exclude))
+              | {name for name in include if name in by_admin} | listed)
     # hand-picked slugs: [countries.<slug>] admin = "..." binds slug -> ADMIN
     bound = {slug: tbl["admin"] for slug, tbl in cfg.get("countries", {}).items()
              if "admin" in tbl}
@@ -207,13 +228,18 @@ def build_scope(cfg, rows) -> dict[str, dict]:
         if slug in scope:
             bad.append(f"slug collision: {slug!r} from {admin!r} "
                        f"and {scope[slug]['admin']!r}")
-        scope[slug] = by_admin[admin]
+        scope[slug] = {**by_admin[admin], "has_hero": admin not in listed}
     for slug in cfg.get("countries", {}):
         if slug not in scope:
             bad.append(f"[countries.{slug}]: slug matches no in-scope country")
     if bad:
         sys.exit(f"{CONFIG_PATH.name} vs Natural Earth:\n  " + "\n  ".join(bad))
     return scope
+
+
+def hero_slugs(scope: dict[str, dict]) -> list[str]:
+    """The in-scope countries that get a hero, sorted: every one but the `listed_only` rows."""
+    return sorted(slug for slug, row in scope.items() if row["has_hero"])
 
 
 def resolve(slug: str, row: dict, cfg: dict) -> dict | None:
@@ -245,7 +271,10 @@ def resolve(slug: str, row: dict, cfg: dict) -> dict | None:
     resolution_floor_m = tbl.get("resolution_floor_m",
                                  defaults["resolution_floor_m"])
     return dict(
-        slug=slug, admin=row["admin"], frame=frame,
+        # `name` is what a visitor reads; `admin` stays Natural Earth's, the key the globe's
+        # features carry.
+        slug=slug, admin=row["admin"], name=tbl.get("name", row["admin"]),
+        has_hero=row["has_hero"], frame=frame,
         frame_overridden="frame" in tbl, notes=tbl.get("notes"),
         also=list(tbl.get("also", [])),
         aspect=aspect, extent_w_m=right - left,
@@ -373,6 +402,10 @@ def print_country(sf, scope, cfg, slug: str, emit_pin: bool) -> int:
               f"special-case with no representative non-crossing frame "
               f"(see countries.toml notes); skipping resolution")
         return 0
+    if not resolved["has_hero"]:
+        print(f"{row['admin']} is listed_only: on the globe and in its search with no hero, so "
+              f"nothing renders. Its fly-to frame is {fmt_frame(resolved['frame'])}.")
+        return 0
 
     src = "override (countries.toml)" if resolved["frame_overridden"] \
         else f"computed (bbox + {cfg['defaults']['pad_pct']:g}% pad)"
@@ -465,6 +498,8 @@ def print_all(sf, scope, cfg) -> int:
             flags.append("pin")
         if resolved["fusion_overridden"]:
             flags.append("fusion!")
+        if not resolved["has_hero"]:
+            flags.append("listed-only")
         print(f"{slug:28} {fmt_frame(resolved['frame']):28} {resolved['aspect']:6.2f} "
               f"{resolved['hero'][0]:>5}x{resolved['hero'][1]:<5} "
               f"{resolved['warp'][0]:>5}x{resolved['warp'][1]:<5} {resolved['fusion']:3} "

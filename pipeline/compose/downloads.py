@@ -384,15 +384,15 @@ def build_bundle(masters: list[Path], titles: dict[str, str]) -> int:
 
 
 def country_titles() -> dict[str, str]:
-    """Every in-scope country's display name, the one its page is headed with."""
+    """Every hero country's display name, the one its page is headed with."""
     config = country_config.load_config()
     _shapes, rows = country_config.load_ne_rows()
     scope = country_config.build_scope(config, rows)
     titles = {}
-    for slug, row in scope.items():
-        resolved = country_config.resolve(slug, row, config)
+    for slug in country_config.hero_slugs(scope):
+        resolved = country_config.resolve(slug, scope[slug], config)
         if resolved is not None:
-            titles[slug] = resolved["admin"]
+            titles[slug] = resolved["name"]
     return titles
 
 
