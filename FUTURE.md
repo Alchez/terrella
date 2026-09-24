@@ -22,9 +22,8 @@ Ideas deliberately **not** planned: analysed enough to record, parked without co
 
 ### OPEN, and a named event would reopen these
 
-**A hero re-render is scheduled.** Five entries, and they are one job.
+**A hero re-render is scheduled.** Four entries, and they are one job.
 
-- [A height curve on the displacement](#a-height-curve-on-the-displacement-parked-until-the-hero-camera-is-decided-analysed-2026-09-21) · look-call · needs-gpu
 - [Blurring the heightfield before displacement](#blurring-the-heightfield-before-displacement-where-the-radius-turns-out-to-be-a-per-country-fit-analysed-2026-09-21) · look-call · needs-gpu
 - [Heroes record no recipe](#heroes-record-no-recipe-so-nothing-on-disk-says-which-rig-made-any-of-the-203-analysed-2026-08-21-parked) · needs-render-store
 - [Large-country warp and small-island exaggeration](#hero-presentation-large-country-warp--small-island-exaggeration-analysed-2026-07-24) · look-call · needs-gpu
@@ -93,6 +92,7 @@ Not a lower tier. Nobody has written down what would make them worth doing, and 
 - [The polar caps are a texture](#the-polar-caps-are-a-texture-because-maplibre-allows-nothing-else-and-the-ceiling-is-webps-analysed-2026-08-07) · a non-Mercator source usable beside Mercator on a globe
 - [Replacing MapLibre with another engine](#replacing-maplibre-with-another-engine-threejs-is-the-wrong-shape-and-cesium-fixes-one-cost-of-three-analysed-2026-09-07) · REJECTED, on that same event
 - [Multilingual search names](#multilingual-search-names-measured-and-declined-and-the-blocker-is-the-tokeniser-analysed-2026-08-14) · REJECTED, on the country manifest ceasing to be a chunk both bodies download
+- [A height curve on the displacement](#a-height-curve-on-the-displacement-liked-and-then-declined-for-the-hero-re-render-analysed-2026-09-21) · REJECTED, on the maintainer asking for it
 - [MapLibre's WebGPU backend](#maplibres-webgpu-backend-irrelevant-to-our-memory-problem-and-not-the-no-op-we-recorded-analysed-2026-07-29) · MapLibre publishing a timeline
 - [A quadtree block partition](#a-quadtree-block-partition-instead-of-the-uniform-grid-analysed-2026-09-03) · needs-render-store · a uniform partition shipping a full planet first, as the baseline
 - [GDAL 3.13](#gdal-313-assessed-and-skipped-analysed-2026-07-23) · a full-restage boundary, and rasterio bundling 3.13
@@ -102,17 +102,16 @@ Not a lower tier. Nobody has written down what would make them worth doing, and 
 
 - [A cold page load at high zoom paints a flat fill and never recovers](#a-cold-page-load-at-high-zoom-paints-a-flat-fill-and-never-recovers-observed-2026-08-11-not-analysed)
 - [Tiles "jump" a little when panning around a pole](#tiles-jump-a-little-when-panning-around-a-pole-observed-2026-08-11-not-analysed)
-- [The heightfield wraps at a block's plane edge, and the context law does not bound the wall it stands](#the-heightfield-wraps-at-a-blocks-plane-edge-and-the-context-law-does-not-bound-the-wall-it-stands-observed-2026-09-13-not-analysed)
 - [Mars's source elevation steps about 110 m along 15°S](#marss-source-elevation-steps-about-110-m-along-15s-observed-2026-09-19-not-analysed)
 - [GLO-30 steps up to 16 m along a straight line near the South Pole](#glo-30-steps-up-to-16-m-along-a-straight-line-near-the-south-pole-observed-2026-09-19-not-analysed)
 
-## A height curve on the displacement, parked until the hero camera is decided (analysed 2026-09-21)
+## A height curve on the displacement, liked and then declined for the hero re-render (analysed 2026-09-21)
 
-> **OPEN** · `look-call` · `needs-gpu`, and the named event that reopens it is the hero camera being settled. Everything below was measured; none of it was ratified, and the one look the maintainer gave was a ranking between two options he rejected.
+> **REJECTED** by the maintainer's call, and it stays because it is the obvious lever against needles and was liked twice before being declined. **Reopens on** the maintainer asking for it. Everything below was measured; none of it was ratified.
 
 The idea: scale the displacement by `gain x knee x ln(1 + h/knee)` above sea level and `gain x h` below, so low ground lifts more than high ground. It reaches the displacement alone, so colour still follows true height.
 
-**Why it is parked rather than rejected.** It was liked twice, in September and again on three of four countries here, and it is the only lever that calms peaks without flattening the low ground: turning the exaggeration down costs exactly what the curve adds. What stops it is that every gain below was solved at one pitch and one exaggeration, 55 degrees and 4x, and both of those are themselves undecided parts of the hero rethink. Move either and the gains have to be solved again. The pitched camera is not the problem: pitch is what the hero rethink is for, and the globe has been pitchable all along.
+**Why it tempts.** It is the only lever that calms peaks without flattening the low ground: turning the exaggeration down costs exactly what the curve adds. Every gain below was solved at one pitch and one exaggeration, 55 degrees and 4x, so a revival starts by solving them again at the camera the heroes actually use.
 
 - **The gain and the exaggeration are one knob.** They only ever appear as a product, proved to the last decimal: exaggeration 4 with gain 4.73, 8 with 2.365 and 15 with 1.261 give identical multipliers at every height. So a gain above 1 IS a higher exaggeration, and on the tiles, where both would be single per-body numbers, the gain is redundant. The knee is the only new parameter a tile curve would need.
 - **The knee is the whole of what the curve costs in truthfulness.** Counting pairs of places where one is really steeper: no curve gets 0% backwards, a 2,000 m knee 5.8%, 1,000 m 8.0%, 500 m 10.6%, 250 m 13.6%. The gain does not appear because scaling every slope alike cannot reorder them.
@@ -127,7 +126,7 @@ The idea: scale the displacement by `gain x knee x ln(1 + h/knee)` above sea lev
 
 ## Blurring the heightfield before displacement, where the radius turns out to be a per-country fit (analysed 2026-09-21)
 
-> **OPEN** · `look-call` · `needs-gpu`, and the named event that reopens it is the hero camera being settled, the same event the height curve above waits on.
+> **OPEN** · `look-call` · `needs-gpu`, and the named event that reopens it is the hero camera being settled.
 
 The idea, which is the published practice for this look rather than an invention here: low-pass the elevation raster before it drives the displacement, then mix a small share of the untouched raster back in. It reaches the displacement alone, so colour still follows true height. A needle is a narrow feature rather than a tall one, so a filter on width attacks it directly where a curve on elevation reaches it only incidentally.
 
@@ -215,17 +214,6 @@ The globe's detail card carries a country's name, its continent and a link, and 
 - Likely candidates, in the order worth checking: the render-tile covering set churning as the globe reassigns zoom near the limb (`terrainZoomsFor` records that a pitched view drops a DEM level); the cap-to-tile alpha crossfade re-evaluating per frame; and `TERRAIN_SKIRT_DEFAULT = "none"`, which we ratified knowing it trades skirt artifacts for hairline gaps at zoom boundaries.
 - **The cheapest first move is to tell those apart, not to fix any of them**: `?skirt=auto` isolates the third in one page load, and it is a control that can fail.
 - **Not Mars-specific until shown to be.** Everything named above is body-independent, so check Earth's poles before scoping this as a Mars defect.
-
-## The heightfield wraps at a block's plane edge, and the context law does not bound the wall it stands (observed 2026-09-13, not analysed)
-
-> **OBSERVED, NOT ANALYSED**. Seen on tilted heroes and derived for the tile blocks from the code, with no block measured, so the next action is the census below.
-
-- **Seen on the heroes**: `scene_build.TEXTURES` gives the heightfield `REPEAT`, so a linear sample at the plane's border blends halfway into the opposite edge's row and stands a wall there. Saint Lucia's tilted frames showed it, every step within 2 px of where its edge rows switch. HISTORY, *the tilted frames' curtains*.
-- **The tile blocks read the same texture.** Their plane edges sit outside the camera, so no wall is ever drawn, but one rises at the north or west edge wherever the opposite edge is higher, and its shadow falls south-east toward the delivered pixels.
-- **The context law does not bound it.** `block_plan.haloed` sizes a block from the largest peak-to-trench range among its 3×3 neighbours, each block measured alone. The wall is half the height difference between the plane's two opposite edges, which lie in different neighbours, so sea along one edge and land along the other can stand a wall taller than either block's own range.
-- **The census that settles it**: per block, the tallest wall at the north and west plane edges, exaggerated and turned into a per-axis shadow length, against the block's context. It reads a strip along each plane edge from the planet raster, so it runs under the cgroup cap.
-- **A candidate link, nothing more**: *the context's zero fill stood a 71 km wall* left a residual join of −2.90 DN that its fix did not close.
-- **If it is real, the fix is EXTEND on the heightfield's `TextureSpec`**, which `rig_recipe` records, so it re-renders both planets and belongs with the next batched look change.
 
 ## Mars's source elevation steps about 110 m along 15°S (observed 2026-09-19, not analysed)
 

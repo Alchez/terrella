@@ -45,6 +45,7 @@ Every one of these produces plausible-looking wrong output rather than an error,
 - **"Displacement and Bump" replaces the mesh's shading normal rather than adding to it.** Cycles rebuilds each normal from the displacement sampled at the shading point and one ray differential away, on the undisplaced surface, so nothing is counted twice, and on terrain the mesh already resolves it changes nothing. A new material is "Bump Only" until told otherwise, which drops the geometry and every shadow.
   - **Its strength is fixed at 1 and no Blender property reaches it.** The kernel ends `normalize(strength * bumped + (1 - strength) * mesh)`, and `bump_from_displacement` builds that node with distance 1 and the default strength. Dialling it means building the bump in the shader: either mix the bumped surface with one shaded off the per-facet normal, whose travel is unknown at one facet per pixel, or drive an explicit bump node, which counts the mesh's own slope twice unless the height is high-passed first.
   - **It darkens wherever fine relief exists**, since facets turned from a low sun lose more than facets turned toward it gain. The loss is roughly a fixed number of DN, so it is a far larger share of ground that was already shaded, which is what reads as valleys deepening.
+- **A Transparent BSDF over displaced terrain runs out of transparent bounces**, and the rig leaves `scene.cycles.transparent_max_bounces` at Blender's default of 8. A ray grazing several hidden peaks stops at the ninth surface, which renders black and casts a shadow, so a cut-out shows its neighbours' mountains as dark ghosts. Raise it for any render that hides terrain with transparency: 256 cleared a cut-out at 7×.
 - **`is` on any RNA reference is False even for the same datablock**, because Blender returns a fresh Python wrapper on every access: `link.to_node is node` and `link.to_socket is node.inputs[0]` never match, so compare `.name`. A probe that unlinks a socket this way cuts nothing, the socket keeps its link, the default it then writes is ignored because a linked socket has no default, and the render is production under a different filename. Assert the count of links you CUT, never the count of nodes you found.
 
 ## When a render dies
@@ -52,6 +53,16 @@ Every one of these produces plausible-looking wrong output rather than an error,
 `OPTIX_ERROR_UNKNOWN` at context creation is usually not a driver fault. Check `journalctl -k` for NVRM **Xid** lines. If the Xid names a Blender pid, the driver is fine and the CUDA context is dead: restart Blender to clear it.
 
 Render heavy jobs one at a time under the project's cgroup scope. A hook enforces this, and the category that matters is "touches a full-planet raster" rather than "is a pipeline stage".
+
+Two settings turn an ordinary scene into an OOM, each measured on Saint Lucia's grid against a normal render's 7.5 GB:
+
+- **Any emission on the terrain material makes every diced triangle a light**, and Cycles builds sampling data for all of them: a mask rendered through emission died past 12 GB, and the same render with `material.cycles.emission_sampling = "NONE"` peaked at 5.3 GB. Set it whenever emission is used to photograph a mask through the camera.
+- **`max_subdivisions` above the rig's 12 lets the whole view dice at the full-size rate, and a render border does not limit it**: a full-size crop at 12 peaked at 6.7 GB and the same crop at 14 died past 12 GB. The cap is what bounds a hero's mesh, so raising it for a sharper crop measures a mesh no hero builds.
+
+Two more set a floor that splitting a render into camera pieces does not lower:
+
+- **Blender holds every image as four channels**, so a single-band float heightfield costs 16 bytes a pixel whatever its file says (`image.channels` reads 4). A 940-megapixel heightfield put a render of a 33 × 35 px window at 15.5 GB, because every piece carries every image whole. Cut the plane and its rasters to the ground the camera can see before reaching for more pieces. A 16-bit PNG loads as floats too, and the GPU holds the same 16 bytes: a frame-sized 16-bit mask left no room for a hero's acceleration structure where the same mask at 8 bits fitted, so write a mask at 8 bits whenever 8 bits carry it.
+- **Steep displacement costs GPU memory in the acceleration structure.** The same Finland frame rendered in 2 × 2 pieces at 15× failed to build its OptiX acceleration structure at 44×, with host memory well under the cap, and 3 × 3 pieces fitted. The error reads "System is out of GPU memory", not a host OOM.
 
 ## How dense a mesh Cycles actually built
 
