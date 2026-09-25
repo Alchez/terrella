@@ -2,12 +2,11 @@
 import Base from "../layouts/Base.astro";
 import Masthead from "../components/Masthead.astro";
 import { manifest as data, type Country } from "../lib/manifest";
-import { hasOwnPage } from "../lib/countryPages";
+import { hasOwnPage, imageSources } from "../lib/countryPages";
 import { humanSize } from "../lib/archiveIndex";
 import { smallestRungAtLeast } from "../lib/rungs";
 import { HERO_BASE } from "../lib/assetBase";
 import { pageTitle } from "../lib/pageTitle";
-import CREDITS from "../data/attributions.json";
 
 // One statically-built page per country that has one.
 export function getStaticPaths() {
@@ -37,11 +36,7 @@ const displaySpotlight = country.hasSpotlight
 const nativeSpotlight = country.hasSpotlight
   ? `${HERO_BASE}${country.slug}-spotlight-${country.spotlightSizes[country.spotlightSizes.length - 1]}.webp`
   : "";
-// The image's own sources, then the Focus layer's where the page has one.
-const credited = [
-  ...CREDITS.heroes.earth.sources,
-  ...(country.hasSpotlight ? CREDITS.heroes.earth.focus : []),
-];
+const credited = imageSources(country);
 ---
 
 <Base
@@ -86,13 +81,17 @@ const credited = [
       ) : (
         <div class="placeholder" style={`aspect-ratio:${country.aspect}`}>
           <span>{country.name}</span>
-          <small>This hero is still rendering — check back soon.</small>
+          <small>Not rendered yet</small>
         </div>
       )
     }
-    <p class="meta">
-      Ray-traced relief · {credited.map((source) => source.name).join(" · ")}
-    </p>
+    {
+      credited.length > 0 && (
+        <p class="meta">
+          Ray-traced relief · {credited.map((source) => source.name).join(" · ")}
+        </p>
+      )
+    }
     {
       country.download && (
         <p class="meta download">

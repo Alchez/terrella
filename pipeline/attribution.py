@@ -21,9 +21,12 @@ layers its body declares. `body.surface_layers & layers.BLOCK_LAYERS` is what a 
 bakes, so a layer switched on or off moves the credit with it.
 """
 
+import json
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from pipeline import bodies, layers
+from pipeline.render import render_seam
 
 
 @dataclass(frozen=True)
@@ -381,9 +384,67 @@ def hero_keys(body: bodies.Body) -> tuple[str, ...]:
     return tuple(dict.fromkeys((*credits.heightfield, *credits.heroes)))
 
 
-def for_hero(body: bodies.Body) -> str:
-    """The credit a hero image carries inside its own file."""
-    return compose(hero_keys(body))
+#: The render stages a hero's credit is composed from, heightfield first as every credit is.
+HERO_STAGES = (render_seam.PREP, render_seam.SNOW, render_seam.LAKE)
+
+
+class HeroRecordError(ValueError):
+    """A hero whose sources cannot be stated: never recorded, or recorded for an earlier render."""
+
+
+def hero_stage_sources(body: bodies.Body, stage: str) -> tuple[str, ...]:
+    """The source keys one hero stage reads, which it declares beside the images it writes."""
+    credits = CREDITS[body.name]
+    if stage == render_seam.PREP:
+        return credits.heightfield
+    if stage == render_seam.SNOW:
+        return tuple(dict.fromkeys(key for name in layers.layers_on(body, layers.HERO_LAYERS)
+                                   for key in credits.painted[name]))
+    if stage == render_seam.LAKE:
+        return credits.painted["lake_depth"]
+    raise ValueError(f"{stage!r} is not a hero stage ({', '.join(HERO_STAGES)})")
+
+
+def declared_hero_sources(render_dir: Path) -> tuple[str, ...]:
+    """What a render from this directory is built from, as each hero stage declared it."""
+    keys: dict[str, None] = {}
+    for stage in HERO_STAGES:
+        read = render_seam.stage_sources(render_dir, stage)
+        if read is None:
+            raise HeroRecordError(
+                f"{render_dir}: {stage} never declared what it read, so its images may be an "
+                f"earlier version's; delete them and re-run `{render_seam.STAGE_TOOL[stage]}`")
+        keys.update(dict.fromkeys(read))
+    return tuple(keys)
+
+
+def hero_record_path(master: Path) -> Path:
+    """Where a hero master's record of its sources sits, beside it."""
+    return master.with_name(f"{master.stem}.sources.json")
+
+
+def write_hero_record(master: Path, keys: tuple[str, ...]) -> Path:
+    """Record what `master` was rendered from, tied to the master as it is on disk now."""
+    unknown = [key for key in keys if key not in SOURCES]
+    if unknown:
+        raise ValueError(f"unknown source {', '.join(unknown)} for {master.name}")
+    rendered = master.stat()
+    path = hero_record_path(master)
+    path.write_text(json.dumps({"bytes": rendered.st_size, "mtime_ns": rendered.st_mtime_ns,
+                                "sources": list(keys)}, indent=1) + "\n")
+    return path
+
+
+def hero_record(master: Path) -> tuple[str, ...]:
+    """The source keys `master` was rendered from, refused unless its record describes this render."""
+    path = hero_record_path(master)
+    if not path.exists():
+        raise HeroRecordError(f"{master.name} has no record of what it was rendered from ({path.name})")
+    record = json.loads(path.read_text())
+    rendered = master.stat()
+    if (record["bytes"], record["mtime_ns"]) != (rendered.st_size, rendered.st_mtime_ns):
+        raise HeroRecordError(f"{master.name} was rendered after its record {path.name} was written")
+    return tuple(record["sources"])
 
 
 def describe(body: bodies.Body, layer: str) -> str:

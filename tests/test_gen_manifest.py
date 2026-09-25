@@ -19,9 +19,10 @@ import sys
 from pathlib import Path
 
 import pytest
-from conftest import write_hero_master
+from conftest import HERO_SOURCES, write_hero_master
 from PIL import Image
 
+from pipeline import attribution
 from pipeline.compose import downloads, hero_variants
 
 pytestmark = pytest.mark.filterwarnings("ignore::rasterio.errors.NotGeoreferencedWarning")
@@ -268,11 +269,30 @@ class TestTheDownloadFiles:
         master = renders / "heroes" / f"{SLUG}.png"
         later = master.stat().st_mtime_ns + 1_000_000_000
         os.utime(master, ns=(later, later))
+        attribution.write_hero_record(master, HERO_SOURCES)
         # The WebP redone since, and the copy not.
         os.utime(renders / "variants" / f"{SLUG}-{WIDTH}.webp", ns=(later, later))
         with pytest.raises(GEN.StaleFiles, match=rf"{SLUG}-{WIDTH}\.png") as refusal:
             GEN.country_row(SLUG, RESOLVED, {}, renders)
         assert f"{SLUG}-{WIDTH}.webp" not in str(refusal.value)
+
+    def test_a_rendered_country_names_what_its_render_read(self, renders):
+        assert GEN.country_row(SLUG, RESOLVED, {}, renders)["heroSources"] == list(HERO_SOURCES)
+
+    def test_an_unrendered_country_names_nothing(self, tmp_path):
+        assert GEN.country_row(SLUG, RESOLVED, {}, tmp_path)["heroSources"] == []
+
+    def test_a_master_with_no_record_is_refused_with_its_fix(self, renders):
+        attribution.hero_record_path(renders / "heroes" / f"{SLUG}.png").unlink()
+        with pytest.raises(GEN.StaleFiles, match=r"no record.*pipeline\.batch"):
+            GEN.country_row(SLUG, RESOLVED, {}, renders)
+
+    def test_a_master_changed_after_its_record_is_refused(self, renders):
+        master = renders / "heroes" / f"{SLUG}.png"
+        later = master.stat().st_mtime_ns + 1_000_000_000
+        os.utime(master, ns=(later, later))
+        with pytest.raises(GEN.StaleFiles, match="after its record"):
+            GEN.country_row(SLUG, RESOLVED, {}, renders)
 
     def test_a_full_size_webp_that_is_not_its_masters_image_is_refused(self, renders):
         """Even when the WebP is the newer file, as a store copied without its times can leave it."""

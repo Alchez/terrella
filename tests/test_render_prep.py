@@ -17,9 +17,10 @@ import numpy as np
 import pytest
 from scipy.ndimage import uniform_filter
 
-from pipeline import bodies
+from pipeline import attribution, bodies, render_files
 from pipeline.look import palette
 from pipeline.render import render_prep as rp
+from pipeline.render import render_seam
 
 # ---- floor_box_px: kernel width + the engage/skip gate -----------------------
 
@@ -142,3 +143,28 @@ class TestFrameJsonHasOneWriter:
         """`body` alone resolves to whatever that planet's exaggeration is TODAY, so a frame
         pinned before a change would silently claim the new value."""
         assert "body" in rp.FRAME_KEYS and "exaggeration" in rp.FRAME_KEYS
+
+
+class TestThePrepSaysWhatItRead:
+    """A hero's credit is composed from each stage's declaration, and a heightfield the prep skipped
+    may be an earlier version's."""
+
+    IMAGES = (render_files.HEIGHTFIELD, render_files.OCEANMASK)
+
+    def _dir(self, tmp_path):
+        for name in self.IMAGES:
+            (tmp_path / name).write_bytes(b"")
+        return tmp_path
+
+    def test_a_written_heightfield_is_declared_with_the_heightfield_credit(self, tmp_path):
+        render_dir = self._dir(tmp_path)
+        rp.declare_stage(render_dir, bodies.EARTH, list(self.IMAGES), heightfield_written=True)
+        assert render_seam.stage_images(render_dir, render_seam.PREP) == sorted(self.IMAGES)
+        assert render_seam.stage_sources(render_dir, render_seam.PREP) == list(
+            attribution.CREDITS["earth"].heightfield)
+
+    def test_a_skipped_heightfield_vouches_for_no_sources(self, tmp_path):
+        render_dir = self._dir(tmp_path)
+        rp.declare_stage(render_dir, bodies.EARTH, list(self.IMAGES), heightfield_written=False)
+        assert render_seam.stage_images(render_dir, render_seam.PREP) == sorted(self.IMAGES)
+        assert render_seam.stage_sources(render_dir, render_seam.PREP) is None

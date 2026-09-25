@@ -41,13 +41,8 @@ describe("a country page credits its image from the registry", () => {
     const typed = (caption ?? "").match(/[A-Za-z0-9-]+/g) ?? [];
     expect(
       typed.filter((word) => datasetWords.has(word)),
-      "the caption types a dataset's name; the list comes from attributions.json's `heroes`",
+      "the caption types a dataset's name; the list comes from `imageSources`",
     ).toEqual([]);
-  });
-
-  it("lists the hero's sources, and Natural Earth only where a Focus layer draws it", () => {
-    expect(frontmatter).toContain("CREDITS.heroes.earth.sources");
-    expect(frontmatter).toMatch(/country\.hasSpotlight\s*\?\s*CREDITS\.heroes\.earth\.focus/);
   });
 });
 

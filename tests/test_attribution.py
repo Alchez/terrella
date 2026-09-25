@@ -371,7 +371,7 @@ class TestWhatAHeroIsBuiltFrom:
         assert set(attribution.hero_keys(bodies.EARTH)) == read
 
     def test_the_hero_file_carries_every_licence_required_notice(self, subtests):
-        credit = attribution.for_hero(bodies.EARTH)
+        credit = attribution.compose(attribution.hero_keys(bodies.EARTH))
         for key in attribution.hero_keys(bodies.EARTH):
             if attribution.SOURCES[key].obligation:
                 with subtests.test(key):
@@ -382,7 +382,8 @@ class TestWhatAHeroIsBuiltFrom:
             assert attribution.OUTPUT_LICENCE in credit
 
     def test_natural_earth_is_credited_inside_the_hero_for_the_salt_it_outlines(self):
-        assert attribution.SOURCES["naturalearth"].notice in attribution.for_hero(bodies.EARTH)
+        credit = attribution.compose(attribution.hero_keys(bodies.EARTH))
+        assert attribution.SOURCES["naturalearth"].notice in credit
 
     def test_the_salt_names_worldcover_which_decides_its_saline_ground(self):
         """`extract_gwl` keeps a saline cell only where WorldCover calls its ground bare, snow or
@@ -403,7 +404,87 @@ class TestWhatAHeroIsBuiltFrom:
 
     def test_a_body_with_no_hero_renders_has_no_hero_credit(self):
         with pytest.raises(ValueError, match="no hero renders"):
-            attribution.for_hero(bodies.MARS)
+            attribution.hero_keys(bodies.MARS)
+
+    def test_nothing_composes_a_hero_file_credit_from_the_lane_code(self):
+        """A file carries the credit of the render that made it, which the lane's code today
+        describes only until the lane changes; `for_hero` composed from the code and stamped 406
+        files with sources their pixels never read."""
+        assert not hasattr(attribution, "for_hero")
+
+
+def _declared_dir(tmp_path, sources_by_stage):
+    """A render directory whose hero stages declared an empty image list and these sources."""
+    from pipeline.render import render_seam
+
+    render_dir = tmp_path / "render"
+    render_dir.mkdir()
+    for stage in attribution.HERO_STAGES:
+        render_seam.declare(render_dir, stage, [])
+        if sources_by_stage.get(stage) is not None:
+            render_seam.declare_sources(render_dir, stage, sources_by_stage[stage])
+    return render_dir
+
+
+class TestAHeroIsCreditedForItsOwnRender:
+    """Each hero stage says what it read when it writes, the batch composes a master's record from
+    those once the render lands, and every file credit reads the record rather than the lane."""
+
+    def test_the_stages_between_them_read_exactly_the_lanes_credit(self):
+        read = {key for stage in attribution.HERO_STAGES
+                for key in attribution.hero_stage_sources(bodies.EARTH, stage)}
+        assert read == set(attribution.hero_keys(bodies.EARTH))
+
+    def test_the_prep_reads_the_heightfield_and_the_lake_stage_globathy(self):
+        from pipeline.render import render_seam
+
+        earth = attribution.CREDITS["earth"]
+        assert attribution.hero_stage_sources(bodies.EARTH, render_seam.PREP) == earth.heightfield
+        assert attribution.hero_stage_sources(bodies.EARTH, render_seam.LAKE) == ("globathy",)
+
+    def test_the_record_is_composed_heightfield_first_from_what_each_stage_declared(self, tmp_path):
+        from pipeline.render import render_seam
+
+        render_dir = _declared_dir(tmp_path, {render_seam.PREP: ["gebco", "glo30"],
+                                              render_seam.SNOW: ["rgi"],
+                                              render_seam.LAKE: ["globathy"]})
+        assert attribution.declared_hero_sources(render_dir) == ("gebco", "glo30", "rgi", "globathy")
+
+    def test_a_stage_that_never_declared_its_sources_is_named_rather_than_guessed(self, tmp_path):
+        from pipeline.render import render_seam
+
+        render_dir = _declared_dir(tmp_path, {render_seam.PREP: ["glo30"], render_seam.LAKE: ["globathy"]})
+        with pytest.raises(attribution.HeroRecordError, match=render_seam.SNOW):
+            attribution.declared_hero_sources(render_dir)
+
+    def test_a_master_reads_back_the_sources_recorded_beside_it(self, tmp_path):
+        master = tmp_path / "nepal.png"
+        master.write_bytes(b"rendered")
+        attribution.write_hero_record(master, ("glo30", "gebco", "worldcover", "globathy"))
+        assert attribution.hero_record(master) == ("glo30", "gebco", "worldcover", "globathy")
+
+    def test_a_master_with_no_record_is_refused(self, tmp_path):
+        master = tmp_path / "nepal.png"
+        master.write_bytes(b"rendered")
+        with pytest.raises(attribution.HeroRecordError, match="no record"):
+            attribution.hero_record(master)
+
+    def test_a_master_rendered_again_after_its_record_is_refused(self, tmp_path):
+        import os
+
+        master = tmp_path / "nepal.png"
+        master.write_bytes(b"rendered")
+        attribution.write_hero_record(master, ("glo30",))
+        master.write_bytes(b"rendered again")
+        os.utime(master, ns=(1, 1))
+        with pytest.raises(attribution.HeroRecordError, match="after its record"):
+            attribution.hero_record(master)
+
+    def test_an_unknown_source_is_refused_when_recorded(self, tmp_path):
+        master = tmp_path / "nepal.png"
+        master.write_bytes(b"rendered")
+        with pytest.raises(ValueError, match="unknown source"):
+            attribution.write_hero_record(master, ("glo31",))
 
 
 class TestTheCommittedJsonIsInStep:

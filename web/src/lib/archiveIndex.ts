@@ -90,20 +90,25 @@ export interface BundleRecord {
   sha256: string;
   /** Each image the bundle holds, by name, with its size in bytes. */
   images: Record<string, number>;
+  /** The source keys every image in it was rendered from. */
+  sources: string[];
+  /** The credit each image carries inside it, verbatim. */
+  credit: string;
 }
 
 const BUNDLE_RECORDS: Partial<Record<BodySlug, BundleRecord>> = BUNDLES;
-const HERO_CREDITS: Partial<Record<BodySlug, { credit: string; sources: ArchiveSource[] }>> =
-  CREDITS.heroes;
+
+/** One source as the registry's cards draw it, refused if the registry has no such key. */
+export function sourceCard(key: string): ArchiveSource {
+  const card = (CREDITS.sources as Record<string, ArchiveSource | undefined>)[key];
+  if (card === undefined) throw new Error(`attributions.json has no source ${key}`);
+  return card;
+}
 
 /** A body's country maps bundle as its card lists it, credited as the images inside it are. */
 function bundleRows(body: BodyDescriptor): BundleRow[] {
   const record = BUNDLE_RECORDS[body.slug];
   if (!record) return [];
-  const heroes = HERO_CREDITS[body.slug];
-  if (!heroes) {
-    throw new Error(`${record.key} is recorded, and attributions.json credits no image of ${body.label}`);
-  }
   return [
     {
       heading: "Country maps",
@@ -115,8 +120,8 @@ function bundleRows(body: BodyDescriptor): BundleRow[] {
       size: humanSize(record.bytes),
       images: Object.keys(record.images).length,
       sha256: record.sha256,
-      credit: heroes.credit,
-      sources: heroes.sources,
+      credit: record.credit,
+      sources: record.sources.map((key) => sourceCard(key)),
     },
   ];
 }

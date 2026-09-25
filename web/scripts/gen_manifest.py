@@ -133,6 +133,7 @@ class StaleFiles(Exception):
 REDO_LADDER = "python -m pipeline.compose.hero_variants --only {slug} --force"
 REDO_OVERLAYS = "python -m pipeline.compose.gen_spotlight --only {slug} --force"
 REDO_STAMP = "python -m pipeline.compose.downloads stamp --only {slug}"
+REDO_RENDER = "`python -m pipeline.batch`, which records what a hero is rendered from"
 
 
 def stale_files(renders: Path, slug: str, name: str, native: int) -> str | None:
@@ -142,12 +143,19 @@ def stale_files(renders: Path, slug: str, name: str, native: int) -> str | None:
     Stale is a rung or overlay older than the master, which holds an earlier render; a file that is
     none of those the master's ladder and stamp produce, left from a render at another size; a
     full-size WebP without the master's shape; and a download file without the credit for `name`.
+    A master with no record of its sources, or one rendered since, is refused before any of those,
+    since nothing can be stamped for it.
     """
     import rasterio
 
+    from pipeline import attribution
     from pipeline.compose import downloads, hero_variants
     variants = renders / "variants"
     master = renders / "heroes" / f"{slug}.png"
+    try:
+        attribution.hero_record(master)
+    except attribution.HeroRecordError as unstated:
+        return f"{slug}: {unstated}; fix: render it through {REDO_RENDER}"
     shape = downloads.png_size(master)
     produced = set(hero_variants.rungs_for(*shape))
     rendered = master.stat().st_mtime_ns
@@ -204,6 +212,12 @@ def download_files(renders: Path, slug: str, name: str, native: int) -> dict:
                 webpBytes=webp.stat().st_size, pngBytes=png.stat().st_size)
 
 
+def hero_sources(renders: Path, slug: str) -> list[str]:
+    """The source keys a rendered country's hero was rendered from, as its record states them."""
+    from pipeline import attribution
+    return list(attribution.hero_record(renders / "heroes" / f"{slug}.png"))
+
+
 def country_row(slug: str, resolved: dict, record: dict, renders: Path) -> dict:
     """One country as the manifest publishes it — the payload's whole per-country contract.
 
@@ -236,6 +250,7 @@ def country_row(slug: str, resolved: dict, record: dict, renders: Path) -> dict:
         rendered=bool(sizes),
         listedOnly=listed_only,
         download=download_files(renders, slug, resolved["name"], sizes[-1]) if sizes else None,
+        heroSources=hero_sources(renders, slug) if sizes else [],
         hasSpotlight=bool(spotlight),
         spotlightSizes=spotlight,
     )

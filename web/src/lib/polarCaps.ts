@@ -892,12 +892,11 @@ export function addPolarCap(map: MaplibreMap, opts: CapOptions): void {
  *  capless, with no error — the map looks fine, the poles are just holes. A test guards the
  *  binding; the failure it prevents is silent, which is exactly why it is a test and not a note.
  *
- *  `cache: "no-cache"` (revalidate, don't skip the cache) is load-bearing, not caution. The
- *  manifest is a CONTRACT DOCUMENT, not an asset: the textures it names are content-addressed
- *  by size (cap_north_8192.webp), so a stale texture is impossible, but a stale manifest
- *  describes a world that no longer exists. Caught — adding the rung list
- *  broke the caps on this very browser, which was holding a week-old manifest under the
- *  stores' 1-week cache class and reading `entry.rungs` as undefined. The failure is silent
+ *  `cache: "no-cache"` (revalidate, don't skip the cache) is load-bearing, not caution, and holds
+ *  whatever cache rule the host sets. A texture's name carries its size and not its content, so a
+ *  pass rewrites the textures and this manifest in place, and both stay fresh only by
+ *  revalidating. A stale texture shows the previous cap; a stale manifest describes files or a
+ *  shape that no longer exist, and leaves the globe capless. That failure is silent
  *  by design (capless globe, one console error), which is exactly why it must not be
  *  reachable. Cost is one conditional GET of ~500 bytes on an already-warm H2 connection. */
 export async function addPolarCaps(map: MaplibreMap, body: BodySlug): Promise<void> {

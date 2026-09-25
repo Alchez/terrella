@@ -37,6 +37,9 @@ export interface Country {
   listedOnly: boolean;
   /** The full-size files the country's page offers for download, or null if unrendered. */
   download: DownloadFiles | null;
+  /** The source keys the hero was rendered from, as its record beside the master states them;
+   *  empty if unrendered. */
+  heroSources: string[];
   hasSpotlight: boolean;
   /** Long-edge sizes of the subject-spotlight overlay WebPs (dims neighbours, strokes the boundary). */
   spotlightSizes: number[];

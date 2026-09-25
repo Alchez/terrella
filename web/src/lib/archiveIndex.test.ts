@@ -162,10 +162,12 @@ describe("the country maps bundle", () => {
     expect(bundle.sha256).toBe(BUNDLES.earth.sha256);
   });
 
-  it("credits what a country's image is built from, which is not what any pyramid is", () => {
+  it("credits what its images were rendered from, as the bundle's record states it", () => {
     const [bundle] = bundles("earth");
-    expect(bundle.credit).toBe(CREDITS.heroes.earth.credit);
-    expect(bundle.sources).toEqual(CREDITS.heroes.earth.sources);
+    expect(bundle.credit).toBe(BUNDLES.earth.credit);
+    expect(bundle.sources.map((source) => source.name)).toEqual(
+      BUNDLES.earth.sources.map((key) => CREDITS.sources[key as keyof typeof CREDITS.sources].name),
+    );
     for (const layer of ["relief", "terrain", "vector"] as const) {
       expect(bundle.credit, layer).not.toBe(CREDITS.archives[`earth/${layer}`].credit);
     }

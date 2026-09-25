@@ -150,6 +150,8 @@ The chain `country_config` prints per country, in order. Each stage finalizes it
 
 **Every stage above writes into that country's own work directory**, `data/work/<slug>/render/`, which `country_config.country_render_dir` owns. `frame.json` lands there beside the projected rasters, and it is what stage 7 reads across the interpreter boundary.
 
+**The batch records what each hero was rendered from**, as `<slug>.sources.json` beside it in `blender/renders/heroes/`, from what stages 4 to 6 each declared they read when they last wrote their output. A stage that skips an existing output declares nothing, so a country with a stage that never declared stops before the render. Every credit a hero's files and pages carry reads this record rather than today's code.
+
 ## Publishing heroes (Earth only)
 
 Four compose steps and a manifest regeneration turn finished heroes into what the site serves. The first three take `--only <slug,slug>`, and the first two `--force`; the bundle always takes every country.
@@ -167,7 +169,7 @@ pnpm --dir web build
 - **Parallelism is a memory question, per script.** `--jobs 8` suits `hero_variants`; `gen_spotlight` is serial because its **native** rung peaks near 8 GB. Time one slug first; `docs/PROCESS.md` has the pass costs.
 - **`hero_variants_recipe.json` records rung to WebP quality**, since existence cannot tell a q95 file from the q85 it replaced. Changing `quality_for()` restages that rung and only that rung.
 - **A hero carries no borders.** Its one overlay is the spotlight, the Focus toggle's asset, which strokes the country's own boundary through `compose/overlay_borders.py`'s camera mapping.
-- **The manifest reads variant dimensions off disk**, so the gallery and detail pages fill in as renders complete. It refuses to write while a rendered country has an image older than its master, a file its master no longer produces, or a download without its credit, and names what fixes each. After a re-render at the same size, that is `--force` on the first two steps for those countries.
+- **The manifest reads variant dimensions off disk**, so the gallery and detail pages fill in as renders complete. It refuses to write while a rendered country has a master with no record of its sources, an image older than its master, a file its master no longer produces, or a download without its credit, and names what fixes each. After a re-render at the same size, that is `--force` on the first two steps for those countries.
 - **The bundle comes after the manifest**, which is what holds each full-size WebP to its master. It refuses an unstamped WebP, and its record lists each image's size, so the deploy preflight refuses a bundle whose images differ from the pages'. A rebuild of unchanged files is byte-identical, so its record changes only when an image or the credit does.
 - **`pnpm --dir web build` builds the whole site**, both bodies, whatever heroes exist.
 

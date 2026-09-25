@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 import rasterio
 
-from pipeline import bodies, planet_seam
+from pipeline import attribution, bodies, planet_seam
 from pipeline.tile import cap_render
 
 #: The REAL served root, resolved once while `paths.ROOT` still points at this checkout.
@@ -86,9 +86,14 @@ def write_planet_vrt(path: Path, grid: tuple[int, int] = (3600, 3600),
         f"</VRTDataset>")
 
 
+#: What a stand-in hero master is recorded as rendered from, as the batch records a real one.
+HERO_SOURCES = ("glo30", "gebco", "worldcover", "globathy")
+
+
 def write_hero_master(path: Path, width: int, height: int, seed: int, alpha: int = 255,
                       zlevel: int = 6) -> None:
-    """An 8-bit RGBA PNG in a hero master's own chunk shape: a header, the pixel data, the end.
+    """An 8-bit RGBA PNG in a hero master's own chunk shape: a header, the pixel data, the end, with
+    the record of its sources beside it.
 
     At `zlevel` 0 the length depends on the dimensions alone, so two seeds give two images of one
     length. Encoded as WebP, the length barely moves with the seed and can repeat exactly, so no
@@ -102,6 +107,7 @@ def write_hero_master(path: Path, width: int, height: int, seed: int, alpha: int
           rasterio.open(path, "w", driver="PNG", width=width, height=height, count=4,
                         dtype="uint8", ZLEVEL=zlevel) as dataset):
         dataset.write(rgba)
+    attribution.write_hero_record(path, HERO_SOURCES)
 
 
 #: What each body's planet producer really declares, keyed by body name.

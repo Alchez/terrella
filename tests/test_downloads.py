@@ -23,10 +23,10 @@ from urllib.parse import urlsplit
 import numpy as np
 import pytest
 import rasterio
-from conftest import write_hero_master
+from conftest import HERO_SOURCES, write_hero_master
 from PIL import Image
 
-from pipeline import attribution, bodies
+from pipeline import attribution
 from pipeline.compose import downloads, hero_variants
 
 pytestmark = pytest.mark.filterwarnings("ignore::rasterio.errors.NotGeoreferencedWarning")
@@ -37,6 +37,8 @@ TITLE = "Tiny"
 OTHER = "wee"
 OTHER_TITLE = "Wee"
 WIDTH, HEIGHT = 64, 48
+#: The credit a stand-in master's record composes to.
+CREDIT = attribution.compose(HERO_SOURCES)
 
 #: The published namespaces, from the XMP, Dublin Core, IPTC and Creative Commons specifications.
 NAMESPACES = {
@@ -150,31 +152,30 @@ def lang_alt(element: ET.Element) -> str | None:
 
 class TestThePacket:
     def test_it_is_a_packet_a_scanner_can_find(self):
-        packet = downloads.xmp_packet(TITLE)
+        packet = downloads.xmp_packet(TITLE, CREDIT)
         assert packet.startswith(PACKET_HEADER)
         assert packet.rstrip().endswith(PACKET_TRAILER)
 
     def test_it_carries_exactly_the_nine_fields(self):
-        assert set(fields(downloads.xmp_packet(TITLE))) == {
+        assert set(fields(downloads.xmp_packet(TITLE, CREDIT))) == {
             "dc:title", "dc:creator", "dc:rights", "photoshop:Credit", "xmpRights:Marked",
             "xmpRights:WebStatement", "xmpRights:UsageTerms", "cc:license", "cc:attributionName",
         }
 
-    def test_both_credit_fields_are_the_hero_credit(self):
-        named = fields(downloads.xmp_packet(TITLE))
-        credit = attribution.for_hero(bodies.EARTH)
-        assert lang_alt(named["dc:rights"]) == credit
-        assert named["photoshop:Credit"].text == credit
+    def test_both_credit_fields_are_the_credit_it_is_given(self):
+        named = fields(downloads.xmp_packet(TITLE, CREDIT))
+        assert lang_alt(named["dc:rights"]) == CREDIT
+        assert named["photoshop:Credit"].text == CREDIT
 
     def test_it_names_the_country_and_the_publisher(self):
-        named = fields(downloads.xmp_packet(TITLE))
+        named = fields(downloads.xmp_packet(TITLE, CREDIT))
         assert lang_alt(named["dc:title"]) == TITLE
         creators = named["dc:creator"].findall("rdf:Seq/rdf:li", NAMESPACES)
         assert [creator.text for creator in creators] == [attribution.PUBLISHER]
         assert named["cc:attributionName"].text == attribution.PUBLISHER
 
     def test_it_states_the_licence(self):
-        named = fields(downloads.xmp_packet(TITLE))
+        named = fields(downloads.xmp_packet(TITLE, CREDIT))
         assert named["xmpRights:Marked"].text == "True"
         licence = named["cc:license"].get(f"{{{NAMESPACES['rdf']}}}resource")
         assert licence == attribution.OUTPUT_LICENCE_URL
@@ -183,7 +184,7 @@ class TestThePacket:
         assert attribution.OUTPUT_LICENCE in terms and attribution.OUTPUT_LICENCE_URL in terms
 
     def test_the_terms_page_it_names_carries_the_anchor(self):
-        statement = fields(downloads.xmp_packet(TITLE))["xmpRights:WebStatement"].text
+        statement = fields(downloads.xmp_packet(TITLE, CREDIT))["xmpRights:WebStatement"].text
         assert statement is not None
         address = urlsplit(statement)
         assert f"{address.scheme}://{address.netloc}" == attribution.SITE_URL
@@ -195,12 +196,12 @@ class TestThePacket:
 
     def test_a_title_is_escaped_rather_than_read_as_markup(self):
         title = 'Trinidad & Tobago <"quoted">'
-        assert lang_alt(fields(downloads.xmp_packet(title))["dc:title"]) == title
+        assert lang_alt(fields(downloads.xmp_packet(title, CREDIT))["dc:title"]) == title
 
 
 class TestTheWebP:
     def test_pillow_reads_the_packet_from_the_stamped_file(self, store):
-        packet = downloads.xmp_packet(TITLE)
+        packet = downloads.xmp_packet(TITLE, CREDIT)
         assert downloads.stamp_webp(store.webp, packet)
         with Image.open(store.webp) as image:
             assert image.size == (WIDTH, HEIGHT)
@@ -210,7 +211,7 @@ class TestTheWebP:
     def test_the_pixels_and_the_bitstream_are_untouched(self, store):
         before = pixels(store.webp)
         (frame,) = [payload for tag, payload in riff_chunks(store.webp) if tag == b"VP8 "]
-        downloads.stamp_webp(store.webp, downloads.xmp_packet(TITLE))
+        downloads.stamp_webp(store.webp, downloads.xmp_packet(TITLE, CREDIT))
         assert [tag for tag, _ in riff_chunks(store.webp)] == [b"VP8X", b"VP8 ", b"XMP "]
         assert [payload for tag, payload in riff_chunks(store.webp) if tag == b"VP8 "] == [frame]
         assert np.array_equal(pixels(store.webp), before)
@@ -219,15 +220,15 @@ class TestTheWebP:
         assert downloads.webp_packet(store.webp) is None
 
     def test_stamping_again_writes_nothing(self, store):
-        packet = downloads.xmp_packet(TITLE)
+        packet = downloads.xmp_packet(TITLE, CREDIT)
         downloads.stamp_webp(store.webp, packet)
         before = identity(store.webp)
         assert not downloads.stamp_webp(store.webp, packet)
         assert identity(store.webp) == before
 
     def test_a_changed_credit_replaces_the_packet_rather_than_adding_one(self, store):
-        downloads.stamp_webp(store.webp, downloads.xmp_packet("Before"))
-        after = downloads.xmp_packet("After")
+        downloads.stamp_webp(store.webp, downloads.xmp_packet("Before", CREDIT))
+        after = downloads.xmp_packet("After", CREDIT)
         assert downloads.stamp_webp(store.webp, after)
         assert pillow_packet(store.webp) == after
         assert [tag for tag, _ in riff_chunks(store.webp)].count(b"XMP ") == 1
@@ -240,7 +241,7 @@ class TestTheWebP:
 
         monkeypatch.setattr(downloads.os, "replace", interrupted)
         with pytest.raises(OSError, match="interrupted"):
-            downloads.stamp_webp(store.webp, downloads.xmp_packet(TITLE))
+            downloads.stamp_webp(store.webp, downloads.xmp_packet(TITLE, CREDIT))
         assert digest(store.webp) == before
         assert sorted(path.name for path in store.variants.iterdir()
                       if not path.name.endswith(".aux.xml")) == [store.webp.name]
@@ -260,19 +261,19 @@ class TestTheWebP:
                 handle.write(b"\0\0")
         before = digest(store.webp)
         with pytest.raises(downloads.UnknownContainer):
-            downloads.stamp_webp(store.webp, downloads.xmp_packet(TITLE))
+            downloads.stamp_webp(store.webp, downloads.xmp_packet(TITLE, CREDIT))
         assert digest(store.webp) == before
 
 
 class TestThePng:
     def test_gdal_reads_the_packet_from_the_copy(self, store):
-        packet = downloads.xmp_packet(TITLE)
+        packet = downloads.xmp_packet(TITLE, CREDIT)
         assert downloads.copy_png(store.master, store.png, packet)
         assert gdal_packet(store.png) == packet.decode()
         assert downloads.png_packet(store.png) == packet
 
     def test_the_copy_is_the_master_plus_one_chunk_before_its_pixels(self, store):
-        downloads.copy_png(store.master, store.png, downloads.xmp_packet(TITLE))
+        downloads.copy_png(store.master, store.png, downloads.xmp_packet(TITLE, CREDIT))
         tags = [tag for tag, _ in png_chunks(store.png)]
         assert tags[:2] == [b"IHDR", b"iTXt"]
         assert tags.index(b"iTXt") < tags.index(b"IDAT")
@@ -282,29 +283,29 @@ class TestThePng:
 
     def test_the_master_is_never_written(self, store):
         before = (digest(store.master), identity(store.master))
-        downloads.copy_png(store.master, store.png, downloads.xmp_packet(TITLE))
-        downloads.copy_png(store.master, store.png, downloads.xmp_packet("Changed"))
+        downloads.copy_png(store.master, store.png, downloads.xmp_packet(TITLE, CREDIT))
+        downloads.copy_png(store.master, store.png, downloads.xmp_packet("Changed", CREDIT))
         assert (digest(store.master), identity(store.master)) == before
 
     def test_a_master_has_no_packet(self, store):
         assert downloads.png_packet(store.master) is None
 
     def test_copying_again_writes_nothing(self, store):
-        packet = downloads.xmp_packet(TITLE)
+        packet = downloads.xmp_packet(TITLE, CREDIT)
         downloads.copy_png(store.master, store.png, packet)
         before = identity(store.png)
         assert not downloads.copy_png(store.master, store.png, packet)
         assert identity(store.png) == before
 
     def test_a_changed_credit_recopies(self, store):
-        downloads.copy_png(store.master, store.png, downloads.xmp_packet("Before"))
-        after = downloads.xmp_packet("After")
+        downloads.copy_png(store.master, store.png, downloads.xmp_packet("Before", CREDIT))
+        after = downloads.xmp_packet("After", CREDIT)
         assert downloads.copy_png(store.master, store.png, after)
         assert gdal_packet(store.png) == after.decode()
 
     def test_a_rerendered_master_is_recopied_even_at_the_same_length(self, store):
         write_master(store.master, seed=0, zlevel=0)
-        packet = downloads.xmp_packet(TITLE)
+        packet = downloads.xmp_packet(TITLE, CREDIT)
         downloads.copy_png(store.master, store.png, packet)
         length = store.master.stat().st_size
         write_master(store.master, seed=1, zlevel=0)
@@ -320,16 +321,16 @@ class TestThePng:
                             str(store.master), str(titled)], check=True)
             os.replace(titled, store.master)
         else:
-            downloads.copy_png(store.master, store.png, downloads.xmp_packet(TITLE))
+            downloads.copy_png(store.master, store.png, downloads.xmp_packet(TITLE, CREDIT))
             os.replace(store.png, store.master)
         with pytest.raises(downloads.UnknownContainer):
-            downloads.copy_png(store.master, store.png, downloads.xmp_packet(TITLE))
+            downloads.copy_png(store.master, store.png, downloads.xmp_packet(TITLE, CREDIT))
         assert not store.png.exists()
 
 
 class TestTheCountry:
     def test_it_stamps_the_full_size_webp_and_copies_the_master_beside_it(self, store):
-        packet = downloads.xmp_packet(TITLE)
+        packet = downloads.xmp_packet(TITLE, CREDIT)
         assert downloads.stamp_country(store.master, store.variants, TITLE) == [store.webp,
                                                                                   store.png]
         assert pillow_packet(store.webp) == packet
@@ -344,6 +345,20 @@ class TestTheCountry:
         with pytest.raises(FileNotFoundError, match="hero_variants"):
             downloads.stamp_country(store.master, store.variants, TITLE)
         assert not store.png.exists()
+
+    def test_the_credit_is_the_one_recorded_for_its_render(self, store):
+        """A master rendered by an earlier lane carries that lane's sources, whatever today's
+        code reads."""
+        attribution.write_hero_record(store.master, ("glo30", "gebco"))
+        downloads.stamp_country(store.master, store.variants, TITLE)
+        assert pillow_packet(store.webp) == downloads.xmp_packet(
+            TITLE, attribution.compose(("glo30", "gebco")))
+
+    def test_a_master_with_no_record_is_refused_before_anything_is_written(self, store):
+        attribution.hero_record_path(store.master).unlink()
+        with pytest.raises(attribution.HeroRecordError, match="no record"):
+            downloads.stamp_country(store.master, store.variants, TITLE)
+        assert pillow_packet(store.webp) is None and not store.png.exists()
 
 
 class TestWhatAPassWouldStamp:
@@ -362,7 +377,15 @@ class TestWhatAPassWouldStamp:
         downloads.stamp_country(store.master, store.variants, TITLE)
         later = store.master.stat().st_mtime_ns + 1_000_000_000
         os.utime(store.master, ns=(later, later))
+        attribution.write_hero_record(store.master, HERO_SOURCES)
         assert downloads.unstamped(store.master, store.variants, TITLE) == [store.png]
+
+    def test_a_master_changed_after_its_record_is_refused(self, store):
+        downloads.stamp_country(store.master, store.variants, TITLE)
+        later = store.master.stat().st_mtime_ns + 1_000_000_000
+        os.utime(store.master, ns=(later, later))
+        with pytest.raises(attribution.HeroRecordError, match="after its record"):
+            downloads.unstamped(store.master, store.variants, TITLE)
 
 
 def local_headers(path: Path) -> list[dict]:
@@ -399,14 +422,14 @@ def stamped(store) -> SimpleNamespace:
 
 class TestTheBundle:
     def test_it_holds_the_credit_file_then_each_full_size_webp_under_its_store_name(self, stamped):
-        downloads.write_bundle(stamped.webps, stamped.out)
+        downloads.write_bundle(stamped.webps, stamped.out, CREDIT)
         with zipfile.ZipFile(stamped.out) as archive:
             assert archive.namelist() == [downloads.README, *(webp.name for webp in stamped.webps)]
             for webp in stamped.webps:
                 assert archive.read(webp.name) == webp.read_bytes()
 
     def test_every_entry_is_stored_and_dated_the_zip_formats_first_instant(self, stamped):
-        downloads.write_bundle(stamped.webps, stamped.out)
+        downloads.write_bundle(stamped.webps, stamped.out, CREDIT)
         entries = local_headers(stamped.out)
         assert [entry["name"] for entry in entries] == [downloads.README,
                                                         *(webp.name for webp in stamped.webps)]
@@ -419,7 +442,7 @@ class TestTheBundle:
             assert entry["crc"] == zlib.crc32(entry["data"])
 
     def test_every_entry_unpacks_as_a_file_anyone_can_read(self, stamped):
-        downloads.write_bundle(stamped.webps, stamped.out)
+        downloads.write_bundle(stamped.webps, stamped.out, CREDIT)
         with zipfile.ZipFile(stamped.out) as archive:
             for entry in archive.infolist():
                 mode = entry.external_attr >> 16
@@ -427,34 +450,46 @@ class TestTheBundle:
 
     def test_a_rebuild_is_byte_identical_whatever_the_clock_the_files_and_their_order(
             self, stamped, monkeypatch):
-        downloads.write_bundle(stamped.webps, stamped.out)
+        downloads.write_bundle(stamped.webps, stamped.out, CREDIT)
         for webp in stamped.webps:
             os.utime(webp, ns=(2_000_000_000 * 10**9, 2_000_000_000 * 10**9))
             webp.chmod(0o600)
         monkeypatch.setattr(time, "time", lambda: 2_000_000_000.0)
         again = stamped.out.with_name("again.zip")
-        downloads.write_bundle(stamped.webps[::-1], again)
+        downloads.write_bundle(stamped.webps[::-1], again, CREDIT)
         assert digest(again) == digest(stamped.out)
 
     def test_the_credit_file_gives_the_count_the_hero_credit_and_where_the_terms_are(self, stamped):
-        downloads.write_bundle(stamped.webps, stamped.out)
+        downloads.write_bundle(stamped.webps, stamped.out, CREDIT)
         with zipfile.ZipFile(stamped.out) as archive:
             text = archive.read(downloads.README).decode()
         assert re.search(rf"\b{len(stamped.webps)} images\b", text)
-        assert attribution.for_hero(bodies.EARTH) in text
+        assert CREDIT in text
         assert downloads.WEB_STATEMENT in text
 
-    def test_its_record_is_what_the_file_holds(self, stamped):
-        downloads.write_bundle(stamped.webps, stamped.out)
-        assert downloads.bundle_record(stamped.out) == {
+    def test_its_record_is_what_the_file_holds_and_what_its_images_were_rendered_from(self, stamped):
+        downloads.write_bundle(stamped.webps, stamped.out, CREDIT)
+        assert downloads.bundle_record(stamped.out, HERO_SOURCES) == {
             "key": downloads.BUNDLE_KEY,
             "bytes": stamped.out.stat().st_size,
             "sha256": digest(stamped.out),
             "images": {webp.name: webp.stat().st_size for webp in stamped.webps},
+            "sources": list(HERO_SOURCES),
+            "credit": CREDIT,
         }
 
+    def test_its_images_share_the_sources_of_one_render(self, stamped):
+        assert downloads.bundle_sources(stamped.masters) == HERO_SOURCES
+
+    def test_images_from_renders_of_different_sources_are_refused_by_name(self, stamped):
+        """The credit file states one credit for every image, so a bundle that mixed renders would
+        misstate some of them."""
+        attribution.write_hero_record(stamped.masters[1], ("glo30", "gebco"))
+        with pytest.raises(downloads.MixedRenders, match=stamped.masters[1].stem):
+            downloads.bundle_sources(stamped.masters)
+
     def test_an_interrupted_rebuild_leaves_the_last_bundle_whole(self, stamped, monkeypatch):
-        downloads.write_bundle(stamped.webps, stamped.out)
+        downloads.write_bundle(stamped.webps, stamped.out, CREDIT)
         before = digest(stamped.out)
 
         def interrupted(source, target):
@@ -462,7 +497,7 @@ class TestTheBundle:
 
         monkeypatch.setattr(downloads.os, "replace", interrupted)
         with pytest.raises(OSError, match="interrupted"):
-            downloads.write_bundle(stamped.webps[:1], stamped.out)
+            downloads.write_bundle(stamped.webps[:1], stamped.out, CREDIT)
         assert digest(stamped.out) == before
         assert [path.name for path in stamped.out.parent.iterdir()] == [stamped.out.name]
 
@@ -475,7 +510,7 @@ class TestTheBundle:
         assert "downloads stamp" in message
 
     def test_a_webp_carrying_another_countrys_name_is_refused(self, stamped):
-        downloads.stamp_webp(stamped.webps[1], downloads.xmp_packet(TITLE))
+        downloads.stamp_webp(stamped.webps[1], downloads.xmp_packet(TITLE, CREDIT))
         with pytest.raises(downloads.Unstamped, match=re.escape(stamped.webps[1].name)):
             downloads.bundle_webps(stamped.masters, stamped.variants, stamped.titles)
 
@@ -483,6 +518,21 @@ class TestTheBundle:
         stamped.webps[1].unlink()
         with pytest.raises(FileNotFoundError, match="hero_variants"):
             downloads.bundle_webps(stamped.masters, stamped.variants, stamped.titles)
+
+
+class TestTheStampCommand:
+    def test_a_master_with_no_record_is_named_and_the_rest_are_stamped(self, stamped, monkeypatch):
+        attribution.hero_record_path(stamped.masters[1]).unlink()
+        for webp in stamped.webps:
+            encode_full_size(stamped.masters[stamped.webps.index(webp)], webp)
+        monkeypatch.setattr(downloads, "HEROES", stamped.masters[0].parent)
+        monkeypatch.setattr(downloads, "VARIANTS", stamped.variants)
+        monkeypatch.setattr(downloads, "country_titles", lambda: stamped.titles)
+        monkeypatch.setattr(sys, "argv", ["downloads.py", "stamp"])
+        with pytest.raises(SystemExit, match=f"{OTHER}.png has no record"):
+            downloads.main()
+        assert pillow_packet(stamped.webps[0]) == downloads.xmp_packet(TITLE, CREDIT)
+        assert pillow_packet(stamped.webps[1]) is None
 
 
 class TestTheBundleCommand:
@@ -502,7 +552,7 @@ class TestTheBundleCommand:
         assert downloads.main() == 0
         bundle = root / "archives" / downloads.BUNDLE_KEY
         assert json.loads((root / "downloads.json").read_text()) == {
-            "earth": downloads.bundle_record(bundle)}
+            "earth": downloads.bundle_record(bundle, HERO_SOURCES)}
 
     def test_it_writes_nothing_while_a_webp_lacks_its_credit(self, stamped, root):
         encode_full_size(stamped.masters[1], stamped.webps[1])

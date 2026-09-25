@@ -31,7 +31,7 @@ from typing import Any
 import numpy as np
 import rasterio
 
-from pipeline import render_files
+from pipeline import attribution, bodies, render_files
 from pipeline.acquire.earth import extract_globathy
 from pipeline.look import lake_depth
 from pipeline.render import render_seam
@@ -50,6 +50,14 @@ def depth_to_position(depth: np.ndarray, watercode: np.ndarray) -> np.ndarray:
         return np.zeros_like(lakes, dtype=np.float32)
     return np.asarray(
         lake_depth.lake_position(lakes, lake_depth.LAKE_CURVE), dtype=np.float32)
+
+
+def declare_written(render_dir: Path) -> None:
+    """Declare a depth raster this run wrote, and what it read. The skip path declares only the
+    image, since a raster already on disk may be an earlier version's."""
+    render_seam.declare(render_dir, render_seam.LAKE, [render_files.LAKEDEPTH])
+    render_seam.declare_sources(render_dir, render_seam.LAKE,
+                                attribution.hero_stage_sources(bodies.EARTH, render_seam.LAKE))
 
 
 def main():
@@ -124,7 +132,7 @@ def main():
         out.write(position, 1)
     os.replace(tmp, out_tif)
 
-    render_seam.declare(render_dir, render_seam.LAKE, [render_files.LAKEDEPTH])
+    declare_written(render_dir)
     lake_px = int((position > 0).sum())
     km2 = lake_px * (xres * xres) / 1e6
     print(f"wrote {out_tif}", flush=True)

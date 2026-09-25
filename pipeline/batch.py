@@ -42,7 +42,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
-from pipeline import paths, render_files
+from pipeline import attribution, paths, render_files
 from pipeline.frame.country_config import (
     build_scope,
     country_render_dir,
@@ -176,8 +176,15 @@ def run_country(slug, resolved, through, force, dry, cap_gib, use_cap, floor,
                       f"-p MemoryMax={int(cap_gib * 1024)}M "
                       f"-p MemorySwapMax=0 -- ")
         final = partial = None
+        sources: tuple[str, ...] = ()
         run_cmd = cmd
         if idx == RENDER_STAGE:  # Blender writes in place, so a killed render would leave a partial hero
+            try:
+                sources = attribution.declared_hero_sources(country_render_dir(slug))
+            except attribution.HeroRecordError as unstated:
+                print(f"  {slug}: {unstated}", flush=True)
+                log_failure(slug, idx, cmd, None, "sources")
+                return f"FAIL@{idx} (sources)"
             final = f"blender/renders/heroes/{slug}.png"
             partial = f"blender/renders/heroes/{slug}.tmp.png"
             run_cmd = cmd.replace(final, partial)
@@ -192,6 +199,7 @@ def run_country(slug, resolved, through, force, dry, cap_gib, use_cap, floor,
             return f"FAIL@{idx} ({kind})"
         if final and partial:
             os.replace(ROOT / partial, ROOT / final)
+            attribution.write_hero_record(ROOT / final, sources)
     if do_clean:
         prune_intermediates(slug)
     return "ok"
