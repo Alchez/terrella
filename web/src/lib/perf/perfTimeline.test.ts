@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { RttPoolStats } from "../rttPoolTrim";
+import type { RttPoolStats } from "../rttPool";
 import {
   buildSample,
   emitDevToolsTrack,
@@ -18,7 +18,6 @@ const stats = (over: Partial<RttPoolStats> = {}): RttPoolStats => ({
   held: 3,
   heldTiles: 3,
   peakTotal: 40,
-  destroyedTotal: 0,
   renderable: 35,
   ...over,
 });
@@ -56,7 +55,7 @@ describe("buildSample — time added to numbers that already have an owner", () 
 
   it("keeps a null census null rather than inventing zeros", () => {
     // Zero and absent are different readings — a 0 that means "no terrain on this page" is how an
-    // arm gets read as a win. `rttPoolTrim.ts` makes the same distinction and this must not undo it.
+    // arm gets read as a win. `rttPool.ts` makes the same distinction and this must not undo it.
     const built = buildSample({ atMs: 0, stats: null, gpu: null, worstFrameMs: 0, longTaskMs: 0 });
     expect(built.rttPooled).toBeNull();
     expect(built.renderable).toBeNull();

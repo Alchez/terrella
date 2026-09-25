@@ -24,12 +24,12 @@
   },
   "dependencies": {
     "astro": "^7.3.2",
-    "maplibre-gl": "6.9.0",
+    "maplibre-gl": "6.11.2",
     "pmtiles": "4.5.0"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.10",
-    "@maplibre/maplibre-gl-style-spec": "26.4.2",
+    "@maplibre/maplibre-gl-style-spec": "26.4.4",
     "@types/geojson": "7946.0.16",
     "@types/node": "^26.5.1",
     "@vitest/browser": "5.0.0",

@@ -4,7 +4,7 @@
 // layers to the screen; it draws them into a texture per terrain tile, then drapes that texture
 // over the mesh. It batches consecutive drapeable layers into one "stack" and allocates one RTT
 // object per renderable terrain tile PER STACK — and at our declared sizes each of those is
-// exactly 1 MiB (see rttPoolTrim.ts). So a single non-drapeable layer sitting in the middle of
+// exactly 1 MiB (see rttPool.ts). So a single non-drapeable layer sitting in the middle of
 // the order is not a style detail. It is a multiplier on GPU memory, and an invisible one: the
 // map looks identical, nothing errors, and the only symptom is a card that fills faster.
 //

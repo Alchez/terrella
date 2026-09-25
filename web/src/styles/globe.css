@@ -78,13 +78,21 @@
   color: inherit;
   text-decoration: none;
 }
-/* Exactly `.globe-source`'s octicon size, so the row's icons compare by rendered INK rather than
-   by CSS box. `fill: currentColor` is the whole reason this is our SVG and not MapLibre's ⓘ. */
-.chrome-credit.chrome-credit svg {
+/* The credit's ⓘ: MapLibre's own info glyph as a `currentColor` stencil, sized like `.globe-source`'s
+   octicon. Its viewBox is cropped to the ink, 4 4 12 12 of MapLibre's 20, or it would draw at 60% of
+   the octicon beside it. `mapCredit.ts` says why the markup cannot carry it. */
+.chrome-credit.chrome-credit .credit-glyph {
+  --credit-glyph: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='4 4 12 12' fill-rule='evenodd'%3E%3Cpath d='M4 10a6 6 0 1 0 12 0 6 6 0 1 0-12 0m5-3a1 1 0 1 0 2 0 1 1 0 1 0-2 0m0 3a1 1 0 1 1 2 0v3a1 1 0 1 1-2 0'/%3E%3C/svg%3E");
   display: block;
   width: var(--chrome-ink);
   height: var(--chrome-ink);
-  fill: currentColor;
+  background-color: currentColor;
+  -webkit-mask-image: var(--credit-glyph);
+  mask-image: var(--credit-glyph);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: 100%;
+  mask-size: 100%;
 }
 .chrome-credit.chrome-credit:hover {
   color: var(--accent);

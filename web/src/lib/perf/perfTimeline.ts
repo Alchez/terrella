@@ -8,7 +8,7 @@
 // the finding was then re-derived weeks later because nothing durable carried the series.
 //
 // THIS MODULE ADDS TIME AND GPU BYTES, AND DELIBERATELY MEASURES NOTHING ELSE. The terms of the
-// model — `pool ≈ renderable tiles × drape stacks` — are already computed once, by `rttPoolTrim.ts`,
+// model — `pool ≈ renderable tiles × drape stacks` — are already computed once, by `rttPool.ts`,
 // which owns the reach past MapLibre's public API and already ships them in the report. Probing
 // them a second time here is the "second reader with no owner" this codebase has paid for
 // repeatedly: two copies, both correct where they sit, drifting the moment MapLibre renames a
@@ -18,7 +18,7 @@
 // `webgl-memory` answers it and is a DEV-ONLY tool (see `webglMemoryDevTool` in astro.config.ts), so
 // `gpu` is null in production by design — an absence, not a fault.
 
-import type { RttPoolStats } from "../rttPoolTrim";
+import type { RttPoolStats } from "../rttPool";
 
 /** The shape this module needs to find a GL context. Structural, so tests need no real map. */
 export interface TimelineMapLike {

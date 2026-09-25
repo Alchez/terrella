@@ -495,6 +495,7 @@ import { GITHUB_MARK, REPO_URL } from "../lib/siteLinks";
   // `subsystems.vectorProduct` being `countries` or `features`.
   import { VECTOR_PRODUCT } from "../lib/sourceLayers";
   import { reliefBaseTilesSource, reliefTilesSource } from "../lib/reliefSources";
+  import { CREDITS } from "../lib/mapCredit";
   // The ONE static exemption for the instrument, and it is fifteen lines: the entry buffer has to be
   // raised ahead of `new maplibregl.Map`, which no dynamic import can promise. Everything else that
   // reads those entries lives in lib/perf/ and loads only under `?perf` — see that module's header
@@ -533,7 +534,7 @@ import { GITHUB_MARK, REPO_URL } from "../lib/siteLinks";
     parseAtmosphereRamp,
     skySpec,
   } from "../lib/skyAtmosphere";
-  import { type RttPoolStats, attachRttPoolTrim, rttPoolLine } from "../lib/rttPoolTrim";
+  import { type RttPoolStats, rttPoolLine, trackRttPool } from "../lib/rttPool";
   import {
     applyDemCacheCap,
     demCacheCapFault,
@@ -637,43 +638,6 @@ import { GITHUB_MARK, REPO_URL } from "../lib/siteLinks";
 
   // `Country` (imported from ../lib/manifest) is the shape of the objects the
   // click/hover/panel handlers pass around.
-
-  // Data baked into the relief raster (MapLibre requires attribution). The map carries a POINTER,
-  // not the notice, and that was already true when this line named seven sources: Copernicus
-  // GLO-30's licence (Art. 6b) demands an EXACT string we have never shown on the map, and that
-  // notice — with the Art. 6c liability sentence and the no-endorsement statement — lives on
-  // /about beside the per-source licences. Reducing it therefore changes how findable the
-  // credits are, not whether we comply. GEBCO/Natural Earth/NSIDC are public domain and GLOBathy
-  // is CC0; RGI 7.0 and OSI SAF are CC-BY, which a link to the notice satisfies.
-  //
-  // An ⓘ rather than the words, which is the trade this makes explicitly: an unlabelled glyph is
-  // less discoverable than "Data sources" was, and it buys the pill 66 px. `title` + `aria-label`
-  // carry the name for pointer and screen reader alike, and the icon is the same one every map
-  // library uses for exactly this, so the affordance is conventional even where the word is gone.
-  //
-  // The markup passes through MapLibre's DOM.sanitize (DOMParser as text/html, <script> dropped,
-  // javascript:/data: attributes stripped). Verified the SVG survives that round trip intact —
-  // including `viewBox`, whose casing only survives because the HTML parser adjusts foreign-content
-  // attributes. No `data:` URI here, which sanitize WOULD strip from an href or src.
-  //
-  // Width is load-bearing, not cosmetic: the credit is a SEGMENT OF THE VIEW BAR, so it sets when
-  // that pill wraps. Measured: this renders 28 px against the text's 94 px. Re-measure the wrap
-  // point if it grows — a wrapped bar eats the clearance the scale bar's lift is built on (see the
-  // media query in the is:global block).
-  //
-  // The glyph is MapLibre's own info path, lifted from the `.maplibregl-ctrl-attrib-button`
-  // background-image in maplibre-gl.css (BSD-3-Clause, already a dependency) so that the icon we
-  // draw and the one the library would have drawn are the same shape — the difference being that
-  // ours takes `currentColor` and theirs is a baked black raster that is invisible on this theme.
-  // viewBox is 4 4 12 12, NOT MapLibre's own 0 0 20 20. Their glyph is a circle centred (10,10)
-  // with r=6, so it spans x and y 4→16 and leaves 40% of that box as dead margin — at a shared
-  // `width` it renders ~60% the size of .globe-source's octicon, which fills its box. Cropping to
-  // the ink makes the two icons the same size at the same CSS width instead of only nominally so.
-  const CREDITS =
-    '<a href="/about/" title="Data sources" aria-label="Data sources">' +
-    '<svg viewBox="4 4 12 12" fill-rule="evenodd" aria-hidden="true" focusable="false">' +
-    '<path d="M4 10a6 6 0 1 0 12 0 6 6 0 1 0-12 0m5-3a1 1 0 1 0 2 0 1 1 0 1 0-2 0m0 3a1 1 0 1 1 2 0v3a1 1 0 1 1-2 0"/>' +
-    "</svg></a>";
 
   // Spin up MapLibre's shared worker pool now — it's otherwise created lazily at Map
   // construction, so the workers start while the modules below load.
@@ -1030,8 +994,8 @@ import { GITHUB_MARK, REPO_URL } from "../lib/siteLinks";
   // at runtime, the fallback below fired, and the readback was still there: 1.89 per frame, fix
   // measuring as no fix at all. A type declaration is not a runtime surface.
   //
-  // A deliberate reach past the public API, the same trade rttPoolTrim.ts makes and for the same
-  // reason: the public route costs a GPU readback per call. A canary in scaleRuler.test.ts fails
+  // A deliberate reach past the public API, because the public route costs a GPU readback per
+  // call. A canary in scaleRuler.test.ts fails
   // loudly if the symbol moves, and the check below degrades to the slow-but-CORRECT call rather
   // than throwing inside every move event — which is exactly what it did when I got it wrong.
   // READ THE TRANSFORM PER CALL. MapLibre REPLACES `painter.transform` after this script runs, so a
@@ -1166,10 +1130,9 @@ import { GITHUB_MARK, REPO_URL } from "../lib/siteLinks";
   // there is no terrain (nothing to bound) and when the bound is holding; the report distinguishes
   // those by the terrain flag it already carries.
   let demCacheFault: (() => string | null) | null = null;
-  // The RTT pool census, for the same reason the DEM cache has one and a stronger one besides:
-  // once the trim stops the crash, the renderable-tile overdraw that CAUSES it becomes invisible.
-  // `held` is the working set MapLibre genuinely needs; `pooled` is retained slack; `peak` is the
-  // number that indicts the tile count, and it is the one to watch after the symptom is muted.
+  // The RTT pool census, for the same reason the DEM cache has one: `held` is the working set
+  // MapLibre genuinely needs, `pooled` is what waits to be reused and reads 0 at rest, and `peak` is
+  // the number that indicts the renderable-tile count.
   let describeRttPool: (() => string) | null = null;
   // The same census, unformatted, for the exported report. Null until terrain exists, which is the
   // reading the report needs — "no terrain here" and "terrain drawing nothing" are different arms.
@@ -1179,7 +1142,7 @@ import { GITHUB_MARK, REPO_URL } from "../lib/siteLinks";
   // there is no terrain source and null is the honest answer, not zero.
   let coveringTileCount: () => number | null = () => null;
   // Re-apply the DEM bound. Needed because a WebGL context restore silently drops it: MapLibre
-  // rebuilds the style from line 24037 of _contextRestored, which fires `style.load` BEFORE
+  // rebuilds the style early in _contextRestored, which fires `style.load` BEFORE
   // _setupPainter() has run, so the terrain tile manager the cap is written to does not exist yet —
   // then setTerrain builds a fresh, uncapped one. Measured 4/4 forced losses: 381 slots -> 1155,
   // i.e. straight back to the ~1.14 GiB ceiling the cap exists to remove (1155 x demSlotBytes(512)
@@ -1389,27 +1352,14 @@ import { GITHUB_MARK, REPO_URL } from "../lib/siteLinks";
       // re-applied it moments later; on a context restore no resize follows and the cap stayed off.
       map.setTerrain({ source: TERRAIN_SOURCE, exaggeration: exaggerationFor(map.getZoom()) });
       applyCacheCap();
-      // AFTER setTerrain for the same reason applyCacheCap is: the pool lives on the painter, but
-      // there is nothing to trim until terrain exists to fill it, and `rttHeldBy` reads through
-      // `map.terrain`. Bounding it is OURS to do because MapLibre's `releaseRTT` has no cap and
-      // only `Painter.destroy()` — map removal or a lost context — ever empties the pool; see
-      // rttPoolTrim.ts. This cannot lower the PEAK (acquire allocates only when the pool is empty,
-      // so the peak is the working set by construction) — it returns the card after the peak.
-      // `?nortt` keeps the census and skips the trimming, so the A/B that justifies this module
-      // stays runnable against the shipped build rather than against a build we no longer have —
-      // the same reason `?nocaps` exists.
-      // An explicit flag rather than a huge ratio: the bound is the ratio times the in-use count,
-      // and with terrain off that count is zero, so any ratio however large still rounds to a
-      // bound of zero and would trim the whole pool. A disable has to say so directly.
-      const rttTrim = attachRttPoolTrim(
-        map,
-        urlFlags.has("nortt") ? { enabled: false } : {},
-      );
-      describeRttPool = () => rttPoolLine(rttTrim.stats());
+      // AFTER setTerrain for the same reason applyCacheCap is: `rttHeldBy` reads through
+      // `map.terrain`, which only exists from here.
+      const readPool = trackRttPool(map);
+      describeRttPool = () => rttPoolLine(readPool());
       // The same census the panel row formats, handed over unformatted so the exported file carries
       // the renderable tile count as a NUMBER. One reader owns the census; the panel and the report
       // are two renderings of it and cannot disagree about the moment they describe.
-      readRttPool = () => rttTrim.stats();
+      readRttPool = readPool;
     });
 
     // A resize changes the viewport, and with it the working set the cap has to hold — going
@@ -1455,7 +1405,7 @@ import { GITHUB_MARK, REPO_URL } from "../lib/siteLinks";
   // The caps must be RE-ADDED after a context restore, and specifically not from `style.load`.
   // MapLibre says so itself on every loss ("Custom layer ... cannot be restored ... you will need
   // to re-add it manually"), but the timing is the part that bites: _contextRestored calls
-  // setStyle() at line 24037 and _setupPainter() only at 24050, so a cap added from `style.load`
+  // setStyle() before _setupPainter(), so a cap added from `style.load`
   // binds its buffers and textures to the GL context from BEFORE the painter came back. It renders
   // as a black disc over the pole — present, wrong, and silent. Re-adding once the map reads
   // healthy is the only ordering that holds, so the re-add is driven from there.
@@ -1696,7 +1646,7 @@ import { GITHUB_MARK, REPO_URL } from "../lib/siteLinks";
             ...perfSnapshot.perfReportLines(composeReport(timing, { expanded: true, timeline: [], markMs: null })),
           ],
           buildReport: (timing, panel) => composeReport(timing, panel, { sampleGlNow: true }),
-          // The census the overlay's tick samples into the ring. `rttPoolTrim.ts` owns computing
+          // The census the overlay's tick samples into the ring. `rttPool.ts` owns computing
           // it; handing it over keeps one owner for the reach past MapLibre's private state.
           readRttPool: () => readRttPool?.() ?? null,
         });
@@ -1835,10 +1785,10 @@ import { GITHUB_MARK, REPO_URL } from "../lib/siteLinks";
       GL_RESTORE_GRACE_MS,
     );
     // WATCH FROM THE LOSS, NOT FROM THE RESTORE. `webglcontextrestored` is not guaranteed to
-    // arrive: MapLibre's _contextRestored calls this.resize() at line 24055, which fires `move`,
-    // which reaches its own Hash plugin (we pass hash:"map") -> unproject -> the terrain depth pass
-    // -> useProgram on a style that is still mid-rebuild, and it THROWS — three lines before
-    // fire("webglcontextrestored") at 24058. Observed both ways on the same build, so anything
+    // arrive: MapLibre's _contextRestored calls this.resize(), which fires `move`, which
+    // reaches its own Hash plugin (we pass hash:"map") -> unproject -> the terrain depth pass
+    // -> useProgram on a style that is still mid-rebuild, and it throws just before the restore
+    // fires "webglcontextrestored". Observed both ways on the same build, so anything
     // hung off that event is a coin toss. Polling the STATE converges either way.
     startRecoveryWatch(performance.now() + GL_RESTORE_GRACE_MS);
   });
@@ -2829,19 +2779,13 @@ import { GITHUB_MARK, REPO_URL } from "../lib/siteLinks";
       //
       // removeSource -> TileManager.onRemove -> clearTiles reaches _outOfViewCache.reset(),
       // whose eviction callback is the raster-dem unloadTile: it deletes tile.dem, destroys
-      // tile.fbo, and returns the texture to the painter's recycle pool. Nothing re-adds the
+      // tile.fbo, and returns the texture to the painter's tile-texture pool. Nothing re-adds the
       // source afterwards — the ladder is one-way and returns null once terrain is off.
       //
-      // AND THAT LAST CLAUSE IS WHY THIS RUNG RECLAIMS ALMOST NO GPU MEMORY. "Returns the
-      // texture to the painter's recycle pool" is not a release: `Painter.releaseRTT` is a
-      // bare push onto an UNBOUNDED pool that only `Painter.destroy()` ever empties, so
-      // tearing terrain down FEEDS it. Measured 2026-07-30, twice: `disable-terrain` fired
-      // mid-tour and the GPU process still held 6,066 MiB with terrain gone from the style
-      // AND the sources — ~4 GB above the terrain-off plateau, owned by nothing left alive to
-      // release it. `setTerrain(null)` alone grew the pool 6,720 -> 6,933 objects across the
-      // call. So this rung is a fix for HEAP and for frame time, and must not be read as a
-      // fix for VRAM exhaustion — that is what rttPoolTrim.ts bounds, and it has to be
-      // attached before this rung runs to help at all.
+      // The drapes go with the terrain: `setTerrain(null)` empties MapLibre's drape pool once
+      // the tiles have released into it (#8400), and the height textures land in the painter's
+      // tile-texture pool, which caps itself at 50 a size. So this rung returns GPU memory as
+      // well as heap and frame time.
       //
       // Guarded because a throw here escapes the render handler and silently retires the whole
       // watchdog; getTerrain() being non-null implies the source exists, so this cannot fire,

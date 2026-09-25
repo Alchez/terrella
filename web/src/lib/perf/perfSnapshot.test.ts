@@ -121,7 +121,6 @@ const INPUTS: PerfReportInputs = {
     held: 52,
     heldTiles: 26,
     peakTotal: 5610,
-    destroyedTotal: 5098,
     renderable: 26,
   },
 };
