@@ -480,51 +480,33 @@ describe("canary — the MapLibre surface this module depends on", () => {
     expect(declarations).toMatch(/getPixelRatio\(\): number;/);
   });
 
-  // Comments in Globe.astro and polarCaps.test.ts cite LINE NUMBERS in the shipped bundle, and
-  // they are load-bearing: the whole reason the DEM bound, the polar caps and the recovery watch
-  // are driven
-  // from a healthy `idle` rather than from `webglcontextrestored` is the ORDER of these five
-  // statements. A version bump moves every one of them, and a citation that has silently drifted
-  // is worse than none — it reads as evidence. This pins the order, and prints the real numbers
-  // when it breaks so the comments can be corrected rather than deleted.
+  // The DEM bound, the polar caps and the recovery watch are driven from a healthy `idle` rather
+  // than from `style.load` or `webglcontextrestored` because of the order MapLibre's restore runs
+  // in. Only the order is pinned: pinning the bundle's line numbers too, for comments to cite,
+  // made every version bump a chore and caught nothing the order does not.
   it("still restores the context in the order those comments describe", () => {
     const bundle = readFileSync(
       new URL("../../node_modules/maplibre-gl/dist/maplibre-gl-dev.mjs", import.meta.url),
       "utf8",
     ).split("\n");
-    const lineOf = (needle: string) => {
-      const index = bundle.findIndex((line) => line.includes(needle));
-      expect(index, `MapLibre no longer contains ${needle}`).toBeGreaterThan(-1);
-      return index + 1; // findIndex is 0-based; comments cite 1-based editor lines
+    const indexAfter = (start: number, found: (line: string) => boolean, name: string) => {
+      const index = bundle.findIndex((line, at) => at > start && found(line));
+      expect(index, `MapLibre's restore no longer contains ${name}`).toBeGreaterThan(-1);
+      return index;
     };
-    const contextRestored = lineOf("this._contextRestored = (event) => {");
-    const setStyle = lineOf("if (this._lostContextStyle.style) this.setStyle(");
-    const setupPainter = bundle.findIndex(
-      (line, index) => index > contextRestored && line.includes("this._setupPainter();"),
-    ) + 1;
-    const resize = bundle.findIndex(
-      (line, index) => index > setupPainter && line.trim() === "this.resize();",
-    ) + 1;
-    const fireRestored = lineOf('this.fire(new MapContextEvent("webglcontextrestored"');
+    const contextRestored = indexAfter(-1, (line) => line.includes("this._contextRestored = (event) => {"), "_contextRestored");
+    const setStyle = indexAfter(contextRestored, (line) => line.includes("if (this._lostContextStyle.style) this.setStyle("), "setStyle");
+    const setupPainter = indexAfter(contextRestored, (line) => line.includes("this._setupPainter();"), "_setupPainter");
+    const resize = indexAfter(setupPainter, (line) => line.trim() === "this.resize();", "resize");
+    const fireRestored = indexAfter(contextRestored, (line) => line.includes('this.fire(new MapContextEvent("webglcontextrestored"'), "the restored event");
 
-    const cited = { setStyle: 24037, setupPainter: 24050, resize: 24055, fireRestored: 24058 };
-    const actual = { setStyle, setupPainter, resize, fireRestored };
-    expect(
-      actual,
-      `Comments cite these bundle lines; MapLibre moved them. GREP FOR THE OLD NUMBERS rather ` +
-        `than working from a list — the list in this message was itself wrong once, naming a file ` +
-        `that cites nothing and missing one that does. Update every hit, and \`cited\` above, to ` +
-        `${JSON.stringify(actual)}.`,
-    ).toEqual(cited);
-
-    // The ORDER is the claim those comments actually rest on, and it must hold even once the
-    // numbers move: setStyle (which fires `style.load`) runs BEFORE _setupPainter, so a cap or a
-    // custom layer added from `style.load` binds to the pre-restore context; and resize() — which
-    // is what throws on our hash-driven unproject — runs BEFORE the restored event is fired, which
-    // is why that event may never arrive.
-    expect(setStyle).toBeLessThan(setupPainter);
-    expect(setupPainter).toBeLessThan(resize);
-    expect(resize).toBeLessThan(fireRestored);
+    // setStyle, which fires `style.load`, runs before _setupPainter, so a custom layer added from
+    // `style.load` binds to the pre-restore context; and resize(), which throws on our
+    // hash-driven unproject, runs before the restored event, which is why that event may never
+    // arrive.
+    expect(setStyle, "setStyle before _setupPainter").toBeLessThan(setupPainter);
+    expect(setupPainter, "_setupPainter before resize").toBeLessThan(resize);
+    expect(resize, "resize before the restored event").toBeLessThan(fireRestored);
   });
 });
 

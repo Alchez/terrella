@@ -1100,7 +1100,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='an absent renderable count reads as terrain drawing nothing',
-        path='web/src/lib/rttPoolTrim.ts',
+        path='web/src/lib/rttPool.ts',
         needle='  return Array.isArray(keys) ? keys.length : null;',
         replacement='  return Array.isArray(keys) ? keys.length : 0;',
         guard='is null, not 0, when there is nothing to read',
@@ -1108,7 +1108,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the renderable count is put back on the panel row, over the phone budget',
-        path='web/src/lib/rttPoolTrim.ts',
+        path='web/src/lib/rttPool.ts',
         needle='  return `rtt ${stats.pooled} idle · ${stats.held} held · peak ${stats.peakTotal}`;',
         replacement='  return `rtt ${stats.pooled} idle · ${stats.held} held · peak ${stats.peakTotal} · drawn ${stats.renderable}`;',
         guard='leaves the renderable count off the row, whatever it reads',

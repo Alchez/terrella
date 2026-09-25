@@ -45,7 +45,7 @@ until all three exist**. In order:
    ```
 
    **`maplibre-gl` is pinned to an exact version on purpose, so do not widen it to a range.**
-   `src/lib/rttPoolTrim.ts` reaches into private MapLibre state that no release note describes, and
+   `src/lib/rttPool.ts` reaches into private MapLibre state that no release note describes, and
    its canaries are what tell you that state moved. A range lets it move on an install nobody ran
    deliberately, which is the one case those canaries cannot date.
 

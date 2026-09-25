@@ -614,10 +614,9 @@ describe("canary — MapLibre internals we depend on that the docs do not cover"
     // MapLibre's own class doc understates this; the code multiplies the ALREADY-doubled manager
     // size. Trust the arithmetic, not the comment.
     //
-    // The chain, measured live 2026-07-30: the source declares 128, TerrainTileManager doubles it
-    // to 256, and qualityFactor 2 gives rttSize 512 — so each render-to-texture target is
-    // 512x512x4 = exactly 1 MiB, which is why `rttPoolTrim`'s pool length reads directly as MiB.
-    // (This comment previously said 2048/1024, from the era when the source declared 512.)
+    // The chain, measured live: the source declares 128, TerrainTileManager doubles it to 256, and
+    // qualityFactor 2 gives rttSize 512 — so each render-to-texture target is 512x512x4 = exactly
+    // 1 MiB, which is why `rttPool`'s counts read directly as MiB.
     expect(bundle).toMatch(/qualityFactor\s*=\s*2\b/);
     expect(bundle).toMatch(/rttSize\s*=\s*\w+\.tileManager\.tileSize\s*\*\s*\w+\.qualityFactor/);
   });

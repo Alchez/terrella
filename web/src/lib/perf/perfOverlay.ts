@@ -20,7 +20,7 @@ import {
   type TimelineSample,
 } from "./perfTimeline";
 import type { Interval } from "./perfTrace";
-import type { RttPoolStats } from "../rttPoolTrim";
+import type { RttPoolStats } from "../rttPool";
 
 /** Map-event stamps recorded by the page at map construction (Globe.astro), not by this
  *  module: the overlay is dynamically imported and loses the race on fast (prod-built)
@@ -477,7 +477,7 @@ export interface PerfOverlayOptions {
   ) => unknown;
   /** The pool census the page already computes, handed over rather than re-probed.
    *
-   *  `rttPoolTrim.ts` owns the reach past MapLibre's public API for these terms and already ships
+   *  `rttPool.ts` owns the reach past MapLibre's public API for these terms and already ships
    *  them in the report; sampling them again from here would be a second reader of the same private
    *  state, free to drift on the next rename. The timeline's job is to add TIME to numbers that
    *  already have an owner, not to acquire them. */

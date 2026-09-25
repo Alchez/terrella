@@ -903,12 +903,10 @@ describe("the context-loss recovery contract", () => {
     ).toBe(true);
   });
 
-  // CORRECTS THE CLAIM THIS BLOCK USED TO MAKE. It asserted the caps "survive ONLY because the
-  // restore re-fires style.load". They do not survive: measured, a restore re-fires style.load and
-  // the caps come back as a BLACK DISC over the pole. _contextRestored calls setStyle() at line
-  // 24037 and _setupPainter() only at 24050, so a cap added from style.load binds its buffers to
-  // the outgoing GL context. Present, wrong, and silent — worse than the hole it was guarding
-  // against, because a hole is visible as a hole.
+  // A restore re-fires style.load, and caps re-added from there come back as a black disc over the
+  // pole, measured: _contextRestored calls setStyle() before _setupPainter(), so a cap added from
+  // style.load binds its buffers to the outgoing GL context. Present, wrong and silent, which is
+  // worse than a missing cap, because a hole is visible as a hole.
   it("re-adds the caps on recovery, from OUTSIDE style.load, because that ordering is too early", () => {
     expect(globe, "a recovery re-add must exist").toMatch(/reassertPolarCaps\s*=\s*\(\)\s*=>/);
     const reassert = globe.match(/reassertPolarCaps = \(\) => \{[\s\S]*?\n    \};/)?.[0];

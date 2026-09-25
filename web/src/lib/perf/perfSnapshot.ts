@@ -32,7 +32,7 @@ import type { PerfSnapshot } from "./perfOverlay";
 import type { CameraFill, TileTraffic } from "./perfNetwork";
 import type { PerfLine } from "./perfLines";
 import type { DeviceClass } from "../polarCaps";
-import type { RttPoolStats } from "../rttPoolTrim";
+import type { RttPoolStats } from "../rttPool";
 import type { TimelineSample } from "./perfTimeline";
 import type { SpanEntry } from "../perfSpans";
 import { megabytes } from "../format";
