@@ -8,6 +8,7 @@ import {
 } from "./scaleRuler";
 import globeSource from "../components/Globe.astro?raw";
 import { BODIES } from "./bodies";
+import { functionBody } from "./testing/sourceScan";
 
 /**
  * The body of a named function in Globe.astro, matched by BRACES rather than by a text span.
@@ -69,20 +70,6 @@ function callArguments(source: string, name: string): string[] {
     calls.push(parenthesised(source, at + opening.length - 1));
   }
   return calls;
-}
-
-function functionBody(source: string, signature: string): string {
-  const start = source.indexOf(signature);
-  expect(start, `Globe.astro no longer contains \`${signature}\``).toBeGreaterThan(-1);
-  let depth = 0;
-  for (let index = start + signature.length - 1; index < source.length; index += 1) {
-    if (source[index] === "{") depth += 1;
-    else if (source[index] === "}") {
-      depth -= 1;
-      if (depth === 0) return source.slice(start, index + 1);
-    }
-  }
-  throw new Error(`unbalanced braces after \`${signature}\``);
 }
 
 /** A locator that answers with fixed coordinates and records what it was asked for. */
@@ -163,15 +150,15 @@ describe("rulerGroundDistance", () => {
  * 9.8% of the main thread. Source is the only place that difference is legible without a GPU, so
  * this reads the page's own text.
  */
-describe("the ruler's measurement never resolves against terrain", () => {
-  // Resolved INSIDE each test, never in the describe body. A throw out here is reported as a file
-  // error with no test name attached, which both takes the other cases down with it and leaves the
-  // mutation harness unable to say which guard fired — a guard that cannot be attributed is one
-  // nobody can prove still works. Measured: the harness read it as `(unparsed)`.
-  const locatorBody = () =>
-    functionBody(globeSource, "function locateOnDatum([x, y]: [number, number]): maplibregl.LngLat {");
-  const rulerBody = () => functionBody(globeSource, "function updateRuler(): void {");
+// Resolved INSIDE each test, never in a describe body. A throw out here is reported as a file
+// error with no test name attached, which both takes the other cases down with it and leaves the
+// mutation harness unable to say which guard fired — a guard that cannot be attributed is one
+// nobody can prove still works. Measured: the harness read it as `(unparsed)`.
+const locatorBody = () =>
+  functionBody(globeSource, "function locateOnDatum([x, y]: [number, number]): maplibregl.LngLat {");
+const rulerBody = () => functionBody(globeSource, "function updateRuler(): void {");
 
+describe("the ruler's measurement never resolves against terrain", () => {
   it("measures through the transform, not through map.unproject", () => {
     const body = locatorBody();
     expect(body).toContain("screenPointToLocation");

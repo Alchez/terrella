@@ -44,10 +44,6 @@ Ideas deliberately **not** planned: analysed enough to record, parked without co
 - [Pinned low-zoom base layer](#pinned-low-zoom-base-layer-a-deterministic-floor-under-missing-tiles-analysed-2026-07-26) · look-call
 - [Mobile lightweight identify](#mobile-lightweight-identify-what-is-this-without-committing-analysed-2026-07-26) · product
 
-**The launch posts are scheduled.**
-
-- [A pointer over empty space names a place on the globe](#a-pointer-over-empty-space-names-a-place-on-the-globe-analysed-2026-09-12) · no-data-needed
-
 **An authoritative summit source is adopted.**
 
 - [The detail card cannot state an elevation the DEM does not know](#the-detail-card-cannot-state-an-elevation-the-dem-does-not-know-analysed-2026-08-27) · product · needs-data
@@ -923,14 +919,3 @@ The working plan went back to holding one onboarding question at a time, which i
   - Wrong at both edges too, since `tile/pack_pmtiles` moves blobs without re-encoding and `mercator.py` defines the tile grid.
   - **And it had nowhere to be delivered**: a tier is computed from a diff so it cannot be committed, a workflow cannot comment on a fork's pull request, and CI checks out shallow.
 - **The starter kit, all three parts**: the 148 KB manifest into git, a roughly 60 MB pixel fixture, and `PUBLIC_*_BASE` defaults pointing at production. Parked together rather than separately, since any one of them alone still leaves a contributor unable to run the thing.
-
-## A pointer over empty space names a place on the globe (analysed 2026-09-12)
-
-> **OPEN** · no-data-needed · **reopens when** the launch posts are scheduled, since a visitor moving the pointer off the planet meets it on both bodies.
-
-- **What happens:** with the pointer resting on empty space beside the disc, the globe names a place as if the pointer were on it, with the name chip, the hover outline and the pointer cursor.
-  - Measured on the live site at the four corners of a 1920 by 1080 window, with a pointer on the disc centre as the control: Earth named China and Brazil from two corners, and Mars named Noachis Terra, Arabia Terra and Terra Sirenum from three.
-- **One cause on both bodies:** `countryAt` and `featureAt` in `web/src/components/Globe.astro` both take `map.queryRenderedFeatures` at the pointer without asking whether it is on the planet, and on the globe that query returns features for a point off the disc. Mars shows it from more directions because its gazetteer polygons cover the whole surface.
-- **The gate does not exist yet:** `locateOnDatum` returns a location for any screen point, its return type never being null, so nothing in the tree answers whether a point is on the planet.
-- **A fix can be proved on a fresh clone:** `web/src/lib/testing/mountGlobe.ts` mounts a real globe with no sources, and a test adds inline GeoJSON of its own, which is enough to assert that a point beyond the disc names nothing while one on it still does.
-- The measurement → HISTORY, *twelve candidate globe frames for the launch, and a pointer over empty space names a place on either globe*.
