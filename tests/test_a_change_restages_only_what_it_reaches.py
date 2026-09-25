@@ -90,7 +90,7 @@ def test_a_texture_no_prep_writes_restages_nothing(monkeypatch, scene_build):
     before = recipes()
     monkeypatch.setattr(scene_build, "TEXTURES", {
         **scene_build.TEXTURES,
-        "Test Crust": scene_build.TextureSpec("Test Crust", "testcrust.png", "Closest", "REPEAT",
+        "Test Crust": scene_build.TextureSpec("Test Crust", "testcrust.png", "Closest", "EXTEND",
                                               optional=True)})
     assert moved(before, recipes()) == []
 
@@ -99,7 +99,7 @@ def test_a_texture_every_stage_loads_restages_every_stage(monkeypatch, scene_bui
     """The heightfield: the control that the filter narrows the table rather than dropping it."""
     before = recipes()
     monkeypatch.setattr(scene_build, "TEXTURES", {
-        name: (dataclasses.replace(spec, extension="EXTEND")
+        name: (dataclasses.replace(spec, extension="CLIP")
                if spec.filename == render_files.HEIGHTFIELD else spec)
         for name, spec in scene_build.TEXTURES.items()})
     assert moved(before, recipes()) == ["earth blocks", *EVERY_CAP[:2], "mars blocks", *EVERY_CAP[2:]]

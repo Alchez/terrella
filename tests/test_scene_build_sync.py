@@ -898,6 +898,14 @@ class TestEveryTextureNodeIsDeclaredRatherThanSpelledInline:
         assert by_file[render_files.SEAICE].interpolation == "Linear"
         assert by_file[render_files.ROWSCALE].extension == "EXTEND"
 
+    def test_no_texture_wraps_at_the_plane_edge(self, scene_build):
+        """A plane is a window onto a planet, not one tile of a repeating one. `REPEAT`, Blender's
+        default, makes a linear sample on the edge read half the opposite edge, which stands a fin of
+        the heightfield along it; a hero whose frame holds that edge shows the fin."""
+        wrapping = sorted(name for name, spec in scene_build.TEXTURES.items()
+                          if spec.extension != "EXTEND")
+        assert not wrapping, f"these textures wrap at the plane's edge: {wrapping}"
+
 
 class TestTheBuilderSpellsNoLookValueWhereTheRecipeCannotSeeIt:
     """`rig_recipe` records `Rig`, the texture table and the look. Anything else the builder decides

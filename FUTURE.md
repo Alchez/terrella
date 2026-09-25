@@ -24,7 +24,7 @@ Ideas deliberately **not** planned: analysed enough to record, parked without co
 
 **A hero re-render is scheduled.** Five entries, and they are one job.
 
-- [A height curve on the displacement](#a-height-curve-on-the-displacement-parked-until-the-hero-camera-is-decided-analysed-2026-09-21) · look-call · needs-gpu
+- [The land mosaic reads every tile through one averaged grid](#the-land-mosaic-reads-every-tile-through-one-averaged-grid-which-stripes-the-heroes-and-costs-the-planet-centimetres-analysed-2026-09-24) · look-call · needs-render-store
 - [Blurring the heightfield before displacement](#blurring-the-heightfield-before-displacement-where-the-radius-turns-out-to-be-a-per-country-fit-analysed-2026-09-21) · look-call · needs-gpu
 - [Heroes record no recipe](#heroes-record-no-recipe-so-nothing-on-disk-says-which-rig-made-any-of-the-203-analysed-2026-08-21-parked) · needs-render-store
 - [Large-country warp and small-island exaggeration](#hero-presentation-large-country-warp--small-island-exaggeration-analysed-2026-07-24) · look-call · needs-gpu
@@ -93,6 +93,7 @@ Not a lower tier. Nobody has written down what would make them worth doing, and 
 - [The polar caps are a texture](#the-polar-caps-are-a-texture-because-maplibre-allows-nothing-else-and-the-ceiling-is-webps-analysed-2026-08-07) · a non-Mercator source usable beside Mercator on a globe
 - [Replacing MapLibre with another engine](#replacing-maplibre-with-another-engine-threejs-is-the-wrong-shape-and-cesium-fixes-one-cost-of-three-analysed-2026-09-07) · REJECTED, on that same event
 - [Multilingual search names](#multilingual-search-names-measured-and-declined-and-the-blocker-is-the-tokeniser-analysed-2026-08-14) · REJECTED, on the country manifest ceasing to be a chunk both bodies download
+- [A height curve on the displacement](#a-height-curve-on-the-displacement-liked-and-then-declined-for-the-hero-re-render-analysed-2026-09-21) · REJECTED, on the maintainer asking for it
 - [MapLibre's WebGPU backend](#maplibres-webgpu-backend-irrelevant-to-our-memory-problem-and-not-the-no-op-we-recorded-analysed-2026-07-29) · MapLibre publishing a timeline
 - [A quadtree block partition](#a-quadtree-block-partition-instead-of-the-uniform-grid-analysed-2026-09-03) · needs-render-store · a uniform partition shipping a full planet first, as the baseline
 - [GDAL 3.13](#gdal-313-assessed-and-skipped-analysed-2026-07-23) · a full-restage boundary, and rasterio bundling 3.13
@@ -102,17 +103,34 @@ Not a lower tier. Nobody has written down what would make them worth doing, and 
 
 - [A cold page load at high zoom paints a flat fill and never recovers](#a-cold-page-load-at-high-zoom-paints-a-flat-fill-and-never-recovers-observed-2026-08-11-not-analysed)
 - [Tiles "jump" a little when panning around a pole](#tiles-jump-a-little-when-panning-around-a-pole-observed-2026-08-11-not-analysed)
-- [The heightfield wraps at a block's plane edge, and the context law does not bound the wall it stands](#the-heightfield-wraps-at-a-blocks-plane-edge-and-the-context-law-does-not-bound-the-wall-it-stands-observed-2026-09-13-not-analysed)
 - [Mars's source elevation steps about 110 m along 15°S](#marss-source-elevation-steps-about-110-m-along-15s-observed-2026-09-19-not-analysed)
 - [GLO-30 steps up to 16 m along a straight line near the South Pole](#glo-30-steps-up-to-16-m-along-a-straight-line-near-the-south-pole-observed-2026-09-19-not-analysed)
 
-## A height curve on the displacement, parked until the hero camera is decided (analysed 2026-09-21)
+## The land mosaic reads every tile through one averaged grid, which stripes the heroes and costs the planet centimetres (analysed 2026-09-24)
 
-> **OPEN** · `look-call` · `needs-gpu`, and the named event that reopens it is the hero camera being settled. Everything below was measured; none of it was ratified, and the one look the maintainer gave was a ranking between two options he rejected.
+> **OPEN** · look-call · needs-render-store · **reopens when** a hero re-render is scheduled, which cannot ship until this lands.
+
+- **What it is**: every heightfield, hero and planet alike, reads Copernicus GLO-30 through `dem_mosaic.vrt`, and `pipeline/fuse/build_mosaics.sh` leaves `gdalbuildvrt` at its default `-resolution average`, so the mosaic's east-west pixel is the mean over every tile it indexes: 2.47″ today. The water-body mosaic on the next line is built the same way, unmeasured.
+- **Why a mean is wrong**: GLO-30's tiles keep about 30 m on the ground, so their east-west spacing widens poleward: 1″ below 50°, 1.5″ at 55°, 2″ at 65°, 3″ at 75° and 5″ at 82°, read off the tiles in the store. The mean is coarser than every tile below 70°, and a download anywhere moves it: it was 1.47″ when most planet cells were fused.
+- **The heroes stripe.** A hero is fused at 1″ or 3″, at or finer than the mosaic's pixel, so its land is squeezed sideways into the mosaic and stretched back out, leaving a north-south stripe at the mosaic's spacing. Saint Lucia's shipped hero shows it at full size, and its raw tiles through the same warp do not.
+  - 150 of 203 fused hero heightfields carry it by a spectral test against each file's own rows, a floor since Saint Lucia's passes under it, and about 60 have a pixel fine enough to show it. A hero re-render fused through today's mosaic ships it again. HISTORY, *the hero heightfields carry a north-south stripe*.
+  - `resolution_floor_m` was built to hide this stripe as GLO-30's own. San Marino's raw tile carries none, so the floor is smoothing the mosaic's defect out of seven microstates at a cost in detail; its comments in `render_prep.py` and `config/countries.toml` name the wrong source, and whether it stays after the fix is a look call.
+- **The planet costs centimetres.** Measured on `e010_n70` and `e080_n20` against a fuse through each cell's own tiles at their native spacing: 6 to 9 cm at the median, about 2 m at the 99th percentile and 24 m at the worst pixel, and re-fusing through today's grid is no closer. The worst Himalayan block rendered from shipped and from corrected heights showed no difference.
+  - `fuse_planet.fuse_cell` resumes on its own output existing, so nothing restages when the grid moves: 536 of 648 heightfield chunks were fused while tiles were still arriving, each through the grid that stood then. `enforce_land_guard` covers a different case, a mosaic too stale to serve a cell's tiles at all.
+- **The fixes**:
+  - **Read each tile on its own grid, with no shared one.** Each fuse warps straight from the tiles its window covers, each resampled once from its native spacing. It is the reference both measurements above were taken against, and it carries no stripe: Saint Lucia's own two tiles read 1.0× where the mosaic reads 42.4×. It changes the hero and planet fuses, test first, and is the recommended one.
+  - **Pin the mosaic to 1″**, the finest spacing, so it never moves. One flag, but every coarser tile has its columns repeated to fill 1″, unevenly at 1.5″, which could leave a fainter stripe of its own; unmeasured.
+  - **One mosaic per latitude band**, each at its own spacing: the first fix's result, with an index to keep.
+  - **Rejected**: restaging whenever the grid moves re-fuses all 648 cells on any download and keeps the averaged grid, and the floor hides the stripe by blurring the land.
+- **What it costs**: the heroes have to re-fuse for the re-render anyway, so their half is the fix itself. The planet half is a re-fuse of every cell, every warp after it and a whole Earth pass for no visible change, so it rides the next Earth pass owed for another reason; the pass that ships the fill and bump goes without it. HISTORY, *what the tile passes share with the hero queue*.
+
+## A height curve on the displacement, liked and then declined for the hero re-render (analysed 2026-09-21)
+
+> **REJECTED** by the maintainer's call, and it stays because it is the obvious lever against needles and was liked twice before being declined. **Reopens on** the maintainer asking for it. Everything below was measured; none of it was ratified.
 
 The idea: scale the displacement by `gain x knee x ln(1 + h/knee)` above sea level and `gain x h` below, so low ground lifts more than high ground. It reaches the displacement alone, so colour still follows true height.
 
-**Why it is parked rather than rejected.** It was liked twice, in September and again on three of four countries here, and it is the only lever that calms peaks without flattening the low ground: turning the exaggeration down costs exactly what the curve adds. What stops it is that every gain below was solved at one pitch and one exaggeration, 55 degrees and 4x, and both of those are themselves undecided parts of the hero rethink. Move either and the gains have to be solved again. The pitched camera is not the problem: pitch is what the hero rethink is for, and the globe has been pitchable all along.
+**Why it tempts.** It is the only lever that calms peaks without flattening the low ground: turning the exaggeration down costs exactly what the curve adds. Every gain below was solved at one pitch and one exaggeration, 55 degrees and 4x, so a revival starts by solving them again at the camera the heroes actually use.
 
 - **The gain and the exaggeration are one knob.** They only ever appear as a product, proved to the last decimal: exaggeration 4 with gain 4.73, 8 with 2.365 and 15 with 1.261 give identical multipliers at every height. So a gain above 1 IS a higher exaggeration, and on the tiles, where both would be single per-body numbers, the gain is redundant. The knee is the only new parameter a tile curve would need.
 - **The knee is the whole of what the curve costs in truthfulness.** Counting pairs of places where one is really steeper: no curve gets 0% backwards, a 2,000 m knee 5.8%, 1,000 m 8.0%, 500 m 10.6%, 250 m 13.6%. The gain does not appear because scaling every slope alike cannot reorder them.
@@ -127,7 +145,7 @@ The idea: scale the displacement by `gain x knee x ln(1 + h/knee)` above sea lev
 
 ## Blurring the heightfield before displacement, where the radius turns out to be a per-country fit (analysed 2026-09-21)
 
-> **OPEN** · `look-call` · `needs-gpu`, and the named event that reopens it is the hero camera being settled, the same event the height curve above waits on.
+> **OPEN** · `look-call` · `needs-gpu`, and the named event that reopens it is the hero camera being settled.
 
 The idea, which is the published practice for this look rather than an invention here: low-pass the elevation raster before it drives the displacement, then mix a small share of the untouched raster back in. It reaches the displacement alone, so colour still follows true height. A needle is a narrow feature rather than a tall one, so a filter on width attacks it directly where a curve on elevation reaches it only incidentally.
 
@@ -215,17 +233,6 @@ The globe's detail card carries a country's name, its continent and a link, and 
 - Likely candidates, in the order worth checking: the render-tile covering set churning as the globe reassigns zoom near the limb (`terrainZoomsFor` records that a pitched view drops a DEM level); the cap-to-tile alpha crossfade re-evaluating per frame; and `TERRAIN_SKIRT_DEFAULT = "none"`, which we ratified knowing it trades skirt artifacts for hairline gaps at zoom boundaries.
 - **The cheapest first move is to tell those apart, not to fix any of them**: `?skirt=auto` isolates the third in one page load, and it is a control that can fail.
 - **Not Mars-specific until shown to be.** Everything named above is body-independent, so check Earth's poles before scoping this as a Mars defect.
-
-## The heightfield wraps at a block's plane edge, and the context law does not bound the wall it stands (observed 2026-09-13, not analysed)
-
-> **OBSERVED, NOT ANALYSED**. Seen on tilted heroes and derived for the tile blocks from the code, with no block measured, so the next action is the census below.
-
-- **Seen on the heroes**: `scene_build.TEXTURES` gives the heightfield `REPEAT`, so a linear sample at the plane's border blends halfway into the opposite edge's row and stands a wall there. Saint Lucia's tilted frames showed it, every step within 2 px of where its edge rows switch. HISTORY, *the tilted frames' curtains*.
-- **The tile blocks read the same texture.** Their plane edges sit outside the camera, so no wall is ever drawn, but one rises at the north or west edge wherever the opposite edge is higher, and its shadow falls south-east toward the delivered pixels.
-- **The context law does not bound it.** `block_plan.haloed` sizes a block from the largest peak-to-trench range among its 3×3 neighbours, each block measured alone. The wall is half the height difference between the plane's two opposite edges, which lie in different neighbours, so sea along one edge and land along the other can stand a wall taller than either block's own range.
-- **The census that settles it**: per block, the tallest wall at the north and west plane edges, exaggerated and turned into a per-axis shadow length, against the block's context. It reads a strip along each plane edge from the planet raster, so it runs under the cgroup cap.
-- **A candidate link, nothing more**: *the context's zero fill stood a 71 km wall* left a residual join of −2.90 DN that its fix did not close.
-- **If it is real, the fix is EXTEND on the heightfield's `TextureSpec`**, which `rig_recipe` records, so it re-renders both planets and belongs with the next batched look change.
 
 ## Mars's source elevation steps about 110 m along 15°S (observed 2026-09-19, not analysed)
 
@@ -794,15 +801,6 @@ The working plan had become the project's only backlog as well as its live state
   - **The trigger has now fired twice.** Five recipe tests in `test_block_render.py` went red in CI this way, and then a registry sweep in `test_planet_pass.py` did the same, in a module written after the first was fixed. Both were green on every local gate.
   - The second one is what settles the shape of the objection: the fix for the first was a per-file helper, so the next file could not inherit it. A gate is the only form of this that reaches a module nobody has written yet.
 - **`block_render --work` still stops short of the relief scan.** `plan_blocks` calls `relief_scan.scan(body)` without the `work` it was handed, so a run against another store refreshes the live store's relief cache, writing into it when stale, and plans from the other store's cache without ever refreshing that. Every test stubs `plan_blocks` or `scan`, the one reaching it with `lambda body, **kwargs`, so nothing sees the argument go missing.
-- **A planet cell's land heights depend on which tiles exist anywhere on Earth, and the fuse cannot notice when that changes.** `build_mosaics.sh` leaves `gdalbuildvrt` at its default `-resolution average`, so the mosaic's east-west pixel is the mean over every tile it indexes, and every cell reads its land through that one grid. A download anywhere moves it: 1.47″ when most cells were fused, 2.47″ today.
-  - `fuse_planet.fuse_cell` resumes on its own output existing, so nothing restages. 536 of 648 heightfield chunks were fused while tiles were still arriving, each through the grid that stood then; the masks were re-fused later, all through one.
-  - Measured on `e010_n70` and `e080_n20` against a fuse through each cell's own tiles at their native spacing: the shipped land heights are off by 6 to 9 cm at the median, about 2 m at the 99th percentile and 24 m at the worst pixel. Re-fusing through today's grid is no closer.
-  - `enforce_land_guard` covers a different case, a mosaic too stale to serve a cell's tiles at all.
-  - Restaging on a moved grid treats the symptom and re-fuses all 648 cells on any download. The fix is a grid that does not depend on the tile set, which moves every land height slightly and so costs a re-fuse and a whole Earth pass.
-  - The planet half was judged by eye and parked on that: the worst Himalayan block rendered from shipped and from corrected heights showed no difference. It rides the next Earth pass that is owed for another reason.
-  - **The heroes read their land through the same mosaic, and there it shows.** A hero is fused at 1″ or 3″, at or finer than the mosaic's east-west pixel, so its land is thinned sideways and warped back into a north-south stripe at that pixel's spacing. Saint Lucia's shipped hero shows it at full size, and its raw tiles through the same warp do not.
-  - 150 of 203 fused hero heightfields carry the stripe by a spectral test against each file's own rows, a floor since Saint Lucia's passes under it, and about 60 heroes have a pixel fine enough to show it. A hero re-render fused through today's mosaic ships it again, so this fix comes before one.
-  - `resolution_floor_m` was built to hide this stripe as GLO-30's own. San Marino's raw tile carries none, so the floor is smoothing the mosaic's defect out of seven microstates at a cost in detail; its comments in `render_prep.py` and `config/countries.toml` name the wrong source, and whether it stays after the fix is a look call.
 
 ### One concept with two homes
 
@@ -890,7 +888,6 @@ The working plan went back to holding one onboarding question at a time, which i
 - **Once the bundle is public, a re-render changes its bytes, and nothing stops the rebuilt one going up over `earth/country-maps-webp-v1.zip`.** It first goes up with the re-render above, so this starts at the one after. The bucket is additive by decision, so it goes up as v2 with v1 kept, which needs `downloads.BUNDLE_KEY` bumped and a superseded row the Archives page can list, `ARCHIVED` holding tile cuts alone. The deploy preflight refuses until R2 holds what `web/src/data/downloads.json` records, and an upload over v1 satisfies it.
 - **The tier picker has no way back to automatic, deferred until a visitor asks for one.** A press of Lite, Globe or Full pins that tier in `rg:quality` for good, and only clearing the site's data hands the choice back to the probe, which the About note says. An Auto button was offered and declined for now; Earth's bar at 320 px has its one-row fit held by the view bar test, so a fourth tier button is measured against that before it is designed.
 - **Do two GPU backends render identically?** Blocked on hardware, this box having one card. If they differ, the backend belongs in the recipe rather than in `scene_build`'s module-constant allowlist, and `GPU_BACKENDS`'s own comment says so.
-- **The fold's law is deferred on the composite and cap tiers, and its stated reason is now false**, having rested on both bodies being composited. Re-argue it rather than citing it.
 - **A change to the hero's size needs three things first**, none built because none is planned. → HISTORY, *what a change to the hero's size would take*.
   - The size has two owners and only one is read: `[defaults].hero_long_edge` in `config/countries.toml` reaches `country_config`'s preview alone, and every country renders at `render_prep.HERO_LONG_EDGE`, because the batch passes a size only for an override. One owner wants the batch always passing it, and a test.
   - Each country's `frame.json` pins its render size and render prep never overwrites it, so `batch --force` renders the old size again. Render prep should refuse a pin that disagrees with the size asked for, and name the file.

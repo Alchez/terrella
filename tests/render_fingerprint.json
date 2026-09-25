@@ -398,31 +398,31 @@
       "sea_texture": "oceanmask.png",
       "textures": {
         "heightfield.tif": {
-          "extension": "REPEAT",
+          "extension": "EXTEND",
           "filename": "heightfield.tif",
           "interpolation": "Linear",
           "optional": false
         },
         "inlandlake.png": {
-          "extension": "REPEAT",
+          "extension": "EXTEND",
           "filename": "inlandlake.png",
           "interpolation": "Closest",
           "optional": false
         },
         "lakedepth.tif": {
-          "extension": "REPEAT",
+          "extension": "EXTEND",
           "filename": "lakedepth.tif",
           "interpolation": "Linear",
           "optional": true
         },
         "oceanmask.png": {
-          "extension": "REPEAT",
+          "extension": "EXTEND",
           "filename": "oceanmask.png",
           "interpolation": "Closest",
           "optional": false
         },
         "river.png": {
-          "extension": "REPEAT",
+          "extension": "EXTEND",
           "filename": "river.png",
           "interpolation": "Closest",
           "optional": false
@@ -434,19 +434,19 @@
           "optional": true
         },
         "saltmask.png": {
-          "extension": "REPEAT",
+          "extension": "EXTEND",
           "filename": "saltmask.png",
           "interpolation": "Closest",
           "optional": true
         },
         "seaice.png": {
-          "extension": "REPEAT",
+          "extension": "EXTEND",
           "filename": "seaice.png",
           "interpolation": "Linear",
           "optional": true
         },
         "snowmask.png": {
-          "extension": "REPEAT",
+          "extension": "EXTEND",
           "filename": "snowmask.png",
           "interpolation": "Closest",
           "optional": true
@@ -657,7 +657,7 @@
       "sea_texture": null,
       "textures": {
         "heightfield.tif": {
-          "extension": "REPEAT",
+          "extension": "EXTEND",
           "filename": "heightfield.tif",
           "interpolation": "Linear",
           "optional": false
@@ -669,7 +669,7 @@
           "optional": true
         },
         "snowmask.png": {
-          "extension": "REPEAT",
+          "extension": "EXTEND",
           "filename": "snowmask.png",
           "interpolation": "Closest",
           "optional": true
@@ -962,37 +962,37 @@
       "sea_texture": "oceanmask.png",
       "textures": {
         "heightfield.tif": {
-          "extension": "REPEAT",
+          "extension": "EXTEND",
           "filename": "heightfield.tif",
           "interpolation": "Linear",
           "optional": false
         },
         "inlandlake.png": {
-          "extension": "REPEAT",
+          "extension": "EXTEND",
           "filename": "inlandlake.png",
           "interpolation": "Closest",
           "optional": false
         },
         "oceanmask.png": {
-          "extension": "REPEAT",
+          "extension": "EXTEND",
           "filename": "oceanmask.png",
           "interpolation": "Closest",
           "optional": false
         },
         "river.png": {
-          "extension": "REPEAT",
+          "extension": "EXTEND",
           "filename": "river.png",
           "interpolation": "Closest",
           "optional": false
         },
         "seaice.png": {
-          "extension": "REPEAT",
+          "extension": "EXTEND",
           "filename": "seaice.png",
           "interpolation": "Linear",
           "optional": true
         },
         "snowmask.png": {
-          "extension": "REPEAT",
+          "extension": "EXTEND",
           "filename": "snowmask.png",
           "interpolation": "Closest",
           "optional": true
@@ -1283,37 +1283,37 @@
       "sea_texture": "oceanmask.png",
       "textures": {
         "heightfield.tif": {
-          "extension": "REPEAT",
+          "extension": "EXTEND",
           "filename": "heightfield.tif",
           "interpolation": "Linear",
           "optional": false
         },
         "inlandlake.png": {
-          "extension": "REPEAT",
+          "extension": "EXTEND",
           "filename": "inlandlake.png",
           "interpolation": "Closest",
           "optional": false
         },
         "oceanmask.png": {
-          "extension": "REPEAT",
+          "extension": "EXTEND",
           "filename": "oceanmask.png",
           "interpolation": "Closest",
           "optional": false
         },
         "river.png": {
-          "extension": "REPEAT",
+          "extension": "EXTEND",
           "filename": "river.png",
           "interpolation": "Closest",
           "optional": false
         },
         "seaice.png": {
-          "extension": "REPEAT",
+          "extension": "EXTEND",
           "filename": "seaice.png",
           "interpolation": "Linear",
           "optional": true
         },
         "snowmask.png": {
-          "extension": "REPEAT",
+          "extension": "EXTEND",
           "filename": "snowmask.png",
           "interpolation": "Closest",
           "optional": true
@@ -1536,13 +1536,13 @@
       "sea_texture": null,
       "textures": {
         "heightfield.tif": {
-          "extension": "REPEAT",
+          "extension": "EXTEND",
           "filename": "heightfield.tif",
           "interpolation": "Linear",
           "optional": false
         },
         "snowmask.png": {
-          "extension": "REPEAT",
+          "extension": "EXTEND",
           "filename": "snowmask.png",
           "interpolation": "Closest",
           "optional": true
@@ -1764,13 +1764,13 @@
       "sea_texture": null,
       "textures": {
         "heightfield.tif": {
-          "extension": "REPEAT",
+          "extension": "EXTEND",
           "filename": "heightfield.tif",
           "interpolation": "Linear",
           "optional": false
         },
         "snowmask.png": {
-          "extension": "REPEAT",
+          "extension": "EXTEND",
           "filename": "snowmask.png",
           "interpolation": "Closest",
           "optional": true

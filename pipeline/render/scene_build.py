@@ -337,20 +337,19 @@ class TextureSpec:
 #: in this sequence and the optional five at their own sites, where their mixes and ramps are wired.
 TEXTURES = {
     spec.name: spec for spec in (
-        TextureSpec("Heightfield", render_files.HEIGHTFIELD, "Linear", "REPEAT", optional=False),
-        TextureSpec("Ocean Mask", render_files.OCEANMASK, "Closest", "REPEAT", optional=False),
-        TextureSpec("Inland Lake", render_files.INLANDLAKE, "Closest", "REPEAT", optional=False),
-        TextureSpec("River", render_files.RIVER, "Closest", "REPEAT", optional=False),
+        TextureSpec("Heightfield", render_files.HEIGHTFIELD, "Linear", "EXTEND", optional=False),
+        TextureSpec("Ocean Mask", render_files.OCEANMASK, "Closest", "EXTEND", optional=False),
+        TextureSpec("Inland Lake", render_files.INLANDLAKE, "Closest", "EXTEND", optional=False),
+        TextureSpec("River", render_files.RIVER, "Closest", "EXTEND", optional=False),
         # Closest because snow is a hard-edged mask; the softening it ships with is baked into the
         # raster by `snow.soften_source_cells`, never asked of the sampler.
-        TextureSpec("Snow Mask", render_files.SNOWMASK, "Closest", "REPEAT", optional=True),
+        TextureSpec("Snow Mask", render_files.SNOWMASK, "Closest", "EXTEND", optional=True),
         # Closest for snow's reason: the salt mask's antialiased and softened edges are in the file.
-        TextureSpec("Salt Mask", render_files.SALTMASK, "Closest", "REPEAT", optional=True),
+        TextureSpec("Salt Mask", render_files.SALTMASK, "Closest", "EXTEND", optional=True),
         # Linear on both of these: a continuous field, like the heightfield.
-        TextureSpec("Lake Depth", render_files.LAKEDEPTH, "Linear", "REPEAT", optional=True),
-        TextureSpec("Sea Ice", render_files.SEAICE, "Linear", "REPEAT", optional=True),
-        # The rowscale column is one texel wide, so there is nothing to interpolate across u, and
-        # EXTEND rather than REPEAT is what stops one pole's row wrapping into the other's.
+        TextureSpec("Lake Depth", render_files.LAKEDEPTH, "Linear", "EXTEND", optional=True),
+        TextureSpec("Sea Ice", render_files.SEAICE, "Linear", "EXTEND", optional=True),
+        # The rowscale column is one texel wide, so there is nothing to interpolate across u.
         TextureSpec("Row Scale", render_files.ROWSCALE, "Closest", "EXTEND", optional=True),
     )
 }
