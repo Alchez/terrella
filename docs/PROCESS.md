@@ -21,7 +21,7 @@ The shape is the cost model: warp the inputs onto the 3857 grid, render every bl
 flowchart LR
   LK(["ANY look value that reaches a recipe<br/>rig · ramps · snow · sea ice · exaggeration"]) --> R
 
-  W2["warps → 3857 grid<br/>(one-time per grid change)"] --> R["block_render, 1024 blocks through Cycles<br/>11:41:33 on Earth"] --> T2["tile cut z0–8 → WebP q95<br/>4:19"] --> PK2["pack + convert<br/>→ 2.50 GB planet.pmtiles"]
+  W2["warps → 3857 grid<br/>(one-time per grid change)"] --> R["block_render, 1024 blocks through Cycles<br/>11:38:28 on Earth"] --> T2["tile cut z0–8 → WebP q95<br/>4:19"] --> PK2["pack + convert<br/>→ 2.46 GB planet.pmtiles"]
   R -. auto .-> CAP2["polar caps, raytraced<br/>→ web/public/caps/"]
 
   LK -. "a whole pass, then a re-cut, an upload and a Worker deploy" .-> T2
@@ -40,10 +40,10 @@ One program runs on both bodies. A body is seven differing values on `bodies.Bod
 | 3 | warp GLOBathy lake depth → 3857 | **1:01:44** (nodata-masker-bound) | not declared | ~0 s | `lakedepth_3857.tif` 310 MB | `warp_needs_rebuild` |
 | 3b | warp snow + rasterize glaciers + rasterize Antarctic rock + warp sea ice + bake salt flats → 3857 | **snow 15:16, glaciers 0:19, rock 0:27, sea-ice 14:42, salt 9:29** (3.6 GB peak) | **0:00**, declared and skipped rather than absent | ~0 s | five `*_3857.tif` | `warp_needs_rebuild` |
 | 3c | ice alpha, polar bands (`mars_ice.build_alpha_raster`) | not declared | **2:23**, and 5:12 on a colder page cache | ~0 s | `ice_alpha_3857.tif` | `warp_needs_rebuild` |
-| 4 | `tile/block_render.py`, the raytraced producer: every block through Cycles, one at a time | **11:41:33**, 1024 blocks at 1.46 blk/min, 0 failures. Per block 23.8 s min, 34.5 s median, 76.8 s p95, 194.3 s max | **2:49:57**, 256 blocks, 0 failures | ~0 s where no input's file has moved. One that has is read once to digest it, so the check costs that raster and never the planet's other inputs. A block then re-renders when the ground under its own plane window moved, while a recipe change still costs every block | `planet_rgb.tif` 30 GB | per-block digest + `raytrace_params.json` |
+| 4 | `tile/block_render.py`, the raytraced producer: every block through Cycles, one at a time | **11:38:28**, 1024 blocks at 1.47 blk/min, 0 failures. Per block 24.5 s min, 34.5 s median, 79.1 s p95, 210.5 s max | **2:49:57**, 256 blocks, 0 failures | ~0 s where no input's file has moved. One that has is read once to digest it, so the check costs that raster and never the planet's other inputs; a store with no cell cache reads all of them, **14:10** on Earth, on one core. A block then re-renders when the ground under its own plane window moved, while a recipe change still costs every block | `planet_rgb.tif` 59.7 GB | per-block digest + `raytrace_params.json` |
 | 5 | `build_tiles`, `gdal raster tile`, WebP q95 | **4:19**, 87,381 tiles, 3.1 GB | **1:21**, 21,845 tiles, 1.4 GB | skip | `tiles/` | `tiles.done` + `tile_params.json` |
-| 6 | `cap_pass`, both discs | **3:11** | **~1:15** *(isolated)* | ~2 s fresh check | `web/public/caps/` | recipe sidecar + source mtimes |
-| 7 | pack + convert | **0:16** | **~4 s** | n/a | `planet.pmtiles`, 2.50 GB / 1.40 GB | n/a |
+| 6 | `cap_pass`, both discs | **42:24** as the pass's tail, north 21:38 and south 20:46 | **~1:15** *(isolated)* | ~2 s fresh check | `web/public/caps/` | recipe sidecar + source mtimes |
+| 7 | pack + convert | **0:16** | **~4 s** | n/a | `planet.pmtiles`, 2.46 GB / 0.96 GB | n/a |
 | T | `tile/terrain_rgb.py`, terrain-RGB encode + cut, 8 m, lossless WebP *(separate lane, reads `height_3857.tif` directly)* | **30:14** cold, of which cutting is 8:08 (z8 alone 5:31). z0–6 is ~4 min once the chain exists | **8:15** cold, **6:03** re-cut with the chain on disk | skip | `bathy_s8_webp/tiles/` 2.72 GB / 0.77 GB | `tiles.done` + `terrain_params.json` |
 | R | `tile/relief_scan.py`, the block partition's per-cell cache *(separate lane, feeds `block_plan`)* | **3:07**, 1.5 GB peak | **0:41** | ~0 s | `relief_cells.tif` | `is_stale` + `relief_params.json` |
 
@@ -104,13 +104,13 @@ Any look value that reaches a recipe restages the whole planet through Cycles, a
 
 | Scenario | Wall | Notes |
 |---|---|---|
-| Any look re-tune that reaches a recipe | **11:41:33 + 4:19** on Earth | then a re-cut, an upload and a Worker deploy |
+| Any look re-tune that reaches a recipe | **11:38:28 + 4:19 + 42:24** on Earth, the blocks, the cut and the caps | then a pack, an upload and a Worker deploy |
 | Everything cold, shade only | **~41 min** (+ the cut → ~46) | excludes the one-time lake warp + fuse |
 | `--tiles`, everything fresh | **~0.4 s** | the cut runs only when `planet_rgb` changed |
 | No `--tiles`, everything fresh | **0.29 s** | every stage skips; the guard working |
 | Lake-depth warp (stage 3) | **1:01:44** | one-time; its `.done` stops a pass paying that hour again |
 | Cast shadows (`shadow_strength` > 0, currently 0.0, rejected) | **+0.625 s/Mpx** | Iran A/B at 32.4 Mpx: 16.73 s → 37.01 s, +121%, peak RSS unchanged. Linear in `shadow_reach` |
-| Polar cap render (`tile/cap_pass.py`, raytraced) | **45:35** standalone, north 22:44 and south 22:50, 56 Cycles frames | 28 frames a pole at ~44.7 s, a 57 s blend each, and ~1:42 / 1:27 of prep. Price the stages either side, not the frames alone. Peak memory is not measured. Through a pass the same stage costs about twice its standalone time |
+| Polar cap render (`tile/cap_pass.py`, raytraced) | **45:35** standalone, north 22:44 and south 22:50, 56 Cycles frames | 28 frames a pole at ~44.7 s, a 57 s blend each, and ~1:42 / 1:27 of prep. Price the stages either side, not the frames alone. Peak memory is not measured. Through a pass it costs about the same, stage 6 above |
 
 A cap is priced per pole per body, and 45:35 is neither. Mars's south is **22:12**: 68.7 s prep, 28 frames in 19.9 min, a 58.1 s blend, 12.6 s of rungs.
 
@@ -182,7 +182,7 @@ Run once; all are resumable and verify against a pinned size/md5, so a re-run is
 | Hero variants, the srcset ladder | `hero_variants.py --jobs 8` | **6 min** (203 × 6 rungs); ~49 min at `--jobs 1` | One `gdal_translate` peaks at 523 MB, so the ceiling is cores. Quality is a policy (`quality_for`): q85 to 1920, q95 at 3840/native |
 | Spotlight overlays | `gen_spotlight.py --only <slugs> --jobs 6` | **1m45s** (203 slugs × 3 small rungs) | The "~8 GB per job" in its docstring is a native-rung figure. Small rungs measure 0.49 GB per job, ~16× lighter, so a high `--jobs` is safe there and reckless for a full pass. Time one slug before choosing |
 | Country vector tiles | `compose/countries_pmtiles.py` | **17 s** (258 features → 10.2 MB, z0–8) | GDAL 3.12 writes PMTiles directly: no tippecanoe, no `pmtiles convert`. The staged GeoPackage exists only because the driver cannot append a layer to an archive it already wrote |
-| PMTiles packaging | `pack_pmtiles.py` → `pmtiles convert` | dir→MBTiles **3 to 10 s** (87,381 tiles); convert **4.9 to 7.2 s** → 2.50 GB | Always run convert capped and with `--tmpdir` on ext4: uncapped it stages ~12 GB through tmpfs `/tmp`, which is RAM. Tile count and cut time do not follow master size, the grid being 131072² either way |
+| PMTiles packaging | `pack_pmtiles.py` → `pmtiles convert` | dir→MBTiles **3 to 11 s** (87,381 tiles); convert **4.9 to 7.2 s** → 2.46 GB | Always run convert capped and with `--tmpdir` on ext4: uncapped it stages ~12 GB through tmpfs `/tmp`, which is RAM. Tile count and cut time do not follow master size, the grid being 131072² either way |
 | PMTiles packaging, terrain | `pack_pmtiles.py --layer terrain` | dir→MBTiles **12 s**; convert **6.1 s** → 2.63 GB | Dedupe is negligible on both raster pyramids: **145 of 87,381** addresses share a blob on terrain against **6** on relief, since a ray-traced tile is a distinct picture even where the sea is flat. Index 196,747 B, under `INDEX_PREFETCH_BYTES` (262,144), which the Worker's test asserts |
 | PMTiles packaging, terrain on Mars | same with `--body mars` | dir→MBTiles **1 s** (21,845 tiles); convert **1.5 s** → 0.806 GB | Dedupe is exactly zero on both of Mars's pyramids, a planet with no sea having no identical bodies. Index 51,473 B. The flip-sensitive pair to byte-compare is `z7/64/0` against `z7/64/127` |
 

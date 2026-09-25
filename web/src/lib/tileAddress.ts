@@ -192,7 +192,7 @@ export const PUBLISHED: Record<BodySlug, PublishedArchives> = {
     // Same rule as Mars below: the bytes changed, so the key changes. What each superseded cut was
     // is in `ARCHIVED`, where it is data a test can hold rather than prose that rots here.
     relief: {
-      objectKey: "earth/planet-v4.pmtiles",
+      objectKey: "earth/planet-v5.pmtiles",
       token: TOKENS.earth.relief.token,
       indexLeaves: TOKENS.earth.relief.indexLeaves,
       bytes: TOKENS.earth.relief.bytes,
@@ -327,6 +327,13 @@ export interface ArchivedCut {
  *  and the doc naming what it superseded had been stale since the deploy before*: an enumeration in
  *  prose has no reader that can go red, so the fix is the query rather than a longer list. */
 export const ARCHIVED: readonly ArchivedCut[] = [
+  {
+    key: "earth/planet-v4.pmtiles",
+    body: "earth",
+    layer: "relief",
+    supersededBy: "earth/planet-v5.pmtiles",
+    note: "the raytraced Earth before bump shading, the cooler fill light and the salt flats",
+  },
   // The six a metadata stamp superseded. Their tiles are byte-identical to the cuts that replaced
   // them, verified by hashing the PMTiles tile-data section, so the whole difference is that the
   // newer ones say who made the data and what is in them. Anyone holding one of these has the

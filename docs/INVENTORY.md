@@ -41,13 +41,13 @@ flowchart LR
   subgraph MID["data/work/ · 365 GB · every byte rebuildable"]
     FUSE["planet/ · 14.4 GB<br/>fused heightfield + masks · 648 cells"]
     W["*_3857.tif · ~70 GB Earth, ~12 GB Mars<br/>height, masks, surface layers"]
-    RGB["planet_rgb.tif<br/>37.8 GB Earth · 9.6 GB Mars"]
-    PYR["tiles/ · 2.19 GB Earth · 0.90 GB Mars"]
+    RGB["planet_rgb.tif<br/>59.7 GB Earth · 9.6 GB Mars"]
+    PYR["tiles/ · 2.46 GB Earth · 0.90 GB Mars"]
     CTRY["per-country dirs · ~182 GB<br/>hero intermediates"]
   end
 
   subgraph OUT["delivered · the only bytes a visitor fetches"]
-    PM["planet.pmtiles · 2.19 + 0.90 GB"]
+    PM["planet.pmtiles · 2.46 + 0.90 GB"]
     TER["terrain.pmtiles · 2.53 + 0.75 GB"]
     VEC["vector.pmtiles · 10.2 MB"]
     CAP["web/public/caps/ · 12.3 MB"]
@@ -143,11 +143,11 @@ flowchart LR
 | File | Size | What it is | Reclaim? |
 |---|---|---|---|
 | `height_3857.tif` + `.done` | 43.2 GB | planet heightfield on the WMQ 3857 grid (131072 squared, Float32, full Mercator extent incl. Antarctica) | Keep: every block is cut from it, and it is the terrain-RGB lane's source too |
-| `planet_rgb.tif` + `.done` | **37.8 GB** | the approved look at the full 131072-squared grid, which the tiles are cut from. Written by `block_render`, the only producer, and `raytrace_params.json` beside it is what says so | Keep: `--tiles` reads it |
+| `planet_rgb.tif` + `.done` | **59.7 GB** | the approved look at the full 131072-squared grid, which the tiles are cut from. Written by `block_render`, the only producer, and `raytrace_params.json` beside it is what says so | Keep: `--tiles` reads it |
 | `seaice_3857.tif` + `.done` | 17.4 GB | OSI SAF ice-frequency climatology warped ONCE to the 3857 grid, raw packed Float32, in latitude bands (a coarse 25 km source decimates under a single whole-grid warp); read in window slices, ocean-gated | Keep: regenerable, dep is `seaice_frequency_1991-2020_4326.tif` |
 | `snow_persistence_3857.tif` + `.done` | 9.03 GB | NSIDC-0791 persistence warped ONCE to the 3857 grid, raw packed Float32, in 256-row latitude bands; read in window slices | Keep: regenerable, dep is `snow/*.nc` |
-| `planet.pmtiles` | **2.19 GB** | the serving archive (`pmtiles convert`, capped, `--tmpdir` on ext4): spec v3, clustered, z0-8 | Keep: the deployment artifact; ~10 s + ~7 s to rebuild from `tiles/` |
-| `tiles/` | **2.19 GB** | **LIVE and APPROVED**: the ratified look (z0-8, **87,381** tiles, 512 px WebP q95) | Keep (live) |
+| `planet.pmtiles` | **2.46 GB** | the serving archive (`pmtiles convert`, capped, `--tmpdir` on ext4): spec v3, clustered, z0-8 | Keep: the deployment artifact; ~10 s + ~7 s to rebuild from `tiles/` |
+| `tiles/` | **2.46 GB** | the ratified look (z0-8, **87,381** tiles, 512 px WebP q95) | Keep |
 | `lakedepth_3857.tif` + `.done` | 318 MB | GLOBathy lake depth on the 3857 grid (~98% zero, deflates small). Its `.done` is what stops a pass paying that ~1 h warp again; only dep is `lakedepth.vrt` | Keep |
 | `water_3857.tif` / `ocean_3857.tif` + `.done` | 81 MB | 3857 masks; `water_3857` reads class 1 at the Caspian | Keep |
 | `glacier_3857.tif` + `.done` | 30 MB | RGI 7.0 glacier mask (Byte 0/1) rasterized ONCE to the 3857 grid; exact vector burn, so no banding needed | Keep: regenerable, dep is `rgi7_g_3857.gpkg` |
@@ -212,8 +212,8 @@ is an unaudited one: a 26 GB dead rollback archive lived here unnoticed.
 | page CSS | **inlined into every document** (`build.inlineStylesheets: 'always'`), so it costs document bytes and no request: 12 KB on the globe, 5 KB on the gallery, uncompressed | dev injects it as `<style>` via Vite instead, which is a different cascade order | same | in the HTML |
 | MapLibre's stylesheet | 70 KB raw, a **non-blocking** `<link media="print">` promoted on load: it styles widgets that cannot exist until the globe chunk has run | same link; dev *also* injects it as `<style>`, so it loads twice | same | `web/dist/_astro/maplibre-gl.*.css` |
 | small chunks (polarCaps, capability probe) | ~3 KB total | same | same | `web/dist/_astro/` |
-| relief tiles | **26.2 KB avg/tile on Earth** (2.19 GB / 87,381), **43.2 KB on Mars** (0.90 GB / 21,845), viewport-driven | `/tiles/{body}/relief/{token}/{z}/{x}/{y}.webp`, ranged out of the archive by the dev middleware | same URL shape, ranged by the Worker out of R2: measured, first paint ~40 requests | `planet_tiles/planet.pmtiles` |
-| polar caps | the 8192 rung is **Mars 3.18 + 2.95 MB** and **Earth 1.09 + 0.79 MB** (north + south); the 4096 rung mobile takes is Mars 0.99 + 0.98, Earth 0.43 + 0.28. Plus `caps.json`, fetched eagerly at globe load, revalidated not cached; decode off-thread | identical | identical: WebP ships pre-compressed | `web/public/caps/` |
+| relief tiles | **28.1 KB avg/tile on Earth** (2.46 GB / 87,381), **43.2 KB on Mars** (0.90 GB / 21,845), viewport-driven | `/tiles/{body}/relief/{token}/{z}/{x}/{y}.webp`, ranged out of the archive by the dev middleware | same URL shape, ranged by the Worker out of R2: measured, first paint ~40 requests | `planet_tiles/planet.pmtiles` |
+| polar caps | the 8192 rung is **Mars 3.18 + 2.95 MB** and **Earth 1.26 + 0.94 MB** (north + south); the 4096 rung mobile takes is Mars 0.99 + 0.98, Earth 0.48 + 0.33. Plus `caps.json`, fetched eagerly at globe load, revalidated not cached; decode off-thread | identical | identical: WebP ships pre-compressed | `web/public/caps/` |
 | `boundary_lines.geojson` | 0.55 MB gz (1.95 MB raw): **opt-in only**, fetched on the first Borders toggle-on, never by default | uncompressed | edge gzip/brotli | `work/borders/` |
 | country vector tiles | **4 tiles, 175 KB brotli** in the cold window at the default camera (z1 covers the globe; 22-65 KB each, largest 122 KB raw), viewport-driven like the relief tiles | `/tiles/earth/vector/{token}/{z}/{x}/{y}.mvt`, ranged by the dev middleware, identity bytes | same URL shape, ranged by the Worker out of R2; edge-compressed as text | `planet_vector/vector.pmtiles` |
 | `countries.geojson` | 2.5 MB gz (9.4 MB raw at the 0.002-degree guard-tested tolerance): **no longer delivered**, superseded by the vector tiles above, and now only the cut's input | n/a | n/a | `work/borders/` |
