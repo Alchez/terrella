@@ -27,11 +27,13 @@ import { fileURLToPath } from "node:url";
 // manifest.ts imports for its value export, nor the imports archiveIndex.ts makes.
 import type { BundleRecord } from "../src/lib/archiveIndex";
 import type { Manifest } from "../src/lib/manifest";
+import { SOCIAL_CARD_FILE } from "../src/lib/socialCard.ts";
 import {
   ARCHIVE_BUCKET,
   ASSET_BUCKET,
   HERO_PREFIX,
   R2Unreachable,
+  SOCIAL_PREFIX,
   listBucket,
   r2Endpoint,
   type Listing,
@@ -54,7 +56,10 @@ function fail(...lines: string[]): never {
 /** Every object the built site will reference, derived from the same fields the pages use —
  *  which is what makes the shared `Manifest` type load-bearing rather than decorative. */
 export function advertisedObjects(manifest: Manifest): Set<string> {
-  const keys = new Set<string>(GEOJSON);
+  // The card every page's `og:image` points at. A missing one costs nothing a visitor can see and
+  // breaks the preview on every platform the link is shared to, with no request from any of them
+  // reaching a log here.
+  const keys = new Set<string>([...GEOJSON, `${SOCIAL_PREFIX}${SOCIAL_CARD_FILE}`]);
   for (const country of manifest.countries) {
     const { slug, sizes, spotlightSizes } = country;
     for (const size of sizes) keys.add(`${HERO_PREFIX}${slug}-${size}.webp`);

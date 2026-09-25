@@ -17,6 +17,7 @@
 // for the whole multi-GB body, once per tile.
 
 import { BODIES, type BodySlug } from "./bodies";
+import { SOCIAL_CARD_FILE } from "./socialCard";
 import { type LayerId, tilePathTemplate } from "./tileAddress";
 
 /** Normalise a configured base to a directory prefix that can be concatenated safely.
@@ -64,6 +65,20 @@ export const TILE_BASE = resolveAssetBase(import.meta.env.PUBLIC_TILE_BASE, "/ti
  *  A public bucket cannot list itself, which is what `pages/archives.astro` is for: the registry
  *  is the index, and this is only the prefix its links are built on. */
 export const ARCHIVE_BASE = resolveAssetBase(import.meta.env.PUBLIC_ARCHIVE_BASE, "/archives/");
+
+/** The link-preview card, which is the one asset here that no visitor ever fetches.
+ *
+ *  It is small enough to ship inside the build, so the base is about the tag rather than the size:
+ *  `og:image` is read by a scraper on another machine and has to be absolute, and the site's own
+ *  origin is configured nowhere in this build while the asset host is, through these bases.
+ *
+ *  A replacement card takes a new file name rather than overwriting this one: a platform caches a
+ *  card the first time a link is shared, and several never fetch that URL again. */
+export const SOCIAL_BASE = resolveAssetBase(import.meta.env.PUBLIC_SOCIAL_BASE, "/social/");
+
+/** Where `og:image` points. The name comes from `socialCard.ts`, which the deploy preflight reads
+ *  too, so the page and the bucket check cannot come to spell it differently. */
+export const SOCIAL_CARD = `${SOCIAL_BASE}${SOCIAL_CARD_FILE}`;
 
 /** A MapLibre source template — where one body's cut of one layer is addressed.
  *

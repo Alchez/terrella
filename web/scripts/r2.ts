@@ -17,6 +17,8 @@ export const ASSET_BUCKET = "terrella-assets";
 export const ARCHIVE_BUCKET = "terrella-tiles";
 /** Where the hero renders sit in the asset bucket, and so under the hero host. */
 export const HERO_PREFIX = "heroes/";
+/** Where the link-preview card sits, the same pair of spellings one prefix down. */
+export const SOCIAL_PREFIX = "social/";
 
 /** What a bucket holds: each object's key, with its size in bytes. */
 export type Listing = Map<string, number>;

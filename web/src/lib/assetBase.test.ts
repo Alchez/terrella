@@ -102,6 +102,7 @@ describe("tileUrlTemplate", () => {
       "PUBLIC_BORDERS_BASE",
       "PUBLIC_TILE_BASE",
       "PUBLIC_ARCHIVE_BASE",
+      "PUBLIC_SOCIAL_BASE",
     ]);
     // The half that still bites: every base the module reads must also be supplied by the deploy
     // build, or it silently becomes same-origin in production.
