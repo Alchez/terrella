@@ -1,7 +1,6 @@
 # Deploying Terrella
 
-Two Workers, one R2 bucket, and three settings that live only in the Cloudflare dashboard.
-Everything here is about `web/`; the pipeline that *produces* the assets is `docs/pipeline.md`.
+Two Workers, two R2 buckets, and three settings that live only in the Cloudflare dashboard. Everything here is about `web/`; the pipeline that *produces* the assets is `docs/pipeline.md`.
 
 ## Where the site lives
 
@@ -16,37 +15,17 @@ Only the shell is small enough to ship inside the build, so production is four o
 
 The last two are the same bucket reached two ways, and the difference is what the free tier charges for: a tile is a Worker invocation, a download is not. See § *What is public* in `.claude/rules/tile-worker-and-delivery.md`.
 
-The tile Worker serves **six** archives out of one bucket, told apart by the address:
-`{body}/{layer}/{token}/{z}/{x}/{y}.{ext}`, where the layer segment is `relief`, `terrain` or
-`vector`. **The segment is the layer's ROLE, never the object's product name**: Earth's vector cut is
-keyed `earth/countries-v3.pmtiles` and is still addressed `earth/vector/...`, so a URL built from the
-key 404s. That segment also carries the whole distinction between a body's two raster pyramids, which
-share a grid and a zoom span, so serving the wrong one would displace the globe rather than fail.
+The tile Worker serves **six** archives out of one bucket, told apart by the address: `{body}/{layer}/{token}/{z}/{x}/{y}.{ext}`, where the layer segment is `relief`, `terrain` or `vector`. **The segment is the layer's ROLE, never the object's product name**: Earth's vector cut is keyed `earth/countries-v3.pmtiles` and is still addressed `earth/vector/...`, so a URL built from the key 404s. That segment also carries the whole distinction between a body's two raster pyramids, which share a grid and a zoom span, so serving the wrong one would displace the globe rather than fail.
 
-Which archive each `{body}/{layer}` resolves to is the registry in `src/lib/tileAddress.ts`, which
-the Worker and the client both compile. Uploading a new archive is `aws --profile r2 --endpoint-url
-<r2> s3 cp <file> s3://terrella-tiles/<key>`, then point that layer's registry entry at the new
-key and regenerate its token with `pnpm check:tile-tokens --write`; a re-cut always ships under a
-**new key**, never an overwrite.
+Which archive each `{body}/{layer}` resolves to is the registry in `src/lib/tileAddress.ts`, which the Worker and the client both compile. Uploading a new archive is `aws --profile r2 --endpoint-url <r2> s3 cp <file> s3://terrella-tiles/<key>`, then point that layer's registry entry at the new key and regenerate its token with `pnpm check:tile-tokens --write`; a re-cut always ships under a **new key**, never an overwrite.
 
-**Deleting the superseded object is irreversible, so it comes last.** R2 implements no object
-versioning and no undelete — `ListObjectVersions` answers `NotImplemented` — so a removed archive
-is gone from the bucket for good. Delete only once the new key is verified live, because until then
-the old object is what makes a rollback a revert-and-redeploy rather than a rebuild.
+**Deleting the superseded object is irreversible, so it comes last.** R2 implements no object versioning and no undelete (`ListObjectVersions` answers `NotImplemented`), so a removed archive is gone from the bucket for good. Delete only once the new key is verified live, because until then the old object is what makes a rollback a revert-and-redeploy rather than a rebuild.
 
-**The copies on the render box are not a substitute.** The raster cutters keep exactly one
-generation at `tiles_old` and the next run of that stage removes it, so a pyramid is restorable from
-disk only until it is next cut — a rollback for the run you just did, not an archive. The vector
-archives keep no previous generation at all and their source GeoJSON is overwritten in place by the
-derivation, so rebuilding one means reverting the geometry rule out of git and re-cutting.
+**The copies on the render box are not a substitute.** The raster cutters keep exactly one generation at `tiles_old` and the next run of that stage removes it, so a pyramid is restorable from disk only until it is next cut: a rollback for the run you just did, not an archive. The vector archives keep no previous generation at all and their source GeoJSON is overwritten in place by the derivation, so rebuilding one means reverting the geometry rule out of git and re-cutting.
 
-**Ship the tile Worker BEFORE the site.** The token in a tile URL comes from the site bundle, and
-the Worker is what routes it — so a site deployed first advertises addresses the live Worker may
-not answer, and the globe comes up blank. The reverse is harmless: a Worker that understands an
-address nobody is asking for yet costs nothing.
+**Ship the tile Worker BEFORE the site.** The token in a tile URL comes from the site bundle, and the Worker is what routes it, so a site deployed first advertises addresses the live Worker may not answer, and the globe comes up blank. The reverse is harmless: a Worker that understands an address nobody is asking for yet costs nothing.
 
-**There are TWO deploys.** `pnpm run deploy` ships the shell only; the tile Worker has its own
-config and its own command. Neither touches the other.
+**There are TWO deploys.** `pnpm run deploy` ships the shell only; the tile Worker has its own config and its own command. Neither touches the other.
 
 ### What the free tier actually buys
 
@@ -66,42 +45,24 @@ The Workers account is on the free plan, which only the dashboard shows: the API
 cd worker && npx wrangler deploy
 ```
 
-**Required whenever `worker/` or anything it imports changes** — which is `src/lib/tileAddress.ts`
-and everything it reaches, the registry and `tileTokens.json` among them. Named as the entry point
-rather than as a list of modules, because a list goes stale in silence: a reader who checks it,
-finds their file absent and skips this deploy ships a site advertising addresses the live Worker
-cannot resolve.
+**Required whenever `worker/` or anything it imports changes**, which is `src/lib/tileAddress.ts` and everything it reaches, the registry and `tileTokens.json` among them. Named as the entry point rather than as a list of modules, because a list goes stale in silence: a reader who checks it, finds their file absent and skips this deploy ships a site advertising addresses the live Worker cannot resolve.
 
 Two things about this deploy are confusing enough to waste a session:
 
-- **`No targets deployed for terrella-tiles` is not an error.** The site Worker declares
-  `routes: [{ pattern: "terrella.alchez.dev", custom_domain: true }]`; the tile Worker declares
-  **no routes**, because `tiles.terrella.alchez.dev` is attached to it **in the dashboard only**.
-  Wrangler is reporting that the config named no targets, not that the version failed. It does go
-  live — confirm from outside rather than from the message.
-- **A fresh setup must attach that custom domain by hand**, or the Worker deploys successfully and
-  is unreachable at every hostname: `workers_dev` and `preview_urls` are both off by design.
-  Declaring the route in `worker/wrangler.jsonc` would fix both points. It has not been done
-  because the domain is already attached and re-declaring it touches live routing.
+- **`No targets deployed for terrella-tiles` is not an error.** The site Worker declares `routes: [{ pattern: "terrella.alchez.dev", custom_domain: true }]`; the tile Worker declares **no routes**, because `tiles.terrella.alchez.dev` is attached to it **in the dashboard only**. Wrangler is reporting that the config named no targets, not that the version failed. It does go live: confirm from outside rather than from the message.
+- **A fresh setup must attach that custom domain by hand**, or the Worker deploys successfully and is unreachable at every hostname: `workers_dev` and `preview_urls` are both off by design. Declaring the route in `worker/wrangler.jsonc` would fix both points. It has not been done because the domain is already attached and re-declaring it touches live routing.
 
 ## 2. The site shell
 
 ```sh
-pnpm run deploy          # NOT `pnpm deploy` — that is a pnpm builtin
+pnpm run deploy          # NOT `pnpm deploy`, which is a pnpm builtin
 ```
 
-`pnpm build` addresses all three origins **same-origin**, which is what `astro dev` and the nginx
-prod-sim serve. That build is correct locally and broken in production, where nothing but the shell
-is on the site's own origin — so `pnpm run deploy` is the only correct way to ship. It sets the
-three `PUBLIC_*_BASE` variables first.
+`pnpm build` addresses all three origins **same-origin**, which is what `astro dev` and the nginx prod-sim serve. That build is correct locally and broken in production, where nothing but the shell is on the site's own origin, so `pnpm run deploy` is the only correct way to ship. It sets the three `PUBLIC_*_BASE` variables first.
 
-Those variables live in `build:deploy` in `package.json` rather than a `.env.production`, which is
-gitignored to keep API keys out of the repo. A test asserts every base the code reads is supplied
-there as an absolute URL, so adding a fourth cannot silently ship as same-origin.
+Those variables live in `build:deploy` in `package.json` rather than a `.env.production`, which is gitignored to keep API keys out of the repo. A test asserts every base the code reads is supplied there as an absolute URL, so adding a fourth cannot silently ship as same-origin.
 
-**A fresh clone cannot deploy, by design.** The build reads `src/data/countries.json` and
-`public/caps/`, both generated from the render store and both gitignored. Regenerate them first —
-see `docs/pipeline.md`.
+**A fresh clone cannot deploy, by design.** The build reads `src/data/countries.json` and `public/caps/`, both generated from the render store and both gitignored. Regenerate them first, as `docs/pipeline.md` describes.
 
 **The preflight can refuse.** `scripts/check_deploy_sync.ts` runs before the upload and blocks on each of these, every one silent in production: a 404ing tile does not stop the globe rendering, it just renders wrong, flat, or blank with nothing in any log, and a download saved from the wrong file still opens. The refusal message names the file to change.
 
@@ -113,59 +74,40 @@ see `docs/pipeline.md`.
 
 The last enumerates the registry rather than naming keys, so an archive is checked the day it is published, by a script nobody edited. Naming keys, say out of the Worker's config, looks simpler and leaves each new archive unchecked while every deploy reports clean.
 
-It is also the one to expect after a re-cut: packing and uploading an archive are separate steps
-from deploying, so bumping the registry entry before the upload finishes is the easy mistake. The
-preflight turns that into a refusal instead of an outage.
+It is also the one to expect after a re-cut: packing and uploading an archive are separate steps from deploying, so bumping the registry entry before the upload finishes is the easy mistake. The preflight turns that into a refusal instead of an outage.
 
 ## Verifying a deploy
 
-A caching layer replaying stored bytes is the most reliable way to misread a good deploy as a
-broken one. Both checks below exist to get around one.
+A caching layer replaying stored bytes is the most reliable way to misread a good deploy as a broken one. Both checks below exist to get around one.
 
-### The shell — use a cache-buster, not the plain URL
+### The shell: use a cache-buster, not the plain URL
 
-For about a minute after `pnpm run deploy`, `https://terrella.alchez.dev/earth/` can still serve the
-**previous** HTML — `cf-cache-status: HIT`, referencing the old `_astro` chunk hash — while the new
-chunk is already uploaded and reachable. It reads exactly like a silent failure. It is not; the edge
-copy clears itself. Bypass the cached key instead:
+For about a minute after `pnpm run deploy`, `https://terrella.alchez.dev/earth/` can still serve the **previous** HTML (`cf-cache-status: HIT`, referencing the old `_astro` chunk hashes) while the new chunks are already uploaded and reachable. It reads exactly like a silent failure. It is not; the edge copy clears itself. Bypass the cached key instead, and compare the chunks the live page names with the ones in the build you just shipped:
 
 ```sh
-curl -s "https://terrella.alchez.dev/earth/?cachebust=$RANDOM" | grep -o '/_astro/earth[^"]*\.js'
+diff <(curl -s "https://terrella.alchez.dev/earth/?cachebust=$RANDOM" | grep -o '/_astro/[^"]*\.js' | sort -u) \
+     <(grep -o '/_astro/[^"]*\.js' dist/earth/index.html | sort -u) && echo same
 ```
 
-Compare that against the chunk name wrangler just listed as uploaded.
-
-### The tile Worker — ask a tile, read two headers
+### The tile Worker: ask a tile, read two headers
 
 ```sh
 curl -sD- -o /dev/null -H "Origin: https://terrella.alchez.dev" \
-  https://tiles.terrella.alchez.dev/8/155/99.webp | grep -iE "cf-cache-status|server-timing"
+  "https://tiles.terrella.alchez.dev/earth/relief/$(node -p "require('./src/lib/tileTokens.json').earth.relief.token")/8/155/99.webp" \
+  | grep -iE "cf-cache-status|server-timing"
 # cf-cache-status: MISS
 # server-timing: cache;dur=6, r2;dur=281;desc="1 read, 148540 B", worker;dur=287
 ```
 
-- **`Cf-Cache-Status` present at all** means Workers Caching is live. Absent means the `cache` block
-  in `worker/wrangler.jsonc` did not take.
-- **`MISS` right after a deploy is expected.** The Worker version is part of the cache key
-  (`cross_version_cache` is off), so every deploy starts cold — that is also the invalidation
-  mechanism, and why there is nothing to purge.
-- **`Server-Timing` is only true on a `MISS`.** On a `HIT` the Worker never runs, so the stored
-  header is replayed verbatim, reporting whichever request filled the cache. The tell is arithmetic:
-  a total well below the replayed `worker;dur` is a stale header, not a fast Worker. Read the read
-  count (`1 read` = index prefetch working) only on a `MISS`.
-- **Send the `Origin` header.** Responses carry `Vary: Origin`, so a bare `curl` populates and reads
-  a variant no browser ever touches — and a cross-origin request is the only way to exercise the
-  CORS path the globe actually uses.
-- **`caches.default` is consulted inside the Worker and is *not* version-keyed.** A tile can be
-  `Cf-Cache-Status: MISS` (new Worker version) while `X-Terrella-Cache: hit` serves a body from
-  before the deploy. For a genuinely cold measurement require **both** to say miss, and pick an
-  address never fetched before.
+- **`Cf-Cache-Status` present at all** means Workers Caching is live. Absent means the `cache` block in `worker/wrangler.jsonc` did not take.
+- **`MISS` right after a deploy is expected.** The Worker version is part of the cache key (`cross_version_cache` is off), so every deploy starts cold, which is also the invalidation mechanism and why there is nothing to purge.
+- **`Server-Timing` is only true on a `MISS`.** On a `HIT` the Worker never runs, so the stored header is replayed verbatim, reporting whichever request filled the cache. The tell is arithmetic: a total well below the replayed `worker;dur` is a stale header, not a fast Worker. Read the read count (`1 read` = index prefetch working) only on a `MISS`.
+- **Send the `Origin` header.** Responses carry `Vary: Origin`, so a bare `curl` populates and reads a variant no browser ever touches, and a cross-origin request is the only way to exercise the CORS path the globe actually uses.
+- **`caches.default` is consulted inside the Worker and is *not* version-keyed.** A tile can be `Cf-Cache-Status: MISS` (new Worker version) while `X-Terrella-Cache: hit` serves a body from before the deploy. For a genuinely cold measurement require **both** to say miss, and pick an address never fetched before.
 
 ## Zone configuration (Cloudflare dashboard)
 
-Three settings live in the dashboard rather than this repo, because neither wrangler's OAuth nor an
-object-scoped S3 token can write them. `pnpm run deploy` does **not** apply them and each fails
-silently, so a fresh setup needs all three.
+Three settings live in the dashboard rather than this repo, because neither wrangler's OAuth nor an object-scoped S3 token can write them. `pnpm run deploy` does **not** apply them and each fails silently, so a fresh setup needs all three.
 
 | Setting              | Where                                            | Value                                                                                                       |
 | :------------------- | :----------------------------------------------- | :---------------------------------------------------------------------------------------------------------- |
@@ -176,9 +118,5 @@ silently, so a fresh setup needs all three.
 Why each is needed, since none is obvious from its failure:
 
 - **Cache Rule**: `.geojson` and `.json` are not default-cached extensions (`.webp` and `.png` are), so without it every visit pulls the border GeoJSON from origin. R2 sends no `Cache-Control` at all, which is why the TTL must *ignore* the header rather than honour it. On a GET, `cf-cache-status: DYNAMIC` is the signature of a missing rule and `MISS` then `HIT` is success. Ask with a GET: a HEAD skips the cache and answers `DYNAMIC` with the rule in place.
-- **CORS**: the globe `fetch`es both GeoJSON files, and a `fetch` needs CORS where an `<img>` hero
-  does not. Getting this wrong breaks only the borders, not the heroes.
-- **`Timing-Allow-Origin`**: without it, cross-origin Resource Timing reports `transferSize` and
-  `decodedBodySize` as `0` rather than as unknown, so the site's own instrumentation reads its
-  largest payload as free. It also degrades LCP attribution for the gallery's hero images. The tile
-  Worker sets this header itself (`worker/index.ts`) and needs no rule.
+- **CORS**: the globe `fetch`es both GeoJSON files, and a `fetch` needs CORS where an `<img>` hero does not. Getting this wrong breaks only the borders, not the heroes.
+- **`Timing-Allow-Origin`**: without it, cross-origin Resource Timing reports `transferSize` and `decodedBodySize` as `0` rather than as unknown, so the site's own instrumentation reads its largest payload as free. It also degrades LCP attribution for the gallery's hero images. The tile Worker sets this header itself (`worker/index.ts`) and needs no rule.
