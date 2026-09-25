@@ -2,6 +2,8 @@
 import "../styles/global.css";
 import { Font } from "astro:assets";
 import Footer from "../components/Footer.astro";
+import { SOCIAL_CARD } from "../lib/assetBase";
+import { SOCIAL_CARD_HEIGHT, SOCIAL_CARD_WIDTH } from "../lib/socialCard";
 import { BODIES, type BodySlug } from "../lib/bodies";
 import { bodyRoutes } from "../lib/bodyRoutes";
 
@@ -202,6 +204,26 @@ const hasViewBar = highlight || borders || spotlight || tectonics || quality;
       })();
     </script>
     <meta name="description" content={description} />
+    {/* What a link to this page looks like where it gets pasted: Reddit, Slack, a chat, a post.
+        Nothing a visitor ever sees, and Hacker News renders no preview at all.
+
+        No `og:url`. It would be the only absolute URL of the site's own origin in this build, and
+        that origin is configured nowhere here; every scraper falls back to the URL it fetched,
+        which is the right answer anyway. Setting Astro's `site` is what would bring it back, with
+        a canonical link beside it.
+
+        The dimensions are the card's real ones, declared because a scraper that lays out before it
+        has the bytes uses them, and wrong ones there reserve the wrong box. */}
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Terrella" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content={SOCIAL_CARD} />
+    <meta property="og:image:width" content={String(SOCIAL_CARD_WIDTH)} />
+    <meta property="og:image:height" content={String(SOCIAL_CARD_HEIGHT)} />
+    <meta property="og:image:alt" content="A ray-traced relief globe of Earth, centred on the Mediterranean" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content={SOCIAL_CARD} />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <Font cssVariable="--font-serif" />
     <title>{title}</title>
