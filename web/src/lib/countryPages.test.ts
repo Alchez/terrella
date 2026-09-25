@@ -1,15 +1,16 @@
 /**
  * Which countries get a page and a gallery card: every one but a place listed on the globe alone.
  *
- * A listed-only place that slipped into either would ship a page reading "This hero is still
- * rendering", a promise nothing will keep, and nothing about the build would fail.
+ * A listed-only place that slipped into either would ship a page reading "Not rendered yet", a
+ * promise nothing will keep, and nothing about the build would fail.
  */
 
 import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-import { hasOwnPage } from "./countryPages";
+import CREDITS from "../data/attributions.json";
+import { hasOwnPage, imageSources } from "./countryPages";
 import type { Country } from "./manifest";
 
 function country(overrides: Partial<Country> = {}): Country {
@@ -26,6 +27,7 @@ function country(overrides: Partial<Country> = {}): Country {
     rendered: false,
     listedOnly: false,
     download: null,
+    heroSources: [],
     hasSpotlight: false,
     spotlightSizes: [],
     ...overrides,
@@ -55,6 +57,39 @@ describe("the globe matches shapes by Natural Earth's name and shows the config'
 
   it("resolves a search pick through the display name the row shows", () => {
     expect(globe).toContain("searchPick = (name) => goToCountry(byName.get(name));");
+  });
+});
+
+const named = (key: keyof typeof CREDITS.sources) => CREDITS.sources[key].name;
+
+describe("the datasets a country page credits under its image", () => {
+  const rendered = { rendered: true, heroSources: ["glo30", "naturalearth", "globathy"] };
+
+  it("are what its hero was recorded as rendered from, then the Focus layer's, once each", () => {
+    expect(CREDITS.heroes.earth.focus).toEqual(["naturalearth"]);
+    expect(imageSources(country({ ...rendered, hasSpotlight: true })).map((source) => source.name))
+      .toEqual([named("glo30"), named("naturalearth"), named("globathy")]);
+  });
+
+  it("add the Focus layer's only where the page draws one", () => {
+    const sources = imageSources(country({ rendered: true, heroSources: ["glo30"], hasSpotlight: true }));
+    expect(sources.map((source) => source.name)).toEqual([named("glo30"), named("naturalearth")]);
+    expect(imageSources(country({ rendered: true, heroSources: ["glo30"] })).map((source) => source.name))
+      .toEqual([named("glo30")]);
+  });
+
+  it("are none for a country with no image", () => {
+    expect(imageSources(country({ hasSpotlight: true }))).toEqual([]);
+  });
+
+  it("refuse a source the registry does not know rather than print nothing for it", () => {
+    expect(() => imageSources(country({ rendered: true, heroSources: ["glo31"] }))).toThrow("glo31");
+  });
+
+  it("are the page's whole credit line", () => {
+    const page = read("../pages/[slug].astro").replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
+    expect(page).toContain("const credited = imageSources(country);");
+    expect(page).toMatch(/credited\.length > 0 && \(\s*<p class="meta">/);
   });
 });
 

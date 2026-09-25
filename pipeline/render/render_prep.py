@@ -61,7 +61,7 @@ from rasterio.vrt import WarpedVRT
 from rasterio.warp import transform_bounds
 from rasterio.windows import Window
 
-from pipeline import bodies, render_files
+from pipeline import attribution, bodies, render_files
 from pipeline.look import lake_depth
 from pipeline.render import render_seam
 
@@ -228,6 +228,16 @@ def write_class_png(watermask_path, out_path, cls):
     print(f"wrote {out_path} ({int((binary > 0).sum()):,} px set)", flush=True)
 
 
+def declare_stage(outdir: Path, body: bodies.Body, images: list[str],
+                  heightfield_written: bool) -> None:
+    """Declare the stage's images, and what it read when this run wrote the heightfield. A
+    heightfield already on disk may be an earlier version's, so a skip vouches for no sources."""
+    render_seam.declare(outdir, render_seam.PREP, images)
+    if heightfield_written:
+        render_seam.declare_sources(outdir, render_seam.PREP,
+                                    attribution.hero_stage_sources(body, render_seam.PREP))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--body", required=True, choices=sorted(bodies.BODIES),
@@ -285,6 +295,7 @@ def main():
               flush=True)
 
     wrote = 0
+    heightfield_written = False
     if out_f.exists():
         print("frame.json exists — skipping (pinned frames stay pinned)",
               flush=True)
@@ -321,6 +332,7 @@ def main():
         warp(src_path, out_path, dst_crs, transform, width, height, rs,
              dtype, pred, floor_m=fm)
         wrote += 1
+        heightfield_written = heightfield_written or out_path == out_h
 
     png_jobs = [(out_m, 1, render_files.OCEANMASK)]
     if args.watermask:
@@ -337,9 +349,9 @@ def main():
     # Declared unconditionally, INCLUDING on the "nothing to do" path, because the record is a
     # statement about this stage having finished rather than about it having written bytes. A resume
     # that skipped every warp has still produced the directory the rig is about to read.
-    print(f"declared {render_seam.declare(args.outdir, render_seam.PREP,
-                                          [render_files.HEIGHTFIELD] + [n for _, _, n in png_jobs])}",
-          flush=True)
+    declare_stage(args.outdir, body, [render_files.HEIGHTFIELD] + [n for _, _, n in png_jobs],
+                  heightfield_written)
+    print(f"declared {render_seam.declaration_path(args.outdir)}", flush=True)
     print("complete" if wrote else "nothing to do — all outputs exist",
           flush=True)
 

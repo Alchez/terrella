@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from scipy import ndimage
 
-from pipeline import bodies, layers, render_files
+from pipeline import attribution, bodies, layers, render_files
 from pipeline.frame import country_config
 from pipeline.look import palette, salt, snow
 from pipeline.render import render_seam, snow_mask
@@ -100,9 +100,17 @@ class TestTheHeroPaintsItsSaltFlats:
         law = the_law(packed_persistence(), latitude_field(), glacier_outlines())
         assert law[20:26, 20:26].max() > 0.5
 
+    def test_the_stage_declares_what_it_read_when_it_writes(self, tmp_path):
+        """A hero's credit is composed from each stage's declaration. The skip path returns before
+        this call, so a mask left by an earlier version vouches for nothing."""
+        snow_alpha, paint, salt_alpha, salt_paint = white(latitude_field(), salt_ground())
+        snow_mask.write_masks(tmp_path, bodies.EARTH, snow_alpha, paint, salt_alpha, salt_paint)
+        assert render_seam.stage_sources(tmp_path, render_seam.SNOW) == list(
+            attribution.hero_stage_sources(bodies.EARTH, render_seam.SNOW))
+
     def test_the_stage_writes_and_declares_both_masks(self, tmp_path):
         snow_alpha, paint, salt_alpha, salt_paint = white(latitude_field(), salt_ground())
-        snow_mask.write_masks(tmp_path, snow_alpha, paint, salt_alpha, salt_paint)
+        snow_mask.write_masks(tmp_path, bodies.EARTH, snow_alpha, paint, salt_alpha, salt_paint)
         assert set(render_seam.stage_images(tmp_path, render_seam.SNOW) or []) == {
             render_files.SNOWMASK, render_files.SALTMASK}
         assert render_seam.paint_for(tmp_path, render_files.SALTMASK) == (palette.SALT_RGB,
@@ -110,7 +118,7 @@ class TestTheHeroPaintsItsSaltFlats:
 
     def test_no_salt_mask_where_the_grid_has_no_salt(self, tmp_path):
         snow_alpha, paint, salt_alpha, salt_paint = white(latitude_field(), np.zeros((ROWS, COLUMNS), np.uint8))
-        snow_mask.write_masks(tmp_path, snow_alpha, paint, salt_alpha, salt_paint)
+        snow_mask.write_masks(tmp_path, bodies.EARTH, snow_alpha, paint, salt_alpha, salt_paint)
         assert render_seam.stage_images(tmp_path, render_seam.SNOW) == [render_files.SNOWMASK]
         assert not (tmp_path / render_files.SALTMASK).exists()
 

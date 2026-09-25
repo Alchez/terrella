@@ -32,7 +32,7 @@ import rasterio
 from pyproj import Transformer
 from rasterio.warp import transform_bounds
 
-from pipeline import bodies, freshness, layers, render_files, vector_raster
+from pipeline import attribution, bodies, freshness, layers, render_files, vector_raster
 from pipeline.look import lake_depth, layer_producers, salt, snow
 from pipeline.render import prep_block, render_seam
 
@@ -232,13 +232,17 @@ def _write_mask(render_dir: Path, image: str, alpha: "np.ndarray | None",
     return True
 
 
-def write_masks(render_dir: Path, snow_alpha: np.ndarray, snow_paint: "render_seam.Paint | None",
-                salt_alpha: "np.ndarray | None", salt_paint: "render_seam.Paint | None") -> None:
-    """The snow and salt masks where each paints a pixel, and the stage's record either way."""
+def write_masks(render_dir: Path, body: bodies.Body, snow_alpha: np.ndarray,
+                snow_paint: "render_seam.Paint | None", salt_alpha: "np.ndarray | None",
+                salt_paint: "render_seam.Paint | None") -> None:
+    """The snow and salt masks where each paints a pixel, and the stage's record either way: what
+    it wrote, then what it read."""
     written = [image for image, alpha, paint in ((render_files.SNOWMASK, snow_alpha, snow_paint),
                                                  (render_files.SALTMASK, salt_alpha, salt_paint))
                if _write_mask(render_dir, image, alpha, paint)]
     render_seam.declare(render_dir, render_seam.SNOW, written)
+    render_seam.declare_sources(render_dir, render_seam.SNOW,
+                                attribution.hero_stage_sources(body, render_seam.SNOW))
 
 
 def main() -> None:
@@ -263,7 +267,7 @@ def main() -> None:
     alpha, paint, salt_alpha, salt_paint = hero_white(
         body, land_sources(body, grid, render_dir), ocean=ocean, watercode=watercode,
         latitude=latitude_grid(grid), ground_metres_per_px=abs(grid.transform.a))
-    write_masks(render_dir, alpha, paint, salt_alpha, salt_paint)
+    write_masks(render_dir, body, alpha, paint, salt_alpha, salt_paint)
     record(render_dir, body)
     print(f"snow: white over {float((alpha >= 0.5).mean()):.2%} of the frame, some over "
           f"{float((alpha > 0.0).mean()):.2%}", flush=True)

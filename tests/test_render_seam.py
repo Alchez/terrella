@@ -110,6 +110,46 @@ class TestTheChainResumesWithoutErasingItself:
             render_files.HEIGHTFIELD, render_files.SNOWMASK, render_files.LAKEDEPTH}
 
 
+class TestAStageSaysWhatItReadOnlyWhenItWrites:
+    """A hero's credit is composed from what each stage read. A stage that skipped because an
+    earlier version's output was already there must not vouch for what today's version reads."""
+
+    def test_the_sources_a_stage_declares_read_back(self, tmp_path):
+        render_dir = _dir(tmp_path, render_files.LAKEDEPTH)
+        render_seam.declare(render_dir, render_seam.LAKE, [render_files.LAKEDEPTH])
+        render_seam.declare_sources(render_dir, render_seam.LAKE, ["globathy"])
+        assert render_seam.stage_sources(render_dir, render_seam.LAKE) == ["globathy"]
+
+    def test_a_stage_that_never_said_reads_back_as_none(self, tmp_path):
+        render_dir = _dir(tmp_path, render_files.LAKEDEPTH)
+        render_seam.declare(render_dir, render_seam.LAKE, [render_files.LAKEDEPTH])
+        assert render_seam.stage_sources(render_dir, render_seam.LAKE) is None
+
+    def test_a_stage_keeps_the_order_it_read_in(self, tmp_path):
+        """A credit lists the heightfield's sources first, GLO-30 ahead of GEBCO."""
+        render_dir = _dir(tmp_path, render_files.HEIGHTFIELD)
+        render_seam.declare(render_dir, render_seam.PREP, [render_files.HEIGHTFIELD])
+        render_seam.declare_sources(render_dir, render_seam.PREP, ["glo30", "gebco", "glo30"])
+        assert render_seam.stage_sources(render_dir, render_seam.PREP) == ["glo30", "gebco"]
+
+    def test_re_declaring_the_images_on_a_skip_keeps_the_sources(self, tmp_path):
+        render_dir = _dir(tmp_path, render_files.LAKEDEPTH)
+        render_seam.declare(render_dir, render_seam.LAKE, [render_files.LAKEDEPTH])
+        render_seam.declare_sources(render_dir, render_seam.LAKE, ["globathy"])
+        render_seam.declare(render_dir, render_seam.LAKE, [render_files.LAKEDEPTH])
+        assert render_seam.stage_sources(render_dir, render_seam.LAKE) == ["globathy"]
+
+    def test_sources_before_the_stage_declared_its_images_are_refused(self, tmp_path):
+        """The ordering `declare` holds: a record says the stage finished, so it comes last."""
+        render_dir = _dir(tmp_path, render_files.LAKEDEPTH)
+        with pytest.raises(FileNotFoundError, match="has not declared its images"):
+            render_seam.declare_sources(render_dir, render_seam.LAKE, ["globathy"])
+
+    def test_an_unknown_stage_is_refused(self, tmp_path):
+        with pytest.raises(ValueError, match="unknown stage"):
+            render_seam.declare_sources(_dir(tmp_path), "warp", ["glo30"])
+
+
 class TestAnUnfilledDirectoryIsNotAnEmptyOne:
     def test_no_declaration_at_all_raises_rather_than_returning_nothing(self, tmp_path):
         """The `planet_seam` rule one tier down: an empty answer is a statement about the region,

@@ -951,9 +951,7 @@ describe("addPolarCaps addresses the manifest by body", () => {
   });
 
   it("revalidates rather than reading a cached manifest, on every body", async () => {
-    // `cache: "no-cache"` is load-bearing: the textures are content-addressed by size so a stale
-    // one is impossible, but a stale MANIFEST describes a world that no longer exists — which is
-    // how adding the rung list once broke the caps on a browser holding a week-old copy.
+    // `addPolarCaps`'s docstring says why `cache: "no-cache"` is load-bearing.
     // One shared recorder for every body at once. The bodies do not have to be driven in sequence
     // — nothing here reads a per-call stub back — and awaiting them one at a time would be a claim
     // about ordering that this test is not making.

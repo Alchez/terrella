@@ -68,16 +68,14 @@ def payload() -> dict:
             }
             for name, body in sorted(bodies.BODIES.items())
         },
-        # A hero's own credit, which its download files carry, and the Focus overlay's sources,
-        # which only its page shows. Keyed by body, for the bodies that render heroes.
+        # Every source by key, for a page reading a record that names its sources: a hero and the
+        # country maps bundle each record what their images were rendered from.
+        "sources": {key: card(source) for key, source in sorted(attribution.SOURCES.items())},
+        # The Focus overlay's sources, which only a country's page shows, keyed by body for the
+        # bodies that render heroes.
         "heroes": {
-            name: {
-                "credit": attribution.for_hero(body),
-                "sources": [card(attribution.SOURCES[key]) for key in attribution.hero_keys(body)],
-                "focus": [card(attribution.SOURCES[key])
-                          for key in attribution.CREDITS[name].focus],
-            }
-            for name, body in sorted(bodies.BODIES.items())
+            name: {"focus": list(attribution.CREDITS[name].focus)}
+            for name in sorted(bodies.BODIES)
             if attribution.CREDITS[name].heroes
         },
     }

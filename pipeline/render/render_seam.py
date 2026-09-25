@@ -144,6 +144,32 @@ def declare(render_dir: Path, stage: str, images: Iterable[str]) -> Path:
     return _write(render_dir, document)
 
 
+def declare_sources(render_dir: Path, stage: str, sources: Iterable[str]) -> Path:
+    """Record the credit keys `stage` read to make the images it just wrote here.
+
+    Called on a stage's write path only, after `declare`. A stage that skips because its output is
+    already on disk re-declares its images and not its sources, since that output may be an earlier
+    version's, and a hero's credit is composed from these records.
+    """
+    if stage not in KNOWN_STAGES:
+        raise ValueError(f"unknown stage {stage!r}; known stages are: {', '.join(KNOWN_STAGES)}")
+    if stage_images(render_dir, stage) is None:
+        raise FileNotFoundError(
+            f"{render_dir}: {stage} has not declared its images, and its sources come after them")
+    document = _document(render_dir)
+    read = document.get("sources", {})
+    read[stage] = list(dict.fromkeys(sources))
+    document["sources"] = dict(sorted(read.items()))
+    return _write(render_dir, document)
+
+
+def stage_sources(render_dir: Path, stage: str) -> "list[str] | None":
+    """The credit keys one stage declared it read here, or None if it never declared any."""
+    if stage not in KNOWN_STAGES:
+        raise ValueError(f"unknown stage {stage!r}; known stages are: {', '.join(KNOWN_STAGES)}")
+    return _document(render_dir).get("sources", {}).get(stage)
+
+
 def declare_paint(render_dir: Path, image: str, sunlit: RGB8, shadowed: RGB8) -> Path:
     """Record the colour pair `image`'s mask is painted in, as the stage that resolved it.
 

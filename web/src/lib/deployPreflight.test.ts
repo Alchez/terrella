@@ -26,6 +26,7 @@ function country(slug: string, download: DownloadFiles | null): Country {
     rendered: download !== null,
     listedOnly: false,
     download,
+    heroSources: download ? ["glo30", "gebco"] : [],
     hasSpotlight: false,
     spotlightSizes: [],
   };
@@ -44,6 +45,8 @@ const BUNDLE = {
   bytes: 10_429_471,
   sha256: "0".repeat(64),
   images: { "nepal-7680.webp": NEPAL.webpBytes },
+  sources: ["glo30", "gebco"],
+  credit: "Terrella, and the datasets it was rendered from.",
 };
 
 describe("the deploy preflight holds R2 to the download files the pages offer", () => {

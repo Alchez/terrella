@@ -7,10 +7,14 @@ the tile side documents, and the "off" A/B carry-over — not the internals, whi
 their own suite (test_lake_depth).
 """
 
+import sys
+
 import numpy as np
 import pytest
 
+from pipeline import render_files
 from pipeline.look import lake_depth
+from pipeline.render import lake_mask, render_seam
 from pipeline.render.lake_mask import depth_to_position
 
 
@@ -66,3 +70,22 @@ class TestCurve:
         depth = np.full((2, 2), 50.0, dtype=np.float32)
         codes = np.full((2, 2), 2, dtype=np.uint8)
         assert depth_to_position(depth, codes).dtype == np.float32
+
+
+class TestTheStageSaysWhatItRead:
+    """A hero's credit is composed from what each stage declared it read, so the lake stage says so
+    when it writes a depth raster and stays silent when it skips an existing one."""
+
+    def test_a_written_depth_raster_is_declared_with_globathy(self, tmp_path):
+        (tmp_path / render_files.LAKEDEPTH).write_bytes(b"")
+        lake_mask.declare_written(tmp_path)
+        assert render_seam.stage_images(tmp_path, render_seam.LAKE) == [render_files.LAKEDEPTH]
+        assert render_seam.stage_sources(tmp_path, render_seam.LAKE) == ["globathy"]
+
+    def test_a_skipped_depth_raster_vouches_for_no_sources(self, tmp_path, monkeypatch):
+        """The raster on disk may be an earlier version's, which read something else."""
+        (tmp_path / render_files.LAKEDEPTH).write_bytes(b"")
+        monkeypatch.setattr(sys, "argv", ["lake_mask", "--render-dir", str(tmp_path)])
+        lake_mask.main()
+        assert render_seam.stage_images(tmp_path, render_seam.LAKE) == [render_files.LAKEDEPTH]
+        assert render_seam.stage_sources(tmp_path, render_seam.LAKE) is None

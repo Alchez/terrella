@@ -70,10 +70,19 @@ class Unstamped(ValueError):
     """Full-size WebPs without the credit a stamp pass would give them."""
 
 
-def xmp_packet(title: str) -> bytes:
+class MixedRenders(ValueError):
+    """Masters whose records name different sources, which one credit file cannot describe."""
+
+
+def credit_for(master: Path) -> str:
+    """The credit one country's files carry: its master's recorded sources, never today's lane."""
+    return attribution.compose(attribution.hero_record(master))
+
+
+def xmp_packet(title: str, credit: str) -> bytes:
     """The packet both of one country's download files carry: what the image is, who made it, and
     the credit and licence every copy owes."""
-    credit = escape(attribution.for_hero(bodies.EARTH))
+    credit = escape(credit)
     terms = escape(f"This work is licensed under {attribution.OUTPUT_LICENCE}. To view a copy of "
                    f"this license, visit {attribution.OUTPUT_LICENCE_URL}")
     publisher = escape(attribution.PUBLISHER)
@@ -282,7 +291,7 @@ def full_size_files(master: Path, variants: Path) -> tuple[Path, Path]:
 def stamp_country(master: Path, variants: Path, title: str) -> list[Path]:
     """Stamp one country's full-size WebP and copy its master beside it. Returns what it wrote."""
     webp, png = full_size_files(master, variants)
-    packet = xmp_packet(title)
+    packet = xmp_packet(title, credit_for(master))
     written = [webp] if stamp_webp(webp, packet) else []
     if copy_png(master, png, packet):
         written.append(png)
@@ -293,7 +302,7 @@ def unstamped(master: Path, variants: Path, title: str) -> list[Path]:
     """The files a stamp pass would write for one country: each one not carrying `title`'s packet,
     and a copy made from an earlier render of its master."""
     webp, png = full_size_files(master, variants)
-    packet = xmp_packet(title)
+    packet = xmp_packet(title, credit_for(master))
     stale = []
     if webp_packet(webp) != packet:
         stale.append(webp)
@@ -307,7 +316,7 @@ def bundle_webps(masters: list[Path], variants: Path, titles: dict[str, str]) ->
     webps, unstamped = [], []
     for master in masters:
         webp, _ = full_size_files(master, variants)
-        if webp_packet(webp) != xmp_packet(titles[master.stem]):
+        if webp_packet(webp) != xmp_packet(titles[master.stem], credit_for(master)):
             unstamped.append(webp.name)
         webps.append(webp)
     if unstamped:
@@ -316,12 +325,24 @@ def bundle_webps(masters: list[Path], variants: Path, titles: dict[str, str]) ->
     return webps
 
 
-def readme(count: int) -> bytes:
+def bundle_sources(masters: list[Path]) -> tuple[str, ...]:
+    """The sources every bundled image was rendered from, refused unless all of them agree."""
+    recorded = {master.stem: attribution.hero_record(master) for master in masters}
+    distinct = sorted(set(recorded.values()))
+    if len(distinct) > 1:
+        groups = "; ".join(f"{', '.join(sources)}: "
+                           f"{', '.join(stem for stem, read in recorded.items() if read == sources)}"
+                           for sources in distinct)
+        raise MixedRenders(f"the heroes were rendered from different sources ({groups})")
+    return distinct[0]
+
+
+def readme(count: int, credit: str) -> bytes:
     """The bundle's credit file: what it holds, the credit each image carries, and the terms."""
     return (f"{attribution.PUBLISHER} country maps: {count} images, one per country, each at the "
             "full size it was rendered and named for the country and its long edge in pixels.\n\n"
             "Each image carries this credit inside it, as XMP:\n\n"
-            f"{attribution.for_hero(bodies.EARTH)}\n\n"
+            f"{credit}\n\n"
             f"Terms of use: {WEB_STATEMENT}\n"
             f"PNG copies for print are on each country's page at {attribution.SITE_URL}.\n"
             ).encode()
@@ -338,14 +359,14 @@ def zip_entry(name: str, size: int) -> zipfile.ZipInfo:
     return entry
 
 
-def write_bundle(webps: list[Path], out: Path) -> None:
+def write_bundle(webps: list[Path], out: Path, credit: str) -> None:
     """Write the credit file, then `webps` by name, into one zip at `out` in one rename."""
     out.parent.mkdir(parents=True, exist_ok=True)
     staging = out.with_name(out.name + ".tmp")
     try:
         with zipfile.ZipFile(staging, "w") as archive:
-            credit = readme(len(webps))
-            archive.writestr(zip_entry(README, len(credit)), credit)
+            text = readme(len(webps), credit)
+            archive.writestr(zip_entry(README, len(text)), text)
             for webp in sorted(webps, key=lambda path: path.name):
                 entry = zip_entry(webp.name, webp.stat().st_size)
                 with webp.open("rb") as source, archive.open(entry, "w") as target:
@@ -355,26 +376,30 @@ def write_bundle(webps: list[Path], out: Path) -> None:
         staging.unlink(missing_ok=True)
 
 
-def bundle_record(out: Path) -> dict:
+def bundle_record(out: Path, sources: tuple[str, ...]) -> dict:
     """The record of the bundle at `out`: its key, then, read back from the file, its bytes and
-    their SHA-256 and the bytes of each image."""
+    their SHA-256 and the bytes of each image, then the sources its images were rendered from and
+    the credit they carry."""
     with out.open("rb") as handle:
         sha256 = hashlib.file_digest(handle, "sha256").hexdigest()
     with zipfile.ZipFile(out) as archive:
         images = {entry.filename: entry.file_size for entry in archive.infolist()
                   if entry.filename != README}
-    return {"key": BUNDLE_KEY, "bytes": out.stat().st_size, "sha256": sha256, "images": images}
+    return {"key": BUNDLE_KEY, "bytes": out.stat().st_size, "sha256": sha256, "images": images,
+            "sources": list(sources), "credit": attribution.compose(sources)}
 
 
 def build_bundle(masters: list[Path], titles: dict[str, str]) -> int:
-    """Bundle every country's full-size WebP and write the record, refusing an unstamped one."""
+    """Bundle every country's full-size WebP and write the record, refusing an unstamped one or
+    heroes from renders of different sources."""
     try:
+        sources = bundle_sources(masters)
         webps = bundle_webps(masters, VARIANTS, titles)
-    except Unstamped as refusal:
+    except (Unstamped, MixedRenders, attribution.HeroRecordError) as refusal:
         sys.exit(f"refusing to bundle: {refusal}")
     out = ARCHIVES / BUNDLE_KEY
-    write_bundle(webps, out)
-    record = bundle_record(out)
+    write_bundle(webps, out, attribution.compose(sources))
+    record = bundle_record(out, sources)
     previous = json.loads(RECORD.read_text()) if RECORD.exists() else {}
     RECORD.write_text(json.dumps({bodies.EARTH.name: record}, indent=2) + "\n")
     changed = previous.get(bodies.EARTH.name, {}).get("sha256") != record["sha256"]
@@ -417,12 +442,20 @@ def main() -> int:
     titles = country_titles()
     if args.command == "bundle":
         return build_bundle(masters, titles)
-    written = 0
+    written, refused = 0, []
     for master in masters:
-        for path in stamp_country(master, VARIANTS, titles[master.stem]):
+        try:
+            stamped = stamp_country(master, VARIANTS, titles[master.stem])
+        except attribution.HeroRecordError as unstated:
+            refused.append(str(unstated))
+            continue
+        for path in stamped:
             print(f"  {path.name}", flush=True)
             written += 1
-    print(f"complete: {written} written, {2 * len(masters) - written} already current", flush=True)
+    print(f"complete: {written} written, {2 * (len(masters) - len(refused)) - written} already "
+          "current", flush=True)
+    if refused:
+        sys.exit(f"refused {len(refused)}, whose credit cannot be stated:\n  " + "\n  ".join(refused))
     return 0
 
 

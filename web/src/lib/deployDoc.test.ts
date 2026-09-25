@@ -10,9 +10,9 @@ import { TERRAIN_TILE_SIZE } from "./terrainSource";
  *  named the object's product where the URL takes its role, and one declared tile size stood in for
  *  two that differ. A reader building a URL from the wrong one gets a 404 with nothing to explain it. */
 const deployDoc = readFileSync(new URL("../../DEPLOY.md", import.meta.url), "utf8");
-/** The doc is hard-wrapped, so every claim below can be split across a line break at any time by an
- *  edit that changes nothing. Matching the wrapped form would make these guards fail on reflow and
- *  pass on a rewritten value, which is backwards. */
+/** Any claim below can be split across a line break by an edit that changes nothing. Matching the
+ *  wrapped form would make these guards fail on reflow and pass on a rewritten value, which is
+ *  backwards. */
 const prose = deployDoc.replace(/\s+/g, " ");
 
 const PRICING_PAGES = [

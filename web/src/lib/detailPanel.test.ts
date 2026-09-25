@@ -39,6 +39,7 @@ function country(overrides: Partial<Country> = {}): Country {
     rendered: true,
     listedOnly: false,
     download: { width: 1920, height: 3840, webpBytes: 4_000_000, pngBytes: 30_000_000 },
+    heroSources: ["glo30", "gebco"],
     hasSpotlight: false,
     spotlightSizes: [],
     ...overrides,

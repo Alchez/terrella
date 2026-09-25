@@ -30,6 +30,7 @@ function country(slug: string, download: DownloadFiles | null): Country {
     rendered: download !== null,
     listedOnly: false,
     download,
+    heroSources: download ? ["glo30", "gebco"] : [],
     hasSpotlight: false,
     spotlightSizes: [],
   };
@@ -46,6 +47,8 @@ const BUNDLE: BundleRecord = {
   bytes: 10_429_471,
   sha256: "0".repeat(64),
   images: { "nepal-7680.webp": NEPAL.webpBytes },
+  sources: ["glo30", "gebco"],
+  credit: "Terrella, and the datasets it was rendered from.",
 };
 const BASES = { hero: "https://assets.example/heroes/", archive: "https://archives.example/" };
 const STORE = { variants: "/store/variants", archives: "/store/archives" };
