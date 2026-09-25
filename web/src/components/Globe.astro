@@ -571,6 +571,7 @@ import { GITHUB_MARK, REPO_URL } from "../lib/siteLinks";
     snapshotHasContent,
   } from "../lib/glDiagnostics";
   import { currentBody } from "../lib/currentBody";
+  import { pointIsOnPlanet } from "../lib/pointOnPlanet";
   import { spinStepDegrees } from "../lib/spinRate";
   import { globeSubsystems, globeTileAddresses } from "../lib/globeSubsystems";
   // Ids and poles only — the cap MESH and its textures stay behind the dynamic import below.
@@ -2046,6 +2047,7 @@ import { GITHUB_MARK, REPO_URL } from "../lib/siteLinks";
     }
 
     function featureAt(point: Point): string | null {
+      if (!pointIsOnPlanet(map, point)) return null;
       const viewport = viewportSize();
       // Ground scale through the ruler's own measurement, so "how big is this on screen" has one
       // owner and one body-aware conversion rather than a second copy that reads plausibly on Mars.
@@ -2204,6 +2206,7 @@ import { GITHUB_MARK, REPO_URL } from "../lib/siteLinks";
   // per-island hit circles for scattered/tiny geometry. Both carry ADMIN; the nearest
   // circle wins the fallback. Guarded so it's a no-op before the layers load.
   function countryAt(point: Point): string | null {
+    if (!pointIsOnPlanet(map, point)) return null;
     if (map.getLayer("country-fill")) {
       const onLand = map.queryRenderedFeatures(point, { layers: ["country-fill"] });
       const admin = onLand[0]?.properties?.ADMIN;
