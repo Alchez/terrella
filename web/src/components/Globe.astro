@@ -535,6 +535,7 @@ import { GITHUB_MARK, REPO_URL } from "../lib/siteLinks";
     skySpec,
   } from "../lib/skyAtmosphere";
   import { type RttPoolStats, rttPoolLine, trackRttPool } from "../lib/rttPool";
+  import { attachTerrain } from "../lib/attachTerrain";
   import {
     applyDemCacheCap,
     demCacheCapFault,
@@ -1142,15 +1143,9 @@ import { GITHUB_MARK, REPO_URL } from "../lib/siteLinks";
   // loss snapshot wants it too and `?terrain=off` never enters the block below — in which case
   // there is no terrain source and null is the honest answer, not zero.
   let coveringTileCount: () => number | null = () => null;
-  // Re-apply the DEM bound. Needed because a WebGL context restore silently drops it: MapLibre
-  // rebuilds the style early in _contextRestored, which fires `style.load` BEFORE
-  // _setupPainter() has run, so the terrain tile manager the cap is written to does not exist yet —
-  // then setTerrain builds a fresh, uncapped one. Measured 4/4 forced losses: 381 slots -> 1155,
-  // i.e. straight back to the ~1.14 GiB ceiling the cap exists to remove (1155 x demSlotBytes(512)
-  // = 1,220,585,520 B; tileCacheBudget.ts derives the per-slot figure and is the one place that
-  // should state it), while the overlay still read "384 MB budget". Asserted from a healthy `idle`
-  // rather than from the restore event,
-  // because that event is not guaranteed to arrive at all (see the GL block below).
+  // Re-apply the DEM bound if a healthy `idle` finds it off. A context restore rebuilds the terrain
+  // tile manager without it; the terrain's `style.load` handler caps the new one, and this is what
+  // notices when a cap did not take.
   let reassertTerrainBound: () => void = () => {};
   // Set by the FPS ladder's last rung, and the reason it cannot be inferred instead: after
   // `setTerrain(null)` + `removeSource` there is no terrain tile manager, which is EXACTLY what a
@@ -1343,15 +1338,14 @@ import { GITHUB_MARK, REPO_URL } from "../lib/siteLinks";
     map.on("idle", reassertTerrainBound);
 
     map.on("style.load", () => {
-      map.addSource(
-        TERRAIN_SOURCE,
+      // The cap goes on after the terrain, not before: setTerrain swaps the plain TileManager for
+      // the TerrainTileManager the cap has to land on, so capping first writes to an object
+      // MapLibre is about to replace.
+      attachTerrain(
+        map,
         terrainDemSource(terrainTileUrlTemplate, terrainArchive, declaredTileSize),
+        exaggerationFor(map.getZoom()),
       );
-      // AFTER setTerrain, not before: setTerrain is what swaps the plain TileManager for the
-      // TerrainTileManager the cap has to land on, so capping first writes to an object MapLibre is
-      // about to replace. It happened to work on a first load only because the initial `resize`
-      // re-applied it moments later; on a context restore no resize follows and the cap stayed off.
-      map.setTerrain({ source: TERRAIN_SOURCE, exaggeration: exaggerationFor(map.getZoom()) });
       applyCacheCap();
       // AFTER setTerrain for the same reason applyCacheCap is: `rttHeldBy` reads through
       // `map.terrain`, which only exists from here.
@@ -1369,9 +1363,8 @@ import { GITHUB_MARK, REPO_URL } from "../lib/siteLinks";
     map.on("resize", applyCacheCap);
 
     // The ramp writes terrain.exaggeration and MUST NOT re-call setTerrain: ui/map.ts builds a
-    // fresh Terrain and RenderToTexture on every call and only reaches Terrain.destroy() on the
-    // removal path, so a per-zoom setTerrain leaks framebuffers and textures and discards the
-    // mesh and render-to-texture caches. Exaggeration is a per-frame uniform
+    // fresh Terrain and RenderToTexture on every call, so a per-zoom setTerrain discards the mesh
+    // and render-to-texture caches. Exaggeration is a per-frame uniform
     // (render/terrain.ts -> u_terrain_exaggeration), so writing it costs nothing and invalidates
     // nothing. Consequence to know: map.getTerrain() reports the spec handed to setTerrain, so it
     // goes stale after the first ramp step — map.terrain.exaggeration is the live value.
@@ -1403,13 +1396,9 @@ import { GITHUB_MARK, REPO_URL } from "../lib/siteLinks";
   // pipeline-emitted caps.json (addressed from the slug inside addPolarCaps); dynamic import keeps
   // the globe bundle lean.
   //
-  // The caps must be RE-ADDED after a context restore, and specifically not from `style.load`.
-  // MapLibre says so itself on every loss ("Custom layer ... cannot be restored ... you will need
-  // to re-add it manually"), but the timing is the part that bites: _contextRestored calls
-  // setStyle() before _setupPainter(), so a cap added from `style.load`
-  // binds its buffers and textures to the GL context from BEFORE the painter came back. It renders
-  // as a black disc over the pole — present, wrong, and silent. Re-adding once the map reads
-  // healthy is the only ordering that holds, so the re-add is driven from there.
+  // The caps must be re-added after a context restore, since the restored style cannot carry a
+  // `custom` layer, as MapLibre warns on every loss. `style.load` re-adds them, and the recovery
+  // watch re-adds them again once the map reads healthy.
   let reassertPolarCaps: () => void = () => {};
   if (subsystems.polarCaps) {
     const addCaps = () =>
@@ -1418,8 +1407,6 @@ import { GITHUB_MARK, REPO_URL } from "../lib/siteLinks";
         .catch((err) => console.error("[caps] failed", err));
     map.on("style.load", addCaps);
     reassertPolarCaps = () => {
-      // Drop whatever the restore left behind before re-adding: addLayer throws on a duplicate id,
-      // and the layer sitting there is the black-disc one, so keeping it is not an option either.
       for (const pole of CAP_POLES) {
         const layerId = capLayerId(pole);
         if (map.getLayer(layerId)) map.removeLayer(layerId);
@@ -1728,12 +1715,9 @@ import { GITHUB_MARK, REPO_URL } from "../lib/siteLinks";
    * there, so a watch started at the moment of loss still allows the restore its full grace period
    * before anything is called a failure.
    *
-   * The re-assertions are the point. A restore does not simply rebuild what was there: it rebuilds
-   * the style at a moment when neither the terrain tile manager nor the painter exists yet, so the
-   * DEM bound lands on an object about to be replaced and the polar caps bind to the outgoing GL
-   * context. Both were measured, and both are silent — an uncapped cache and a black disc. Doing
-   * this here rather than on the restore event is deliberate: healthy is a state we can read, and
-   * the event is one we may never get.
+   * The re-assertions put back what a restore drops, the DEM bound and the polar caps, wherever the
+   * `style.load` handlers did not. Healthy is read as a state rather than taken from
+   * `webglcontextrestored`, which MapLibre skips when painter setup fails on the restored context.
    */
   const startRecoveryWatch = (verifyFrom: number) => {
     window.clearInterval(recoveryPoll);
@@ -1785,18 +1769,13 @@ import { GITHUB_MARK, REPO_URL } from "../lib/siteLinks";
       () => glLostNotice?.removeAttribute("hidden"),
       GL_RESTORE_GRACE_MS,
     );
-    // WATCH FROM THE LOSS, NOT FROM THE RESTORE. `webglcontextrestored` is not guaranteed to
-    // arrive: MapLibre's _contextRestored calls this.resize(), which fires `move`, which
-    // reaches its own Hash plugin (we pass hash:"map") -> unproject -> the terrain depth pass
-    // -> useProgram on a style that is still mid-rebuild, and it throws just before the restore
-    // fires "webglcontextrestored". Observed both ways on the same build, so anything
-    // hung off that event is a coin toss. Polling the STATE converges either way.
+    // Watch from the loss, not from the restore: MapLibre skips `webglcontextrestored` when painter
+    // setup fails on the restored context, and polling the state converges either way.
     startRecoveryWatch(performance.now() + GL_RESTORE_GRACE_MS);
   });
 
   map.on("webglcontextrestored", () => {
-    // Kept bound, but only as a hint that tightens the deadline — never as the thing that decides
-    // recovery. Its ABSENCE is a known failure mode, so it cannot be load-bearing.
+    // Only a hint that tightens the deadline; the watch started at the loss decides recovery.
     window.clearTimeout(restoreWatchdog);
     startRecoveryWatch(performance.now());
   });

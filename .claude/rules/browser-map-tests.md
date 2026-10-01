@@ -26,4 +26,4 @@ When probing the live map's own DEM, which is the only oracle that separates "lo
 
 **Say which half a file covers.** A real-map test owns the *outcome*: that a reading is true and that it moves. It cannot see a captured-reference bug that only manifests during map setup, because `map.painter.transform` is the same object across a `jumpTo` in a fixture; that belongs to a source-text guard.
 
-Casebook: memory `testing-a-real-maplibre-map`.
+Driving the live page's map through a browser probe is a different instrument with different traps, and none of the above transfers to it.

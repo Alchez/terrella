@@ -835,6 +835,14 @@ The working plan had become the project's only backlog as well as its live state
 - **The `Protocol` conversion for both ice registries**: no behaviour change, reversible, unscheduled.
 - **The next Mars pass rebuilds the ice caps and the ice tile layer.** The recovered units carry today's mtime and `_mars_sources` gates on mtimes, so the output is correct but not free.
 - **`data/raw` is written by `pipeline/acquire/*` alone**, so making it read-only on disk is the candidate that removes the target instead of detecting the write. The maintainer's call, being 1.1 TB of their own data.
+- **A fast zoom sweep once left terrain off at every zoom while the tier still read Full**, and a reload cleared it. It has no repro and no diagnosis, and it was seen on an older MapLibre.
+- **A pitch change before the style finishes loading throws from the sky's `moveend` handler**, since `setSky` raises "Style is not done loading" and the throw lands inside the camera's own event. A script's `jumpTo` reaches it; whether a visitor's first drag can is untested.
+
+### What a WebGL context restore still does twice or noisily
+
+- **The polar caps are added twice**: `style.load` re-adds them, then the recovery watch drops them and adds them again, refetching both caps' images. Letting the watch add only a missing cap removes the second pass.
+- **The restore logs "no terrain source to bound yet"**: the `resize` MapLibre runs inside the restore reaches `applyCacheCap` before the style is rebuilt, and the `style.load` handler caps the new manager moments later.
+- **A restore cannot be tested on the dev server**: `__webgl-memory.js`, which `Base.astro` injects on every dev page, throws from its `bufferData` wrapper inside MapLibre's frames after one, so the map never settles. A production build served beside `astro dev` is the rig that works.
 
 ### What the site does not tell a visitor
 

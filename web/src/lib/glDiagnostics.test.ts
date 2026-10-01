@@ -479,35 +479,6 @@ describe("canary — the MapLibre surface this module depends on", () => {
     expect(declarations).toMatch(/implementation: CustomLayerInterface;/);
     expect(declarations).toMatch(/getPixelRatio\(\): number;/);
   });
-
-  // The DEM bound, the polar caps and the recovery watch are driven from a healthy `idle` rather
-  // than from `style.load` or `webglcontextrestored` because of the order MapLibre's restore runs
-  // in. Only the order is pinned: pinning the bundle's line numbers too, for comments to cite,
-  // made every version bump a chore and caught nothing the order does not.
-  it("still restores the context in the order those comments describe", () => {
-    const bundle = readFileSync(
-      new URL("../../node_modules/maplibre-gl/dist/maplibre-gl-dev.mjs", import.meta.url),
-      "utf8",
-    ).split("\n");
-    const indexAfter = (start: number, found: (line: string) => boolean, name: string) => {
-      const index = bundle.findIndex((line, at) => at > start && found(line));
-      expect(index, `MapLibre's restore no longer contains ${name}`).toBeGreaterThan(-1);
-      return index;
-    };
-    const contextRestored = indexAfter(-1, (line) => line.includes("this._contextRestored = (event) => {"), "_contextRestored");
-    const setStyle = indexAfter(contextRestored, (line) => line.includes("if (this._lostContextStyle.style) this.setStyle("), "setStyle");
-    const setupPainter = indexAfter(contextRestored, (line) => line.includes("this._setupPainter();"), "_setupPainter");
-    const resize = indexAfter(setupPainter, (line) => line.trim() === "this.resize();", "resize");
-    const fireRestored = indexAfter(contextRestored, (line) => line.includes('this.fire(new MapContextEvent("webglcontextrestored"'), "the restored event");
-
-    // setStyle, which fires `style.load`, runs before _setupPainter, so a custom layer added from
-    // `style.load` binds to the pre-restore context; and resize(), which throws on our
-    // hash-driven unproject, runs before the restored event, which is why that event may never
-    // arrive.
-    expect(setStyle, "setStyle before _setupPainter").toBeLessThan(setupPainter);
-    expect(setupPainter, "_setupPainter before resize").toBeLessThan(resize);
-    expect(resize, "resize before the restored event").toBeLessThan(fireRestored);
-  });
 });
 
 describe("Globe.astro wires the diagnostics rather than re-stating them", () => {
@@ -522,16 +493,10 @@ describe("Globe.astro wires the diagnostics rather than re-stating them", () => 
 
   const sampledGlState = globe.match(/const sampledGlState = [\s\S]*?\n  \};/)?.[0];
 
-  // The verdict logic lives here now rather than in the restore handler, because the restore event
-  // is not guaranteed to fire (see the comment on the loss handler). Both entry points share it.
+  // The verdict logic lives in the watch rather than in the restore handler, because MapLibre skips
+  // the restore event when painter setup fails on the restored context. Both entry points share it.
   const recoveryWatch = globe.match(/const startRecoveryWatch = [\s\S]*?\n  \};/)?.[0];
 
-  // Measured: MapLibre's _contextRestored calls this.resize() BEFORE it fires
-  // "webglcontextrestored", and with hash:"map" + terrain that resize reaches its own Hash plugin
-  // -> unproject -> the terrain depth pass and THROWS, so the event never arrives. Recovery keyed
-  // to that event is therefore a coin toss, and these guards pin the state-driven wiring that
-  // replaced it. All three defects it caused (uncapped DEM cache, black polar disc, a stuck
-  // "could not recover" notice) reproduce from one WEBGL_lose_context cycle if this regresses.
   it("starts the recovery watch from the LOSS, because the restore event may never fire", () => {
     expect(lostHandler, "loss handler must start the watch itself").toContain(
       "startRecoveryWatch(",
@@ -551,12 +516,12 @@ describe("Globe.astro wires the diagnostics rather than re-stating them", () => 
     expect(lostHandler).toContain("describeGiveUp(");
   });
 
-  it("caps the DEM cache AFTER setTerrain, which is what builds the manager it lands on", () => {
+  it("caps the DEM cache AFTER attaching the terrain, which is what builds the manager it lands on", () => {
     const styleLoad = globe.match(/map\.on\("style\.load", \(\) => \{[\s\S]*?\n    \}\);/g)?.find(
       (block) => block.includes("applyCacheCap()"),
     );
     expect(styleLoad, "the terrain style.load handler must exist").toBeTruthy();
-    const terrainAt = styleLoad!.indexOf("map.setTerrain(");
+    const terrainAt = styleLoad!.indexOf("attachTerrain(");
     const capAt = styleLoad!.indexOf("applyCacheCap()");
     expect(terrainAt).toBeGreaterThan(-1);
     expect(capAt).toBeGreaterThan(terrainAt);

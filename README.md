@@ -2,7 +2,7 @@
 
 **[terrella.alchez.dev](https://terrella.alchez.dev)**
 
-Ray-traced relief maps of every country on Earth, and of Mars. A static site that opens as an image gallery and upgrades, where the hardware allows, into an interactive globe.
+Ray-traced relief maps of every country on Earth, and of Mars. A static site that hands a capable device an interactive globe and everything else the images, decided before the page paints.
 
 A *terrella*, a "little Earth", is the model globe early scientists spun to study the whole planet at once. This one is rendered from real elevation, not drawn.
 
@@ -14,19 +14,24 @@ A capability probe picks one pessimistically and upgrades from there; the visito
 
 - **Gallery**: instant for everyone. Hero images on Earth; on Mars, a gazetteer of named features.
 - **Globe**: MapLibre draping pre-shaded raster tiles. Needs WebGL2.
-- **Full**: plus terrain displacement and idle motion. On Earth, a country click opens an 8K hero.
+- **Full**: plus terrain displacement and idle motion. A click on the globe frames the country and opens a text card; the 8K render is on the country's own page.
 
 ## How it's built
 
 - **Heroes**: Blender Cycles, from Copernicus GLO-30 land and GEBCO bathymetry fused into one heightfield. Low sun, coloured by elevation and depth, in an aesthetic Frank Ramspott's topographic renders helped define.
 - **Tiles**: the same rig again, ray traced block by block, so the globe and the heroes are lit by one renderer rather than by two that have to be kept agreeing.
 - **Mars is the same pipeline with a different body.** Exaggeration, zoom ceiling, ramp and radii all belong to the body. It arrives pre-fused, as the USGS MOLA/HRSC blend, so there is no fusion tier to run, and it has no ocean, borders or heroes.
-- **Why a renderer and not a hillshade**: QGIS and `gdaldem` shade each pixel from the slope beneath it, so nothing in the result knows a ridge stands between that pixel and the sun, and at this exaggeration a gentle real slope presents as a steep one, runs past a low sun and clips to zero across a large share of a mountain range, which `docs/ART.md` measures. That is not a prediction here: Mars shipped the other way once, a hillshade with a ported fill sun and a sky-view term composited in GDAL, and it was replaced by Cycles rather than tuned.
+- **Why a renderer and not a hillshade**: QGIS and `gdaldem` shade each pixel from the slope beneath it, so nothing in the result knows a ridge stands between that pixel and the sun.
+  - Exaggeration makes that worse rather than subtler: a gentle real slope presents as a steep one, runs past a low sun and clips to zero across a large share of a mountain range, which `docs/ART.md` measures.
+  - Not a prediction here. Mars shipped the other way once, a hillshade with a ported fill sun and a sky-view term composited in GDAL, and it was replaced by Cycles rather than tuned.
 - **Delivery**: three PMTiles archives per body (relief, terrain, vector), the names `{layer}` takes, addressed `{body}/{layer}/{token}/{z}/{x}/{y}` so an address names its own archive. The browser never opens one; a tile server returns a single tile per request.
-- **Why an archive and not a directory of tiles**: not deduplication, which saves 6 tiles of Earth's 87,381 and none of Mars's 21,845, and not request cost, which loose tiles win. It is the re-cut: a new key, never an overwrite, so shipping one is six uploads against 280,000 under a new prefix and as many deletes R2 cannot undo. The archive is also the download, its credit inside the file.
+- **Why an archive and not a directory of tiles**: the re-cut, rather than the bytes or the request count.
+  - Not deduplication, which saves 6 tiles of Earth's 87,381 and none of Mars's 21,845, and not request cost, which loose tiles win.
+  - Shipping a cut is a new key, never an overwrite: six uploads against 280,000 files under a new prefix, and as many deletes R2 cannot undo.
+  - The archive is also the download, its credit inside the file.
 - **And not opened by the browser either**, the usual way PMTiles is served: Workers Caching strips a `Range` header and asks for the whole body, so a browser ranging the archive fetches every gigabyte per tile. The Worker does the arithmetic instead.
 
-Everything is pre-rendered, so there is no compute at request time, and no rendered assets or DEM data live in git.
+Everything is pre-rendered, so nothing is drawn at request time and the Worker's only work per tile is an offset into an archive. No rendered assets or DEM data live in git.
 
 ## License
 
@@ -35,6 +40,8 @@ Code [MIT](LICENSE). Imagery [CC BY-SA 4.0](https://creativecommons.org/licenses
 ## Getting the data
 
 Every pyramid the site draws from is downloadable as the PMTiles archive it is served out of, listed at [terrella.alchez.dev/archives](https://terrella.alchez.dev/archives/). Each file states its own credit and what is in it, so a copy stays attributable once it leaves here.
+
+Each country's render downloads from its own page, at full size with the credit written inside the file and as a PNG for printing, and the archives page offers all 203 in one zip.
 
 The two raster archives differ in what they can be used for. Relief is imagery with the body's vertical exaggeration baked into its pixels, so it is a picture rather than a measurement, and no elevation key on the site carries the metres to undo it. Terrain is real metres, and the exaggeration is applied when it is drawn. The archives page states each body's figure.
 

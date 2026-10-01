@@ -903,16 +903,10 @@ describe("the context-loss recovery contract", () => {
     ).toBe(true);
   });
 
-  // A restore re-fires style.load, and caps re-added from there come back as a black disc over the
-  // pole, measured: _contextRestored calls setStyle() before _setupPainter(), so a cap added from
-  // style.load binds its buffers to the outgoing GL context. Present, wrong and silent, which is
-  // worse than a missing cap, because a hole is visible as a hole.
-  it("re-adds the caps on recovery, from OUTSIDE style.load, because that ordering is too early", () => {
+  it("re-adds the caps on recovery as well, dropping any already there first", () => {
     expect(globe, "a recovery re-add must exist").toMatch(/reassertPolarCaps\s*=\s*\(\)\s*=>/);
     const reassert = globe.match(/reassertPolarCaps = \(\) => \{[\s\S]*?\n    \};/)?.[0];
     expect(reassert).toBeTruthy();
-    // Must clear the dead layers first: addLayer throws on a duplicate id, and the layer sitting
-    // there is the black-disc one.
     expect(reassert).toContain("removeLayer");
     expect(reassert).toContain("addCaps()");
   });

@@ -622,11 +622,11 @@ SABOTAGES: list[Sabotage] = [
     # --- GL context-loss recovery and the DEM cache cap (2026-07-29) ---------------------------------
     Sabotage(
         suite='web',
-        label='cap ordering: put applyCacheCap back BEFORE setTerrain',
+        label='cap ordering: put applyCacheCap back BEFORE attachTerrain',
         path='web/src/components/Globe.astro',
-        needle='      map.setTerrain({ source: TERRAIN_SOURCE, exaggeration: exaggerationFor(map.getZoom()) });\n      applyCacheCap();',
-        replacement='      applyCacheCap();\n      map.setTerrain({ source: TERRAIN_SOURCE, exaggeration: exaggerationFor(map.getZoom()) });',
-        guard='caps the DEM cache AFTER setTerrain, which is what builds the manager it lands on',
+        needle='      attachTerrain(\n        map,\n        terrainDemSource(terrainTileUrlTemplate, terrainArchive, declaredTileSize),\n        exaggerationFor(map.getZoom()),\n      );\n      applyCacheCap();',
+        replacement='      applyCacheCap();\n      attachTerrain(\n        map,\n        terrainDemSource(terrainTileUrlTemplate, terrainArchive, declaredTileSize),\n        exaggerationFor(map.getZoom()),\n      );',
+        guard='caps the DEM cache AFTER attaching the terrain, which is what builds the manager it lands on',
     ),
     Sabotage(
         suite='web',
@@ -678,11 +678,11 @@ SABOTAGES: list[Sabotage] = [
     ),
     Sabotage(
         suite='web',
-        label='polar cap re-add stops clearing the dead layers first',
+        label='polar cap re-add stops dropping the caps already there',
         path='web/src/components/Globe.astro',
         needle='        if (map.getLayer(layerId)) map.removeLayer(layerId);',
         replacement='        void layerId;',
-        guard='re-adds the caps on recovery, from OUTSIDE style.load, because that ordering is too early',
+        guard='re-adds the caps on recovery as well, dropping any already there first',
     ),
     Sabotage(
         suite='web',

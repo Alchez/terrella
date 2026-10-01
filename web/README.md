@@ -62,9 +62,9 @@ until all three exist**. In order:
    ../.venv/bin/python scripts/gen_feature_index.py --out src/lib/featureIndex.json
    ```
 
-Then start the server (add `--host` to reach it from another device on your LAN, e.g. a phone):
+Then start the server. The package script carries `--host`, so a phone on the same LAN can reach it:
 ```sh
-pnpm dev --host
+pnpm dev
 ```
 
 > If you rebuilt the tile pyramid while the server was running, the browser may hold stale tiles
