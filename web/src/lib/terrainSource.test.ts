@@ -624,27 +624,24 @@ describe("canary — MapLibre internals we depend on that the docs do not cover"
 
 describe("source guard — the pipeline is the source of truth for the numbers", () => {
   it("applies the ramp by uniform, never by re-calling setTerrain", () => {
-    // ui/map.ts builds a fresh Terrain and RenderToTexture on every setTerrain call and only
-    // reaches Terrain.destroy() on the REMOVAL path. Calling it from a zoom handler would leak a
-    // framebuffer pair per zoom step and discard the mesh cache; exaggeration is a per-frame
-    // uniform, so the assignment below is the whole mechanism.
+    // ui/map.ts builds a fresh Terrain and RenderToTexture on every setTerrain call, so calling it
+    // from a zoom handler would discard the mesh and drape caches every zoom step; exaggeration is
+    // a per-frame uniform, so the assignment below is the whole mechanism.
     //
-    // The leak is not theoretical — a measurement rig that toggled terrain four times in one page
+    // The cost is not theoretical: a measurement rig that toggled terrain four times in one page
     // watched frame time climb monotonically 0.48 -> 1.92 ms across otherwise identical arms.
     //
     // So the rule is about the ESTABLISHING call, and it is split from the removal call rather
-    // than counted together: exactly one `setTerrain({...})` may exist, while `setTerrain(null)`
-    // is the one form that cleans up after itself and is what the degradation ladder's
-    // `disable-terrain` rung pulls.
+    // than counted together: the page establishes terrain in exactly one `attachTerrain` call,
+    // while `setTerrain(null)` is the one form that cleans up after itself and is what the
+    // degradation ladder's `disable-terrain` rung pulls.
     const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
-    const establishing = globe.match(/map\.setTerrain\(\s*\{/g) ?? [];
+    const establishing = globe.match(/\battachTerrain\(/g) ?? [];
     const removing = globe.match(/map\.setTerrain\(\s*null\s*\)/g) ?? [];
-    expect(establishing, "exactly one setTerrain({...}) — every extra call leaks").toHaveLength(1);
+    expect(establishing, "exactly one attachTerrain(...), since every extra call rebuilds the terrain").toHaveLength(1);
     expect(removing.length, "setTerrain(null) is the only other permitted form").toBeLessThanOrEqual(1);
-    // Nothing may reach setTerrain by a third spelling that neither pattern above would catch.
-    expect(globe.match(/map\.setTerrain\(/g) ?? []).toHaveLength(
-      establishing.length + removing.length,
-    );
+    // Nothing in the page may reach setTerrain except the ladder's removal.
+    expect(globe.match(/\.setTerrain\(/g) ?? []).toHaveLength(removing.length);
     expect(globe).toContain("map.terrain.exaggeration = next");
   });
 

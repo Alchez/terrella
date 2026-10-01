@@ -28,7 +28,6 @@ worker/worker-configuration.d.ts
 
 # jetbrains setting folder
 .idea/
-public/dev-assets/
 public/caps/
 
 # ?perf snapshot exports (dev-only endpoint in astro.config.ts) — captures, not source

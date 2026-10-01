@@ -1,7 +1,7 @@
-import { afterEach, describe, expect, it } from "vitest";
-import type * as maplibregl from "maplibre-gl";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import * as maplibregl from "maplibre-gl";
 import { mountGlobe, type MountedGlobe } from "./testing/mountGlobe";
-import { pointIsOnPlanet, roundTripSaysOnPlanet } from "./pointOnPlanet";
+import { pointIsOnPlanet } from "./pointOnPlanet";
 
 /**
  * The defect this exists for: with the pointer on empty space beside the disc, the globe named a
@@ -47,6 +47,19 @@ async function worldFill(map: maplibregl.Map): Promise<void> {
   await new Promise<void>((resolve) => map.once("idle", () => resolve()));
 }
 
+/** What a round trip may lose to MapLibre's own rounding before the point counts as off the disc. */
+const ROUND_TRIP_SLACK_PX = 1;
+
+/**
+ * The same question asked through the public projection alone, as the oracle: locate the point,
+ * project the location back, and see whether it lands where it was read. Off the disc it does not,
+ * because a ray that misses the sphere resolves to the horizon instead.
+ */
+function roundTripSaysOnPlanet(map: maplibregl.Map, point: maplibregl.Point): boolean {
+  const back = map.project(map.unproject(point));
+  return Math.hypot(back.x - point.x, back.y - point.y) <= ROUND_TRIP_SLACK_PX;
+}
+
 /** Half the disc's width on screen, measured off the transform rather than assumed from the zoom. */
 function discRadiusPx(map: maplibregl.Map): number {
   const centre = map.project([0, 0]);
@@ -78,17 +91,18 @@ describe("a screen point beside the globe is not a point on the globe", () => {
     const map = mounted.map;
 
     expect(pointIsOnPlanet(map, map.project([0, 0]))).toBe(true);
-    expect(pointIsOnPlanet(map, { x: 0, y: 0 })).toBe(false);
+    expect(pointIsOnPlanet(map, new maplibregl.Point(0, 0))).toBe(false);
   });
 
-  it("agrees with a round trip through the public projection, which is the degraded path", async () => {
+  it("agrees with a round trip through the public projection", async () => {
     mounted = await mountGlobe({ zoom: 1 });
     const map = mounted.map;
 
     // Two independent answers to one question: MapLibre's own surface test, and projecting the
     // located ground point back to see whether it lands where it was read. A gate that only ever
     // agreed with itself would be no oracle at all.
-    for (const point of [map.project([0, 0]), map.project([40, 20]), { x: 0, y: 0 }, { x: 799, y: 0 }]) {
+    const corners = [new maplibregl.Point(0, 0), new maplibregl.Point(799, 0)];
+    for (const point of [map.project([0, 0]), map.project([40, 20]), ...corners]) {
       expect(roundTripSaysOnPlanet(map, point), `${point.x},${point.y}`).toBe(
         pointIsOnPlanet(map, point),
       );
@@ -103,7 +117,26 @@ describe("a screen point beside the globe is not a point on the globe", () => {
 
     // Well inside and well outside, leaving the limb itself alone: a pixel either side of the edge
     // is a question about MapLibre's rounding, not about this gate.
-    expect(pointIsOnPlanet(map, { x: centre.x + radius * 0.5, y: centre.y })).toBe(true);
-    expect(pointIsOnPlanet(map, { x: centre.x + radius * 1.5, y: centre.y })).toBe(false);
+    expect(pointIsOnPlanet(map, new maplibregl.Point(centre.x + radius * 0.5, centre.y))).toBe(true);
+    expect(pointIsOnPlanet(map, new maplibregl.Point(centre.x + radius * 1.5, centre.y))).toBe(false);
+  });
+
+  it("answers without the painter's copy of the transform, which MapLibre's main no longer keeps", async () => {
+    mounted = await mountGlobe({ zoom: 1 });
+    const map = mounted.map;
+    const painter = map.painter as unknown as { transform: unknown };
+    expect(painter.transform, "the painter keeps no transform, so this has nothing left to prove").toBeDefined();
+    const unproject = vi.spyOn(map, "unproject");
+
+    // Synchronous from here to the restore, so no frame draws without the painter's copy.
+    const kept = painter.transform;
+    painter.transform = undefined;
+    try {
+      expect(pointIsOnPlanet(map, map.project([0, 0]))).toBe(true);
+      expect(pointIsOnPlanet(map, new maplibregl.Point(0, 0))).toBe(false);
+    } finally {
+      painter.transform = kept;
+    }
+    expect(unproject, "fell back to the path that reads the GPU back").not.toHaveBeenCalled();
   });
 });
