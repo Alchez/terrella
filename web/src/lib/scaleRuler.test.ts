@@ -161,27 +161,11 @@ const rulerBody = () => functionBody(globeSource, "function updateRuler(): void 
 describe("the ruler's measurement never resolves against terrain", () => {
   it("measures through the transform, not through map.unproject", () => {
     const body = locatorBody();
-    expect(body).toContain("screenPointToLocation");
-    // The returned locator must be the transform call itself, not merely a mention of it — the
-    // first draft asserted only that `unproject` appeared after the symbol check, and the degraded
-    // path satisfies that no matter what the primary branch does. Counting is what closes it.
-    expect(body).toContain("locate.call(transform,");
-    // IT IS `map.painter.transform`. `map.transform` reads plausibly, type-checks against a cast,
-    // and is UNDEFINED at runtime — the first version of this fix reached for it, silently took the
-    // degraded branch, and measured as no fix at all. Pinned so that costs a red test, not a rerun.
-    expect(body).toContain("map.painter");
-    expect(body).not.toMatch(/\bmap\.transform\b/);
-    // AND THE READ MUST BE INSIDE THIS FUNCTION, i.e. per call. MapLibre replaces
-    // `painter.transform` after our script runs, so a hoisted reference answers from a frozen
-    // camera: the label sat at its startup reading at every zoom, silently, with the readback
-    // correctly gone. Because this body is the per-call function, `map.painter` appearing in it IS
-    // the assertion that the lookup was not hoisted out.
-    expect(globeSource).not.toContain("const locateOnDatum =");
-    const unprojects = body.match(/unproject/g) ?? [];
-    expect(unprojects, "the only unproject allowed here is the degraded path").toHaveLength(1);
-    const check = body.indexOf('typeof transform?.screenPointToLocation !== "function"');
-    expect(check, "the fallback is no longer guarded by a symbol check").toBeGreaterThan(-1);
-    expect(body.indexOf("unproject")).toBeGreaterThan(check);
+    // Looked up and called in one expression inside the per-call function. MapLibre replaces the
+    // camera's transform when the style sets the projection, so a reference held from earlier keeps
+    // answering from that camera and the reading never moves.
+    expect(body).toContain("map._camera.transform.screenPointToLocation(");
+    expect(body).not.toContain("unproject");
   });
 
   it("names no terrain, which is the only way to make that call read back the GPU", () => {
@@ -237,17 +221,6 @@ describe("the ruler's measurement never resolves against terrain", () => {
       }
     }
     expect(checked, "no call site found at all").toBeGreaterThan(1);
-  });
-
-  it("canary — MapLibre still exposes the terrain-free conversion we reach for", () => {
-    // The shipped bundle, where property names survive minification. `transform` is untyped on
-    // `Map`, so a rename upstream would otherwise surface as a silent fallback to the slow path.
-    const bundle = readFileSync(
-      new URL("../../node_modules/maplibre-gl/dist/maplibre-gl.mjs", import.meta.url),
-      "utf8",
-    );
-    expect(bundle).toContain("screenPointToLocation");
-    expect(bundle).toMatch(/screenPointToLocation\(\w+(,\s*\w+)?\)\{/);
   });
 });
 

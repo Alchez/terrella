@@ -1,12 +1,10 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import globeSource from "../components/Globe.astro?raw";
 import { functionBody } from "./testing/sourceScan";
 
 /**
  * The gate itself is exercised against a real globe in the browser project; what these can see and
- * that cannot is whether the page's two pickers ASK, and whether the symbol the gate reaches for is
- * still in MapLibre.
+ * that cannot is whether the page's two pickers ask.
  */
 describe("the globe's pickers ask whether the pointer is on the planet", () => {
   const pickers = [
@@ -34,15 +32,5 @@ describe("the globe's pickers ask whether the pointer is on the planet", () => {
       ([, signature]) => functionBody(globeSource, signature).match(/map\.queryRenderedFeatures\(/g) ?? [],
     );
     expect(queries.length).toBe(inside.length);
-  });
-
-  it("canary — MapLibre still exposes the surface test the gate reaches for", () => {
-    // The shipped bundle, where property names survive minification, because `transform` is untyped
-    // on `Map`: a rename upstream would otherwise surface as a silent fall back to the slow path.
-    const bundle = readFileSync(
-      new URL("../../node_modules/maplibre-gl/dist/maplibre-gl.mjs", import.meta.url),
-      "utf8",
-    );
-    expect(bundle).toMatch(/isPointOnMapSurface\(\w+(,\s*\w+)?\)\{/);
   });
 });

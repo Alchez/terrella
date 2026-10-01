@@ -2320,18 +2320,14 @@ SABOTAGES: list[Sabotage] = [
     ),
 
     # --- the scale ruler's terrain readback ---------------------------------------------------------
-    # These mutations are INVISIBLE to every other signal: the page renders identically, the ruler
+    # These mutations are invisible to every other signal: the page renders identically, the ruler
     # shows the same label, nothing throws, and no other test's output changes. They only cost two
-    # synchronous GPU readbacks on every frame of every drag, measured at 9.8% of the main thread.
-    # A guard nobody can mutate-test is a guard nobody should trust, which is why all three are here.
-    # The FIRST version of this case passed vacuously and the table is why it was found: the guard
-    # asserted only that `unproject` appeared after the symbol check, which the degraded path
-    # satisfies whatever the primary branch does. The guard now counts them.
+    # synchronous GPU readbacks on every frame of every drag.
     Sabotage(
         suite='web',
         label='the ruler goes back to map.unproject, paying a GPU readback twice per frame',
         path='web/src/components/Globe.astro',
-        needle='    return locate.call(transform, new maplibregl.Point(x, y));',
+        needle='    return map._camera.transform.screenPointToLocation(new maplibregl.Point(x, y));',
         replacement='    return map.unproject([x, y]);',
         guard='measures through the transform, not through map.unproject',
     ),
@@ -2339,8 +2335,8 @@ SABOTAGES: list[Sabotage] = [
         suite='web',
         label='terrain is handed to screenPointToLocation, which is the expensive overload',
         path='web/src/components/Globe.astro',
-        needle='locate.call(transform, new maplibregl.Point(x, y))',
-        replacement='locate.call(transform, new maplibregl.Point(x, y), map.terrain)',
+        needle='screenPointToLocation(new maplibregl.Point(x, y))',
+        replacement='screenPointToLocation(new maplibregl.Point(x, y), map.terrain)',
         guard='names no terrain, which is the only way to make that call read back the GPU',
     ),
     # The guard reads functions BY NAME out of the page source, so a rename is how it could go
@@ -2362,17 +2358,27 @@ SABOTAGES: list[Sabotage] = [
         replacement='  function pickLocator([x, y]: [number, number]): maplibregl.LngLat {',
         guard='measures through the transform, not through map.unproject',
     ),
-    # THE ONE THAT ACTUALLY SHIPPED. Hoisting the transform lookup out of the per-call function
-    # freezes the ruler at whatever camera existed when the script ran, because MapLibre replaces
-    # `painter.transform` afterwards. It throws nothing, the readback stays correctly gone, and the
-    # number it prints is plausible — it simply never changes again. Nothing but the label catches it.
+    # A transform held from outside the per-call function freezes the ruler at the camera it was
+    # taken from, because MapLibre replaces the camera's transform when the style sets the
+    # projection. It throws nothing, the readback stays gone, and the number it prints is plausible;
+    # it simply never changes again. Nothing but the label catches it.
     Sabotage(
         suite='web',
         label='the transform lookup is hoisted out of the per-call path, freezing the reading',
         path='web/src/components/Globe.astro',
-        needle='    const transform = (map.painter as unknown as { transform?: Record<string, unknown> } | undefined)\n      ?.transform;',
-        replacement='    const transform = hoistedTransform;',
+        needle='map._camera.transform.screenPointToLocation(',
+        replacement='hoistedTransform.screenPointToLocation(',
         guard='measures through the transform, not through map.unproject',
+    ),
+    # Typed and compiling while MapLibre still keeps the painter's copy, so only a test that takes
+    # that copy away first can tell the two reads apart.
+    Sabotage(
+        suite='web',
+        label="the space check reads the painter's transform, which MapLibre's main has removed",
+        path='web/src/lib/pointOnPlanet.ts',
+        needle='  return map._camera.transform.isPointOnMapSurface(point);',
+        replacement='  return map.painter.transform.isPointOnMapSurface(point);',
+        guard="answers without the painter's copy of the transform, which MapLibre's main no longer keeps",
     ),
     # --- Gallery deferral -------------------------------------------------------------------
     # Every one of these leaves a page that renders correctly on a fast link. They cost bytes, or
@@ -2722,8 +2728,8 @@ SABOTAGES: list[Sabotage] = [
         guard='carries the globe projection the page ships, not the default mercator',
     ),
     # --- The ruler's reading, against a real transform ---------------------------------------------
-    # The source guards beside these pin the MECHANISM (per-call transform lookup, one unproject, no
-    # terrain). These pin the OUTCOME, which no source assertion can reach: a reading that is true
+    # The source guards beside these pin the mechanism (per-call transform lookup, no unproject, no
+    # terrain). These pin the outcome, which no source assertion can reach: a reading that is true
     # and that moves. Every mutation below leaves a ruler that renders a plausible number.
     Sabotage(
         suite='web',
