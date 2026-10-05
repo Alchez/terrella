@@ -14,7 +14,7 @@ picking the wrong one is expensive in a direction that reads as thoroughness. As
 
 | Vocabulary | What belongs in it | What it costs to add |
 | --- | --- | --- |
-| `planet_seam.PLANET_RASTERS` | The fused planet's OWN outputs: heightfield, oceanmask, watermask | Every body must answer for it, and **eight modules call `planet_seam.declared`** |
+| `planet_seam.PLANET_RASTERS` | The fused planet's OWN outputs: heightfield, oceanmask, watermask | Every body must answer for it, and **every caller of `planet_seam.declared` reads it** |
 | `layers.LAYERS` | A third-party dataset warped or burned onto the grid (RGI glaciers, OSI SAF sea ice, GLOBathy depth) | One row, plus a producer per body that has it |
 | Neither, a pure rule | Arithmetic with no dataset behind it, like the forced Antarctic white | Nothing; it rides a layer's DECLARATION |
 
@@ -22,7 +22,7 @@ picking the wrong one is expensive in a direction that reads as thoroughness. As
 `planet_seam.rasters_on` and `layers.layers_on` are the same guarantee at two tiers: each records what
 a body has, so switching one off moves the recipe, which mtimes structurally cannot see, and a new
 entry moves only the bodies that have it. Reaching for `PLANET_RASTERS` *because* you want an input
-tracked is the mistake: `layers_on` tracks it too, for one row instead of eight readers and both
+tracked is the mistake: `layers_on` tracks it too, for one row instead of every seam reader and both
 bodies.
 
 **A new layer that paints names its rig image on its row (`Layer.image`)**, which is what brings that

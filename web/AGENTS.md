@@ -5,7 +5,7 @@ Only the things the codebase does not tell you on its own.
 ## What `pnpm install` leaves undone
 
 - **It fetches no browser.** The `playwright` package ships no install script, so the vitest `browser` project cannot launch until you run `pnpm exec playwright install --only-shell chromium`. Skip it and `pnpm test` passes fewer files than it collected, beside an unhandled launch error that reads like a flake rather than a missing binary. `--only-shell` is coupled to `headless: true` in `vitest.config.ts`; CI runs the same command.
-- **Three files a fresh checkout has none of**, because they are generated or machine-specific → [README.md](README.md) § First-run setup. Until all three exist every route 500s with `FailedToLoadModuleSSR`, which names none of them.
+- **Three files a fresh checkout has none of**, because they are generated or machine-specific → [README.md](README.md) § Running the dev server (fresh checkout / worktree). Until all three exist every route 500s with `FailedToLoadModuleSSR`, which names none of them.
 
 ## The dev server
 

@@ -58,13 +58,12 @@ Asked to pass "the changes", the population is what the diff adds, not a module 
 - **Word-count a doc line from the diff itself.** A dump that truncates lines for display undercounts exactly the long ones the count exists to find.
 - **Re-flow any block you edit to the width the rest of its file uses.** An edit inside an early-wrapped docstring inherits its early wrap, and the file ends up carrying two widths.
 
-## What the pass has not reached yet
+## Choosing a target
 
-Pick the target from `prose_report`, never from this list, which says only where nobody has been. What is left is dense rather than repetitive, so the honest yield on a well-worked module is a refusal rather than a line count. **Verify each sentence against the code**: every batch so far has found a claim that was false, and grepping the vocabulary instead of reading the claim is what misses them.
+Pick the target from `prose_report`. On a well-worked module the honest yield is a refusal rather than a line count. **Verify each sentence against the code**: grepping the vocabulary instead of reading the claim is what misses a false one.
 
-- **`tests/` and `scripts/` have never been passed**, and they are the bulk of what remains.
 - **TypeScript is not read by the instrument at all.** `prose_report`'s `web/` sweep covers that tree's Python only, so the whole frontend is unmeasured rather than clean.
-- **Three rules whose files the pass has not met**: `tile-worker-and-delivery`, `browser-map-tests`, `mars-brief-is-untracked`. Step 2 above is the one that matters on these, since a rule and the file it loads on are the likeliest pair to hold one concept twice.
+- **A rule and the file it loads on are the likeliest pair to hold one concept twice**, so step 2 above matters most on a file some `.claude/rules/` frontmatter lists.
 
 ## Where prose hides that is not a docstring
 

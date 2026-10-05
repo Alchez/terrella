@@ -113,6 +113,8 @@ MUTABLE_ROOTS = (
     # carries an exemption list, and a skip-list nobody can mutate is a skip-list nobody can prove
     # is still doing anything — which is the failure mode it exists to prevent.
     "tests/test_hero_variants.py",
+    # A single file whose `@AGENTS.md` import is the only route by which a session reads `web/AGENTS.md`.
+    "web/CLAUDE.md",
     # The bulk-edit guard, which is a PARSER and therefore both guard and subject. Its checks read
     # every tracked text file, so it is the one place where a wrong answer is spread across the whole
     # repo and blamed on whichever file happens to expose it — the reason it earns mutation coverage
@@ -11403,6 +11405,22 @@ def _earth_lake_depth''',
         needle='    if layers.SALT_FLATS.name in runs:\n        law["white_to_salt"] = [layers.SALT_FLATS.name]',
         replacement='    law["white_to_salt"] = [name for name in (layers.SALT_FLATS.name,) if name in runs]',
         guard='test_the_white_law_names_salt_where_a_stage_reads_it_and_nowhere_else',
+    ),
+    Sabotage(
+        suite='python',
+        label='web/AGENTS.md is named in a code span, which Claude Code does not expand, so no session reads it',
+        path='web/CLAUDE.md',
+        needle='@AGENTS.md',
+        replacement='`@AGENTS.md`',
+        guard='test_every_agents_md_is_imported_by_the_claude_md_beside_it',
+    ),
+    Sabotage(
+        suite='python',
+        label='a new AGENTS.md lands beside no CLAUDE.md, unstaged, so no session reads it',
+        path='web/src/AGENTS.md',
+        needle='',
+        replacement='# Working in `web/src/`\n',
+        guard='test_every_agents_md_is_imported_by_the_claude_md_beside_it',
     ),
 ]
 

@@ -93,8 +93,8 @@ CODE_PATH = re.compile(
     r"(?<![\w/.-])([A-Za-z0-9_][A-Za-z0-9_./-]*\.(?:py|ts|tsx|astro|sh|mjs))(?![\w-])"
 )
 
-#: What a doc says when it names a gone module ON PURPOSE. Taken from the sites already doing it:
-#: CLAUDE.md's producer-seam note and the prose-pass skill.
+#: What a doc says when it names a gone module on purpose. Taken from the site already doing it, the
+#: prose-pass skill.
 DELETION_MARKER = re.compile(r"deleted|superseded|orphan", re.IGNORECASE)
 
 #: `FUTURE.md` names modules nobody has written yet and tooling outside the checkout, both by

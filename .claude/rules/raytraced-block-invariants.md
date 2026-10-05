@@ -50,24 +50,13 @@ whole. So:
   - **Never assume a re-render is already owed.** Diff the on-disk sidecar against `params()` first.
     Equal means the next look change buys a whole pass on its own, so batch look changes rather than
     landing them one at a time.
-  - **The inline values are IN the structure now, so editing one restages like any other field.**
-    28 sites moved into `Rig`; the tripwire that pinned them by value is retired. What stays inline
-    is what a recipe should not carry: a Cycles sun lamp's position, which is a direction and not a
-    location, and the `use_nodes` and `data_type` settings that decide what a node factory builds
-    rather than how it looks. `TestTheBuilderSpellsNoLookValueWhereTheRecipeCannotSeeIt` holds that
-    line in both directions, and a field nothing reads is caught by
-    `test_every_rig_field_is_actually_read_by_the_builder`, since a recorded value the builder never
-    applies restages every block and moves no pixel.
-  - It used to be a hand-written list policed by a scan for this module's ALL-CAPS names, and that
-    scan was blind by construction to a value spelled inline in a function body. Three such values
-    shipped. **Do not re-add the scan**: it is the mechanism the derivation replaced.
+  - **The look's values live in `Rig`, so editing one restages like any other field.** What stays inline is what a recipe should not carry: a Cycles sun lamp's position, which is a direction and not a location, and the `use_nodes` and `data_type` settings that decide what a node factory builds rather than how it looks. `TestTheBuilderSpellsNoLookValueWhereTheRecipeCannotSeeIt` holds that line in both directions, and a field nothing reads is caught by `test_every_rig_field_is_actually_read_by_the_builder`, since a recorded value the builder never applies restages every block and moves no pixel.
+  - **Do not replace the derivation with a hand-written list policed by a scan for this module's all-caps names.** Such a scan is blind by construction to a value spelled inline in a function body, which is how a look value ships unrecorded.
   - **Field names ARE recipe keys**, so renaming one restages every rendered block.
 - **The stage directory is the RUNNER'S and is threaded, never re-derived.** `run` takes `work`,
   `render_block` carries it and `prep_block.cut` reads from it; `relief_scan.work_dir` is the one
   owner of the name, and `tests/test_paths.py` refuses a second spelling of any stage.
-  - The prep used to resolve the body's default itself, so `--work` moved every check a run made
-    and none of the pixels it cut: inputs validated in one store, blocks planned from its relief
-    scan, freshness stamped against it, and the default planet rendered into the mosaic and marked.
+  - **A reader that resolves the body's default itself instead of taking `work` splits a run**: `--work` then moves every check and none of the pixels, with inputs validated in one store, blocks planned from its relief scan and freshness stamped against it, while the default planet renders into the mosaic and is marked.
   - **A redirect that reaches only some readers has no symptom**, because both directories hold a
     complete openable planet. Adding a raster read here means threading `work` to it.
 - **Every image node is built by `make_texture` from a `TextureSpec`**, and that is the only place
@@ -80,21 +69,8 @@ whole. So:
     whose wiring would otherwise reach pixels with no recipe watching.
   - So which textures a directory loads is free to change within what its stage can load, and
     `textures_for` is a filter over that, so its rule is invisible to the recipe.
-  - **NO NODE NAME REACHES THE RECIPE, so renaming one is free on every tier.** The table is keyed
-    into the recipe by `filename` and the `name` field is excluded, because a rename moves nothing
-    visible; it used to ride in whole and put a planet re-render behind a change that moved nothing
-    anyone could see. A rename is not byte-identical, though: node names or creation order moved
-    two pixels of a cap frame by up to 3 DN, so a render compared across one differs by that much.
-    → HISTORY, *the south cap's two pixels are the builder's node names or order*. The exclusion is
-    one NAMED field, so a field added to `TextureSpec` later is still recorded. `TestNoNodeCarriesBlendersAutoName` keeps names off Blender's `.00N`, and
-    `TestRenamingANodeDoesNotRestageThePlanet` holds both directions of the exclusion.
-  - **NOTHING COMPARES THE BUILT GRAPH AGAINST A HAND-BUILT BASELINE ANY MORE**, so creation order
-    and node names answer only to the reader and to the arm probes that reach into the built graph.
-    The hand-built origin scene is out of version control and lives in history alone
-    (`git show 3e35eb6:blender/india_hero_handbuilt_phase0.blend`): it diverges on the view
-    transform, the world colour and the fill sun, and a single file cannot track a graph whose
-    shape depends on what the prep declared. What survives is `scene_dump`'s other use, diffing
-    two dumps across a change, which needs no baseline at all.
+  - **No node name reaches the recipe, so renaming one is free on every tier.** The table is keyed into the recipe by `filename` and the `name` field is excluded, because a rename moves nothing visible and recording it would put a planet re-render behind a change nobody could see. A rename is not byte-identical, though: node names or creation order moved two pixels of a cap frame by up to 3 DN, so a render compared across one differs by that much. → HISTORY, *the south cap's two pixels are the builder's node names or order*. The exclusion is one named field, so a field added to `TextureSpec` later is still recorded. `TestNoNodeCarriesBlendersAutoName` keeps names off Blender's `.00N`, and `TestRenamingANodeDoesNotRestageThePlanet` holds both directions of the exclusion.
+  - **Nothing compares the built graph against a hand-built baseline**, so creation order and node names answer only to the reader and to the arm probes that reach into the built graph. The hand-built origin scene (`git show 3e35eb6:blender/india_hero_handbuilt_phase0.blend`) differs from the rig on the view transform, the world colour and the fill sun, and a single file cannot track a graph whose shape depends on what the prep declared, so it is not a baseline to restore. `scene_dump` diffs two dumps across a change, which needs no baseline at all.
 - **The fold's law is a third entry, through `layer_producers.white_law`.** Which of `WHITE_UNION`
   and `WHITE_EXCLUSIONS` a layer sits in decides whether its raster adds white or removes it, and
   whether salt takes a share of the finished white, and no producer's recipe can carry that:
@@ -111,14 +87,13 @@ context is **silently invisible to freshness**. Put it in the structure.
 ## A per-block parameter that differs across a shared edge does NOT become a seam
 
 `context_px` is chosen per block from that block's own haloed relief, so two adjacent blocks can get
-different contexts and hence different `SPAN_PX`. That much is true. **Everything that used to be
-written here about what it costs was wrong, and both halves failed for different reasons.**
+different contexts and hence different `SPAN_PX`. Neither difference becomes a seam.
 
-- **"Hence a different fitted base grid" is false.** `base_patches` is `ceil(span / 2**12)` and
+- **The fitted base grid does not differ.** `base_patches` is `ceil(span / 2**12)` and
   takes the single value **2** across every one of Earth's 1,024 blocks, so it cannot discriminate
   between any pair of neighbours. Guarded by
   `test_the_base_grid_cannot_discriminate_between_neighbouring_blocks`.
-- **"Widening the quantum is the lever" is REJECTED, twice, on two different pairs.** On the
+- **Widening the quantum is not the lever, refused on two different pairs.** On the
   worst-disagreeing pair on Earth the join sits inside the distribution of the same terrain's own
   adjacent-column steps, and matching the rims recovers a small fraction of one DN. An earlier arm
   that forced every context equal found the same, marginally worse rather than better.

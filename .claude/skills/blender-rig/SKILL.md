@@ -20,9 +20,9 @@ Local Blender is **5.1.2**, tarball at `~/software/blender-5.1.2-linux-x64/blend
 **`Body.baked_exaggeration` is NOT what the globe displaces at, and a frame rendered at it is not a picture of the globe.** The browser ramps terrain exaggeration down with zoom in `web/src/lib/terrainSource.ts`: `rampedExaggeration` holds the baked value to `TERRAIN_RAMP_START_ZOOM` and decays it geometrically to `DEFAULT_TERRAIN_RAMP_FLOOR` at `TERRAIN_RAMP_END_ZOOM`. Read those three constants and compute rather than quoting a remembered figure.
 
 - **Heroes and the baked tile shading DO use the flat baked value**, since a hero is one image and `cut_tiles` downsamples one mosaic to every zoom. So the mismatch is real and one-sided: at depth the shading is lit as if the baked exaggeration while the mesh is displaced at a fraction of it.
-- **The ramp exists to remove needles and its own derivation says so**, naming the zoom where an earlier floor let them back in. Proposing a needle fix without reading it re-opens a solved problem: that has now happened twice, and the archive's entry about labelling a flat baked value "ratified" was written the first time.
+- **The ramp exists to remove needles and its own derivation says so**, naming the zoom where an earlier floor let them back in. Proposing a needle fix without reading it re-opens a solved problem.
 
-**TWO THINGS BITE ON EVERY VERSION CHANGE, AND NEITHER RAISES.**
+**Two things bite on every version change, and neither raises.**
 
 - **A Blender default the rig does not pin becomes a look change.** `cycles.sampling_pattern` defaults `TABULATED_SOBOL` on 5.1 and `AUTOMATIC` on 5.2, and unpinned it moved a block by 1.0973 DN against a 0.0363 DN floor and cost 9% more time. It is pinned in `Rig` now, and `test_every_rig_field_is_actually_read_by_the_builder` covers the field being applied. When a version moves, diff the built scene's state, not the property list: a property present in both can still arrive with a different value.
 - **A new version has no preferences directory, so the GPU silently is not used.** Preferences live per version in `~/.config/blender/<version>/`. `select_compute_device` now derives the backend per run and raises rather than falling back, because the CPU render is correct and ~7x slower and no gate can see it. To drive a version interactively without touching the real config, point `BLENDER_USER_RESOURCES` at a scratch dir.
@@ -30,7 +30,7 @@ Local Blender is **5.1.2**, tarball at `~/software/blender-5.1.2-linux-x64/blend
 ## GUI sessions
 
 - Assume no prior Blender experience. Give exact click paths, introduce UI vocabulary as it is used, and verify state with screenshots rather than assuming it.
-- Claude's Blender UI knowledge is 4.x-era while this box runs 5.1.2. Give 5.1.2 paths, and where uncertain say so and point at node search rather than guessing a menu location.
+- Give 5.1.2 click paths. Where unsure of a menu location in this version, say so and point at node search rather than guessing.
 - Render headless (`blender -b`). The GUI OOMs at 8K.
 
 ## Shader gotchas, all proven in 5.1.2
